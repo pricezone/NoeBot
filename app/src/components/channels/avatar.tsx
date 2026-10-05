@@ -1,13 +1,13 @@
-import Avatar from "boring-avatars";
 import { memo } from "react";
+import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { cn } from "@/lib/utils";
 
 /**
  * Memoized roster avatar. Row updates usually change preview/timestamp only, and
  * `use-channel-events` preserves participant id arrays for unchanged rows.
  *
- * `size-full` opts the generated SVG out of ancestor icon selectors such as
- * `[&_svg:not([class*='size-'])]:size-4`.
+ * Each participant is drawn as Noë Bot's terminal face on a brand background, picked from the
+ * participant's id, so the same Bot has the same face in every row.
  *
  * `typing` overlays a working indicator at the bottom-right — three bouncing dots, so a channel
  * whose agent is mid-turn reads as busy from the roster without moving the row's layout.
@@ -25,7 +25,7 @@ export const ChannelAvatar = memo(function ChannelAvatar({
 
   const avatar =
     channelSize === 1 ? (
-      <Avatar className="size-full" name={participantIds[0]} size={size} />
+      <NoeBotAvatar seed={participantIds[0] ?? ""} size={size} />
     ) : (
       <div className="flex flex-row items-center size-full">
         {participantIds.slice(0, 3).map((c, i, shown) => (
@@ -38,11 +38,7 @@ export const ChannelAvatar = memo(function ChannelAvatar({
               transform: `translateX(${i * -75}%)`,
             }}
           >
-            <Avatar
-              className="size-full"
-              name={c}
-              size={size / (shown.length / 2)}
-            />
+            <NoeBotAvatar seed={c} size={size / (shown.length / 2)} />
           </div>
         ))}
       </div>

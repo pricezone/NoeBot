@@ -6,7 +6,6 @@ import {
   IconDeviceMobile,
   IconLogout,
   IconPlus,
-  IconRobot,
   IconSearch,
   IconSettings,
   IconShieldLock,
@@ -63,6 +62,7 @@ import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { relativeTime } from "@/lib/relative-time";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { ChannelAvatar } from "@/components/channels/avatar";
+import { NoeBotIcon } from "@/components/noe-bot/noe-bot-face";
 import {
   type MessageListEmphasis,
   useMessageListEmphasis,
@@ -390,7 +390,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               )}
             >
               <div className="size-[28px] flex items-center justify-center">
-                <IconRobot />
+                <NoeBotIcon className="size-[22px]" />
               </div>
               <span className="text-sm">Bots</span>
             </SidebarMenuButton>

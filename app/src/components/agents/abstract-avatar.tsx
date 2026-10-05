@@ -1,5 +1,11 @@
-import Avatar from "boring-avatars";
+import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 
+/**
+ * A coworker's avatar, announced once, by name.
+ *
+ * Kept under its old name so the places that draw a coworker did not change; what it draws is now
+ * Noë Bot's terminal face from the brand guide rather than an abstract generated pattern.
+ */
 export function AbstractAvatar({
   name,
   seed,
@@ -9,17 +15,5 @@ export function AbstractAvatar({
   seed: string;
   size?: number;
 }) {
-  return (
-    <span
-      role="img"
-      aria-label={name}
-      className="inline-flex shrink-0 overflow-hidden rounded-full"
-      style={{ height: size, width: size }}
-    >
-      {/* The drawing carries its own role; hidden so the coworker is announced once, by name. */}
-      <span aria-hidden="true" className="contents">
-        <Avatar name={seed} size={size} />
-      </span>
-    </span>
-  );
+  return <NoeBotAvatar seed={seed} name={name} size={size} />;
 }
