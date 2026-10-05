@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
+  localRedirect,
   type SignInHandoffClaims,
   verifySignInHandoffToken,
 } from "../src/auth/signin-handoff";
@@ -74,5 +75,32 @@ describe("verifySignInHandoffToken", () => {
     expect(
       verifySignInHandoffToken(mint({ iid: "other" }), secret, { now }),
     ).not.toBeNull();
+  });
+});
+
+describe("localRedirect", () => {
+  const base = new URL("https://abcdefghijkl.fly.dev/api/auth");
+
+  test("keeps a path on this deployment, with its query and hash", () => {
+    expect(localRedirect("/admin/audit?tab=1#top", base)).toBe(
+      "/admin/audit?tab=1#top",
+    );
+    expect(localRedirect("/", base)).toBe("/");
+  });
+
+  test("sends anything that could leave this origin to the root", () => {
+    for (const value of [
+      undefined,
+      "",
+      "bots",
+      "//evil.example",
+      "/\\evil.example",
+      "/\\/evil.example",
+      "https://evil.example/",
+      "/bots\u0000",
+      "/bots\r\nLocation: https://evil.example",
+    ]) {
+      expect(localRedirect(value, base)).toBe("/");
+    }
   });
 });

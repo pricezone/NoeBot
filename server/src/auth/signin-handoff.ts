@@ -86,9 +86,27 @@ export function verifySignInHandoffToken(
   return claims;
 }
 
-/** A path on this deployment: one leading slash, so it can never name another origin. */
-function isLocalPath(value: string | undefined): value is string {
-  return typeof value === "string" && /^\/(?!\/)/.test(value);
+/**
+ * Where to land after signing in: a page on this deployment, or its root.
+ *
+ * Checked on the resolved URL, not the raw string. `/` followed by a backslash or a control
+ * character looks like a path and is not one: browsers read `/\evil.example` as `//evil.example`,
+ * so a prefix test alone would send a signed-in person to somebody else's site. Anything that does
+ * not resolve to this origin goes to the root instead.
+ */
+export function localRedirect(value: string | undefined, base: URL): string {
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    /[\\\u0000-\u001f\u007f]/.test(value)
+  ) {
+    return "/";
+  }
+  const target = new URL(value, base);
+  return target.origin === base.origin
+    ? `${target.pathname}${target.search}${target.hash}`
+    : "/";
 }
 
 export type SignInHandoffOptions = {
@@ -171,10 +189,10 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
           );
           await setSessionCookie(ctx, { session, user });
 
-          const redirect = isLocalPath(ctx.query.redirect)
-            ? ctx.query.redirect
-            : "/";
-          throw ctx.redirect(new URL(redirect, ctx.context.baseURL).toString());
+          const base = new URL(ctx.context.baseURL);
+          throw ctx.redirect(
+            new URL(localRedirect(ctx.query.redirect, base), base).toString(),
+          );
         },
       ),
     },
