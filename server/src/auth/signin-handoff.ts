@@ -94,12 +94,21 @@ export function verifySignInHandoffToken(
  * so a prefix test alone would send a signed-in person to somebody else's site. Anything that does
  * not resolve to this origin goes to the root instead.
  */
+/** A backslash, or a character below space (or DEL): none of them belongs in a path. */
+function hasUnsafeCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (character === "\\" || code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
 export function localRedirect(value: string | undefined, base: URL): string {
   if (
     typeof value !== "string" ||
     !value.startsWith("/") ||
     value.startsWith("//") ||
-    /[\\\u0000-\u001f\u007f]/.test(value)
+    hasUnsafeCharacter(value)
   ) {
     return "/";
   }
