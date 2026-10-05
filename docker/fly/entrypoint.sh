@@ -15,6 +15,10 @@
 # Run as root, like `/init`: the service scripts drop to postgres, pwuser and apiuser themselves.
 set -eu
 
+# s6-overlay's tools (s6-setuidgid, with-contenv, ...) live under /command, which /init adds to PATH
+# and which Fly's init does not. The service scripts call them by bare name.
+export PATH="/command:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
+
 DATA_DIR="${OPENBOT_DATA_DIR:-/data}"
 S6_SCRIPTS=/etc/s6-overlay/scripts
 S6_SERVICES=/etc/s6-overlay/s6-rc.d
