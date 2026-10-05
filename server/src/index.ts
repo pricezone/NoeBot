@@ -3099,6 +3099,14 @@ const asChannelSocket = (ws: { data: SocketData }) =>
 
 serve<SocketData>({
   port,
+  /*
+   * Bun closes a connection that has been silent for 10 seconds unless told otherwise. A screenshot
+   * or a navigation waits on the Bot's computer for up to 45 seconds, and a page that is slow to
+   * load went silent for longer than the default: the proxy in front of this process answered the
+   * browser with a bare 502 and the Computer panel showed "the screen is not available". The
+   * per-route `server.timeout` calls below extend specific requests further still.
+   */
+  idleTimeout: 120,
   async fetch(request, server) {
     const url = new URL(request.url);
     if (url.pathname === "/api/audio/transcriptions") {

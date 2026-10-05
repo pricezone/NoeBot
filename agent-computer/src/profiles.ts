@@ -100,7 +100,49 @@ const LOCAL_CHROME = BROWSER_RUNTIME.backend === "local-chrome";
 // Native Chrome has no container boundary. Always retain its own process sandbox and OS keychain.
 const SANDBOX_ENABLED = LOCAL_CHROME || process.env.COMPUTER_SANDBOX === "on";
 
-const LAUNCH_ARGS = [
+/**
+ * The Chromium features Playwright 1.62.1 switches off on every launch (`chromiumSwitches.ts` in
+ * playwright-core, bundled and not importable). Repeated here because Chromium honours only the
+ * LAST `--disable-features` switch on its command line: adding one of our own would otherwise throw
+ * Playwright's away. Pinned to the `playwright` version in package.json; re-check on upgrade.
+ */
+export const PLAYWRIGHT_DISABLED_FEATURES = [
+  "AvoidUnnecessaryBeforeUnloadCheckSync",
+  "BoundaryEventDispatchTracksNodeRemoval",
+  "DestroyProfileOnBrowserClose",
+  "DialMediaRouteProvider",
+  "GlobalMediaControls",
+  "HttpsUpgrades",
+  "LensOverlay",
+  "MediaRouter",
+  "PaintHolding",
+  "ThirdPartyStoragePartitioning",
+  "BlockOriginHeaderModificationOnRedirect",
+  "Translate",
+  "AutoDeElevate",
+  "OptimizationHints",
+  "msForceBrowserSignIn",
+  "msEdgeUpdateLaunchServicesPreferredVersion",
+] as const;
+
+/**
+ * Playwright's list plus the two Client-Hints restarts.
+ *
+ * With proxy credentials (the egress filter's, which name the Bot) Playwright intercepts every
+ * request to answer the proxy's challenge. Chromium restarts a navigation to add Client Hints when a
+ * server asks for them: in the TLS handshake (an ALPS ACCEPT_CH frame, which Google and YouTube
+ * send) or with a Critical-CH response header. The restarted request is paused under the same
+ * network id, Playwright never continues it, and the page hangs until the navigation timeout —
+ * every screenshot of that page hangs with it. Measured on a Fly machine: google.com never loaded;
+ * with these two features off it loads in about a second. Client Hints carry nothing a Bot needs.
+ */
+export const DISABLED_FEATURES = [
+  ...PLAYWRIGHT_DISABLED_FEATURES,
+  "AcceptCHFrame",
+  "CriticalClientHint",
+] as const;
+
+export const LAUNCH_ARGS = [
   ...(SANDBOX_ENABLED ? [] : ["--no-sandbox"]),
   "--disable-dev-shm-usage",
   ...(LOCAL_CHROME ? [] : ["--password-store=basic"]),
@@ -111,6 +153,7 @@ const LAUNCH_ARGS = [
   // may do; the governed path is unchanged. Full Chromium is selected explicitly in both modes;
   // headed mode also provides a window a person can use on the native desktop or virtual display.
   "--disable-blink-features=AutomationControlled",
+  `--disable-features=${DISABLED_FEATURES.join(",")}`,
 ];
 
 /**
