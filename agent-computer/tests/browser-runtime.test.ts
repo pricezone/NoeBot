@@ -10,6 +10,7 @@ describe("the configured browser runtime", () => {
         channel: "chromium",
         mode: "headless",
         useVirtualDisplay: false,
+        desktop: false,
         allowExec: true,
       });
     },
@@ -38,6 +39,7 @@ describe("the configured browser runtime", () => {
         channel: "chrome",
         mode: "headed",
         useVirtualDisplay: platform === "linux",
+        desktop: false,
         hostname: "127.0.0.1",
         allowExec: false,
       });
@@ -57,5 +59,40 @@ describe("the configured browser runtime", () => {
         COMPUTER_BROWSER_MODE: "headless",
       }),
     ).toThrow("headed");
+  });
+
+  test("a desktop is headed on a virtual display, and only on Linux", () => {
+    expect(browserRuntimeFromEnv({ COMPUTER_DESKTOP: "on" }, "linux")).toEqual({
+      backend: "managed",
+      channel: "chromium",
+      mode: "headed",
+      useVirtualDisplay: true,
+      desktop: true,
+      allowExec: true,
+    });
+    expect(
+      browserRuntimeFromEnv(
+        { COMPUTER_DESKTOP: "on", COMPUTER_BROWSER_MODE: "headed" },
+        "linux",
+      ).desktop,
+    ).toBe(true);
+    expect(browserRuntimeFromEnv({ COMPUTER_DESKTOP: "off" }, "linux")).toEqual(
+      browserRuntimeFromEnv({}, "linux"),
+    );
+    expect(() =>
+      browserRuntimeFromEnv({ COMPUTER_DESKTOP: "on" }, "darwin"),
+    ).toThrow("Linux");
+    expect(() =>
+      browserRuntimeFromEnv(
+        { COMPUTER_DESKTOP: "on", COMPUTER_BROWSER_MODE: "headless" },
+        "linux",
+      ),
+    ).toThrow("headed");
+    expect(() =>
+      browserRuntimeFromEnv(
+        { COMPUTER_DESKTOP: "on", COMPUTER_BROWSER_BACKEND: "local-chrome" },
+        "linux",
+      ),
+    ).toThrow("local Chrome");
   });
 });

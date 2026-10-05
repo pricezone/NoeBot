@@ -16,6 +16,8 @@ export type DisplayRuntime = {
 
 export type VirtualDisplay = {
   name: string;
+  /** The screen Xvfb was asked for, which is what a desktop frame and a desktop click are measured in. */
+  size: DisplaySize;
   /** Resolves for both normal shutdown and a display that failed while the computer was running. */
   terminated: Promise<{ code: number; expected: boolean }>;
   stop: () => Promise<void>;
@@ -23,6 +25,52 @@ export type VirtualDisplay = {
 
 const READY_BUDGET_MS = 5_000;
 const STOP_BUDGET_MS = 2_000;
+
+export type DisplaySize = { width: number; height: number };
+
+/** What a page-only headed browser has always had: the viewport, and nothing around it. */
+export const PAGE_DISPLAY_SIZE: DisplaySize = { width: 1280, height: 800 };
+/** A desktop has a panel and a terminal to fit beside the page, so it starts larger. */
+export const DESKTOP_DISPLAY_SIZE: DisplaySize = { width: 1440, height: 900 };
+
+const MIN_DISPLAY = { width: 800, height: 600 };
+const MAX_DISPLAY = { width: 4096, height: 4096 };
+
+/**
+ * The screen size an operator asked for, as `WIDTHxHEIGHT`.
+ *
+ * Refused rather than defaulted when it is set and wrong: a desktop that comes up at a size nobody
+ * asked for is a deployment failure that reads as a layout bug, and the operator who typed the value
+ * is the one person who can fix it. Unset or blank takes the default for the mode.
+ */
+export function displaySizeFromEnv(
+  raw: string | undefined,
+  desktop: boolean,
+): DisplaySize {
+  const value = raw?.trim();
+  if (!value) return desktop ? DESKTOP_DISPLAY_SIZE : PAGE_DISPLAY_SIZE;
+  const match = /^(\d{3,4})x(\d{3,4})$/i.exec(value);
+  if (!match) {
+    throw new Error(
+      `COMPUTER_DISPLAY_SIZE must be WIDTHxHEIGHT, such as 1440x900, not ${JSON.stringify(value)}.`,
+    );
+  }
+  const size = {
+    width: Number.parseInt(match[1] ?? "", 10),
+    height: Number.parseInt(match[2] ?? "", 10),
+  };
+  if (
+    size.width < MIN_DISPLAY.width ||
+    size.height < MIN_DISPLAY.height ||
+    size.width > MAX_DISPLAY.width ||
+    size.height > MAX_DISPLAY.height
+  ) {
+    throw new Error(
+      `COMPUTER_DISPLAY_SIZE must be between ${MIN_DISPLAY.width}x${MIN_DISPLAY.height} and ${MAX_DISPLAY.width}x${MAX_DISPLAY.height}, not ${value}.`,
+    );
+  }
+  return size;
+}
 
 async function allocatedDisplay(stream: Readable): Promise<string> {
   let response = "";
@@ -84,6 +132,7 @@ async function stop(
 export async function startVirtualDisplay(
   mode: BrowserMode,
   runtime: DisplayRuntime = systemRuntime,
+  size: DisplaySize = PAGE_DISPLAY_SIZE,
 ): Promise<VirtualDisplay | null> {
   if (mode === "headless") return null;
 
@@ -92,7 +141,7 @@ export async function startVirtualDisplay(
     "3",
     "-screen",
     "0",
-    "1280x800x24",
+    `${size.width}x${size.height}x24`,
     "-nolisten",
     "tcp",
     "-ac",
@@ -133,6 +182,7 @@ export async function startVirtualDisplay(
 
   return {
     name,
+    size,
     terminated,
     stop: async () => {
       if (stopping || exitCode !== undefined) return;

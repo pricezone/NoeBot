@@ -146,6 +146,8 @@ export interface ComputerGateway {
   locate(botId: string): Promise<string>;
   status(botId: string): Promise<ComputerStatus>;
   screenshot(botId: string): Promise<ScreenshotResult>;
+  /** The whole desktop, for a computer that draws one. The computer answers 404 without one. */
+  desktopScreenshot(botId: string): Promise<ScreenshotResult>;
   snapshot(botId: string): Promise<SnapshotResult>;
   read(botId: string): Promise<ReadResult>;
   navigate(
@@ -389,6 +391,11 @@ export function createComputerGateway(
   /** Read-only, so it passes straight through. Nothing has changed and there is nothing to decide. */
   async function screenshot(botId: string): Promise<ScreenshotResult> {
     return get<ScreenshotResult>(botId, "/screenshot");
+  }
+
+  /** Read-only like the page screenshot, and of the screen rather than the page. */
+  async function desktopScreenshot(botId: string): Promise<ScreenshotResult> {
+    return get<ScreenshotResult>(botId, "/desktop/screenshot");
   }
 
   /**
@@ -734,6 +741,7 @@ export function createComputerGateway(
     provider,
     locate,
     screenshot,
+    desktopScreenshot,
     snapshot,
     read,
 

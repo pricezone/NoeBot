@@ -39,8 +39,10 @@ import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
 import { browserRuntimeFromEnv } from "./browser-runtime";
+import { desktopLayout } from "./desktop";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
+import { displaySizeFromEnv } from "./virtual-display";
 import { chooseLivePage } from "./live-page";
 import { botIdsIn } from "./profile-listing";
 import {
@@ -155,6 +157,25 @@ export const LAUNCH_ARGS = [
   "--disable-blink-features=AutomationControlled",
   `--disable-features=${DISABLED_FEATURES.join(",")}`,
 ];
+
+/**
+ * Where the browser window goes on a desktop, as Chromium switches. Nothing without one.
+ *
+ * On a desktop the browser is a window among others, and the layout in desktop.ts decides where:
+ * the top of the work area, full width, with the terminal under it. Told to Chromium at launch
+ * rather than moved afterwards, so the first frame a person sees already has it in place.
+ */
+export const DESKTOP_WINDOW_ARGS: readonly string[] = BROWSER_RUNTIME.desktop
+  ? (() => {
+      const { browser } = desktopLayout(
+        displaySizeFromEnv(process.env.COMPUTER_DISPLAY_SIZE, true),
+      );
+      return [
+        `--window-position=${browser.x},${browser.y}`,
+        `--window-size=${browser.width},${browser.height}`,
+      ];
+    })()
+  : [];
 
 /**
  * WebRTC kept inside the proxy, written into the profile before Chromium reads it.
@@ -518,7 +539,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         const context = await chromium.launchPersistentContext(dir, {
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
-          args: LAUNCH_ARGS,
+          args: [...LAUNCH_ARGS, ...DESKTOP_WINDOW_ARGS],
           // Playwright launches with `--enable-automation`, which sets `navigator.webdriver` and the
           // "controlled by automated software" banner. Dropped for the same reason as the flag above:
           // a person who takes the wheel should be able to sign in. Named explicitly so the sandbox
@@ -528,7 +549,9 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           // means the flag above decides nothing and a deployment that asked for the sandbox does
           // not get one. Verified by reading the launched process arguments, not by trusting either.
           chromiumSandbox: SANDBOX_ENABLED,
-          viewport: VIEWPORT,
+          // On a desktop the window decides the viewport, and the window manager decides the window.
+          // A fixed viewport inside a placed window would leave the page smaller than its frame.
+          viewport: BROWSER_RUNTIME.desktop ? null : VIEWPORT,
           // This process owns shutdown. Playwright's signal handlers kill Chromium immediately on
           // SIGTERM, before pending cookie writes have time to flush.
           handleSIGTERM: false,

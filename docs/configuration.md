@@ -590,6 +590,8 @@ is still the record.
 | `COMPUTER_BROWSER_IDLE_MS`           | How long an untouched browser is kept. 30 minutes by default; `0` keeps them resident.    |
 | `COMPUTER_BROWSER_BACKEND`           | `managed` by default (full bundled Chromium); `local-chrome` opts into installed Chrome with dedicated profiles and a loopback API. |
 | `COMPUTER_BROWSER_MODE`              | Managed defaults to `headless` (full Chromium's new headless mode). `headed` uses Xvfb on Linux and a native window on macOS/Windows. Local Chrome requires `headed`. |
+| `COMPUTER_DESKTOP`                   | `on` draws a whole desktop (XFCE) on the virtual display, with the browser as a window and a terminal mirroring the Bot's shell; the live screen shows the display. Implies `headed`; Linux only. Off by default. |
+| `COMPUTER_DISPLAY_SIZE`              | The virtual display, as `WIDTHxHEIGHT`. `1440x900` with a desktop, `1280x800` without. 800x600 to 4096x4096. |
 | `OPENBOT_LOCAL_COMPUTER_DIR`         | Local startup helper's absolute data root. Defaults to the platform's OpenBot user-data directory; contains `profiles/` and `workspace/`. |
 | `COMPUTER_SUPERVISOR_URL`            | Supervisor URL for per-Bot computers. If absent, Bots share `AGENT_COMPUTER_URL`.         |
 | `SUPERVISOR_TOKEN`                   | Bearer token required by the supervisor.                                                  |
@@ -615,6 +617,25 @@ docker ps -aq --filter "label=openbot.namespace=openbot" | xargs -r docker rm -f
 ```
 
 The supervisor recreates each computer with the same named volumes on its next request.
+
+### A desktop on the live screen
+
+`COMPUTER_DESKTOP=on` makes the computer's live screen a Linux desktop rather than one browser page:
+XFCE's window manager, panel and dock, the Bot's Chromium as a window at the top of the screen, and a
+terminal window beneath it that tails every command the Bot runs and what it printed. A person who
+takes the wheel drives the whole screen, so they can open the panel's menu, use the file manager or
+type into the browser's address bar, not only click inside the page. The Bot's own tools are
+unchanged: `computer_screenshot` is still a picture of its page, and clicks by reference still go
+through the page.
+
+The desktop is one per computer process, so on the single-container image every Bot shares it, as
+they share the browser. It costs roughly 150 MB of memory while idle and one ffmpeg process while
+somebody is watching; a frame is only sent when the screen changed. `COMPUTER_DISPLAY_SIZE` sets the
+screen; the panel's preview and the full-size view take that shape.
+
+The Docker image carries everything the desktop needs. The mode is read by the computer at start,
+so turning it on means recreating the computer. It is meaningless with `COMPUTER_BROWSER_BACKEND=
+local-chrome`, which draws on the person's own desktop, and the computer refuses the pair.
 
 ### Headed managed Chromium in Docker or Helm
 

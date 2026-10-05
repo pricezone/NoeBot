@@ -14,7 +14,41 @@ export type Screenshot = {
   capturedAt: string;
   /** `about:blank` when the browser has not been sent anywhere yet. Absent on older computers. */
   url?: string;
+  /** A desktop frame is a JPEG. Absent, PNG. */
+  format?: "png" | "jpeg";
 };
+
+/** The screen a computer draws, when it is a desktop rather than a page. */
+export type Desktop = { width: number; height: number };
+
+/**
+ * Whether this computer shows a desktop, and how big it is.
+ *
+ * Asked once per computer, not polled: a computer does not grow a desktop while somebody is
+ * watching it. Unreachable, or without one, is `null`, and the panel shows the page as it always
+ * has.
+ */
+export async function readDesktop(computerId: string): Promise<Desktop | null> {
+  try {
+    const response = await tryClient(`/api/computers/${computerId}/status`);
+    if (!response.ok) return null;
+    const body = (await response.json().catch(() => null)) as {
+      desktop?: { width?: unknown; height?: unknown };
+    } | null;
+    const { width, height } = body?.desktop ?? {};
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !(width > 0) ||
+      !(height > 0)
+    ) {
+      return null;
+    }
+    return { width, height };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Read the current frame.
@@ -25,10 +59,13 @@ export type Screenshot = {
  */
 export async function readScreenshot(
   computerId: string,
+  { desktop = false }: { desktop?: boolean } = {},
 ): Promise<{ frame?: Screenshot; error?: string }> {
   const unavailable = "The screen is not available right now.";
   try {
-    const response = await tryClient(`/api/computers/${computerId}/screenshot`);
+    const response = await tryClient(
+      `/api/computers/${computerId}/${desktop ? "desktop/screenshot" : "screenshot"}`,
+    );
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as {
         error?: string;

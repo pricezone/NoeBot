@@ -100,6 +100,8 @@ export type ScreenshotResult = {
   width: number;
   height: number;
   capturedAt: string;
+  /** A desktop frame is a JPEG and says so. Absent, PNG, which is what a page screenshot has always been. */
+  format?: "png" | "jpeg";
   /**
    * The page this is a picture of, or `about:blank` for a browser that has not been sent anywhere.
    *
@@ -383,4 +385,11 @@ export type ComputerStatus = {
   state: ComputerState;
   /** Set when state is "unreachable", in words a person can act on. */
   reason?: string;
+  /**
+   * The desktop this computer draws, when it has one.
+   *
+   * A computer with a desktop shows the whole screen on its live view, at this size, rather than the
+   * page the Bot has open. The panel reads it to pick the frame it polls and the shape it reserves.
+   */
+  desktop?: { width: number; height: number };
 };

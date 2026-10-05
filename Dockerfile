@@ -166,6 +166,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && mkdir -p /var/lib/postgresql/data /var/run/postgresql \
   && chown -R postgres:postgres /var/lib/postgresql /var/run/postgresql
 
+# A desktop for the computer to draw, when asked for.
+#
+# OFF UNLESS ASKED FOR, like Postgres above. `COMPUTER_DESKTOP=on` on the computer puts XFCE on the
+# virtual display beside the browser, with a terminal window that mirrors the Bot's shell, and the
+# live screen then shows the whole display rather than the page. See agent-computer/src/desktop.ts.
+# ffmpeg grabs the display for the live screen; libXtst and xdotool carry a person's input back to
+# it. `xfce4-settings` is what makes fonts anti-aliased; `dbus-uuidgen` is what lets a session bus
+# start in a container that never ran a system one.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xfce4-session xfwm4 xfce4-panel xfdesktop4 xfce4-settings xfce4-terminal thunar \
+      dbus-x11 xdotool ffmpeg libxtst6 x11-utils fonts-dejavu-core \
+  && rm -rf /var/lib/apt/lists/* \
+  && dbus-uuidgen --ensure \
+  && mkdir -p /run/user/1001 \
+  && chown pwuser:pwuser /run/user/1001 \
+  && chmod 0700 /run/user/1001
+
 # A Bot can install what a task needs, and nothing else as root.
 #
 # `sudo` without a password, because a package manager that cannot install is not one, and "install a

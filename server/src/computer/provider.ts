@@ -120,6 +120,30 @@ export interface ComputerProvider {
   sessionOf?(botId: string): Promise<string | undefined>;
 }
 
+/**
+ * The desktop `/health` reports, if it reports one and it makes sense.
+ *
+ * Read defensively: the field arrived after the first computers shipped, and a computer that does
+ * not send it, or sends something that is not a size, is a computer without a desktop.
+ */
+function desktopOf(
+  value: unknown,
+): { width: number; height: number } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { width, height } = value as { width?: unknown; height?: unknown };
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return undefined;
+  }
+  return { width, height };
+}
+
 export type SharedComputerProviderOptions = {
   baseUrl: string;
   token?: string;
@@ -223,8 +247,11 @@ export function createSharedComputerProvider(
 
     async status(botId: string): Promise<ComputerStatus> {
       try {
-        await call("/health", "GET", botId);
-        return { botId, state: "ready" };
+        const health = (await call("/health", "GET", botId)) as {
+          desktop?: unknown;
+        } | null;
+        const desktop = desktopOf(health?.desktop);
+        return { botId, state: "ready", ...(desktop ? { desktop } : {}) };
       } catch (error) {
         return {
           botId,

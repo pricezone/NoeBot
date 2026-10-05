@@ -106,6 +106,16 @@ export function createComputerRoutes(
     }
   });
 
+  routes.get("/:botId/desktop/screenshot", async (context) => {
+    try {
+      return context.json(
+        await gateway.desktopScreenshot(context.req.param("botId")),
+      );
+    } catch (error) {
+      return context.json(errorBody(error), statusFor(error));
+    }
+  });
+
   routes.get("/:botId/read", async (context) => {
     try {
       return context.json(await gateway.read(context.req.param("botId")));

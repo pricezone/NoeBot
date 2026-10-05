@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supplySecret } from "@/lib/computers/control";
 import {
+  type Desktop,
+  readDesktop,
   readPageFrame,
   readScreenshot,
   type Screenshot,
@@ -74,11 +76,16 @@ const DEFAULT_ASPECT_RATIO = 1280 / 800;
 const DEFAULT_MIN_WIDTH = 320;
 const DEFAULT_MIN_HEIGHT = 200;
 
+/** The data URL for a frame, which is a PNG of a page or a JPEG of a desktop. */
+function frameSource(frame: { base64: string; format?: string }): string {
+  return `data:image/${frame.format === "jpeg" ? "jpeg" : "png"};base64,${frame.base64}`;
+}
+
 /** Preload without failing the poll loop when a frame cannot be decoded early. */
-async function preloadFrame(base64: string): Promise<void> {
+async function preloadFrame(frame: Screenshot): Promise<void> {
   try {
     const image = new Image();
-    image.src = `data:image/png;base64,${base64}`;
+    image.src = frameSource(frame);
     await image.decode();
   } catch {
     // Let the visible image element handle decode failures.
@@ -219,6 +226,14 @@ export function ComputerView({
   toolCallId,
 }: Props) {
   const [shot, setShot] = useState<Screenshot | null>(null);
+  /**
+   * Whether this computer shows a desktop, and its shape. `undefined` until asked.
+   *
+   * Decides which frame is polled and the shape the card reserves for it. Asked before the first
+   * frame rather than alongside it, so the card does not open as a page and then change shape into
+   * a desktop a moment later.
+   */
+  const [desktop, setDesktop] = useState<Desktop | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [streamProblem, setStreamProblem] = useState<string | null>(null);
@@ -341,7 +356,9 @@ export function ComputerView({
     // Always fetch at least one frame; only repeated refreshes are conditional.
     const tick = async () => {
       try {
-        const { frame, error } = await readScreenshot(computerId);
+        const { frame, error } = await readScreenshot(computerId, {
+          desktop: Boolean(desktop),
+        });
         if (generation.current !== mine) return;
 
         if (!frame) {
@@ -351,7 +368,7 @@ export function ComputerView({
           unchanged = frame.base64 === lastFrame ? unchanged + 1 : 0;
           lastFrame = frame.base64;
           // Decode before swapping to avoid blanking the visible image during data URL changes.
-          await preloadFrame(frame.base64);
+          await preloadFrame(frame);
           if (generation.current !== mine) return;
           setShot(frame);
           setProblem(null);
@@ -368,7 +385,28 @@ export function ComputerView({
       generation.current++;
       clearTimeout(timer);
     };
-  }, [computerId, active, intervalMs, secretPending, settled, visualVisible]);
+  }, [
+    computerId,
+    active,
+    intervalMs,
+    secretPending,
+    settled,
+    visualVisible,
+    desktop,
+  ]);
+
+  // Which screen this computer has. A finished turn shows its kept frame and never asks.
+  useEffect(() => {
+    if (settled) return;
+    let current = true;
+    setDesktop(undefined);
+    void readDesktop(computerId).then((found) => {
+      if (current) setDesktop(found);
+    });
+    return () => {
+      current = false;
+    };
+  }, [computerId, settled]);
 
   // Input forwarding lives in LiveScreen on the socket.
   // Escape is bound to the window so it works regardless of overlay focus.
@@ -394,7 +432,8 @@ export function ComputerView({
    * collapse to a strip of text; that made the panel change shape the moment a page opened, and a
    * surface whose whole job is showing a screen kept surprising the layout around it.
    */
-  const frameStyle = { aspectRatio, minWidth, minHeight };
+  const frameAspect = desktop ? desktop.width / desktop.height : aspectRatio;
+  const frameStyle = { aspectRatio: frameAspect, minWidth, minHeight };
   /**
    * What this tile draws: the kept frame for a turn that is over, the live one while it runs.
    *
@@ -404,7 +443,7 @@ export function ComputerView({
   const drawn = settled
     ? keptFrame
     : shot
-      ? { base64: shot.base64, url: shot.url ?? "" }
+      ? { base64: shot.base64, url: shot.url ?? "", format: shot.format }
       : null;
   /** Whether there is a page to draw. A blank browser and an unreadable screen are both "no". */
   const showScreen = drawn !== null && !blankBrowser;
@@ -429,7 +468,7 @@ export function ComputerView({
 
   const polledScreen = showScreen ? (
     <img
-      src={`data:image/png;base64,${drawn.base64}`}
+      src={frameSource(drawn)}
       alt="What the assistant is looking at"
       // Keep unexpected screenshot dimensions inside the reserved frame.
       className="absolute inset-0 h-full w-full object-contain opacity-100 transition-opacity duration-300 starting:opacity-0"
@@ -631,15 +670,21 @@ export function ComputerView({
                      * replaced it with whatever the Bot has open now. The kept frame exists to stop
                      * exactly that; its own zoom control was undoing it.
                      */
-                    <div className="relative w-full" style={{ aspectRatio }}>
+                    <div
+                      className="relative w-full"
+                      style={{ aspectRatio: frameAspect }}
+                    >
                       <img
                         alt="What this turn had open"
                         className="absolute inset-0 h-full w-full object-contain"
-                        src={`data:image/png;base64,${drawn.base64}`}
+                        src={frameSource(drawn)}
                       />
                     </div>
                   ) : showLiveScreen ? (
-                    <div className="relative w-full" style={{ aspectRatio }}>
+                    <div
+                      className="relative w-full"
+                      style={{ aspectRatio: frameAspect }}
+                    >
                       <LiveScreen
                         computerId={computerId}
                         driving={driving}
@@ -669,7 +714,10 @@ export function ComputerView({
                       ) : null}
                     </div>
                   ) : (
-                    <div className="relative w-full" style={{ aspectRatio }}>
+                    <div
+                      className="relative w-full"
+                      style={{ aspectRatio: frameAspect }}
+                    >
                       <NothingToSee
                         blankBrowser={blankBrowser}
                         page={knownPage}

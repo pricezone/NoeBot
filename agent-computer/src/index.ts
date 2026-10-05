@@ -1,4 +1,5 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "bun";
 import type { Page } from "playwright";
@@ -26,6 +27,8 @@ import {
   TAKE_CONTROL_FIRST,
 } from "./control";
 import { describeHumanGesture } from "./demonstration";
+import { startDesktop } from "./desktop";
+import { captureDesktopFrame, startDesktopCast } from "./desktop-cast";
 import { handleEgressPolicyRequest, startEgressFilter } from "./egress";
 import { identity } from "./identity";
 import {
@@ -33,7 +36,7 @@ import {
   navigateWebPage,
   type PagePurpose,
 } from "./navigation";
-import { createProfiles, numberFromEnv, VIEWPORT } from "./profiles";
+import { createProfiles, numberFromEnv } from "./profiles";
 import {
   parseExecTimeout,
   parseInputMessage,
@@ -50,8 +53,9 @@ import {
 } from "./secret-masking";
 import { type BotSession, createSessions } from "./sessions";
 import { createShell } from "./shell";
+import { createShellLog } from "./shell-log";
 import { fillSignIn, parseSignInFill } from "./sign-in";
-import { startVirtualDisplay } from "./virtual-display";
+import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
 import {
   createWorkspace,
   WorkspaceFileError,
@@ -107,15 +111,38 @@ if (!COMPUTER_TOKEN) {
 
 const RUNTIME = browserRuntimeFromEnv(process.env);
 const BROWSER_MODE = RUNTIME.mode;
+const DISPLAY_SIZE = displaySizeFromEnv(
+  process.env.COMPUTER_DISPLAY_SIZE,
+  RUNTIME.desktop,
+);
 const VIRTUAL_DISPLAY = await startVirtualDisplay(
   RUNTIME.useVirtualDisplay ? "headed" : "headless",
+  undefined,
+  DISPLAY_SIZE,
 );
 if (VIRTUAL_DISPLAY) process.env.DISPLAY = VIRTUAL_DISPLAY.name;
+/**
+ * The desktop around the browser, when `COMPUTER_DESKTOP=on`. See desktop.ts.
+ *
+ * The shell is mirrored to a file the desktop's terminal window tails, so a person watching the
+ * screen sees the Bot's commands as they run. Only with a desktop: without a window to show it in,
+ * the mirror is a file nobody reads.
+ */
+const SHELL_LOG_PATH = join(tmpdir(), "openbot-shell.log");
+const DESKTOP =
+  RUNTIME.desktop && VIRTUAL_DISPLAY
+    ? await startDesktop({
+        display: VIRTUAL_DISPLAY.name,
+        size: DISPLAY_SIZE,
+        shellLog: SHELL_LOG_PATH,
+      })
+    : null;
 console.info(
   JSON.stringify({
     type: "computer-browser-mode",
     mode: BROWSER_MODE,
     display: VIRTUAL_DISPLAY?.name ?? null,
+    desktop: DESKTOP ? { ...DISPLAY_SIZE, ready: DESKTOP.ready } : null,
   }),
 );
 
@@ -271,7 +298,11 @@ const profiles = createProfiles(
 );
 // Rooted in the same workspace the file tools use, so a command and a written file see one
 // directory rather than two.
-const shell = createShell(process.env.WORKSPACE_DIR?.trim() || "/workspace");
+const shell = createShell(
+  process.env.WORKSPACE_DIR?.trim() || "/workspace",
+  process.env,
+  DESKTOP ? { log: createShellLog(SHELL_LOG_PATH) } : {},
+);
 
 /**
  * The id normally arrives as a header on every request. This is the fallback for a caller that has no
@@ -507,6 +538,23 @@ serve<StreamData>({
           }
         };
 
+        if (DESKTOP && VIRTUAL_DISPLAY) {
+          /*
+           * The whole display, not the page. The browser is asked for so that its window is on the
+           * desktop the person is about to see, but not waited for: the desktop is there already,
+           * and the window appears on it when the launch is done. Nothing to follow, either; a
+           * desktop does not change when the Bot changes page.
+           */
+          void currentPage(ws.data.botId).catch(() => undefined);
+          const cast = startDesktopCast({
+            display: VIRTUAL_DISPLAY.name,
+            size: DISPLAY_SIZE,
+            onFrame: send,
+          });
+          await claim.install(cast);
+          return;
+        }
+
         /*
          * The cast follows the Bot's current page. Re-checking also handles a page being closed
          * underneath us without a listener per page.
@@ -599,12 +647,14 @@ serve<StreamData>({
         return;
       }
       try {
-        const recorded = ws.data.recordingId
-          ? await describeHumanGesture(
-              await currentPage(ws.data.botId),
-              message,
-            )
-          : null;
+        // A gesture on the desktop lands in screen coordinates, which the page cannot describe.
+        const recorded =
+          ws.data.recordingId && !DESKTOP
+            ? await describeHumanGesture(
+                await currentPage(ws.data.botId),
+                message,
+              )
+            : null;
         await standing.cast.send(message);
         if (recorded)
           ws.send(
@@ -920,6 +970,15 @@ serve<StreamData>({
           browserMode: BROWSER_MODE,
           browserBackend: RUNTIME.backend,
           browserChannel: RUNTIME.channel,
+          // The screen the live view shows, when it is a desktop rather than a page. Null is a
+          // computer without one, which is the default, not a failure.
+          desktop: DESKTOP
+            ? {
+                width: DISPLAY_SIZE.width,
+                height: DISPLAY_SIZE.height,
+                ready: DESKTOP.ready,
+              }
+            : null,
         });
       }
 
@@ -1050,6 +1109,40 @@ serve<StreamData>({
         }
       }
 
+      /*
+       * The desktop as a picture, for the panel's inline preview. Not what the Bot is handed: its
+       * `/screenshot` stays a picture of its page, masked, which is what its tools reason about.
+       */
+      if (url.pathname === "/desktop/screenshot" && request.method === "GET") {
+        if (!DESKTOP || !VIRTUAL_DISPLAY) {
+          return json(
+            {
+              error:
+                "This computer has no desktop. Set COMPUTER_DESKTOP=on to run one.",
+            },
+            404,
+          );
+        }
+        try {
+          const frame = await captureDesktopFrame(
+            VIRTUAL_DISPLAY.name,
+            DISPLAY_SIZE,
+          );
+          return json({
+            base64: frame.toString("base64"),
+            width: DISPLAY_SIZE.width,
+            height: DISPLAY_SIZE.height,
+            capturedAt: new Date().toISOString(),
+            format: "jpeg",
+          });
+        } catch (error) {
+          return json(
+            { error: describe(error, "The desktop could not be captured.") },
+            502,
+          );
+        }
+      }
+
       if (url.pathname === "/screenshot" && request.method === "GET") {
         try {
           const target = await currentPage(botId);
@@ -1058,7 +1151,15 @@ serve<StreamData>({
             type: "png",
             mask: [target.locator(SENSITIVE_FIELD_SELECTOR)],
           });
-          const size = target.viewportSize() ?? { width: 1280, height: 800 };
+          // No fixed viewport on a desktop: the window decides, so the page is asked.
+          const size =
+            target.viewportSize() ??
+            (await target
+              .evaluate(() => ({
+                width: window.innerWidth,
+                height: window.innerHeight,
+              }))
+              .catch(() => DISPLAY_SIZE));
           return json({
             base64: buffer.toString("base64"),
             width: size.width,
@@ -1379,9 +1480,10 @@ async function performHumanInput(
     }
     // Clamped rather than rejected. A click a pixel outside the viewport is a rounding artefact of
     // scaling the screenshot, not a mistake worth refusing.
+    const bounds = target.viewportSize() ?? DISPLAY_SIZE;
     return {
-      x: Math.min(Math.max(x, 0), VIEWPORT.width - 1),
-      y: Math.min(Math.max(y, 0), VIEWPORT.height - 1),
+      x: Math.min(Math.max(x, 0), bounds.width - 1),
+      y: Math.min(Math.max(y, 0), bounds.height - 1),
     };
   };
 
@@ -1546,6 +1648,7 @@ async function shutDown(reason: string, exitCode: number): Promise<void> {
   shuttingDown = true;
   console.info(`${reason}: closing the browser so its profile is flushed`);
   await profiles.closeAll();
+  await DESKTOP?.stop();
   await VIRTUAL_DISPLAY?.stop();
   process.exit(exitCode);
 }
