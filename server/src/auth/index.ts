@@ -28,6 +28,7 @@ import {
 } from "../db/schema";
 import { DOMAIN_REFUSAL_MESSAGE, emailDomainAllowed } from "./email-domain";
 import { encryptSsoConfig } from "./encrypt-sso-config";
+import { signInHandoff } from "./signin-handoff";
 import { applyConfiguredAdmin, isConfiguredAdmin, seedRole } from "./roles";
 import { recordProvisioned, scimOptions } from "./scim";
 
@@ -222,6 +223,21 @@ export function createAuth(
      */
     ...(scimPluginOptions ? [scim(scimPluginOptions)] : []),
     electron({ clientID: "openbot-desktop", codeExpiresIn: 120 }),
+    /*
+     * The platform that runs this deployment signs its one person in with a token it minted. Only
+     * when configured, and bound to this deployment's id so a token for another instance is refused.
+     */
+    ...(authConfig.signInHandoff
+      ? [
+          signInHandoff({
+            secret: authConfig.signInHandoff.secret,
+            email: authConfig.signInHandoff.email,
+            ...(config.deploymentId
+              ? { deploymentId: config.deploymentId }
+              : {}),
+          }),
+        ]
+      : []),
     ...(authConfig.okta
       ? [
           genericOAuth({

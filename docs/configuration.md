@@ -420,6 +420,29 @@ where `<provider>` is `google`, `microsoft` or `okta`.
 
 A [Composio](plugins/composio.md) app needs `OPENBOT_APP_URL` and nothing else of the two: the consent lives at the broker, so no redirect URI of ours is registered anywhere, but the address Composio returns somebody to has to be absolute and this is where it comes from. Connecting a brokered account refuses where it resolves to nothing, rather than sending somebody to a consent screen with no way back.
 
+
+### Sign-in handoff
+
+For a deployment a platform runs on one person's behalf (HyperNoesis runs one Noë Bot per
+subscriber this way). The platform already knows who the person is, so it signs them in here
+instead of a third identity provider: it mints a token with a secret only it and this deployment
+hold, sends the browser to `/api/auth/signin-handoff?token=…&redirect=/path`, and the deployment
+opens a session for the one address it admits and lands on `redirect`.
+
+| Variable | Purpose |
+| --- | --- |
+| `OPENBOT_SIGNIN_HANDOFF_SECRET` | At least 32 characters. Both this and the email, or neither. |
+| `OPENBOT_SIGNIN_HANDOFF_EMAIL` | The one person a token may sign in; name them in `INITIAL_ADMIN_EMAILS` too. |
+| `OPENBOT_SIGNIN_HANDOFF_RETURN_URL` | Where the sign-in screen sends somebody who arrives without a token. |
+| `OPENBOT_SIGNIN_HANDOFF_PROVIDER_NAME` | What the sign-in screen calls the platform. |
+
+A configured handoff counts as an identity provider: `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
+`INITIAL_ADMIN_EMAILS` are required with it, and `OPENBOT_SINGLE_USER` is not. The token is
+`base64url(JSON claims).base64url(HMAC-SHA256)` over the first part, with claims `sub` (the email),
+`iid` (this deployment's `DEPLOYMENT_ID`), `iat`, `exp` (60 seconds after `iat`) and a single-use
+`jti`. Anything else — a wrong secret, another address, another deployment, a replay — is refused
+back to the sign-in screen.
+
 ### SCIM provisioning
 
 A directory such as Okta or Entra ID can create, update and remove people through SCIM 2.0 at

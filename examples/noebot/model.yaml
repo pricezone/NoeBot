@@ -1,0 +1,7 @@
+# The provider and model come from the machine's environment: HyperNoesis writes BOT_PROVIDER and
+# BOT_MODEL when it deploys an instance (and OPENAI_BASE_URL when the model is metered through its
+# API). The fallbacks only matter for a local run without them.
+model:
+  provider: ${BOT_PROVIDER:-openai}
+  credential_secret_ref: model-api-key
+  default_model: ${BOT_MODEL:-gpt-5.5}

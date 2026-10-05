@@ -249,4 +249,8 @@ EXPOSE 3001
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
   CMD bun -e "const r = await fetch('http://127.0.0.1:3001/health'); process.exit(r.ok ? 0 : 1)"
 
+# Fly.io Machines cannot give s6 PID 1; `docker/fly/entrypoint.sh` runs the same services without it.
+# Point the machine's `init.exec` at it and mount the one volume at OPENBOT_DATA_DIR (default /data).
+COPY --chmod=0755 docker/fly/entrypoint.sh /usr/local/bin/openbot-fly-entrypoint
+
 ENTRYPOINT ["/init"]

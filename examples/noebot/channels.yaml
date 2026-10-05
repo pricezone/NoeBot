@@ -1,0 +1,11 @@
+channels:
+  - id: general
+    name: General
+    description: Ask your teammates for help with everyday work.
+    permitted_agents: [assistant, research-desk, meeting-follow-ups]
+    allowed_groups: [all]
+  - id: research
+    name: Research
+    description: Briefs on the public web, with sources attached.
+    permitted_agents: [research-desk]
+    allowed_groups: [all]

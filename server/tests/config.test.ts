@@ -1115,3 +1115,56 @@ test("a Composio key is read when set and absent when not", () => {
       .composioApiKey,
   ).toBe("ak_example");
 });
+
+describe("sign-in handoff", () => {
+  const handoff = {
+    OPENBOT_SIGNIN_HANDOFF_SECRET:
+      "a-long-enough-handoff-secret-of-forty-chars!",
+    OPENBOT_SIGNIN_HANDOFF_EMAIL: "Owner@Example.com",
+    OPENBOT_SIGNIN_HANDOFF_RETURN_URL: "https://platform.example.com/noebot",
+    OPENBOT_SIGNIN_HANDOFF_PROVIDER_NAME: "Platform",
+  };
+
+  test("counts as a configured sign-in, so single-user mode is not needed", () => {
+    const config = loadConfig({
+      ...withoutSignIn,
+      BETTER_AUTH_SECRET: baseEnvironment.BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: baseEnvironment.BETTER_AUTH_URL,
+      INITIAL_ADMIN_EMAILS: "owner@example.com",
+      ...handoff,
+    });
+    expect(config.singleUser).toBe(false);
+    expect(configuredAuthProviders(config.auth)).toEqual([]);
+    expect(config.auth?.signInHandoff).toEqual({
+      secret: handoff.OPENBOT_SIGNIN_HANDOFF_SECRET,
+      email: "owner@example.com",
+      returnUrl: "https://platform.example.com/noebot",
+      providerName: "Platform",
+    });
+  });
+
+  test("still wants a session secret, a base URL and an administrator", () => {
+    expect(() => loadConfig({ ...withoutSignIn, ...handoff })).toThrow(
+      "BETTER_AUTH_SECRET",
+    );
+  });
+
+  test("refuses half a configuration and a short secret", () => {
+    expect(() =>
+      loadConfig({
+        ...withoutSignIn,
+        OPENBOT_SIGNIN_HANDOFF_SECRET: handoff.OPENBOT_SIGNIN_HANDOFF_SECRET,
+      }),
+    ).toThrow("go together");
+    expect(() =>
+      loadConfig({
+        ...withoutSignIn,
+        BETTER_AUTH_SECRET: baseEnvironment.BETTER_AUTH_SECRET,
+        BETTER_AUTH_URL: baseEnvironment.BETTER_AUTH_URL,
+        INITIAL_ADMIN_EMAILS: "owner@example.com",
+        ...handoff,
+        OPENBOT_SIGNIN_HANDOFF_SECRET: "short",
+      }),
+    ).toThrow("at least 32 characters");
+  });
+});

@@ -48,6 +48,8 @@ export type SignInOptions = {
   sso: boolean;
   /** An administrator requires SSO; social sign-in stays only as the administrators' break-glass. */
   ssoRequired: boolean;
+  /** A platform that signs people in here with a token of its own; where to go to get one. */
+  handoff: { providerName: string; returnUrl: string | null } | null;
 };
 
 async function signInOptions(): Promise<SignInOptions> {
@@ -60,12 +62,14 @@ async function signInOptions(): Promise<SignInOptions> {
     authProviders?: AuthProviderId[];
     ssoConfigured?: boolean;
     ssoRequired?: boolean;
+    signInHandoff?: { providerName: string; returnUrl: string | null } | null;
   };
 
   return {
     providers: body.authProviders ?? [],
     sso: body.ssoConfigured === true,
     ssoRequired: body.ssoRequired === true,
+    handoff: body.signInHandoff ?? null,
   };
 }
 

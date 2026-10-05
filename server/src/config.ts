@@ -111,6 +111,24 @@ export type AuthConfig = {
   microsoft?: OAuthClient & { tenantId: string };
   /** Okta is an OIDC provider rather than a named one, so it is identified by its issuer. */
   okta?: OAuthClient & { issuer: string };
+  /**
+   * A trusted sign-in handoff, for a deployment run by a platform that already knows who the
+   * person is. The platform mints a short-lived HMAC token with the secret; `/api/auth/signin-handoff`
+   * verifies it and opens a session for the one address named here, and for nobody else. See
+   * auth/signin-handoff.ts.
+   */
+  signInHandoff?: SignInHandoffConfig;
+};
+
+export type SignInHandoffConfig = {
+  /** At least 32 characters; shared only with the platform that mints tokens. */
+  secret: string;
+  /** The one person a token may sign in. */
+  email: string;
+  /** Where the sign-in screen sends somebody who arrives without a token. */
+  returnUrl?: string;
+  /** What the sign-in screen calls the platform. */
+  providerName: string;
 };
 
 /**
@@ -712,11 +730,12 @@ function authConfig(
 ): AuthConfig | undefined {
   const microsoft = microsoftAuth(environment);
   const okta = oktaAuth(environment);
+  const signInHandoff = signInHandoffConfig(environment);
 
   const secret = optional(environment, "BETTER_AUTH_SECRET");
   const baseUrl = url(environment, "BETTER_AUTH_URL");
 
-  if (!google && !microsoft && !okta) {
+  if (!google && !microsoft && !okta && !signInHandoff) {
     if (secret || baseUrl) {
       throw new Error(
         "BETTER_AUTH_SECRET or BETTER_AUTH_URL is set but no identity provider is. Configure GOOGLE_OAUTH_*, MICROSOFT_OAUTH_* or OKTA_OAUTH_*, or unset both",
@@ -827,6 +846,7 @@ function authConfig(
         ["http://127.0.0.1:3010", "http://[::1]:3010", "http://localhost:3010"],
     initialAdminEmails,
     allowedEmailDomains,
+    ...(signInHandoff ? { signInHandoff } : {}),
     ...(google ? { google } : {}),
     ...(microsoft ? { microsoft } : {}),
     ...(okta ? { okta } : {}),
@@ -857,6 +877,48 @@ function microsoftAuth(
  * The issuer is what makes it a particular Okta rather than Okta in general, so it is required
  * alongside the credentials rather than defaulted to anything.
  */
+/**
+ * The trusted sign-in handoff, when a platform runs this deployment for one person.
+ *
+ * Both halves or neither: a secret with nobody to sign in, or an address with no secret to check a
+ * token against, is a misconfiguration the first visitor would otherwise find. The secret has the
+ * same floor as BETTER_AUTH_SECRET, because it is what stands between the internet and an
+ * administrator session.
+ */
+function signInHandoffConfig(
+  environment: Environment,
+): SignInHandoffConfig | undefined {
+  const secret = optional(environment, "OPENBOT_SIGNIN_HANDOFF_SECRET");
+  const email = optional(environment, "OPENBOT_SIGNIN_HANDOFF_EMAIL")
+    ?.trim()
+    .toLowerCase();
+  if (!secret && !email) return undefined;
+  if (!secret || !email) {
+    throw new Error(
+      "OPENBOT_SIGNIN_HANDOFF_SECRET and OPENBOT_SIGNIN_HANDOFF_EMAIL go together: set both, or neither",
+    );
+  }
+  if (secret.length < 32) {
+    throw new Error(
+      "OPENBOT_SIGNIN_HANDOFF_SECRET must be at least 32 characters",
+    );
+  }
+  if (!email.includes("@")) {
+    throw new Error(
+      "OPENBOT_SIGNIN_HANDOFF_EMAIL must be the email address of the person the handoff signs in",
+    );
+  }
+  const returnUrl = url(environment, "OPENBOT_SIGNIN_HANDOFF_RETURN_URL");
+  return {
+    secret,
+    email,
+    ...(returnUrl ? { returnUrl } : {}),
+    providerName:
+      optional(environment, "OPENBOT_SIGNIN_HANDOFF_PROVIDER_NAME") ??
+      "your account",
+  };
+}
+
 function oktaAuth(
   environment: Environment,
 ): (OAuthClient & { issuer: string }) | undefined {
@@ -1306,7 +1368,7 @@ export function loadConfig(
      */
     singleUser:
       !organizationAuthUrl &&
-      singleUserAllowed(environment, configuredAuthProviders(auth).length > 0),
+      singleUserAllowed(environment, auth !== undefined),
     accessibility: accessibilityEnabled(environment),
     generativeUi: generativeUiEnabled(environment),
     selfHostBanner: selfHostBannerEnabled(environment),

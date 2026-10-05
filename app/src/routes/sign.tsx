@@ -168,7 +168,28 @@ function SignScreen() {
           ) : null}
           {providers.length > 0 && !options?.ssoRequired ? (
             providerButtons
-          ) : options?.sso || options?.ssoRequired ? null : (
+          ) : options?.sso || options?.ssoRequired ? null : options?.handoff ? (
+            /*
+             * This deployment is signed into from somewhere else: the platform running it mints a
+             * token and sends the person here already signed in. Arriving without one means going
+             * back there.
+             */
+            options.handoff.returnUrl ? (
+              <Button
+                className="h-10 w-full tracking-tight"
+                render={<a href={options.handoff.returnUrl} />}
+                size="lg"
+                variant="outline"
+              >
+                Continue with {options.handoff.providerName}
+              </Button>
+            ) : (
+              <p className="text-center text-sm text-muted-foreground">
+                Sign in from {options.handoff.providerName} to open this
+                workspace.
+              </p>
+            )
+          ) : (
             <p className="text-center text-sm text-muted-foreground">
               No sign-in provider is configured for this deployment.
             </p>

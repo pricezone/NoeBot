@@ -1,3 +1,23 @@
+# Noë Bot
+
+**Noë Bot is HyperNoesis' fork of [CopilotKit OpenBot](https://github.com/CopilotKit/openbot)**: AI
+teammates with a computer of their own, hosted for every HyperNoesis subscriber on a dedicated
+machine and opened from the Noë Bot app at [hypernoesis.ai](https://www.hypernoesis.ai).
+
+What this fork adds on top of upstream, kept small so `git merge upstream/main` stays routine:
+
+- `docker/fly/entrypoint.sh` — runs the single-container image on Fly.io Machines, where s6-overlay
+  cannot be PID 1, and keeps Postgres, the workspace and the browser profiles on the one volume.
+- `server/src/auth/handoff.ts` — a sign-in handoff: the HyperNoesis API mints a short-lived HMAC
+  token with a per-instance secret (`OPENBOT_HANDOFF_SECRET`, `OPENBOT_HANDOFF_EMAIL`) and the
+  instance opens a session for its one administrator at `/api/auth/handoff`.
+- `examples/noebot/` — the Noë Bot tenant package (brand, starting coworkers, channels, skills).
+- `.github/workflows/publish-image.yml` — publishes `ghcr.io/pricezone/noebot` on every push.
+
+Everything below is the upstream README.
+
+---
+
 <div align="center">
 
 # OpenBot

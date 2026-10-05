@@ -1,0 +1,3 @@
+# Document sources are connected from the admin screens (Google Drive, Notion) rather than declared
+# here: a Noë Bot workspace starts with none, and its owner adds their own.
+sources: []

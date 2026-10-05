@@ -462,6 +462,16 @@ export function createApp(
        */
       authProviders: configuredAuthProviders(config.auth),
       /*
+       * The platform that signs people in here through the handoff, when there is one. The name
+       * and where to go, never the secret or the address it admits.
+       */
+      signInHandoff: config.auth?.signInHandoff
+        ? {
+            providerName: config.auth.signInHandoff.providerName,
+            returnUrl: config.auth.signInHandoff.returnUrl ?? null,
+          }
+        : null,
+      /*
        * Whether any enterprise identity provider has been registered.
        *
        * A count, not a list. The sign-in screen only needs to know whether to offer the email box
