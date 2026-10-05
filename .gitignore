@@ -50,3 +50,6 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# The CopilotKit CLI's selected project (per developer); credentials live in .env
+.copilotkit/
