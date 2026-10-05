@@ -51,6 +51,9 @@ describe("runtime capabilities", () => {
       voice: false,
       // Names only. The sign-in screen reads this to know which buttons to draw.
       authProviders: ["google"],
+      // The platform that signs people in through the handoff, when one is configured; this
+      // deployment has none.
+      signInHandoff: null,
       // A boolean, not a list: naming the registered providers would tell anybody who loads the
       // sign-in page which companies use this deployment.
       ssoConfigured: false,
@@ -76,6 +79,7 @@ describe("runtime capabilities", () => {
       "transcription",
       "voice",
       "authProviders",
+      "signInHandoff",
       "ssoConfigured",
       "ssoRequired",
     ]);
