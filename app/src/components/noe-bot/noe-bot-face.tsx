@@ -6,22 +6,21 @@ import { type Face, facePath } from "./pixel-art";
  *
  * Takes the current text colour, like an icon, so it is black on the light theme and white on the
  * dark one unless a caller colours it. `crispEdges` keeps the pixels square at every size instead
- * of smearing them, which is what makes the 16 grid readable in a 16-pixel slot.
+ * of smearing them, which is what makes the drawing readable in a 16-pixel slot.
  *
  * Centred in a square with one pixel of margin, so it drops into any square icon slot the way the
- * brand's own `noe-bot` SVG does: the 16 grid is 14 by 12 pixels in a 16 by 16 box, the 24 grid is
- * 20 by 20 in a 22 by 22 one.
+ * brand's own `noe-bot` SVG does: 14 by 12 pixels in a 16 by 16 box. Always the 16 grid, at every
+ * size; the guide's 24 grid is for terminal banners and the app does not use it, so Noë Bot is one
+ * drawing wherever it appears.
  */
 export function NoeBotFace({
   face = "body",
-  grid = 16,
   size,
   title,
   className,
   style,
 }: {
   face?: Face;
-  grid?: 16 | 24;
   /** Pixels. Left out, the SVG takes its size from CSS, like any icon. */
   size?: number;
   /** Announced to a screen reader. Left out, the drawing is decorative and hidden from one. */
@@ -29,7 +28,7 @@ export function NoeBotFace({
   className?: string;
   style?: CSSProperties;
 }) {
-  const { width, height, path } = facePath(grid, face);
+  const { width, height, path } = facePath(face);
   const side = Math.max(width, height) + 2;
   const x = -(side - width) / 2;
   const y = -(side - height) / 2;
@@ -42,7 +41,6 @@ export function NoeBotFace({
     className,
     style,
     "data-face": face,
-    "data-grid": grid,
   } as const;
   // Two elements rather than one with conditional attributes, so what a screen reader gets is
   // decided here and not by whichever attribute happened to be set.
@@ -66,7 +64,5 @@ export function NoeBotIcon({
   className?: string;
   title?: string;
 }) {
-  return (
-    <NoeBotFace face="body" grid={16} className={className} title={title} />
-  );
+  return <NoeBotFace face="body" className={className} title={title} />;
 }

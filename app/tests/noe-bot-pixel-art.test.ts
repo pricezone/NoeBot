@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GRID_16, GRID_24 } from "@/components/noe-bot/drawings";
+import { GRID_16 } from "@/components/noe-bot/drawings";
 import {
   AVATAR_SCHEMES,
   decodeHalfBlocks,
@@ -11,7 +11,7 @@ import {
 } from "@/components/noe-bot/pixel-art";
 
 describe("the brand guide's half-block drawings", () => {
-  test("the 16 grid is 14 by 12 pixels and the 24 grid 20 by 20, for every face", () => {
+  test("every face is 14 by 12 pixels: the 16 grid, and only the 16 grid", () => {
     for (const drawing of [
       GRID_16.body,
       GRID_16.offline,
@@ -20,13 +20,7 @@ describe("the brand guide's half-block drawings", () => {
       const grid = decodeHalfBlocks(drawing);
       expect([grid.width, grid.height]).toEqual([14, 12]);
     }
-    for (const drawing of [
-      GRID_24.body,
-      ...Object.values(GRID_24.expressions),
-    ]) {
-      const grid = decodeHalfBlocks(drawing);
-      expect([grid.width, grid.height]).toEqual([20, 20]);
-    }
+    expect(Object.keys(GRID_16.expressions)).toHaveLength(15);
   });
 
   test("the mascot's capsule eyes are negative space in columns 5 and 8, rows 4 to 7", () => {
@@ -73,10 +67,12 @@ describe("the brand guide's half-block drawings", () => {
     ).toBe("M0 0h2v1h-2zM3 0h1v1h-1zM4 1h1v1h-1z");
   });
 
-  test("a face path is cached and the 24 grid has no offline eyes of its own", () => {
-    expect(facePath(16, "offline")).toBe(facePath(16, "offline"));
-    expect(facePath(24, "offline").path).toBe(facePath(24, "body").path);
-    expect(facePath(16, "happy").path).not.toBe(facePath(16, "body").path);
+  test("a face path is cached, and each face is its own drawing", () => {
+    expect(facePath("offline")).toBe(facePath("offline"));
+    expect(facePath("happy").path).not.toBe(facePath("body").path);
+    expect(facePath("offline").path).not.toBe(facePath("body").path);
+    expect(facePath("body").width).toBe(14);
+    expect(facePath("body").height).toBe(12);
   });
 });
 

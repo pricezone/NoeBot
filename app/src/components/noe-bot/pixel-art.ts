@@ -1,4 +1,4 @@
-import { GRID_16, GRID_24, type HalfBlockDrawing } from "./drawings";
+import { GRID_16, type HalfBlockDrawing } from "./drawings";
 
 /**
  * From the brand guide's half-block drawings to something a screen can draw.
@@ -8,7 +8,7 @@ import { GRID_16, GRID_24, type HalfBlockDrawing } from "./drawings";
  * here knows about React, which is what lets the data be checked in a test without a DOM.
  */
 
-/** One of the guide's eye-only expressions, which both grids draw. */
+/** One of the guide's eye-only expressions. */
 export type Expression = keyof typeof GRID_16.expressions;
 
 /** What can be on the face: the mascot's own capsule eyes, an expression, or the offline eyes. */
@@ -48,8 +48,8 @@ export function decodeHalfBlocks(drawing: HalfBlockDrawing): PixelGrid {
 /**
  * Pixels to one SVG path, one rectangle per horizontal run.
  *
- * Runs rather than single pixels because a 20 by 20 face is up to 400 rectangles, and the path is
- * drawn for every avatar in a roster. Each run is `M x y h w v 1 h -w z`, which closes cleanly and
+ * Runs rather than single pixels because a face is up to 168 rectangles, and the path is drawn for
+ * every avatar in a roster. Each run is `M x y h w v 1 h -w z`, which closes cleanly and
  * needs no stroke; with `shape-rendering: crispEdges` adjacent runs meet without a seam.
  */
 export function pathFor(grid: PixelGrid): string {
@@ -71,29 +71,25 @@ export function pathFor(grid: PixelGrid): string {
 
 export type FacePath = { width: number; height: number; path: string };
 
-const cache = new Map<string, FacePath>();
+const cache = new Map<Face, FacePath>();
 
-/** The drawing for a face on a grid, decoded once and kept. The 24 grid has no offline eyes. */
-export function facePath(grid: 16 | 24, face: Face): FacePath {
-  const key = `${grid}:${face}`;
-  const known = cache.get(key);
+/** The drawing for a face, decoded once and kept. */
+export function facePath(face: Face): FacePath {
+  const known = cache.get(face);
   if (known) return known;
-  const set = grid === 16 ? GRID_16 : GRID_24;
   const drawing: HalfBlockDrawing =
     face === "body"
-      ? set.body
+      ? GRID_16.body
       : face === "offline"
-        ? grid === 16
-          ? GRID_16.offline
-          : set.body
-        : set.expressions[face];
+        ? GRID_16.offline
+        : GRID_16.expressions[face];
   const pixels = decodeHalfBlocks(drawing);
   const result = {
     width: pixels.width,
     height: pixels.height,
     path: pathFor(pixels),
   };
-  cache.set(key, result);
+  cache.set(face, result);
   return result;
 }
 

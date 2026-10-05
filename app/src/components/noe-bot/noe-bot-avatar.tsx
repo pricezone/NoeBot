@@ -7,9 +7,8 @@ import { type Face, expressionFor, schemeFor } from "./pixel-art";
  *
  * Replaces the abstract generated avatars the app shipped with. The expression and the background
  * come from the Bot's avatar seed, so a Bot looks the same everywhere it appears and two Bots
- * usually look different, which is what an avatar is for in a roster. The 24 grid is used from 48
- * pixels up, where its finer eyes read; below that the 16 grid's hand-set pixels are the ones the
- * guide drew for small sizes.
+ * usually look different, which is what an avatar is for in a roster. The 16 grid at every size:
+ * the pixels simply get bigger, which is what a terminal drawing is meant to do.
  *
  * `name` makes it an image a screen reader announces; without one it is decorative, for a row that
  * already names the Bot beside it.
@@ -29,7 +28,6 @@ export function NoeBotAvatar({
   className?: string;
 }) {
   const scheme = schemeFor(seed);
-  const grid = size >= 48 ? 24 : 16;
   const shared = {
     className: cn(
       "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full",
@@ -45,7 +43,6 @@ export function NoeBotAvatar({
   const drawing = (
     <NoeBotFace
       face={face ?? expressionFor(seed)}
-      grid={grid}
       size={Math.round(size * 0.7)}
     />
   );

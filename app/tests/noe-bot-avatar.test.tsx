@@ -18,11 +18,11 @@ test("a named avatar is one image, announced by name, hiding the drawing inside 
   expect(image.style.width).toBe("40px");
   const svg = image.querySelector("svg");
   expect(svg?.getAttribute("aria-hidden")).toBe("true");
-  expect(svg?.getAttribute("data-grid")).toBe("16");
+  expect(svg?.getAttribute("viewBox")).toBe("-1 -2 16 16");
   expect(svg?.querySelector("path")?.getAttribute("d")).toMatch(/^M\d/);
 });
 
-test("the same seed draws the same face everywhere, and a larger slot uses the 24 grid", () => {
+test("the same seed draws the same face everywhere, on the 16 grid at every size", () => {
   const small = render(<NoeBotAvatar seed="research-desk" size={28} />);
   const again = render(<NoeBotAvatar seed="research-desk" size={28} />);
   const face = (view: ReturnType<typeof render>) =>
@@ -30,11 +30,11 @@ test("the same seed draws the same face everywhere, and a larger slot uses the 2
   expect(face(small)).toBe(face(again));
   const large = render(<NoeBotAvatar seed="research-desk" size={80} />);
   expect(face(large)).toBe(face(small));
-  expect(large.container.querySelector("svg")?.getAttribute("data-grid")).toBe(
-    "24",
-  );
   expect(large.container.querySelector("svg")?.getAttribute("viewBox")).toBe(
-    "-1 -1 22 22",
+    "-1 -2 16 16",
+  );
+  expect(large.container.querySelector("svg")?.getAttribute("width")).toBe(
+    "56",
   );
 });
 
