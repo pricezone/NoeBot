@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { desktopEnvironment, desktopLayout } from "../src/desktop";
+import {
+  desktopEnvironment,
+  desktopLayout,
+  TERMINAL_CELL,
+} from "../src/desktop";
 
 describe("the desktop layout", () => {
   test("puts the browser under the panel and the terminal under the browser, all on screen", () => {
@@ -11,11 +15,13 @@ describe("the desktop layout", () => {
     expect(layout.terminal.y).toBeGreaterThan(
       layout.browser.y + layout.browser.height,
     );
-    // The terminal, title bar included, ends above the dock.
-    expect(layout.terminal.y + 26 + layout.terminal.rows * 19).toBeLessThan(
-      900 - layout.dockHeight,
+    // The terminal ends above the dock and inside the right edge.
+    expect(
+      layout.terminal.y + layout.terminal.rows * TERMINAL_CELL.height,
+    ).toBeLessThan(900 - layout.dockHeight);
+    expect(layout.terminal.columns * TERMINAL_CELL.width).toBeLessThanOrEqual(
+      1440,
     );
-    expect(layout.terminal.columns * 9.6).toBeLessThanOrEqual(1440);
     expect(layout.terminal.rows).toBeGreaterThanOrEqual(8);
   });
 

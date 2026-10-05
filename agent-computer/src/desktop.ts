@@ -47,9 +47,12 @@ const DOCK_HEIGHT = 52;
 const TITLE_BAR = 26;
 /** The browser gets most of the work area; the terminal gets what is left. */
 const BROWSER_SHARE = 0.68;
-/** xfce4-terminal's default font, DejaVu Sans Mono at 12 points, measured on a 96 dpi display. */
-const CELL_WIDTH = 9.6;
-const CELL_HEIGHT = 19;
+/**
+ * xfce4-terminal's default font, DejaVu Sans Mono at 12 points, as one character cell on the
+ * desktop. Measured on the deployed image with `xdotool getwindowgeometry`: 149 columns came out
+ * 1517 pixels wide and 12 rows 264 pixels tall, padding included.
+ */
+export const TERMINAL_CELL = { width: 10.2, height: 22 };
 const GAP = 4;
 
 /** How the screen is divided. Pure, so the browser's launch arguments can be derived from it. */
@@ -67,8 +70,11 @@ export function desktopLayout(size: DisplaySize): DesktopLayout {
     terminal: {
       x: 0,
       y: terminalTop,
-      columns: Math.max(40, Math.floor((size.width - 2 * GAP) / CELL_WIDTH)),
-      rows: Math.max(3, Math.floor(terminalPixels / CELL_HEIGHT)),
+      columns: Math.max(
+        40,
+        Math.floor((size.width - 2 * GAP) / TERMINAL_CELL.width),
+      ),
+      rows: Math.max(3, Math.floor(terminalPixels / TERMINAL_CELL.height)),
     },
   };
 }

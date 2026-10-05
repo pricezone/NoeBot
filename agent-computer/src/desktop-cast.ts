@@ -13,11 +13,12 @@ import { wheelClicks, xKeyFor } from "./x-keys";
  * `{type:"frame"}` messages out, the same mouse, wheel, key and text messages in. The server relay
  * and the browser client do not know which one they are talking to, which is why neither changed.
  *
- * FRAMES WHEN SOMETHING MOVES. ffmpeg grabs ten times a second and `mpdecimate` drops a frame that
- * looks like the one before, so a desktop nobody is touching costs the grab and nothing else, and a
- * page scrolling by costs ten frames a second, which is what a person steering it needs. `max=50`
- * lets one frame through every five seconds regardless, so a client that lost a frame is not stuck
- * with a stale one until something changes.
+ * FRAMES WHEN SOMETHING MOVES. ffmpeg grabs ten times a second and encodes every grab; a frame whose
+ * bytes equal the last one sent is dropped here, so a desktop nobody is touching costs the encode
+ * and no bandwidth, and a page scrolling by costs ten frames a second, which is what a person
+ * steering it needs. The encoder is deterministic at a fixed quality, so an unchanged screen is an
+ * identical JPEG. Not ffmpeg's own `mpdecimate`, which was measured to hold the first frame back
+ * until the screen changed: a person opening a quiet desktop saw nothing until they moved the mouse.
  *
  * COORDINATES ARE SCREEN PIXELS. A frame is the whole display at its own size, so the client's
  * frame-relative coordinates are screen coordinates, and that is what XTEST takes. There is no
@@ -50,14 +51,7 @@ export function ffmpegGrabArguments(
     "1",
     "-i",
     display,
-    ...(once
-      ? ["-frames:v", "1"]
-      : [
-          "-vf",
-          "mpdecimate=max=50:hi=768:lo=320:frac=0.33",
-          "-fps_mode",
-          "passthrough",
-        ]),
+    ...(once ? ["-frames:v", "1"] : []),
     "-f",
     "image2pipe",
     "-c:v",
@@ -178,8 +172,11 @@ export function startDesktopCast(
   let grabber: ChildProcess | undefined;
   let restarts = 0;
 
+  let last: Buffer | undefined;
   const splitter = createMjpegSplitter((jpeg) => {
     if (stopped) return;
+    if (last?.equals(jpeg)) return;
+    last = Buffer.from(jpeg);
     onFrame({
       type: "frame",
       data: jpeg.toString("base64"),

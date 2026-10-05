@@ -48,23 +48,25 @@ describe("the JPEG splitter", () => {
 });
 
 describe("the ffmpeg grab", () => {
-  test("streams the display at its size and drops frames that did not change", () => {
+  test("streams the display at its size, ten times a second, to a pipe", () => {
     const args = ffmpegGrabArguments(":9", { width: 1440, height: 900 });
     expect(args).toContain("x11grab");
     expect(args.slice(args.indexOf("-video_size"))[1]).toBe("1440x900");
     expect(args.slice(args.indexOf("-i"))[1]).toBe(":9");
-    expect(args.join(" ")).toContain("mpdecimate");
+    expect(args.slice(args.indexOf("-framerate"))[1]).toBe("10");
+    // Measured to hold the first frame back until the screen changed; the cast dedupes instead.
+    expect(args.join(" ")).not.toContain("mpdecimate");
     expect(args.at(-1)).toBe("-");
   });
 
-  test("a single capture asks for one frame and no decimation", () => {
+  test("a single capture asks for one frame", () => {
     const args = ffmpegGrabArguments(
       ":9",
       { width: 800, height: 600 },
       { once: true },
     );
     expect(args.join(" ")).toContain("-frames:v 1");
-    expect(args.join(" ")).not.toContain("mpdecimate");
+    expect(args).not.toContain("-framerate");
   });
 });
 
@@ -211,6 +213,8 @@ describe("the desktop cast", () => {
     expect(grabber?.args).toContain("x11grab");
 
     grabber?.stdout.write(jpeg("first"));
+    // The same screen again is not a new frame.
+    grabber?.stdout.write(jpeg("first"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({
@@ -220,11 +224,15 @@ describe("the desktop cast", () => {
       data: jpeg("first").toString("base64"),
     });
 
+    grabber?.stdout.write(jpeg("second"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(frames).toHaveLength(2);
+
     await cast.stop();
     expect(grabber?.signalCode).toBe("SIGTERM");
     grabber?.stdout.write(jpeg("late"));
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(frames).toHaveLength(1);
+    expect(frames).toHaveLength(2);
     // Input never opened, so nothing to close; a stopped cast ignores what it is sent.
     await cast.send({ type: "text", text: "ignored" });
   });
