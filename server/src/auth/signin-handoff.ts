@@ -104,18 +104,24 @@ function hasUnsafeCharacter(value: string): boolean {
 }
 
 export function localRedirect(value: string | undefined, base: URL): string {
+  const home = new URL("/", base).toString();
   if (
     typeof value !== "string" ||
     !value.startsWith("/") ||
     value.startsWith("//") ||
     hasUnsafeCharacter(value)
   ) {
-    return "/";
+    return home;
   }
+  /*
+   * Returned resolved, never as a path to parse again: `/.//evil.example` resolves to a path that
+   * begins with `//` on this origin, which re-parsed as a redirect target is another host.
+   */
   const target = new URL(value, base);
-  return target.origin === base.origin
-    ? `${target.pathname}${target.search}${target.hash}`
-    : "/";
+  if (target.origin !== base.origin || target.pathname.startsWith("//")) {
+    return home;
+  }
+  return target.toString();
 }
 
 export type SignInHandoffOptions = {
@@ -198,9 +204,8 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
           );
           await setSessionCookie(ctx, { session, user });
 
-          const base = new URL(ctx.context.baseURL);
           throw ctx.redirect(
-            new URL(localRedirect(ctx.query.redirect, base), base).toString(),
+            localRedirect(ctx.query.redirect, new URL(ctx.context.baseURL)),
           );
         },
       ),

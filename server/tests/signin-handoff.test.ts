@@ -83,9 +83,9 @@ describe("localRedirect", () => {
 
   test("keeps a path on this deployment, with its query and hash", () => {
     expect(localRedirect("/admin/audit?tab=1#top", base)).toBe(
-      "/admin/audit?tab=1#top",
+      "https://abcdefghijkl.fly.dev/admin/audit?tab=1#top",
     );
-    expect(localRedirect("/", base)).toBe("/");
+    expect(localRedirect("/", base)).toBe("https://abcdefghijkl.fly.dev/");
   });
 
   test("sends anything that could leave this origin to the root", () => {
@@ -96,11 +96,13 @@ describe("localRedirect", () => {
       "//evil.example",
       "/\\evil.example",
       "/\\/evil.example",
+      "/.//evil.example",
+      "/a/..//evil.example",
       "https://evil.example/",
       "/bots\u0000",
       "/bots\r\nLocation: https://evil.example",
     ]) {
-      expect(localRedirect(value, base)).toBe("/");
+      expect(localRedirect(value, base)).toBe("https://abcdefghijkl.fly.dev/");
     }
   });
 });
