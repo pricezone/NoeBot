@@ -97,16 +97,19 @@ function MenuLink({
 }
 
 /**
- * What the usage row says.
+ * What the usage row says, as Grok Bot's "Weekly usage   3%  ›": the label on the left, the
+ * figure on the right in muted type. A 288px menu could not hold the figure inside the label.
  *
- * "Usage" alone while the figure is still on its way or could not be had: the row is a doorway to
- * the usage tab either way, and a number that is not known is better left unsaid than drawn as
- * zero. Exported so the wording is pinned where it is decided.
+ * No figure while it is still on its way or could not be had: the row is a doorway to the usage
+ * tab either way, and a number that is not known is better left unsaid than drawn as zero.
+ * Exported so the wording is pinned where it is decided.
  */
-export function usageRowLabel(weekCredits: number | undefined): string {
+export const USAGE_ROW_LABEL = "Weekly usage";
+
+export function usageRowValue(weekCredits: number | undefined): string | null {
   return weekCredits === undefined
-    ? "Usage"
-    : `Usage · ${formatCredits(weekCredits)} credits this week`;
+    ? null
+    : `${formatCredits(weekCredits)} credits`;
 }
 
 /** The usage row, mounted only on a metered deployment so an own-key one never asks the server. */
@@ -115,9 +118,12 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
   return (
     <MenuLink to={USAGE_PATH} onNavigate={onNavigate}>
       <IconGauge />
-      <span className="min-w-0 flex-1 truncate">
-        {usageRowLabel(usage.data?.week.credits)}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{USAGE_ROW_LABEL}</span>
+      {usageRowValue(usage.data?.week.credits) ? (
+        <span className="shrink-0 text-muted-foreground tabular-nums">
+          {usageRowValue(usage.data?.week.credits)}
+        </span>
+      ) : null}
       <IconChevronRight className="size-4!" />
     </MenuLink>
   );

@@ -2,6 +2,7 @@ import { IconX } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type * as React from "react";
+import { useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -69,6 +70,13 @@ function ModalShell({
   const isAdmin = user.data?.role === "admin";
   const rows = (nav ?? []).filter((item) => !item.adminOnly || isAdmin);
   const hasNav = rows.length > 0;
+  /*
+   * Where focus lands when the modal opens: the body, not the first row of the nav. Base UI moves
+   * focus to the first tabbable element by default, which drew a focus ring around "General" on
+   * every visit as if the person had tabbed to it. The body takes focus without a ring, and Tab
+   * still reaches the nav from there.
+   */
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const close = () => {
     if (onClose) {
@@ -86,6 +94,7 @@ function ModalShell({
       }}
     >
       <DialogContent
+        initialFocus={bodyRef}
         showCloseButton={false}
         className={cn(
           /*
@@ -110,7 +119,7 @@ function ModalShell({
         {hasNav && (
           <nav
             aria-label={title ?? "Sections"}
-            className="hidden w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-sidebar p-3 md:flex"
+            className="hidden w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-card p-3 md:flex"
           >
             {title !== undefined && (
               <div className="mb-3 px-3 pt-2 text-[17px] font-semibold text-foreground">
@@ -122,7 +131,17 @@ function ModalShell({
             ))}
           </nav>
         )}
-        <div className="flex min-w-0 flex-1 flex-col">
+        {/*
+         * With a nav, the sections sit on the page colour beside a raised nav column, the way Grok
+         * Bot's settings do: black in the dark theme, so the section cards read as cards. Without
+         * one (the Marketplace) the whole modal is the one raised surface.
+         */}
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-col",
+            hasNav && "bg-background",
+          )}
+        >
           {/*
            * The phone-width top strip: the title and the same rows as the column, scrolling
            * sideways. Room is kept on the right for the close button, which floats over it. Above
@@ -150,7 +169,11 @@ function ModalShell({
               )}
             </div>
           )}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-y-auto outline-none"
+            ref={bodyRef}
+            tabIndex={-1}
+          >
             {children}
           </div>
         </div>

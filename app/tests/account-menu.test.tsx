@@ -14,7 +14,8 @@ import userEvent from "@testing-library/user-event";
 import {
   AccountMenu,
   initialsOf,
-  usageRowLabel,
+  USAGE_ROW_LABEL,
+  usageRowValue,
 } from "@/components/app-sidebar/account-menu";
 import { type AuthenticatedUser, authKeys } from "@/lib/auth/queries";
 import { deploymentKeys } from "@/lib/deployment/queries";
@@ -157,9 +158,10 @@ test("initials come from the name, else from the address", () => {
   expect(initialsOf({ name: null, email: "ab@example.com" })).toBe("AB");
 });
 
-test("the usage row says the week's credits, or just Usage while unknown", () => {
-  expect(usageRowLabel(undefined)).toBe("Usage");
-  expect(usageRowLabel(12480.4)).toBe("Usage · 12,480 credits this week");
+test("the usage row says Weekly usage, with the week's credits beside it once known", () => {
+  expect(USAGE_ROW_LABEL).toBe("Weekly usage");
+  expect(usageRowValue(undefined)).toBeNull();
+  expect(usageRowValue(12480.4)).toBe("12,480 credits");
 });
 
 test("the trigger shows the person's initials and opens the menu", async () => {
@@ -174,13 +176,13 @@ test("the trigger shows the person's initials and opens the menu", async () => {
 test("the usage row exists only on a metered deployment, and links to the usage tab", async () => {
   const ownKey = draw({ usage: false, weekCredits: 500 });
   await open(ownKey.view);
-  expect(ownKey.view.queryByRole("link", { name: /Usage/ })).toBeNull();
+  expect(ownKey.view.queryByRole("link", { name: /usage/i })).toBeNull();
   cleanup();
 
   const metered = draw({ usage: true, weekCredits: 1234 });
   await open(metered.view);
-  const row = metered.view.getByRole("link", {
-    name: "Usage · 1,234 credits this week",
+  const row = await metered.view.findByRole("link", {
+    name: /Weekly usage\s*1,234 credits/,
   });
   expect(row.getAttribute("href")).toBe("/settings/usage");
 });

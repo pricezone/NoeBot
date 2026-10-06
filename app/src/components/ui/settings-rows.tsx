@@ -53,7 +53,7 @@ function SettingsCard({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="settings-card"
       className={cn(
-        "flex flex-col divide-y divide-border overflow-hidden rounded-2xl bg-muted",
+        "flex flex-col divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card",
         className,
       )}
       {...props}

@@ -70,7 +70,7 @@ export function UsageSection() {
             <div className="grid gap-3 sm:grid-cols-3">
               <WindowCard label="This week" window={usage.data.week} />
               <WindowCard label="This month" window={usage.data.month} />
-              <SettingsCard className="px-4 py-3">
+              <SettingsCard className="divide-y-0 px-4 py-3">
                 <p className="text-[13px] text-muted-foreground">Balance</p>
                 <p className="text-[22px] font-semibold tabular-nums">
                   {formatCredits(usage.data.balance)}
@@ -126,7 +126,7 @@ export function UsageSection() {
 
 function WindowCard({ label, window }: { label: string; window: UsageWindow }) {
   return (
-    <SettingsCard className="px-4 py-3">
+    <SettingsCard className="divide-y-0 px-4 py-3">
       <p className="text-[13px] text-muted-foreground">{label}</p>
       <p className="text-[22px] font-semibold tabular-nums">
         {formatCredits(window.credits)}
