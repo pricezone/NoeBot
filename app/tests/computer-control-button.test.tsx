@@ -7,12 +7,9 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { StrictMode, useState } from "react";
+import { StrictMode } from "react";
 import type { ControlState } from "@/lib/computers/control";
-import {
-  ComputerChatControls,
-  ComputerControlButton,
-} from "@/components/computer/computer-controls";
+import { ComputerControlButton } from "@/components/computer/computer-controls";
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => GlobalRegistrator.register());
@@ -262,59 +259,6 @@ test("a takeover stays shared when chat remounts before its response", async () 
   expect(second.getByRole("button").hasAttribute("disabled")).toBe(true);
   backend.finishTake();
   expect(await second.findByRole("button", { name: "Hand back" })).toBeTruthy();
-});
-
-test("the labeled Computer toggle opens and closes without changing ownership", async () => {
-  const backend = server();
-  function Chat() {
-    const [open, setOpen] = useState(false);
-    return (
-      <>
-        <ComputerChatControls
-          computerId="toggle-control"
-          open={open}
-          onOpenChange={setOpen}
-        />
-        {open ? <p>Live computer sidebar</p> : null}
-      </>
-    );
-  }
-  const view = render(<Chat />);
-  await waitFor(() =>
-    expect(
-      view
-        .getByRole("button", { name: "Take control" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
-  );
-  fireEvent.click(view.getByRole("button", { name: "Open Computer" }));
-  expect(view.getByText("Live computer sidebar")).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "Close Computer" }));
-  expect(view.queryByText("Live computer sidebar")).toBeNull();
-  expect(backend.calls.filter((call) => call.body)).toHaveLength(0);
-});
-
-test("an active human prompt opens once and does not fight closing the Computer", async () => {
-  server("human");
-  function Chat() {
-    const [open, setOpen] = useState(false);
-    return (
-      <>
-        <ComputerChatControls
-          computerId="human-toggle"
-          open={open}
-          onOpenChange={(next) => setOpen(next)}
-        />
-        {open ? <p>Live computer sidebar</p> : null}
-      </>
-    );
-  }
-  const view = render(<Chat />);
-  expect(await view.findByText("Live computer sidebar")).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "Close Computer" }));
-  view.rerender(<Chat />);
-  expect(view.queryByText("Live computer sidebar")).toBeNull();
-  expect(view.getByRole("button", { name: "Hand back" })).toBeTruthy();
 });
 
 test("both controls stay disabled while the current browser action drains", async () => {

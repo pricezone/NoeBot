@@ -6,7 +6,10 @@ import {
 } from "@tanstack/react-query";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { client } from "@/lib/client";
-import type { UserPreferences } from "../../../../shared/user-preferences";
+import {
+  DEFAULT_USER_PREFERENCES,
+  type UserPreferences,
+} from "../../../../shared/user-preferences";
 import { settingsKeys } from "./queries";
 
 export type { MessageListEmphasis } from "../../../../shared/user-preferences";
@@ -32,46 +35,10 @@ export function useUserPreferences() {
 }
 
 export function useMessageListEmphasis() {
-  return useUserPreferences().data?.messageListEmphasis ?? "thread";
-}
-
-/**
- * Close the self-host banner for this person, on every device they sign in from.
- *
- * Patched in onMutate so the bar is gone the moment the button is pressed, and put back if the save
- * fails, because a banner that vanished and then reappeared on the next load would read as ignoring
- * the click. The reply seeds the cache with what the server stored.
- */
-export function dismissSelfHostBannerMutationOptions(
-  queryClient: QueryClient,
-  userId: string | undefined,
-) {
-  const queryKey = userPreferencesQueryOptions(userId).queryKey;
-  return mutationOptions({
-    mutationFn: (): Promise<UserPreferences> => {
-      if (!userId) throw new Error("Sign in to save your preferences.");
-      return client("/api/settings/preferences", "preferences", {
-        method: "PATCH",
-        body: { selfHostBannerDismissed: true },
-        fallback: "Could not save your preferences",
-      });
-    },
-    onMutate: () => {
-      const previous = queryClient.getQueryData(queryKey);
-      if (previous) {
-        queryClient.setQueryData(queryKey, {
-          ...previous,
-          selfHostBannerDismissed: true,
-        });
-      }
-      return { previous };
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previous)
-        queryClient.setQueryData(queryKey, context.previous);
-    },
-    onSuccess: (preferences) => queryClient.setQueryData(queryKey, preferences),
-  });
+  return (
+    useUserPreferences().data?.messageListEmphasis ??
+    DEFAULT_USER_PREFERENCES.messageListEmphasis
+  );
 }
 
 export function saveUserPreferencesMutationOptions(

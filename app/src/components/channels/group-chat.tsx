@@ -176,7 +176,7 @@ function GroupLine({
         ) : message.status === "waiting" ? (
           <p className="text-sm text-muted-foreground">
             {message.reason ?? "Waiting for your response."}{" "}
-            <Link className="underline" to="/approvals">
+            <Link className="underline" to="/settings/approvals">
               Open approvals
             </Link>
           </p>

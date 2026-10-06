@@ -11,14 +11,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
   createRootRoute,
-  createRoute,
   createRouter,
-  Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
+import { AgentRoster } from "@/components/agents/agent-roster";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
-import { Route as AgentsRoute } from "@/routes/_authed/_app/agents/index";
 import { Route as HomeRoute } from "@/routes/_authed/_app/index";
 
 /**
@@ -34,8 +32,9 @@ import { Route as HomeRoute } from "@/routes/_authed/_app/index";
  *
  * Each test builds its own `QueryClient` with `retry: false` — the app's own client (see
  * `query-client.ts`) retries once, which is correct for production and would just slow this test
- * down for no assertion it needs. Both screens are exercised through their real, exported `Route`,
- * not a stand-in; see `renderAgents` below for what that costs on `/agents`.
+ * down for no assertion it needs. `/` is exercised through its real, exported `Route`; the roster
+ * is `AgentRoster`, the component the Marketplace's Agents tab draws since `/agents` became a
+ * redirect into it, rendered on its own under a bare root route.
  */
 
 beforeAll(() => GlobalRegistrator.register());
@@ -123,7 +122,7 @@ async function waitForFailedRefetch(queryClient: QueryClient) {
  * times out around 1010ms — not a logic bug (data is never cleared or corrupted through the error
  * transition; this was checked with a `Profiler`), just too little headroom for a busy machine. Do
  * not remove this as a redundant-looking argument: every `findByText` in a test that renders `/`
- * needs it, and `/agents`-only tests do not, because they never mount `Composer`.
+ * needs it, and roster-only tests do not, because they never mount `Composer`.
  */
 const HOME_FIND_TIMEOUT = { timeout: 5000 };
 
@@ -143,124 +142,14 @@ function renderHome(queryClient: QueryClient) {
 }
 
 /**
- * `/agents`'s component calls `Route.useSearch()` and `Route.useNavigate()`, which read `this.id`
- * off the very `Route` singleton the source file exports — so, unlike `/`, a bare root standing in
- * for it is not enough; those hooks fail to resolve a match unless that exact object is present in
- * the router's tree with the id it expects.
- *
- * That id is not a free choice: `Route.useSearch()`/`useNavigate()` read it from `this.id`, which
- * TanStack Router computes by walking `getParentRoute()` up to the root and joining each ancestor's
- * own id, so it is fixed by the file's real position — `/_authed/_app/agents/` for a leaf declared
- * `createFileRoute("/_authed/_app/agents/")` under pathless `_authed`/`_app` parents. Reproducing
- * that with two throwaway pathless routes (`id`-only, no `path`, so they contribute nothing to the
- * URL — exactly what `_authed`/`_app` do) is enough for the join to land on the same id; it does not
- * require the real ancestors, whose `beforeLoad` checks a signed-in session and whose components
- * mount the sidebar shell and the Copilot provider — none of which this test is about.
- *
- * The real `Route` singleton is `.update()`d in place to attach to this decoy chain, because
- * `Route.useSearch()`/`useNavigate()` are bound to the one object the source module exports — there
- * is no way to hand the component a stand-in. `beforeEach`/`afterEach` capture and restore its
- * *entire own state* — not just `options`, and not by replaying it through `.update()` — around each
- * render, so a real router built elsewhere in this same bun process (there is exactly one:
- * `router.test.ts`, which never inspects this route) is never left pointed at the decoy.
- *
- * A restore that merely replayed the captured `options` through `.update()` would not work: the
- * installed `update()` (`@tanstack/router-core@1.171.27`'s `dist/esm/route.js`) is
- * `Object.assign(this.options, options); return this;` — a merge. `Object.assign` only overwrites
- * or adds keys, it never deletes one, so merging a snapshot that predates this file's `id`/`path`/
- * `getParentRoute` back on top leaves those decoy keys sitting in `options` untouched. Worse,
- * `update()` never touches the *derived* state `router.js`'s `buildRouteTree()` computes by calling
- * `route.init({ originalIndex })` once per route each time a router is built (`_id`, `_path`,
- * `_fullPath`, `_to`, `parentRoute`, `originalIndex`) — those stay pinned to whatever this file's own
- * `createRouter()` last resolved them to, decoy parent included, since nothing re-runs `init()` on
- * `.update()`. The only restore that actually undoes a render is a full replace: snapshot every own
- * property up front (with `options` itself shallow-cloned, since `update()` mutates that very object
- * in place rather than replacing it) and, afterward, delete whatever the render added and reassign
- * the rest verbatim.
+ * The roster has no route of its own any more: `/agents` redirects into the Marketplace, whose
+ * Agents tab draws `AgentRoster`. The roster reads nothing off a route — its cards and its
+ * "Create new Bot" are `Link`s — so a bare root route is enough for it, as it is for `/`.
  */
-function captureRouteState(route: object): Record<string, unknown> {
-  return { ...route, options: { ...(route as { options: object }).options } };
-}
-
-function restoreRouteState(
-  route: object,
-  snapshot: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(route)) {
-    if (!(key in snapshot)) {
-      delete (route as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(route, snapshot);
-}
-
-/**
- * Captured exactly once, at module scope, the instant this line of top-level code runs — which is
- * before any `test()` body in this file has had a chance to run. That timing, not any claim about
- * the route being untouched, is what makes this the right fixed point.
- *
- * It is deliberately NOT described as "pristine in the absolute". `AgentsRoute` gains its derived
- * keys (`_id`, `_fullPath`, `parentRoute`, ...) when `route.init()` runs, which `createRouter()`
- * triggers — and that is NOT confined to this file: `app/src/router.tsx` calls `createRouter()` at
- * module top level over the generated `routeTree`, which contains this very route, so merely
- * importing it initialises `AgentsRoute`. `app/tests/router.test.ts` imports it, and bun runs every
- * file in one process, so depending on file order this constant may capture a route that the real
- * router has already initialised.
- *
- * That is fine, and it is the point: what this has to restore is the state the route was in before
- * THIS file interfered with it, whatever that state was. Either way the rest of the process gets
- * back exactly what it had. A snapshot taken in `beforeEach` instead — as this used to do — would
- * be reading the *live*, already-rendered-on `AgentsRoute` from test two onward, which is exactly
- * how a broken `restoreRouteState` (one that merges but never deletes the stray keys a render adds)
- * went undetected: each test's "before" picture already had last test's leak baked in as normal.
- *
- * `captureRouteState` is called again on this constant, rather than using it directly, everywhere
- * below it is needed. `restoreRouteState`'s `Object.assign(route, snapshot)` step aliases
- * `route.options` to `snapshot.options` — not a clone — and `Route.update()` mutates `this.options`
- * in place. Handing the very same object out of every `beforeEach` would let the next render's
- * `.update()` mutate this "pristine" constant through that alias, corrupting the one fixed point
- * this whole scheme depends on. Re-running it through `captureRouteState` produces a fresh
- * `options` clone each time, so the constant itself is never written to after this line.
- */
-const pristineAgentsRouteState = captureRouteState(AgentsRoute);
-
-let agentsRouteSnapshot: Record<string, unknown>;
-
-beforeEach(() => {
-  agentsRouteSnapshot = captureRouteState(pristineAgentsRouteState);
-});
-
-afterEach(() => {
-  restoreRouteState(AgentsRoute, agentsRouteSnapshot);
-});
-
-function renderAgents(queryClient: QueryClient) {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const authedRoute = createRoute({
-    id: "/_authed",
-    getParentRoute: () => rootRoute,
-    component: Outlet,
-  });
-  const appRoute = createRoute({
-    id: "/_app",
-    getParentRoute: () => authedRoute,
-    component: Outlet,
-  });
-  const wired = (
-    AgentsRoute as unknown as {
-      update: (options: unknown) => typeof AgentsRoute;
-    }
-  ).update({
-    id: "/agents/",
-    path: "/agents/",
-    getParentRoute: () => appRoute,
-  });
-  const tree = rootRoute.addChildren([
-    authedRoute.addChildren([appRoute.addChildren([wired])]),
-  ]);
+function renderRoster(queryClient: QueryClient) {
   const router = createRouter({
-    routeTree: tree,
-    history: createMemoryHistory({ initialEntries: ["/agents"] }),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    routeTree: createRootRoute({ component: () => <AgentRoster /> }),
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -269,8 +158,8 @@ function renderAgents(queryClient: QueryClient) {
   );
 }
 
-test("a failed roster on /agents reports the failure, not an empty roster", async () => {
-  const view = renderAgents(failingQueryClient());
+test("a failed roster on the roster reports the failure, not an empty roster", async () => {
+  const view = renderRoster(failingQueryClient());
 
   expect(await view.findByText("Your agents couldn't be loaded.")).toBeTruthy();
   expect(
@@ -310,14 +199,14 @@ test("a failed roster on / reports the failure and explains the disabled compose
   ).toBeTruthy();
 });
 
-test("both /agents sections hold a skeleton while the roster is pending, not an empty state", async () => {
+test("both roster sections hold a skeleton while the roster is pending, not an empty state", async () => {
   // A fetch that never settles is `isPending` forever — the state each section's loading arm
   // renders once the router has finished its own (also async) initial match, which is why this
   // still waits rather than reading `view.container` on the very next line.
   global.fetch = (() =>
     new Promise<Response>(() => {})) as unknown as typeof fetch;
 
-  const view = renderAgents(failingQueryClient());
+  const view = renderRoster(failingQueryClient());
 
   const skeletons = await waitFor(() => {
     const found = view.container.querySelectorAll('[data-slot="skeleton"]');
@@ -349,7 +238,7 @@ test("both /agents sections hold a skeleton while the roster is pending, not an 
  * causes produced it, which replaced a working roster with an error card, and on `/` also showed an
  * alert claiming the composer had nothing to send to while it was, in fact, still enabled.
  */
-test("a failed REFETCH on /agents keeps the roster it already had, not the error", async () => {
+test("a failed REFETCH on the roster keeps the roster it already had, not the error", async () => {
   const mine = agent({ id: "mine-1", name: "Mine Agent", mine: true });
   const shared = agent({
     id: "shared-1",
@@ -359,7 +248,7 @@ test("a failed REFETCH on /agents keeps the roster it already had, not the error
   });
   const queryClient = staleQueryClient([mine, shared]);
 
-  const view = renderAgents(queryClient);
+  const view = renderRoster(queryClient);
   await waitForFailedRefetch(queryClient);
 
   expect(await view.findByText("Mine Agent")).toBeTruthy();
@@ -412,11 +301,11 @@ test("a failed REFETCH on / keeps the roster and does not disclaim the composer"
  * sibling, right beside a section rendering real cards from that very same query. The real cards
  * are the proof: the response came back, and this slice of it is just empty.
  */
-test("a failed REFETCH on /agents with one empty slice shows it as empty, not broken", async () => {
+test("a failed REFETCH on the roster with one empty slice shows it as empty, not broken", async () => {
   const mine = agent({ id: "mine-1", name: "Mine Agent", mine: true });
   const queryClient = staleQueryClient([mine]);
 
-  const view = renderAgents(queryClient);
+  const view = renderRoster(queryClient);
   await waitForFailedRefetch(queryClient);
 
   expect(await view.findByText("Mine Agent")).toBeTruthy();
@@ -428,7 +317,7 @@ test("a failed REFETCH on /agents with one empty slice shows it as empty, not br
   ).toBeNull();
 });
 
-test("a failed REFETCH on /agents with the other slice empty also shows it as empty", async () => {
+test("a failed REFETCH on the roster with the other slice empty also shows it as empty", async () => {
   const shared = agent({
     id: "shared-1",
     name: "Shared Agent",
@@ -437,7 +326,7 @@ test("a failed REFETCH on /agents with the other slice empty also shows it as em
   });
   const queryClient = staleQueryClient([shared]);
 
-  const view = renderAgents(queryClient);
+  const view = renderRoster(queryClient);
   await waitForFailedRefetch(queryClient);
 
   expect(await view.findByText("Shared Agent")).toBeTruthy();
@@ -460,12 +349,12 @@ function servingRosters(visible: AgentProfile[], hidden: AgentProfile[]) {
   }) as unknown as typeof fetch;
 }
 
-test("a hidden coworker is on /agents under Hidden, collapsed, with a card that opens it", async () => {
+test("a hidden coworker is on the roster under Hidden, collapsed, with a card that opens it", async () => {
   const mine = agent({ id: "mine-1", name: "Mine Agent" });
   const tucked = agent({ id: "hidden-1", name: "Tucked Agent", hidden: true });
   servingRosters([mine], [tucked]);
 
-  const view = renderAgents(failingQueryClient());
+  const view = renderRoster(failingQueryClient());
 
   expect(await view.findByText("Hidden")).toBeTruthy();
   const section = view.container.querySelector("details");
@@ -477,14 +366,16 @@ test("a hidden coworker is on /agents under Hidden, collapsed, with a card that 
   expect(section?.textContent).not.toContain("Mine Agent");
   // The card's own Details link is the way to the dialog that holds Unhide.
   const link = view.getByLabelText("View details for Tucked Agent");
-  expect(link.getAttribute("href")).toBe("/agents?agent=hidden-1");
+  expect(link.getAttribute("href")).toBe(
+    "/marketplace?tab=agents&agent=hidden-1",
+  );
 });
 
-test("with nothing hidden, /agents has no Hidden section at all", async () => {
+test("with nothing hidden, the roster has no Hidden section at all", async () => {
   servingRosters([agent({ id: "mine-1", name: "Mine Agent" })], []);
   const queryClient = failingQueryClient();
 
-  const view = renderAgents(queryClient);
+  const view = renderRoster(queryClient);
 
   expect(await view.findByText("Mine Agent")).toBeTruthy();
   // Absent because the hidden roster came back empty, not because it has not come back yet.
@@ -502,7 +393,7 @@ test("a pinned coworker moves into Pinned at the top, out of its roster", async 
   const favourite = agent({ id: "mine-2", name: "Favourite", pinned: true });
   servingRosters([kept, favourite], []);
 
-  const view = renderAgents(failingQueryClient());
+  const view = renderRoster(failingQueryClient());
 
   expect(await view.findByText("Pinned")).toBeTruthy();
   const headings = [...view.container.querySelectorAll("h2")].map(
@@ -522,7 +413,7 @@ test("with every coworker of yours pinned, Your agents says so instead of claimi
     [],
   );
 
-  const view = renderAgents(failingQueryClient());
+  const view = renderRoster(failingQueryClient());
 
   expect(
     await view.findByText("Your agents are all pinned above."),
@@ -530,10 +421,10 @@ test("with every coworker of yours pinned, Your agents says so instead of claimi
   expect(view.queryByText("You don't have any agents created.")).toBeNull();
 });
 
-test("with nothing pinned, /agents has no Pinned section", async () => {
+test("with nothing pinned, the roster has no Pinned section", async () => {
   servingRosters([agent({ id: "mine-1", name: "Mine Agent" })], []);
 
-  const view = renderAgents(failingQueryClient());
+  const view = renderRoster(failingQueryClient());
 
   expect(await view.findByText("Mine Agent")).toBeTruthy();
   expect(view.queryByText("Pinned")).toBeNull();
@@ -563,113 +454,4 @@ test("a failed REFETCH on / with explore empty shows it as empty, not broken", a
       "Your coworkers couldn't be loaded, so there's no one to send this to yet.",
     ),
   ).toBeNull();
-});
-
-/**
- * Proves the restore itself, rather than trusting the doc comment above it: it drives
- * `captureRouteState`/`restoreRouteState` directly, sandwiched around a corruption that reproduces
- * both halves of what `renderAgents` does to the singleton — the `.update()` merge that plants
- * `id`/`path`/`getParentRoute`, and the `route.init()` call `createRouter()` makes for every route in
- * a tree it builds, which is what actually derives `_id`/`_fullPath`/`_to`/`parentRoute` from those
- * options. Checking inside a test's own body can never observe what that test's own `afterEach` did
- * — the hook has not run yet at that point — so this calls `restoreRouteState` itself rather than
- * waiting on a hook, which observes the exact same restore path `afterEach` uses without depending on
- * bun's cross-test hook ordering.
- *
- * `before` is `pristineAgentsRouteState`, not a fresh `captureRouteState(AgentsRoute)` read here.
- * This test runs last, after every `renderAgents()`-driven test before it has already rendered on
- * (and had its `afterEach` "restore") the live singleton; reading `AgentsRoute` at this point trusts
- * that every prior restore actually worked, which is the very thing under test here. Comparing
- * against the one snapshot taken before any router ever touched the route is what turns a leaked key
- * into a visible diff instead of two contaminated pictures agreeing with each other.
- */
-test("restoring after a decoy render leaves no trace on the exported Route singleton", () => {
-  const before = captureRouteState(pristineAgentsRouteState);
-
-  const decoyParentRoute = { id: "/_app", fullPath: "/" };
-  const route = AgentsRoute as unknown as {
-    update: (options: unknown) => unknown;
-    init: (opts: { originalIndex: number }) => void;
-  };
-  route.update({
-    id: "/agents/",
-    path: "/agents/",
-    getParentRoute: () => decoyParentRoute,
-  });
-  route.init({ originalIndex: 0 });
-
-  // Sanity check: the corruption actually took, so the restore below proves something.
-  expect((AgentsRoute as { parentRoute: unknown }).parentRoute).toBe(
-    decoyParentRoute,
-  );
-
-  restoreRouteState(AgentsRoute, before);
-
-  expect(captureRouteState(AgentsRoute)).toEqual(before);
-});
-
-/**
- * The test above compares one `captureRouteState` snapshot against another. That is only as
- * trustworthy as `captureRouteState`'s own `options` clone and `beforeEach`'s own re-clone off
- * `pristineAgentsRouteState` — and this file has now shipped three separate breakages that drop
- * one of those two clones. Each one aliases `pristineAgentsRouteState.options` to the live route's
- * `options` object, so `Route.update()`'s in-place mutation reaches the "pristine" constant too.
- * Once that happens, `before`'s own `options` in the test above is read off the very same corrupted
- * constant that `AgentsRoute` gets restored to, so the two sides of that `toEqual` are corrupted in
- * lockstep and agree with each other anyway — the assertion goes tautological and the suite stays
- * green with the pristine constant silently ruined for the rest of the process.
- *
- * The only way to catch that is to anchor to something the corruption itself cannot drag along: an
- * object-identity check against `pristineAgentsRouteState` itself, and a second identity check
- * against a decoy value created fresh inside THIS test — neither is derived from
- * `pristineAgentsRouteState` or `agentsRouteSnapshot` the way `before` is, so neither can be dragged
- * into the corruption alongside them.
- *
- * The second anchor is deliberately NOT "these key names must be absent from `options`" (`id`,
- * `path`, `getParentRoute`), even though those are the very keys this test's own decoy `.update()`
- * plants: `app/src/routeTree.gen.ts` calls the REAL `AgentsRoute.update({ id: '/agents/', path:
- * '/agents/', getParentRoute: () => AuthedAppRoute })` too, as part of wiring the real app router —
- * see `app/src/router.tsx`. Whenever this file shares a bun process with anything that imports that
- * real router (e.g. `router.test.ts`, or any component test that mounts the real app shell), those
- * exact key names are legitimately present in the pristine state this file must restore, so
- * asserting their bare absence goes red on correct code the moment file ordering changes — the very
- * "not pristine in the absolute" trap `pristineAgentsRouteState`'s own doc comment warns about.
- * Anchoring to a function reference this test just created sidesteps that: no real code, past or
- * future, can ever hold a reference to it.
- *
- * This test drives the exact same decoy-and-restore sequence as the one above, but reads
- * `agentsRouteSnapshot` — the real module-scope variable this test's own `beforeEach` already
- * populated, the same one the real `afterEach` restores through — rather than taking a fresh
- * snapshot of its own, so it is exercising the actual hook wiring rather than a stand-in for it.
- */
-test("the pristine snapshot's options is never the live route's, and a restore leaves no decoy behind — checked by identity, not against another snapshot", () => {
-  const decoyParentRoute = { id: "/_app", fullPath: "/" };
-  const decoyGetParentRoute = () => decoyParentRoute;
-  const route = AgentsRoute as unknown as {
-    update: (options: unknown) => unknown;
-    init: (opts: { originalIndex: number }) => void;
-  };
-  route.update({
-    id: "/agents/",
-    path: "/agents/",
-    getParentRoute: decoyGetParentRoute,
-  });
-  route.init({ originalIndex: 0 });
-
-  restoreRouteState(AgentsRoute, agentsRouteSnapshot);
-
-  const liveOptions = (
-    AgentsRoute as unknown as {
-      options: { getParentRoute?: unknown };
-    }
-  ).options;
-
-  // Anchor 1 — identity, not a snapshot: the constant this whole file's restore promise rests on
-  // must never be the very object `Route.update()` writes into, restore or no restore.
-  expect(pristineAgentsRouteState.options).not.toBe(liveOptions);
-
-  // Anchor 2 — identity against a value created fresh in this test, not a snapshot and not a key
-  // name: no real caller, past or future, can ever hold a reference to this closure, so its
-  // survival past the restore is unambiguous corruption either way.
-  expect(liveOptions.getParentRoute).not.toBe(decoyGetParentRoute);
 });

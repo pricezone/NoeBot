@@ -29,6 +29,8 @@ import { authKeys } from "@/lib/auth/queries";
 import { type ChannelSummary, channelKeys } from "@/lib/channels/queries";
 import { userPreferencesQueryOptions } from "@/lib/settings/message-list";
 import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
+import { deploymentKeys } from "@/lib/deployment/queries";
+import { pluginKeys } from "@/lib/plugins/queries";
 
 // Keep the sidebar's live-update socket offline; these tests exercise HTTP pagination.
 class OfflineWebSocket extends EventTarget implements WebSocket {
@@ -181,6 +183,24 @@ function renderSidebar() {
     refetchInterval: false,
   });
   queryClient.setQueryData(botLifecycleKeys.attention, []);
+  // The footer's Connect apps pill and account menu read these; seeded so the only requests the
+  // fixture sees (and the only ones it answers) are the roster's own pages.
+  queryClient.setQueryData(pluginKeys.connections(), {
+    connections: [],
+    redirectUri: null,
+  });
+  queryClient.setQueryData(pluginKeys.page(), {
+    catalogue: [],
+    servers: [],
+    skills: [],
+    botsMayCallBack: false,
+    redirectUri: null,
+    composioConfigured: false,
+  });
+  queryClient.setQueryData(deploymentKeys.capabilities(), {
+    generativeUi: false,
+    selfHostBanner: false,
+  });
   queryClient.setQueryData(channelKeys.list(), {
     pages: [
       { channels: [channel("Recent conversation")], nextCursor: "older/page" },
@@ -215,14 +235,14 @@ test("message emphasis updates mounted rows from the account preferences cache",
   const view = renderSidebar();
   const agent = await view.findByText("Recent conversation");
   const thread = view.getByText("New conversation");
-  expect(thread.className).toContain("text-[0.9rem]");
+  expect(thread.className).toContain("text-[15px]");
   act(() =>
     clients[0]?.setQueryData(userPreferencesQueryOptions("user").queryKey, {
       messageListEmphasis: "agent",
       selfHostBannerDismissed: false,
     }),
   );
-  await waitFor(() => expect(agent.className).toContain("text-[0.9rem]"));
+  await waitFor(() => expect(agent.className).toContain("text-[15px]"));
   expect(thread.className).toContain("text-muted-foreground");
 });
 
@@ -303,6 +323,9 @@ test("search loads older history explicitly and includes new matches", async () 
   const view = renderSidebar();
   const user = userEvent.setup({ document: view.container.ownerDocument });
   await view.findByText("Recent conversation");
+  // The box is hidden until the header's magnifier asks for it.
+  expect(view.queryByRole("textbox", { name: "Search channels" })).toBeNull();
+  await user.click(view.getByRole("button", { name: "Search channels" }));
   const search = view.getByRole("textbox", { name: "Search channels" });
   await user.type(search, "Archived");
   expect(

@@ -151,7 +151,9 @@ export function selectOpenBotManualChunk(id: string): string | undefined {
   if (routePath.startsWith("_authed/admin/")) {
     return "route-admin";
   }
-  if (routePath.startsWith("_authed/settings/")) {
+  // Before the `_authed/_app/` rule below, which would otherwise claim it: Settings lives under
+  // the app shell so the roster stays mounted behind its modal, but it is still its own chunk.
+  if (routePath.startsWith("_authed/_app/settings/")) {
     return "route-settings";
   }
   if (

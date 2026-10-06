@@ -17,7 +17,7 @@ export function NewSkill() {
   const createSkill = useMutation(saveSkillMutationOptions(queryClient));
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-8">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <header>
         <h1 className="text-2xl font-semibold">New skill</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -33,7 +33,7 @@ export function NewSkill() {
           await createSkill.mutateAsync(values);
           // Panel closed rather than swapped for a detail view: there is nothing more to say about a
           // skill than the form just said, and the new row is already behind it in the list.
-          await navigate({ search: {}, to: "/skills" });
+          await navigate({ search: { tab: "skills" }, to: "/marketplace" });
         }}
         submitLabel="Save skill"
       />

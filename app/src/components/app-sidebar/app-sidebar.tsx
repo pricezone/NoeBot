@@ -1,39 +1,9 @@
-import {
-  IconBolt,
-  IconBox,
-  IconBrain,
-  IconChecks,
-  IconDeviceMobile,
-  IconLogout,
-  IconPlus,
-  IconSearch,
-  IconSettings,
-  IconShieldLock,
-  IconTargetArrow,
-  IconUsers,
-  IconUsersGroup,
-} from "@tabler/icons-react";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import {
-  Link,
-  type LinkOptions,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router";
+import { IconPlus, IconSearch, IconX } from "@tabler/icons-react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { Link, useParams } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type * as React from "react";
 import { useRef, useState } from "react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   InputGroup,
   InputGroupAddon,
@@ -46,23 +16,16 @@ import {
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { signOutMutationOptions } from "@/lib/auth/mutations";
-import { currentUserQueryOptions } from "@/lib/auth/queries";
 import {
   type ChannelSummary,
   channelListQueryOptions,
 } from "@/lib/channels/queries";
 import { useChannelEvents } from "@/lib/channels/use-channel-events";
-import { appConfig } from "@/lib/generated/application-config";
 import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { relativeTime } from "@/lib/relative-time";
-import { agentListQueryOptions } from "@/lib/agents/queries";
-import { ChannelAvatar } from "@/components/channels/avatar";
-import { NoeBotIcon } from "@/components/noe-bot/noe-bot-face";
 import {
   type MessageListEmphasis,
   useMessageListEmphasis,
@@ -70,104 +33,32 @@ import {
 import { BotAttentionList } from "../bot-profile/attention";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { AccountMenu } from "./account-menu";
 import { Channel } from "./channel";
 import { ChannelPagination } from "./channel-pagination";
+import { ConnectAppsButton } from "./connect-apps-button";
+import { FeaturedBot } from "./featured-bot";
+import { isUnread, matchingChannels, pinnedFirst } from "./roster";
 
-const appLinkOptions = { to: "/" } satisfies LinkOptions;
-const adminLinkOptions = { to: "/admin" } satisfies LinkOptions;
-const settingsLinkOptions = { to: "/settings" } satisfies LinkOptions;
-
-const userMenuItemClassName = "gap-2 px-2 py-1.5";
-
-function UserAvatar() {
-  const { data: currentUser } = useQuery(currentUserQueryOptions());
-  const initials =
-    currentUser?.name
-      ?.trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") ?? currentUser?.email.slice(0, 2).toUpperCase();
-
-  return (
-    <div className="size-[28px] bg-muted-foreground/10 text-foreground/70 rounded-full flex items-center justify-center text-xs overflow-hidden">
-      {initials}
-    </div>
-  );
-}
+/*
+ * The roster's rules live in ./roster.ts; re-exported here because the channel route and the tests
+ * that pin each rule import them from the sidebar, and a move should not be their problem.
+ */
+export {
+  hasUnseenActivity,
+  isUnread,
+  matchingChannels,
+  pinnedFirst,
+} from "./roster";
 
 /**
  * Cap layout animation because `layout` measures every animated row on each reorder.
  */
 const MAX_ANIMATED_ROWS = 60;
 
-/**
- * The roster, narrowed to what the person typed.
- *
- * Matches the channel's name, its summary, and the last message, because those are the things the
- * row can actually show — searching against something invisible returns results a person cannot
- * account for. The last message is included because it is still what the second line draws until the
- * conversation has been named. Message history beyond that line is not here to search: it lives in
- * the thread store, and reaching for it is a server endpoint rather than a filter.
- *
- * An empty query returns the input array unchanged rather than a copy, so typing and clearing does
- * not hand `AnimatePresence` a new array identity and restage the whole list.
- */
-export function matchingChannels(
-  channels: ChannelSummary[] | undefined,
-  query: string,
-): ChannelSummary[] {
-  if (!channels) {
-    return [];
-  }
-  const needle = query.trim().toLowerCase();
-  if (!needle) {
-    return channels;
-  }
-  return channels.filter((channel) =>
-    [channel.name, channel.summary, channel.lastMessage].some((field) =>
-      field?.toLowerCase().includes(needle),
-    ),
-  );
-}
-
-/**
- * Pinned channels first, everything else after, newest activity first within each group.
- *
- * The mirror of a server rule, not the rule itself: the roster query orders pinned-first and its
- * cursor carries the pin, so a pinned channel arrives on page one however long ago it was last
- * spoken in. Sorting here as well is for what happens between refetches — the socket patches a pin
- * onto a loaded row without moving it, and re-sorts a page by recency alone — which is the same
- * reason `byRecency` in use-channel-events.ts mirrors the recency rule. A stable partition, so the
- * recency order inside each group is whatever arrived.
- */
-export function pinnedFirst(channels: ChannelSummary[]): ChannelSummary[] {
-  return [...channels].sort((a, b) => Number(b.pinned) - Number(a.pinned));
-}
-
-/**
- * Whether a Bot has said something this member has not had on screen yet.
- *
- * A Bot's message, and only a Bot's: your own message carries a null agent id and reading your own
- * words needs no marker. ISO-8601 strings compare correctly as strings, which is the same bet the
- * server's recency sort already makes.
- */
-export function hasUnseenActivity(channel: ChannelSummary): boolean {
-  if (channel.lastMessageAgentId === null || channel.lastMessageAt === null) {
-    return false;
-  }
-  return (
-    channel.lastReadAt === null || channel.lastMessageAt > channel.lastReadAt
-  );
-}
-
-/** Unseen activity somewhere you are not looking. The open channel never shows the dot. */
-export function isUnread(
-  channel: ChannelSummary,
-  openChannelId: string | undefined,
-): boolean {
-  return channel.id !== openChannelId && hasUnseenActivity(channel);
-}
+/** The two round buttons in the header: card-coloured discs, the way Grok Bot draws them. */
+const headerButtonClassName =
+  "size-9 rounded-full bg-card text-foreground hover:bg-muted aria-expanded:bg-muted [&_svg]:size-5";
 
 /**
  * A roster row that can animate.
@@ -224,22 +115,31 @@ function ChannelRow({
   );
 }
 
+/**
+ * The left column: a search and a new-chat button, the person's own Bot, the conversations, and
+ * at the foot the account menu beside the door to the Marketplace.
+ *
+ * No wordmark: the product's name is the tab title and the featured Bot is the brand's face. The
+ * nine configuration links that used to fill the footer live in Settings and the Marketplace now,
+ * reached from the two controls at the bottom and from the Mod+, and Mod+Shift+M shortcuts.
+ */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const emphasis = useMessageListEmphasis();
-  const { data: currentUser } = useQuery(currentUserQueryOptions());
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const signOut = useMutation(signOutMutationOptions(queryClient));
   const channels = useInfiniteQuery(channelListQueryOptions());
-  // Read off the roster the app already holds, so the sidebar makes no request of its own for it.
-  const assignedTeamBots =
-    useQuery(agentListQueryOptions()).data?.filter((bot) => bot.assignedToMe) ??
-    [];
-  // One socket for the app, opened where the roster is kept live.
+  // One socket for the app, opened where the roster is kept live. Nothing else may open it.
   useChannelEvents();
   const [search, setSearch] = useState("");
+  /*
+   * The search box is hidden until asked for. Grok Bot's sidebar shows a magnifier and nothing
+   * else, and the box takes a row a two-item roster would rather give to the conversations. It
+   * stays while a filter is typed into it, whatever the toggle says, so a filter can never be in
+   * force with nothing on screen to explain the missing rows.
+   */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
   const scrollRoot = useRef<HTMLDivElement>(null);
   const searching = search.trim().length > 0;
+  const searchVisible = searchOpen || searching;
   const visibleChannels = pinnedFirst(matchingChannels(channels.data, search));
   /*
    * FILTERING DOES NOT ANIMATE. Rows exit and relayout on every keystroke otherwise, which is a
@@ -250,75 +150,69 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const animateOrder =
     !searching && (channels.data?.length ?? 0) <= MAX_ANIMATED_ROWS;
 
-  const handleSignOut = async () => {
-    await signOut.mutateAsync();
-    await navigate({ to: "/sign" });
+  const toggleSearch = () => {
+    if (searchVisible) {
+      // Closing the box also drops the filter: a hidden filter is a roster missing rows for no
+      // visible reason.
+      setSearch("");
+      setSearchOpen(false);
+      return;
+    }
+    setSearchOpen(true);
+    // After the box has rendered; the ref is empty until then.
+    requestAnimationFrame(() => searchInput.current?.focus());
   };
 
   return (
     <Sidebar {...props}>
-      <SidebarHeader className="h-12 p-2">
-        <SidebarMenu>
-          <SidebarMenuItem className="flex flex-row gap-1.5">
-            <SidebarMenuButton
-              className="font-semibold text-[14px] tracking-tighter h-full leading-tight"
-              render={(props) => (
-                <Link {...appLinkOptions} {...props}>
-                  {appConfig.brand.productName}
-                </Link>
-              )}
+      <SidebarHeader className="flex-row items-center justify-end gap-2 px-4 pt-4 pb-0">
+        <Button
+          aria-label="Search channels"
+          aria-expanded={searchVisible}
+          className={headerButtonClassName}
+          onClick={toggleSearch}
+          size="icon-lg"
+          variant="ghost"
+        >
+          {searchVisible ? <IconX /> : <IconSearch />}
+        </Button>
+        <Button
+          aria-label="New chat"
+          className={headerButtonClassName}
+          size="icon-lg"
+          variant="ghost"
+          render={(buttonProps) => (
+            <Link
+              {...buttonProps}
+              to="/channel/new"
+              activeProps={{ className: "bg-muted" }}
             />
-            <Button
-              size="icon"
-              variant="ghost"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/channel/new"
-                  activeProps={{
-                    className: "bg-foreground/5",
-                  }}
-                />
-              )}
-            >
-              <IconPlus />
-            </Button>
-            <Button
-              aria-label="New group conversation"
-              size="icon"
-              variant="ghost"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/group/new"
-                  activeProps={{
-                    className: "bg-foreground/5",
-                  }}
-                />
-              )}
-            >
-              <IconUsersGroup />
-            </Button>
-          </SidebarMenuItem>
-        </SidebarMenu>
+          )}
+        >
+          <IconPlus />
+        </Button>
       </SidebarHeader>
       <SidebarContent ref={scrollRoot} className="scroll-fade-b">
         <SidebarMenu>
-          <SidebarGroup className="gap-px">
-            <SidebarMenuItem>
-              <InputGroup className="bg-background text-sm rounded-lg h-9">
-                <InputGroupInput
-                  aria-label="Search channels"
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search..."
-                  value={search}
-                />
-                <InputGroupAddon>
-                  <IconSearch />
-                </InputGroupAddon>
-              </InputGroup>
-            </SidebarMenuItem>
-            <div className="w-full h-2" />
+          <SidebarGroup className="gap-px px-3">
+            {searchVisible ? (
+              <SidebarMenuItem className="pb-2">
+                <InputGroup className="h-10 rounded-full bg-card text-sm">
+                  <InputGroupInput
+                    ref={searchInput}
+                    aria-label="Search channels"
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search..."
+                    value={search}
+                  />
+                  <InputGroupAddon>
+                    <IconSearch />
+                  </InputGroupAddon>
+                </InputGroup>
+              </SidebarMenuItem>
+            ) : null}
+            <FeaturedBot />
+            <div className="h-2 w-full" />
             {/* Bots that need you, or that you paused. See bot-profile/attention.tsx. */}
             <BotAttentionList />
             {/*
@@ -376,220 +270,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           </SidebarGroup>
         </SidebarMenu>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu className="gap-px">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/bots"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <NoeBotIcon className="size-[22px]" />
-              </div>
-              <span className="text-sm">Bots</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            {/* Beside Agents rather than inside Admin: writing a skill is something anybody does. */}
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/skills"
-                  activeProps={{
-                    className: "bg-foreground/5",
-                  }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconBox />
-              </div>
-              <span className="text-sm trackint-tight">Skills</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/agents"
-                  activeProps={{
-                    className: "bg-foreground/5",
-                  }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconBolt />
-              </div>
-              <span className="text-sm trackint-tight">Agents</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/team-bots"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconUsers />
-              </div>
-              <span className="text-sm">Team Bots</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          {/* Team Bots an administrator assigned to this person: always here, never hidden. */}
-          {assignedTeamBots.map((bot) => (
-            <SidebarMenuItem key={bot.id}>
-              <SidebarMenuButton
-                className="hover:bg-foreground/5 h-10"
-                render={(props) => (
-                  <Link
-                    {...props}
-                    search={{ agent: bot.id }}
-                    to="/channel/new"
-                  />
-                )}
-              >
-                <div className="size-[28px] flex items-center justify-center">
-                  <ChannelAvatar participantIds={[bot.id]} size={22} />
-                </div>
-                <span className="text-sm">{bot.name}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/reachability"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconDeviceMobile />
-              </div>
-              <span className="text-sm">Reachability</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          {/* Routines live on each coworker's own dialog now, not as a nav destination: the
-              question "what does this Bot do on a schedule" is asked while looking at the Bot.
-              The /routines route still answers a direct link. */}
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/responsibilities"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconTargetArrow />
-              </div>
-              <span className="text-sm">Responsibilities</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/memory"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconBrain />
-              </div>
-              <span className="text-sm">Memory</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="hover:bg-foreground/5 h-10"
-              render={(props) => (
-                <Link
-                  {...props}
-                  to="/approvals"
-                  activeProps={{ className: "bg-foreground/5" }}
-                />
-              )}
-            >
-              <div className="size-[28px] flex items-center justify-center">
-                <IconChecks />
-              </div>
-              <span className="text-sm">Approvals</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton className="hover:bg-foreground/5 h-10" />
-                }
-              >
-                <UserAvatar />
-                <span className="text-sm trackint-tight">
-                  {currentUser?.name || currentUser?.email}
-                </span>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="p-1.5"
-                side="top"
-                sideOffset={8}
-              >
-                {/* Admin routes are server-guarded; hide the entry for users who cannot open them. */}
-                {currentUser?.role === "admin" ? (
-                  <DropdownMenuItem
-                    className={userMenuItemClassName}
-                    render={<Link {...adminLinkOptions} />}
-                  >
-                    <IconShieldLock />
-                    Admin
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  className={userMenuItemClassName}
-                  render={<Link {...settingsLinkOptions} />}
-                >
-                  <IconSettings />
-                  Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className={userMenuItemClassName}
-                  disabled={signOut.isPending}
-                  onClick={handleSignOut}
-                  variant="destructive"
-                >
-                  <IconLogout />
-                  Log out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
+      <SidebarFooter className="flex-row items-center gap-3 px-4 pt-2 pb-4">
+        <AccountMenu />
+        <ConnectAppsButton />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

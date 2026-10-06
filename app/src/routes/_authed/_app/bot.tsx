@@ -2,10 +2,12 @@ import { CopilotChat } from "@copilotkit/react-core/v2";
 import { IconPlus } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ComputerChatControls } from "@/components/computer/computer-controls";
-import { ComputerViewPanel } from "@/components/computer/computer-panel";
+import { useCallback } from "react";
+import { z } from "zod";
+import { BotPanel } from "@/components/bot-panel/bot-panel";
+import { useBotPanel } from "@/components/bot-panel/use-bot-panel";
+import { ChatHeader } from "@/components/chat/chat-header";
 import { DetailPanel } from "@/components/layout/detail-panel";
-import { SidebarToggleBar } from "@/components/layout/sidebar-toggle";
 import { Button } from "@/components/ui/button";
 import { defaultAgentId } from "@/lib/agents/default-agent";
 import {
@@ -13,19 +15,30 @@ import {
   agentKeys,
   agentListQueryOptions,
 } from "@/lib/agents/queries";
+import {
+  type BotPanelTab,
+  botPanelSearchShape,
+  normalizeBotPanelSearch,
+} from "@/lib/bot-panel";
 import { tryClient } from "@/lib/client";
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { useBotThread } from "@/lib/copilot/bot-thread";
 import { useStoppedTurn } from "@/lib/copilot/stopped-turn";
 
+/** The bot panel's width beside the conversation. */
+const BOT_PANEL_WIDTH = 320;
+
+/*
+ * `agent` names the Bot; `panel` opens the bot panel on a tab. The sign-in hand-off still links
+ * here with `watch=true`, which the shared normaliser turns into the Computer tab.
+ */
+const botSearchSchema = z
+  .object({ agent: z.string().optional(), ...botPanelSearchShape })
+  .transform(normalizeBotPanelSearch);
+
 export const Route = createFileRoute("/_authed/_app/bot")({
   component: RouteComponent,
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { agent?: string; watch?: boolean } => ({
-    ...(typeof search.agent === "string" ? { agent: search.agent } : {}),
-    ...(search.watch === true ? { watch: true } : {}),
-  }),
+  validateSearch: botSearchSchema,
 });
 
 /**
@@ -151,53 +164,59 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
    * a provider this app does not mount.
    */
   const stopped = useStoppedTurn(agentId);
-  const { watch } = Route.useSearch();
+  const { panel } = Route.useSearch();
   const navigate = Route.useNavigate();
-  const showComputer = (open: boolean) =>
-    navigate({
-      search: (previous) => ({ ...previous, watch: open ? true : undefined }),
-    });
+  const setPanel = useCallback(
+    (tab: BotPanelTab | undefined) =>
+      void navigate({
+        search: (previous) => ({ ...previous, panel: tab }),
+      }),
+    [navigate],
+  );
+  const botPanel = useBotPanel({ computerAgentId: agentId, panel, setPanel });
 
   return (
     <DetailPanel
-      title="Computer"
-      open={watch === true}
-      onClose={() => showComputer(false)}
-      detail={<ComputerViewPanel agentId={agentId} name={name} />}
+      chromeless
+      onClose={botPanel.close}
+      onOverlayChange={botPanel.onOverlayChange}
+      open={botPanel.demanded}
+      preferOpen={botPanel.storedOpen}
+      detailWidth={BOT_PANEL_WIDTH}
+      detail={
+        <BotPanel
+          agentId={agentId}
+          name={name}
+          onTabChange={botPanel.setTab}
+          tab={botPanel.tab}
+        />
+      }
     >
       <div className="flex h-full min-h-0 flex-col">
-        <SidebarToggleBar />
-        <header className="border-b px-6 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {/*
-             * The Bot this screen is actually showing. A name written into the markup is wrong on
-             * every deployment whose package did not happen to use it, which is the same defect the
-             * route default above was fixed for: this screen called whichever Bot you opened
-             * "Browser Bot", including the one named something else two lines of state away.
-             */}
-            <h1 className="text-lg font-semibold">{name}</h1>
-            {/*
-             * Labelled rather than the bare icon button the sidebar uses for its own "start
-             * something new" control: that one opens an empty screen, but this one throws away
-             * whatever conversation is currently on screen, and a click with that consequence
-             * deserves a word, not just a glyph.
-             */}
-            <div className="flex flex-wrap items-start gap-2">
-              <ComputerChatControls
-                computerId={agentId}
-                open={watch === true}
-                onOpenChange={showComputer}
-              />
-              <Button onClick={startNew} size="sm" variant="ghost">
-                <IconPlus />
-                New chat
-              </Button>
-            </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Ask it to open a page and watch it work.
-          </p>
-        </header>
+        {/*
+         * The Bot this screen is actually showing, in the pill. A name written into the markup is
+         * wrong on every deployment whose package did not happen to use it, which is the same
+         * defect the route default above was fixed for: this screen called whichever Bot you
+         * opened "Browser Bot", including the one named something else two lines of state away.
+         *
+         * "New chat" is labelled rather than the bare icon button the sidebar uses for its own
+         * "start something new" control: that one opens an empty screen, but this one throws away
+         * whatever conversation is currently on screen, and a click with that consequence deserves
+         * a word, not just a glyph.
+         */}
+        <ChatHeader
+          agentIds={[agentId]}
+          extra={
+            <Button onClick={startNew} size="sm" variant="ghost">
+              <IconPlus />
+              New chat
+            </Button>
+          }
+          name={name}
+          onPill={botPanel.openDetails}
+          onToggle={botPanel.toggle}
+          panelOpen={botPanel.isOpen}
+        />
         {/*
          * Both banners render as plain siblings in this fixed order, never one nested inside the
          * other, so either can appear alone or both together without the layout jumping around

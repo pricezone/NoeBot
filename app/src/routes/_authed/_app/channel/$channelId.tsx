@@ -1,4 +1,3 @@
-import { IconSettings } from "@tabler/icons-react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -6,57 +5,39 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef } from "react";
-import { z } from "zod";
-import { AgentProfile } from "@/components/agents/agent-profile";
+import { useCallback, useEffect } from "react";
 import { hasUnseenActivity } from "@/components/app-sidebar/app-sidebar";
-import { ChannelAvatar } from "@/components/channels/avatar";
+import { BotPanel } from "@/components/bot-panel/bot-panel";
+import { useBotPanel } from "@/components/bot-panel/use-bot-panel";
 import { BotPausedBanner } from "@/components/bot-profile/pause-banner";
 import { ChannelChat } from "@/components/channels/channel-chat";
-import { ComputerChatControls } from "@/components/computer/computer-controls";
-import { ComputerViewPanel } from "@/components/computer/computer-panel";
+import { ChatHeader } from "@/components/chat/chat-header";
 import { DetailPanel } from "@/components/layout/detail-panel";
-import { SidebarToggle } from "@/components/layout/sidebar-toggle";
-import { Button } from "@/components/ui/button";
 import { rememberLastBot } from "@/lib/agents/last-bot";
+import { type BotPanelTab, botPanelSearchSchema } from "@/lib/bot-panel";
 import { markChannelReadMutationOptions } from "@/lib/channels/mutations";
 import {
   type AgentChannel,
   channelListQueryOptions,
   channelQueryOptions,
 } from "@/lib/channels/queries";
-import { onComputerActivity } from "@/lib/copilot/computer-activity";
 
-const chatSearchSchema = z.object({
-  settings: z.boolean().optional(),
-  /** Opens the Bot's screen in the shared detail pane. */
-  watch: z.boolean().optional(),
-});
-
-const EASE_OUT = [0.23, 1, 0.32, 1] as const;
-
-const HEADING_ENTRANCE_SECONDS = 0.18;
-const HEADING_ENTRANCE_OFFSET = "translateY(4px)";
-
-/** Shared detail pane width for the live screen view. */
-const SCREEN_PANEL_WIDTH = 400;
+/** The bot panel's width beside the conversation. */
+const BOT_PANEL_WIDTH = 320;
 
 export const Route = createFileRoute("/_authed/_app/channel/$channelId")({
-  validateSearch: chatSearchSchema,
+  validateSearch: botPanelSearchSchema,
   component: RouteComponent,
 });
 
 function RouteComponent() {
   const { channelId } = Route.useParams();
-  const { settings, watch } = Route.useSearch();
+  const { panel } = Route.useSearch();
   const channel = useQuery(channelQueryOptions(channelId));
   const navigate = Route.useNavigate();
-  const isSettingsOpen = settings === true;
-  const prefersReducedMotion = useReducedMotion();
-  const isWatching = watch === true;
   /** Channel routing currently supports one coworker. */
   const agentId = channel.data?.agentIds[0];
+  const name = channel.data?.name ?? "Channel";
 
   /*
    * This is the Bot home returns to next time (`lib/landing.ts`). Only a conversation with one
@@ -97,114 +78,42 @@ function RouteComponent() {
     }
   }, [channelId, unseen, markReadMutate]);
 
-  // Browser activity may auto-open the screen once per run unless this run was dismissed.
-  const dismissedEpoch = useRef<number | null>(null);
-  const runEpoch = useRef<number | null>(null);
-  useEffect(() => {
-    if (!agentId) return;
-    return onComputerActivity((activity) => {
-      if (activity.botId !== agentId) return;
-      runEpoch.current = activity.epoch;
-      if (dismissedEpoch.current === activity.epoch) return;
-      navigate({
-        search: (previous) =>
-          previous.watch === true || previous.settings === true
-            ? previous
-            : { ...previous, settings: undefined, watch: true },
-      });
-    });
-  }, [agentId, navigate]);
-
-  // Settings and watch share one pane; opening either clears the other URL flag.
-  const show = (next: "settings" | "watch" | null) => {
-    // Dismissal applies only to the current browser-activity run.
-    if (next !== "watch" && isWatching)
-      dismissedEpoch.current = runEpoch.current;
-    return navigate({
-      search: (previous) => ({
-        ...previous,
-        settings: next === "settings" ? true : undefined,
-        watch: next === "watch" ? true : undefined,
+  const setPanel = useCallback(
+    (tab: BotPanelTab | undefined) =>
+      void navigate({
+        search: (previous) => ({ ...previous, panel: tab }),
       }),
-    });
-  };
+    [navigate],
+  );
+  const botPanel = useBotPanel({ computerAgentId: agentId, panel, setPanel });
 
   return (
     <DetailPanel
-      onClose={() => show(null)}
-      open={(isSettingsOpen || isWatching) && agentId !== undefined}
-      detailWidth={isWatching ? SCREEN_PANEL_WIDTH : undefined}
-      title={isWatching ? "Computer" : undefined}
+      chromeless
+      onClose={botPanel.close}
+      onOverlayChange={botPanel.onOverlayChange}
+      open={botPanel.demanded && agentId !== undefined}
+      preferOpen={botPanel.storedOpen && agentId !== undefined}
+      detailWidth={BOT_PANEL_WIDTH}
       detail={
-        agentId === undefined ? null : isWatching ? (
-          // Manual watch remains active even when there is no current browser action.
-          <ComputerViewPanel agentId={agentId} name={channel?.data?.name} />
-        ) : (
-          <AgentProfile agentId={agentId} />
+        agentId === undefined ? null : (
+          <BotPanel
+            agentId={agentId}
+            key={agentId}
+            name={name}
+            onTabChange={botPanel.setTab}
+            tab={botPanel.tab}
+          />
         )
       }
     >
-      <div className="flex flex-col">
-        <div className="min-h-12 border-b border-border sticky top-0 flex flex-row flex-wrap items-center justify-between px-3 py-2 gap-2">
-          {/* Keyed on the displayed name so cold channel loads animate the resolved name, not the id. */}
-          <div className="flex min-w-0 items-center gap-1.5">
-            <SidebarToggle />
-            <motion.div
-              animate={{ opacity: 1 }}
-              className="shrink-0"
-              initial={{ opacity: 0 }}
-              key={`avatar:${channel.data?.name ?? channelId}`}
-              transition={{
-                duration: HEADING_ENTRANCE_SECONDS,
-                ease: EASE_OUT,
-              }}
-            >
-              <ChannelAvatar
-                participantIds={channel.data?.agentIds ?? []}
-                size={22}
-              />
-            </motion.div>
-            <motion.span
-              animate={
-                prefersReducedMotion
-                  ? { opacity: 1 }
-                  : { opacity: 1, transform: "translateY(0px)" }
-              }
-              className="min-w-0 text-sm tracking-tight truncate"
-              initial={
-                prefersReducedMotion
-                  ? { opacity: 0 }
-                  : { opacity: 0, transform: HEADING_ENTRANCE_OFFSET }
-              }
-              key={`name:${channel.data?.name ?? channelId}`}
-              transition={{
-                duration: HEADING_ENTRANCE_SECONDS,
-                ease: EASE_OUT,
-              }}
-            >
-              {channel.data?.name ?? "Channel"}
-            </motion.span>
-          </div>
-          <div className="flex flex-row gap-1.5">
-            <ComputerChatControls
-              computerId={agentId}
-              open={isWatching}
-              onOpenChange={(open) => show(open ? "watch" : null)}
-            />
-            <Button
-              aria-label="Channel coworker"
-              aria-pressed={isSettingsOpen}
-              className={isSettingsOpen ? "bg-foreground/5" : undefined}
-              disabled={agentId === undefined}
-              onClick={() => show(isSettingsOpen ? null : "settings")}
-              variant="ghost"
-              size="icon"
-            >
-              <IconSettings className="size-4.5" />
-            </Button>
-          </div>
-        </div>
-      </div>
+      <ChatHeader
+        agentIds={channel.data?.agentIds ?? []}
+        name={name}
+        onPill={botPanel.openDetails}
+        onToggle={botPanel.toggle}
+        panelOpen={botPanel.isOpen && agentId !== undefined}
+      />
       {agentId && channel.data?.agentIds.length === 1 ? (
         <BotPausedBanner agentId={agentId} />
       ) : null}

@@ -36,7 +36,7 @@ export function EditSkill({ slug }: { slug: string }) {
    */
   if (!data) {
     return (
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-8">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
         <p className="text-destructive text-sm" role="alert">
           This skill could not be loaded.
         </p>
@@ -46,7 +46,7 @@ export function EditSkill({ slug }: { slug: string }) {
 
   if (!skill) {
     return (
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-8">
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
         {/*
          * Said plainly rather than shown as an empty form. A skill can be missing because it was
          * deleted in another tab, or because the link names one that is somebody else's — and an
@@ -61,7 +61,7 @@ export function EditSkill({ slug }: { slug: string }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-8">
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <header>
         <h1 className="text-2xl font-semibold">Edit skill</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -89,7 +89,7 @@ export function EditSkill({ slug }: { slug: string }) {
         footer={<SkillAgents grantedTo={skill.grantedTo} slug={skill.slug} />}
         onSubmit={async (values) => {
           await saveSkill.mutateAsync(values);
-          await navigate({ search: {}, to: "/skills" });
+          await navigate({ search: { tab: "skills" }, to: "/marketplace" });
         }}
         slugLocked
         submitLabel="Save changes"

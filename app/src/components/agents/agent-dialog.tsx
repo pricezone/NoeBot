@@ -556,8 +556,10 @@ function connectorName(key: string): string {
  * Read from the same snapshot the runtime offers the Bot, so this shows what a run would actually
  * hold rather than a second opinion. Read-only on purpose — granting is an administrator's, made on
  * the Plugins screens, and a row of switches here would be a second place for the same decision.
+ *
+ * Exported for the bot panel's Library tab, which shows the same list beside the conversation.
  */
-function AccessSection({ agentId }: { agentId: string }) {
+export function AccessSection({ agentId }: { agentId: string }) {
   const plugins = useQuery(agentPluginsQueryOptions(agentId));
 
   if (plugins.isPending) return null;
@@ -755,7 +757,10 @@ function ManageSection({
                   hidden: !profile.hidden,
                 });
                 if (!profile.hidden)
-                  await navigate({ search: {}, to: "/agents" });
+                  await navigate({
+                    search: { tab: "agents" },
+                    to: "/marketplace",
+                  });
               }}
               size="sm"
               variant="outline"
@@ -783,7 +788,10 @@ function ManageSection({
               disabled={duplicateAgent.isPending}
               onClick={async () => {
                 const copy = await duplicateAgent.mutateAsync(agentId);
-                await navigate({ search: { agent: copy.id }, to: "/agents" });
+                await navigate({
+                  search: { tab: "agents", agent: copy.id },
+                  to: "/marketplace",
+                });
               }}
               size="sm"
               variant="outline"
@@ -849,7 +857,10 @@ function ManageSection({
               disabled={deleteAgent.isPending}
               onClick={async () => {
                 await deleteAgent.mutateAsync(agentId);
-                await navigate({ search: {}, to: "/agents" });
+                await navigate({
+                  search: { tab: "agents" },
+                  to: "/marketplace",
+                });
               }}
               size="sm"
               variant="destructive"

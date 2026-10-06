@@ -43,6 +43,18 @@ export const HOTKEYS = [
       "Start recording a message for the composer, on instances with transcription configured.",
     combo: { key: "d", mod: true },
   },
+  {
+    id: "settings",
+    label: "Open Settings",
+    description: "Open Settings over whatever you are looking at.",
+    combo: { key: ",", mod: true },
+  },
+  {
+    id: "marketplace",
+    label: "Open the Marketplace",
+    description: "Open the Marketplace, where apps, skills and Bots are added.",
+    combo: { key: "m", mod: true, shift: true },
+  },
 ] as const satisfies readonly Hotkey[];
 
 export type HotkeyId = (typeof HOTKEYS)[number]["id"];

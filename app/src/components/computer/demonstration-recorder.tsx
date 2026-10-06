@@ -85,7 +85,7 @@ function ScheduleSkill({
       <p className="w-full text-xs">
         Scheduled. /{recording.skillSlug} next runs{" "}
         {new Date(scheduled.nextRunAt).toLocaleString()}.{" "}
-        <Link to="/routines" className="underline">
+        <Link to="/settings/bots" hash="routines" className="underline">
           See routines
         </Link>{" "}
         <button type="button" className="underline" onClick={onDone}>
@@ -353,8 +353,8 @@ export function DemonstrationRecorder({
               {recording.status === "published" && recording.skillSlug ? (
                 <>
                   <Link
-                    to="/skills"
-                    search={{ edit: recording.skillSlug }}
+                    to="/marketplace"
+                    search={{ tab: "skills", edit: recording.skillSlug }}
                     className="text-xs underline"
                   >
                     Edit /{recording.skillSlug}

@@ -26,15 +26,16 @@ export function ChannelItemContent({
   pinned?: boolean;
   revealing?: boolean;
 }) {
-  const primaryText = `text-[0.9rem] leading-5 tracking-[-1%] ${unread ? "font-semibold" : "font-medium"}`;
-  const secondaryText = "text-[12px] leading-4 text-muted-foreground";
+  // The emphasised line is always semibold; unread is said by the dot, not by a heavier weight.
+  const primaryText = "text-[15px] leading-5 font-semibold text-foreground";
+  const secondaryText = "text-[13px] leading-4 text-muted-foreground";
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
+    <div className="flex min-w-0 flex-1 items-center gap-3">
       <div className="shrink-0">
         <ChannelAvatar
           participantIds={participantIds}
-          size={32}
+          size={34}
           typing={busy}
         />
       </div>

@@ -42,12 +42,12 @@ import {
  * before there is anything to put in it.
  */
 export const Route = createFileRoute(
-  "/_authed/settings/connected-accounts/$key",
+  "/_authed/_app/settings/connected-accounts/$key",
 )({ component: RouteComponent });
 
 function RouteComponent() {
   const { key } = useParams({
-    from: "/_authed/settings/connected-accounts/$key",
+    from: "/_authed/_app/settings/connected-accounts/$key",
   });
   const plugins = useQuery(pluginsPageQueryOptions());
   const connections = useQuery(connectionsQueryOptions());

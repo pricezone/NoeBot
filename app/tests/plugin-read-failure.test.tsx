@@ -20,7 +20,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { type PluginsPage, pluginKeys } from "@/lib/plugins/queries";
 import { Route as AdminAppRoute } from "@/routes/_authed/admin/plugins/$key";
 import { Route as AdminToolRoute } from "@/routes/_authed/admin/plugins/$key_.tools.$tool";
-import { Route as ConnectedAccountRoute } from "@/routes/_authed/settings/connected-accounts/$key";
+import { Route as ConnectedAccountRoute } from "@/routes/_authed/_app/settings/connected-accounts/$key";
 
 /**
  * A connector's own pages, when `GET /api/plugins` fails.
@@ -173,9 +173,15 @@ function renderAccount(client: QueryClient) {
     getParentRoute: () => rootRoute,
     component: Outlet,
   });
+  // Settings lives under the app shell's pathless layout, so the id has an `_app` segment.
+  const appRoute = createRoute({
+    id: "/_app",
+    getParentRoute: () => authedRoute,
+    component: Outlet,
+  });
   const settingsRoute = createRoute({
     path: "/settings",
-    getParentRoute: () => authedRoute,
+    getParentRoute: () => appRoute,
     component: Outlet,
   });
   const indexRoute = createRoute({
@@ -190,7 +196,9 @@ function renderAccount(client: QueryClient) {
   });
   const tree = rootRoute.addChildren([
     authedRoute.addChildren([
-      settingsRoute.addChildren([indexRoute, account as never]),
+      appRoute.addChildren([
+        settingsRoute.addChildren([indexRoute, account as never]),
+      ]),
     ]),
   ]);
   const router = createRouter({

@@ -1,13 +1,16 @@
 import { IconPlayerPause } from "@tabler/icons-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { botLandingTarget } from "@/components/app-sidebar/bot-target";
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import { agentListQueryOptions } from "@/lib/agents/queries";
 import { setBotPausedMutationOptions } from "@/lib/bot-lifecycle/mutations";
 import {
   type BotAttention,
   botAttentionQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
+import { channelListQueryOptions } from "@/lib/channels/queries";
 import { queryClient } from "@/query-client";
 
 /** Questions, approvals and stalled hand-offs: the things only the person can move forward. */
@@ -75,6 +78,10 @@ function useAttentionNotifications(bots: BotAttention[] | undefined) {
  */
 export function BotAttentionList() {
   const attention = useQuery(botAttentionQueryOptions());
+  // Read off what the sidebar already holds: a row goes to the Bot's newest conversation, and the
+  // roster is where that is known. Neither query is fetched here that was not fetched already.
+  const channels = useInfiniteQuery(channelListQueryOptions()).data;
+  const agents = useQuery(agentListQueryOptions()).data;
   const resume = useMutation(setBotPausedMutationOptions(queryClient));
   useAttentionNotifications(attention.data);
   const bots = (attention.data ?? []).filter(
@@ -93,8 +100,7 @@ export function BotAttentionList() {
               render={(props) => (
                 <Link
                   {...props}
-                  to="/bots/$agentId"
-                  params={{ agentId: bot.agentId }}
+                  {...botLandingTarget(bot.agentId, channels, agents)}
                   activeProps={{ className: "bg-foreground/5" }}
                 />
               )}

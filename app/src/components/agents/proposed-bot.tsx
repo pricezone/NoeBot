@@ -230,8 +230,8 @@ function TalkToIt({
   return (
     <Link
       className="mt-2 inline-block text-sm underline underline-offset-4"
-      search={{ agent: agentId }}
-      to="/agents"
+      search={{ tab: "agents", agent: agentId }}
+      to="/marketplace"
     >
       Open {name?.trim() || "the coworker"}
     </Link>

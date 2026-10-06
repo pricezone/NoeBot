@@ -11,14 +11,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
   createRootRoute,
-  createRoute,
   createRouter,
-  Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Route as ComposioRoute } from "@/routes/_authed/admin/plugins/composio";
+import { ComposioAppList } from "@/components/plugins/composio-app-list";
 
 /**
  * WHAT A FAILED ADD SAYS WHEN A SECOND ADD IS PRESSED BEFORE THE FIRST ONE ANSWERS.
@@ -39,7 +37,9 @@ import { Route as ComposioRoute } from "@/routes/_authed/admin/plugins/composio"
  *
  * THE FIX IS THE SHAPE THE SIBLING GRANT SCREEN ALREADY USES (`$key_.bots.$agentId.tsx:98`): the
  * mutation-level `options.onError` still fires after `removeObserver`, so the sentence is kept in
- * the screen's own state rather than read back off an observer that has moved on.
+ * the list's own state rather than read back off an observer that has moved on. The list now lives
+ * in `components/plugins/composio-app-list.tsx`, drawn by the admin page and the Marketplace alike,
+ * and is rendered here on its own.
  *
  * THE HARNESS IS THIS REPOSITORY'S, from `agent-roster-error.test.tsx`: `GlobalRegistrator` in
  * `beforeAll`/`afterAll`, `cleanup` in `afterEach`, queries off `render()`'s own return, and a
@@ -115,50 +115,16 @@ beforeEach(() => {
   }) as unknown as typeof fetch;
 });
 
-/*
- * Capture and restore of the exported `Route` singleton, verbatim from `agent-roster-error.test.tsx`
- * and `brokered-account-row.test.tsx` and for the reason recorded there: `.update()` merges into the
- * live object, `createRouter()` derives `_id`/`parentRoute` off it, and nothing re-runs `init()` on
- * a replay — so a render here would otherwise leave the real router pointed at a decoy parent.
+/**
+ * The list alone, under a bare root route. `ComposioAppList` owns the debounce, the read, the one
+ * mutation and the refusal banner; the search field stays with whichever page draws it, so an
+ * empty term here is the directory as it lists on first open.
  */
-const originalOptions = { ...ComposioRoute.options };
-afterEach(() => {
-  Object.assign(ComposioRoute.options, originalOptions);
-});
-
 function renderPicker() {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const authedRoute = createRoute({
-    id: "/_authed",
-    getParentRoute: () => rootRoute,
-    component: Outlet,
-  });
-  const adminRoute = createRoute({
-    path: "/admin",
-    getParentRoute: () => authedRoute,
-    component: Outlet,
-  });
-  const pluginsRoute = createRoute({
-    path: "/plugins/",
-    getParentRoute: () => adminRoute,
-    component: () => null,
-  });
-  const wired = (
-    ComposioRoute as unknown as {
-      update: (options: unknown) => typeof ComposioRoute;
-    }
-  ).update({
-    id: "/plugins/composio",
-    path: "/plugins/composio",
-    getParentRoute: () => adminRoute,
-  });
-  const tree = rootRoute.addChildren([
-    authedRoute.addChildren([adminRoute.addChildren([pluginsRoute, wired])]),
-  ]);
   const router = createRouter({
-    routeTree: tree,
-    history: createMemoryHistory({
-      initialEntries: ["/admin/plugins/composio"],
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+    routeTree: createRootRoute({
+      component: () => <ComposioAppList search="" />,
     }),
   });
   return render(

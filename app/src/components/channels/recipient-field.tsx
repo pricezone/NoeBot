@@ -1,4 +1,6 @@
+import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import {
@@ -30,6 +32,11 @@ export function RecipientField({
 }) {
   const { data: profiles } = useQuery(agentListQueryOptions());
   const [search, setSearch] = useState("");
+  /*
+   * The menu opens on focus, not only on typing: the first thing it offers is making a new Bot or
+   * a group, which a person who has not typed a name yet is at least as likely to want.
+   */
+  const [focused, setFocused] = useState(false);
 
   const chosen = new Set(recipients.map((recipient) => recipient.id));
   const matches = (profiles ?? [])
@@ -62,8 +69,10 @@ export function RecipientField({
           <InputGroup className="h-8 w-56 border-none bg-transparent">
             <InputGroupInput
               aria-label="Choose a coworker"
+              onBlur={() => setFocused(false)}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Choose a coworker…"
+              onFocus={() => setFocused(true)}
+              placeholder="Start a chat with…"
               value={search}
             />
             <InputGroupAddon />
@@ -71,12 +80,43 @@ export function RecipientField({
         )}
       </div>
 
-      {isFull || search.trim().length === 0 ? null : (
-        <ul className="mx-auto mt-1 w-full max-w-2xl">
+      {isFull || (!focused && search.trim().length === 0) ? null : (
+        <ul
+          className="mx-auto mt-1 w-full max-w-2xl rounded-2xl bg-card p-1.5"
+          // Rows are taken with the mouse; the input blurs first, so the menu must not vanish on blur.
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {search.trim().length === 0 ? (
+            <>
+              <li>
+                <Link
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[15px] hover:bg-muted"
+                  search={{ tab: "agents", new: true }}
+                  to="/marketplace"
+                >
+                  <span className="flex size-6 items-center justify-center rounded-full bg-muted">
+                    <IconPlus className="size-4" />
+                  </span>
+                  Create new Bot
+                </Link>
+              </li>
+              <li>
+                <Link
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[15px] hover:bg-muted"
+                  to="/group/new"
+                >
+                  <span className="flex size-6 items-center justify-center rounded-full bg-muted">
+                    <IconUsersGroup className="size-4" />
+                  </span>
+                  Create group chat
+                </Link>
+              </li>
+            </>
+          ) : null}
           {matches.map((profile) => (
             <li key={profile.id}>
               <button
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[15px] hover:bg-muted"
                 onClick={() => {
                   onChange(
                     addRecipient(recipients, {
@@ -85,10 +125,11 @@ export function RecipientField({
                     }),
                   );
                   setSearch("");
+                  setFocused(false);
                 }}
                 type="button"
               >
-                <ChannelAvatar participantIds={[profile.id]} size={18} />
+                <ChannelAvatar participantIds={[profile.id]} size={24} />
                 <span>{profile.name}</span>
                 <span className="text-muted-foreground">{profile.title}</span>
               </button>

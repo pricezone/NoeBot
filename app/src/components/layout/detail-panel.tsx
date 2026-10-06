@@ -4,12 +4,17 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { EASE_OUT } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 
 /**
  * A main pane with details beside it when there is room, or in a sheet on narrow windows.
  *
- * The open/closed state belongs to the caller, in practice a search parameter, so opening a detail
- * is a real navigation: it survives a reload, it can be linked to, and Back closes it.
+ * The open/closed state belongs to the caller. `open` is the demand — in practice a search
+ * parameter or a Bot asking for attention — and opens the pane in either shape, so a detail that
+ * was asked for is a real navigation: it survives a reload, it can be linked to, and Back closes
+ * it. `preferOpen` is the standing preference — the bot panel is open unless somebody closed it —
+ * and it opens the inline pane only. A sheet is an overlay over the conversation, and a preference
+ * must not cover the chat on a phone every time it loads; there the panel waits to be asked for.
  *
  * The pane is animated by width and the content inside it is given that width outright, so the
  * content is laid out once and the pane reveals it.
@@ -30,30 +35,50 @@ const CONTENT_ENTRANCE_OFFSET = "translateY(8px)";
 
 export function DetailPanel({
   open,
+  preferOpen = false,
   onClose,
   title,
   detail,
   detailWidth = DEFAULT_DETAIL_WIDTH,
+  chromeless = false,
+  onOverlayChange,
   children,
 }: {
   open: boolean;
+  /** Opens the inline pane when nothing asks for it; ignored while the pane is a sheet. */
+  preferOpen?: boolean;
   onClose: () => void;
   /** Rendered at the left of the detail pane's header row, beside the close button. */
   title?: ReactNode;
   detail?: ReactNode;
   /** Open width of the detail pane, in pixels. */
   detailWidth?: number;
+  /**
+   * No header row: the detail draws its own, and the close button floats over its top corner.
+   * The sheet keeps its title for the dialog's name, read by assistive technology only.
+   */
+  chromeless?: boolean;
+  /**
+   * Told whether the pane is currently a sheet. A caller whose toggle says "Hide details" needs
+   * to know that a preference it holds is not, in fact, showing anything right now.
+   */
+  onOverlayChange?: (overlay: boolean) => void;
   children: ReactNode;
 }) {
   // Reduced motion keeps the fade, which explains the change, and drops the movement.
   const shouldReduceMotion = useReducedMotion();
   const container = useRef<HTMLDivElement>(null);
   const [overlay, setOverlay] = useState(true);
+  const notifyOverlay = useRef(onOverlayChange);
+  notifyOverlay.current = onOverlayChange;
   useLayoutEffect(() => {
     const element = container.current;
     if (!element) return;
-    const measure = (width: number) =>
-      setOverlay(width < detailWidth + MIN_MAIN_WIDTH);
+    const measure = (width: number) => {
+      const next = width < detailWidth + MIN_MAIN_WIDTH;
+      setOverlay(next);
+      notifyOverlay.current?.(next);
+    };
     measure(element.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => {
       if (entry) measure(entry.contentRect.width);
@@ -61,6 +86,8 @@ export function DetailPanel({
     observer.observe(element);
     return () => observer.disconnect();
   }, [detailWidth]);
+
+  const inlineOpen = open || preferOpen;
 
   return (
     <div ref={container} className="flex h-full min-h-0">
@@ -76,7 +103,13 @@ export function DetailPanel({
             className="gap-0"
             style={{ width: `min(${detailWidth}px, 100vw)`, maxWidth: "100vw" }}
           >
-            <SheetTitle className="h-12 shrink-0 px-4 pr-12 flex items-center">
+            <SheetTitle
+              className={
+                chromeless
+                  ? "sr-only"
+                  : "h-12 shrink-0 px-4 pr-12 flex items-center"
+              }
+            >
               {title ?? "Details"}
             </SheetTitle>
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -86,7 +119,7 @@ export function DetailPanel({
         </Sheet>
       ) : (
         <motion.div
-          animate={{ width: open ? detailWidth : 0 }}
+          animate={{ width: inlineOpen ? detailWidth : 0 }}
           className="shrink-0 overflow-hidden"
           // No entry animation on first paint: URL-opened panels should appear as initial state.
           initial={false}
@@ -96,29 +129,44 @@ export function DetailPanel({
           }}
         >
           <div
-            className="flex h-full flex-col bg-sidebar border-l border-border"
+            className={cn(
+              "flex h-full flex-col bg-sidebar border-l border-border",
+              chromeless && "relative",
+            )}
             style={{ width: detailWidth }}
           >
             {/* Rendered for the whole animation, so the way out is available immediately. */}
-            <div className="h-12 shrink-0 sticky top-0 flex flex-row items-center justify-between px-2 gap-2">
-              <div className="flex min-w-0 w-full items-center gap-1.5">
-                {title}
+            {chromeless ? (
+              <Button
+                aria-label="Close details"
+                className="absolute top-2 right-2 z-10 rounded-full text-muted-foreground"
+                onClick={onClose}
+                variant="ghost"
+                size="icon"
+              >
+                <IconX className="size-4.5" />
+              </Button>
+            ) : (
+              <div className="h-12 shrink-0 sticky top-0 flex flex-row items-center justify-between px-2 gap-2">
+                <div className="flex min-w-0 w-full items-center gap-1.5">
+                  {title}
+                </div>
+                <div className="flex flex-row gap-1.5">
+                  <Button
+                    aria-label="Close details"
+                    onClick={onClose}
+                    variant="ghost"
+                    size="icon"
+                  >
+                    <IconX className="size-4.5" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-row gap-1.5">
-                <Button
-                  aria-label="Close details"
-                  onClick={onClose}
-                  variant="ghost"
-                  size="icon"
-                >
-                  <IconX className="size-4.5" />
-                </Button>
-              </div>
-            </div>
+            )}
             {/*
              * Unmount while closed so dismissed form state and detail queries do not remain active.
              */}
-            {open ? (
+            {inlineOpen ? (
               <motion.div
                 animate={{ opacity: 1, transform: "translateY(0px)" }}
                 className="flex-1 min-h-0 overflow-y-auto"

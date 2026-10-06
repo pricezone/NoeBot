@@ -21,7 +21,7 @@ import { deleteSavedLoginMutationOptions } from "@/lib/passwords/mutations";
 import { savedLoginsQueryOptions } from "@/lib/passwords/queries";
 import { queryClient } from "@/query-client";
 
-export const Route = createFileRoute("/_authed/settings/passwords")({
+export const Route = createFileRoute("/_authed/_app/settings/passwords")({
   component: PasswordsPage,
 });
 

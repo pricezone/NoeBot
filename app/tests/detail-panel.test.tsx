@@ -110,3 +110,55 @@ test("closing narrow details invokes the owner and unmounts detail work", async 
   view.rerender(<DetailPanel {...props} open={false} />);
   await waitFor(() => expect(view.queryByText("Browser preview")).toBeNull());
 });
+
+test("a preference opens the inline pane but never the sheet", async () => {
+  const props = {
+    title: "Computer",
+    onClose: () => {},
+    detail: <p>Browser preview</p>,
+    children: <p>Chat</p>,
+  };
+  const view = render(<DetailPanel {...props} open={false} preferOpen />);
+  // Narrow: the pane is a sheet, and a standing preference must not cover the chat with one.
+  await resize(view.container, 560);
+  expect(view.queryByRole("dialog")).toBeNull();
+  expect(view.queryByText("Browser preview")).toBeNull();
+  // Wide: the preference opens the inline pane.
+  await resize(view.container, 1000);
+  expect(await view.findByText("Browser preview")).toBeTruthy();
+  expect(view.queryByRole("dialog")).toBeNull();
+  // Withdrawing the preference closes it; a demand opens it regardless.
+  view.rerender(<DetailPanel {...props} open={false} preferOpen={false} />);
+  await waitFor(() => expect(view.queryByText("Browser preview")).toBeNull());
+  view.rerender(<DetailPanel {...props} open preferOpen={false} />);
+  expect(await view.findByText("Browser preview")).toBeTruthy();
+});
+
+test("a chromeless pane keeps only a floating close button and tells the owner its shape", async () => {
+  let closed = 0;
+  const overlays: boolean[] = [];
+  const view = render(
+    <DetailPanel
+      chromeless
+      detail={<p>Panel body</p>}
+      onClose={() => {
+        closed += 1;
+      }}
+      onOverlayChange={(overlay) => overlays.push(overlay)}
+      open
+      title="Computer"
+    >
+      <p>Chat</p>
+    </DetailPanel>,
+  );
+  await resize(view.container, 1000);
+  expect(overlays.at(-1)).toBe(false);
+  // No header row: the title is not drawn inline, the detail draws its own.
+  expect(view.queryByText("Computer")).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Close details" }));
+  expect(closed).toBe(1);
+  await resize(view.container, 560);
+  expect(overlays.at(-1)).toBe(true);
+  // The sheet still has an accessible name, read by assistive technology only.
+  expect(await view.findByRole("dialog", { name: "Computer" })).toBeTruthy();
+});

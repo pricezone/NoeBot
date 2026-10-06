@@ -41,7 +41,9 @@ import {
  * endpoint for an administrator to connect an account on somebody's behalf. A Bot calling one of
  * these runs on your own grant, so it sees exactly what you can see and nothing else.
  */
-export const Route = createFileRoute("/_authed/settings/connected-accounts/")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/connected-accounts/",
+)({
   component: RouteComponent,
   /*
    * `?connected=` is how the OAuth callback reports back, carrying a server key on success and

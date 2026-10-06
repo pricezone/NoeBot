@@ -1,9 +1,13 @@
-import { useEffect, useRef } from "react";
-import { IconDeviceDesktop } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { useComputerControl } from "@/lib/computers/use-control";
 
-/** The same ownership action appears in chat, the computer sidebar, and the full-size viewer. */
+/**
+ * The same ownership action appears in the screen card's footer and in the full-size viewer.
+ *
+ * It used to sit in the chat header as well, beside a "Computer" toggle. The header now carries
+ * only the Bot pill and the panel toggle; the wheel lives with the screen it steers, and the panel
+ * opens itself when the Bot needs somebody (`lib/computers/attention.ts`).
+ */
 export function ComputerControlButton({
   computerId,
   onTakeControl,
@@ -37,63 +41,6 @@ export function ComputerControlButton({
         <span className="max-w-64 text-xs text-destructive" role="alert">
           {problem}
         </span>
-      ) : null}
-    </div>
-  );
-}
-
-export function ComputerChatControls({
-  computerId,
-  open,
-  onOpenChange,
-}: {
-  computerId?: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { control } = useComputerControl(computerId ?? "", Boolean(computerId));
-  const needsYou = Boolean(
-    control &&
-      (control.requested ||
-        control.holder === "human" ||
-        control.request?.status === "interrupted" ||
-        control.secretWanted !== undefined),
-  );
-  const promptKey = needsYou
-    ? `${computerId}:${control?.secretWanted ?? control?.request?.id ?? "human"}`
-    : null;
-  const shownPrompt = useRef<string | null>(null);
-  useEffect(() => {
-    if (shownPrompt.current === promptKey) return;
-    shownPrompt.current = promptKey;
-    // Surface each new prompt once; closing the Computer remains a real dismissal.
-    if (promptKey) onOpenChange(true);
-  }, [promptKey, onOpenChange]);
-  return (
-    <div className="flex items-start gap-1.5">
-      <Button
-        size="sm"
-        variant={open ? "secondary" : "ghost"}
-        aria-label={open ? "Close Computer" : "Open Computer"}
-        aria-expanded={open}
-        disabled={!computerId}
-        onClick={() => onOpenChange(!open)}
-      >
-        <IconDeviceDesktop className="size-4" />
-        Computer
-        {needsYou ? (
-          <span
-            className="size-2 rounded-full bg-amber-500"
-            role="img"
-            aria-label="Needs you"
-          />
-        ) : null}
-      </Button>
-      {computerId ? (
-        <ComputerControlButton
-          computerId={computerId}
-          onTakeControl={() => onOpenChange(true)}
-        />
       ) : null}
     </div>
   );

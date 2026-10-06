@@ -64,11 +64,11 @@ function linkFor(item: ActivityItem) {
   switch (item.kind) {
     case "approval":
     case "question":
-      return <Link to="/approvals" />;
+      return <Link to="/settings/approvals" />;
     case "responsibility":
-      return <Link to="/responsibilities" />;
+      return <Link to="/settings/bots" hash="responsibilities" />;
     case "routine":
-      return <Link to="/routines" />;
+      return <Link to="/settings/bots" hash="routines" />;
     default:
       return null;
   }

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ComposioApp } from "@/lib/plugins/queries";
-import { matchingApps } from "@/routes/_authed/admin/plugins/composio";
+import { matchingApps } from "@/components/plugins/composio-app-list";
 
 /**
  * What the Composio picker lists, decided without drawing anything.
@@ -10,10 +10,10 @@ import { matchingApps } from "@/routes/_authed/admin/plugins/composio";
  * decision actually rests on — whether the app is already here, and how much it brings with it —
  * arrive at the row intact.
  *
- * A `.tsx` file because it imports a route module, which is JSX; the precedent is
- * `agent-roster-error.test.tsx`. Nothing here renders, though — `matchingApps` is exported as a
- * function rather than left inline in the map for exactly that reason, so the ordering and the
- * already-added marker can be asserted without a DOM, a router or a query client.
+ * Nothing here renders — `matchingApps` is exported from `composio-app-list.tsx` as a function
+ * rather than left inline in the map for exactly that reason, so the ordering and the
+ * already-added marker can be asserted without a DOM, a router or a query client. The list is
+ * drawn by the admin Browse Composio page and the Marketplace's "Featured plugins" alike.
  */
 
 /** A minimal but complete `ComposioApp`, overridable per case. */

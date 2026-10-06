@@ -19,6 +19,7 @@ import {
   within,
 } from "@testing-library/react";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
+import { BOT_PANEL_STORAGE_KEY } from "@/lib/bot-panel";
 import { Route as BotRoute } from "@/routes/_authed/_app/bot";
 
 let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
@@ -33,6 +34,7 @@ afterEach(() => {
   cleanup();
   global.fetch = originalFetch;
   HTMLElement.prototype.getBoundingClientRect = originalRect;
+  window.localStorage.removeItem(BOT_PANEL_STORAGE_KEY);
 });
 
 afterAll(() => GlobalRegistrator.unregister());
@@ -166,7 +168,9 @@ test("/bot defaults to the picked harness when this setup selected one", async (
     queryClientWithAgents([GENERAL_ASSISTANT, PICKED_HARNESS]),
   );
 
-  expect(await view.findByRole("heading", { name: "LangGraph" })).toBeTruthy();
+  expect(
+    await view.findByRole("button", { name: "Open LangGraph" }),
+  ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe(
     "picked-harness",
   );
@@ -178,7 +182,9 @@ test("/bot with an empty agent query uses the normal default Bot", async () => {
     "/bot?agent=",
   );
 
-  expect(await view.findByRole("heading", { name: "LangGraph" })).toBeTruthy();
+  expect(
+    await view.findByRole("button", { name: "Open LangGraph" }),
+  ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe(
     "picked-harness",
   );
@@ -200,7 +206,7 @@ test("/bot preserves an explicit agent, including the built-in first agent", asy
   );
 
   expect(
-    await view.findByRole("heading", { name: "General Assistant" }),
+    await view.findByRole("button", { name: "Open General Assistant" }),
   ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe(
     "general-assistant",
@@ -239,7 +245,9 @@ test("/bot loads a hidden explicit agent from the detail endpoint", async () => 
     "/bot?agent=hidden-bot",
   );
 
-  expect(await view.findByRole("heading", { name: "Hidden Bot" })).toBeTruthy();
+  expect(
+    await view.findByRole("button", { name: "Open Hidden Bot" }),
+  ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe("hidden-bot");
   expect(
     view.queryByText('This deployment has no Bot called "hidden-bot".'),
@@ -261,7 +269,9 @@ test("/bot hidden lookup does not collide with the shared agent detail cache", a
   queryClient.setQueryData(agentKeys.detail("hidden-bot"), hiddenBot);
   const view = renderBot(queryClient, "/bot?agent=hidden-bot");
 
-  expect(await view.findByRole("heading", { name: "Hidden Bot" })).toBeTruthy();
+  expect(
+    await view.findByRole("button", { name: "Open Hidden Bot" }),
+  ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe("hidden-bot");
   expect(
     view.queryByText('This deployment has no Bot called "hidden-bot".'),
@@ -291,14 +301,15 @@ test("/bot still falls back to the first agent when no picked harness exists", a
   );
 
   expect(
-    await view.findByRole("heading", { name: "General Assistant" }),
+    await view.findByRole("button", { name: "Open General Assistant" }),
   ).toBeTruthy();
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe(
     "general-assistant",
   );
 });
 
-test("/bot opens a live Computer sidebar with ownership controls and preserves the chat", async () => {
+/** The wide window where the bot panel sits inline, and a backend with a computer to show. */
+function wideWithComputer() {
   HTMLElement.prototype.getBoundingClientRect = () =>
     new DOMRect(0, 0, 1200, 800);
   global.fetch = Object.assign(
@@ -316,46 +327,60 @@ test("/bot opens a live Computer sidebar with ownership controls and preserves t
     },
     { preconnect: originalFetch.preconnect },
   );
+}
+
+test("/bot opens the bot panel on the Computer by default, and the chat survives closing it", async () => {
+  wideWithComputer();
   const view = renderBot(
     queryClientWithAgents([GENERAL_ASSISTANT, PICKED_HARNESS]),
     "/bot?agent=general-assistant",
   );
-  const toggle = await view.findByRole("button", { name: "Open Computer" });
-  await waitFor(() =>
-    expect(
-      view
-        .getByRole("button", { name: "Take control" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
-  );
-  const chat = view.getByTestId("copilot-chat");
-  fireEvent.change(view.getByRole("textbox", { name: "Chat draft" }), {
-    target: { value: "Keep this conversation" },
-  });
-  fireEvent.click(toggle);
+  // Open from the stored preference, which was never written: the default is open.
   const sidebarElement = await view.findByRole("region", {
     name: "Computer sidebar",
   });
   const sidebar = within(sidebarElement);
-  expect(
-    sidebar
-      .getByRole("button", { name: "Take control" })
-      .hasAttribute("disabled"),
-  ).toBe(false);
+  await waitFor(() =>
+    expect(
+      sidebar
+        .getByRole("button", { name: "Take control" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
   expect(
     sidebar.getByRole("button", {
       name: "Open the assistant's screen full size",
     }),
   ).toBeTruthy();
   expect(sidebar.getByRole("heading", { name: "Activity" })).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "Close Computer" }));
+  expect(
+    view.getByRole("tab", { name: "Computer" }).getAttribute("aria-selected"),
+  ).toBe("true");
+  // The header carries no wheel of its own any more: the one in the card is the one.
+  expect(view.getAllByRole("button", { name: "Take control" })).toHaveLength(1);
+  const toggle = view.getByRole("button", { name: "Hide details" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+  const chat = view.getByTestId("copilot-chat");
+  fireEvent.change(view.getByRole("textbox", { name: "Chat draft" }), {
+    target: { value: "Keep this conversation" },
+  });
+  fireEvent.click(view.getByRole("button", { name: "Close details" }));
   // Poll a boolean: Bun serializes the entire Happy DOM tree when a pending
   // element is compared with null, starving the navigation this wait observes.
   await waitFor(() => expect(sidebarElement.isConnected).toBe(false));
+  expect(window.localStorage.getItem(BOT_PANEL_STORAGE_KEY)).toBe("closed");
   expect(view.getByTestId("copilot-chat")).toBe(chat);
   expect(chat.dataset.agentId).toBe("general-assistant");
   expect(view.getByDisplayValue("Keep this conversation")).toBeTruthy();
-  expect(view.getByRole("button", { name: "Open Computer" })).toBeTruthy();
+  const reopen = view.getByRole("button", { name: "Show details" });
+  expect(reopen.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(reopen);
+  expect(
+    await view.findByRole("region", { name: "Computer sidebar" }),
+  ).toBeTruthy();
+  expect(window.localStorage.getItem(BOT_PANEL_STORAGE_KEY)).toBe("open");
+
   fireEvent.click(view.getByRole("button", { name: "New chat" }));
   await waitFor(() =>
     expect(view.getByTestId("copilot-chat").dataset.threadId).not.toBe(
@@ -367,20 +392,35 @@ test("/bot opens a live Computer sidebar with ownership controls and preserves t
   );
 });
 
-test("/bot?watch=true restores the live Computer panel on reload", async () => {
-  HTMLElement.prototype.getBoundingClientRect = () =>
-    new DOMRect(0, 0, 1200, 800);
-  global.fetch = Object.assign(
-    async () =>
-      Response.json({
-        holder: "bot",
-        since: "2026-09-26",
-        requested: false,
-        transitioning: false,
-        resumeSnapshotRequired: false,
-      }),
-    { preconnect: originalFetch.preconnect },
+test("/bot honours a stored closed preference and the pill opens Details", async () => {
+  wideWithComputer();
+  window.localStorage.setItem(BOT_PANEL_STORAGE_KEY, "closed");
+  const view = renderBot(
+    queryClientWithAgents([GENERAL_ASSISTANT]),
+    "/bot?agent=general-assistant",
   );
+  const pill = await view.findByRole("button", {
+    name: "Open General Assistant",
+  });
+  expect(view.queryByRole("region", { name: "Computer sidebar" })).toBeNull();
+  expect(
+    view
+      .getByRole("button", { name: "Show details" })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
+  fireEvent.click(pill);
+  await waitFor(() =>
+    expect(
+      view.getByRole("tab", { name: "Details" }).getAttribute("aria-selected"),
+    ).toBe("true"),
+  );
+  expect(window.localStorage.getItem(BOT_PANEL_STORAGE_KEY)).toBe("open");
+});
+
+test("/bot?watch=true restores the live Computer panel on reload", async () => {
+  wideWithComputer();
+  // Even over a closed preference: the link asked for the screen, for this visit.
+  window.localStorage.setItem(BOT_PANEL_STORAGE_KEY, "closed");
   const view = renderBot(
     queryClientWithAgents([GENERAL_ASSISTANT]),
     "/bot?agent=general-assistant&watch=true",
@@ -395,7 +435,12 @@ test("/bot?watch=true restores the live Computer panel on reload", async () => {
         .hasAttribute("disabled"),
     ).toBe(false),
   );
+  expect(
+    view.getByRole("tab", { name: "Computer" }).getAttribute("aria-selected"),
+  ).toBe("true");
   expect(view.getByTestId("copilot-chat").dataset.agentId).toBe(
     "general-assistant",
   );
+  // The link opened it for this visit; it did not rewrite the preference.
+  expect(window.localStorage.getItem(BOT_PANEL_STORAGE_KEY)).toBe("closed");
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supplySecret } from "@/lib/computers/control";
 import {
@@ -188,6 +188,16 @@ type Props = {
   /** Whose screen this is, drawn as a small badge over the frame. Absent, no badge is drawn. */
   name?: string;
   /**
+   * Stops the screenshot polling while set, as if the card had scrolled out of view.
+   *
+   * The bot panel keeps this mounted behind its other tabs so a switch back is instant, and a
+   * card nobody can see must not keep a request per second going. The control poll is shared and
+   * stays, because the panel's own attention logic reads it whichever tab is showing.
+   */
+  paused?: boolean;
+  /** A line under the card, such as whose screen it is. */
+  caption?: ReactNode;
+  /**
    * The page this turn left the browser on, for a turn that has finished.
    *
    * A conversation is a record, and a record must not change its mind. Without this, reopening a
@@ -221,6 +231,8 @@ export function ComputerView({
   minWidth = DEFAULT_MIN_WIDTH,
   minHeight = DEFAULT_MIN_HEIGHT,
   name,
+  paused = false,
+  caption,
   page,
   finished,
   toolCallId,
@@ -294,7 +306,8 @@ export function ComputerView({
   /** Force a short watch window after non-Bot actions such as secret entry. */
   const watchUntil = useRef(0);
 
-  const visualVisible = pageVisible && (expanded || previewIntersecting);
+  const visualVisible =
+    pageVisible && (expanded || (previewIntersecting && !paused));
 
   /*
    * The frame this turn's page was showing, fetched once and then kept.
@@ -477,154 +490,168 @@ export function ComputerView({
 
   return (
     <>
-      <figure ref={previewRef} className="overflow-hidden rounded-2xl border">
-        {/* Inline preview remains in transcript; click opens a readable full-size view. */}
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          /*
-           * Opens whether or not there is a picture in it. It used to be disabled without one, and
-           * the wheel is down there: a blank browser, a screen that had not arrived yet, or a
-           * computer that could not be reached left a person with no way to take control at all —
-           * the states where they most want it. With nothing to draw the full-size view shows these
-           * same words, and the wheel below them.
-           */
-          className="relative block w-full cursor-pointer bg-muted"
-          style={frameStyle}
-          aria-label="Open the assistant's screen full size"
-        >
-          {polledScreen}
+      {/*
+       * The figure is the intersection target and holds the caption; the card inside it clips the
+       * frame to its corners, so a caption is outside the border rather than drawn into the card.
+       */}
+      <figure ref={previewRef} className="flex flex-col gap-2">
+        <div className="overflow-hidden rounded-2xl border">
+          {/* Inline preview remains in transcript; click opens a readable full-size view. */}
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            /*
+             * Opens whether or not there is a picture in it. It used to be disabled without one, and
+             * the wheel is down there: a blank browser, a screen that had not arrived yet, or a
+             * computer that could not be reached left a person with no way to take control at all —
+             * the states where they most want it. With nothing to draw the full-size view shows these
+             * same words, and the wheel below them.
+             */
+            className="relative block w-full cursor-pointer bg-muted"
+            style={frameStyle}
+            aria-label="Open the assistant's screen full size"
+          >
+            {polledScreen}
 
-          {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
-          {name || wheelHere ? (
-            <span className="absolute right-2 bottom-2 flex items-center gap-1.5">
-              {name ? (
-                <span className="flex items-center gap-1.5 rounded-full bg-black/60 py-1 pr-2.5 pl-1.5 font-medium text-white text-xs backdrop-blur-sm">
-                  <ChannelAvatar participantIds={[computerId]} size={16} />
-                  {name}
-                </span>
-              ) : null}
-              {wheelHere ? (
-                <span className="rounded-full bg-white px-2.5 py-1 font-medium text-black text-xs shadow-sm">
-                  You have control
-                </span>
-              ) : null}
-            </span>
+            {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
+            {name || wheelHere ? (
+              <span className="absolute right-2 bottom-2 flex items-center gap-1.5">
+                {name ? (
+                  <span className="flex items-center gap-1.5 rounded-full bg-black/60 py-1 pr-2.5 pl-1.5 font-medium text-white text-xs backdrop-blur-sm">
+                    <ChannelAvatar participantIds={[computerId]} size={16} />
+                    {name}
+                  </span>
+                ) : null}
+                {wheelHere ? (
+                  <span className="rounded-full bg-white px-2.5 py-1 font-medium text-black text-xs shadow-sm">
+                    You have control
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+
+            {showScreen ? null : (
+              <NothingToSee
+                blankBrowser={blankBrowser}
+                page={knownPage}
+                problem={problem}
+                settled={settled}
+              />
+            )}
+          </button>
+
+          {/* The request reason appears above the always-available ownership controls. */}
+          {!driving && !settled && control?.requested ? (
+            <div className="flex items-start justify-between gap-3 border-t bg-amber-500/10 px-3 py-2 text-sm">
+              <span>
+                <strong className="font-medium">
+                  The assistant needs you.
+                </strong>{" "}
+                {control.reason}
+              </span>
+            </div>
           ) : null}
 
-          {showScreen ? null : (
-            <NothingToSee
-              blankBrowser={blankBrowser}
-              page={knownPage}
-              problem={problem}
-              settled={settled}
-            />
-          )}
-        </button>
-
-        {/* The request reason appears above the always-available ownership controls. */}
-        {!driving && !settled && control?.requested ? (
-          <div className="flex items-start justify-between gap-3 border-t bg-amber-500/10 px-3 py-2 text-sm">
-            <span>
-              <strong className="font-medium">The assistant needs you.</strong>{" "}
-              {control.reason}
-            </span>
-          </div>
-        ) : null}
-
-        {!settled && control?.requested ? (
-          <div className="px-3 pb-2 text-sm">
-            <button
-              type="button"
-              className="underline"
-              disabled={changingControl}
-              onClick={() => void changeControl?.("cancel")}
-            >
-              Cancel request
-            </button>
-          </div>
-        ) : null}
-        {!settled && control?.transitioning ? (
-          <p className="px-3 py-2 text-sm">
-            Finishing the assistant's current action before giving you control…
-          </p>
-        ) : null}
-        {!settled && control?.request?.status === "interrupted" ? (
-          <p className="px-3 py-2 text-sm">
-            The browser was interrupted. {control.request.interruption} Open the
-            screen and take control again to check it.
-          </p>
-        ) : null}
-        {/*
+          {!settled && control?.requested ? (
+            <div className="px-3 pb-2 text-sm">
+              <button
+                type="button"
+                className="underline"
+                disabled={changingControl}
+                onClick={() => void changeControl?.("cancel")}
+              >
+                Cancel request
+              </button>
+            </div>
+          ) : null}
+          {!settled && control?.transitioning ? (
+            <p className="px-3 py-2 text-sm">
+              Finishing the assistant's current action before giving you
+              control…
+            </p>
+          ) : null}
+          {!settled && control?.request?.status === "interrupted" ? (
+            <p className="px-3 py-2 text-sm">
+              The browser was interrupted. {control.request.interruption} Open
+              the screen and take control again to check it.
+            </p>
+          ) : null}
+          {/*
           Secret values go directly to the page path and are never included in the conversation.
           Audit records that a secret was supplied, not the value.
         */}
-        {control?.secretWanted ? (
-          <form
-            className="border-t bg-muted/40 px-3 py-2 text-sm"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!secret || sendingSecret) return;
-              setSendingSecret(true);
-              watchUntil.current = Date.now() + SECRET_CONFIRM_MS;
-              const result = await supplySecret(computerId, secret);
-              setSendingSecret(false);
-              // Clear even on failure so plaintext is not left in the DOM.
-              setSecret("");
-              setSecretProblem(result.ok ? null : (result.error ?? null));
-              await refreshControl?.();
-            }}
-          >
-            <label className="block" htmlFor="openbot-secret">
-              <span className="font-medium">The assistant needs </span>
-              <span>{control.secretWanted}</span>
-            </label>
-            <div className="mt-1.5 flex gap-2">
-              <input
-                id="openbot-secret"
-                type="password"
-                value={secret}
-                onChange={(event) => setSecret(event.target.value)}
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="Typed here, never shown to the assistant"
-                className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
-              />
-              <button
-                type="submit"
-                disabled={!secret || sendingSecret}
-                className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-              >
-                {sendingSecret ? "Sending…" : "Send to the page"}
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              This goes straight to the page. It is not shown in the
-              conversation and the assistant never receives it.
-            </p>
-            {secretProblem ? (
-              <p className="mt-1 text-xs text-destructive">{secretProblem}</p>
-            ) : null}
-          </form>
-        ) : null}
+          {control?.secretWanted ? (
+            <form
+              className="border-t bg-muted/40 px-3 py-2 text-sm"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!secret || sendingSecret) return;
+                setSendingSecret(true);
+                watchUntil.current = Date.now() + SECRET_CONFIRM_MS;
+                const result = await supplySecret(computerId, secret);
+                setSendingSecret(false);
+                // Clear even on failure so plaintext is not left in the DOM.
+                setSecret("");
+                setSecretProblem(result.ok ? null : (result.error ?? null));
+                await refreshControl?.();
+              }}
+            >
+              <label className="block" htmlFor="openbot-secret">
+                <span className="font-medium">The assistant needs </span>
+                <span>{control.secretWanted}</span>
+              </label>
+              <div className="mt-1.5 flex gap-2">
+                <input
+                  id="openbot-secret"
+                  type="password"
+                  value={secret}
+                  onChange={(event) => setSecret(event.target.value)}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="Typed here, never shown to the assistant"
+                  className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={!secret || sendingSecret}
+                  className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                >
+                  {sendingSecret ? "Sending…" : "Send to the page"}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                This goes straight to the page. It is not shown in the
+                conversation and the assistant never receives it.
+              </p>
+              {secretProblem ? (
+                <p className="mt-1 text-xs text-destructive">{secretProblem}</p>
+              ) : null}
+            </form>
+          ) : null}
 
-        {!settled ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
-            <span className="text-xs text-muted-foreground">
-              {!control
-                ? "Checking who has control…"
-                : control.transitioning
-                  ? "Finishing the current action…"
-                  : driving
-                    ? "You have control. Open the screen to click and type."
-                    : "The assistant has control."}
-            </span>
-            <ComputerControlButton
-              computerId={computerId}
-              onTakeControl={() => setExpanded(true)}
-            />
-          </div>
+          {!settled ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
+              <span className="text-xs text-muted-foreground">
+                {!control
+                  ? "Checking who has control…"
+                  : control.transitioning
+                    ? "Finishing the current action…"
+                    : driving
+                      ? "You have control. Open the screen to click and type."
+                      : "The assistant has control."}
+              </span>
+              <ComputerControlButton
+                computerId={computerId}
+                onTakeControl={() => setExpanded(true)}
+              />
+            </div>
+          ) : null}
+        </div>
+        {caption !== undefined && caption !== null ? (
+          <figcaption className="text-center text-[13px] text-muted-foreground">
+            {caption}
+          </figcaption>
         ) : null}
       </figure>
 

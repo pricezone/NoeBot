@@ -40,7 +40,7 @@ const BACK = {
  * row carrying a branch for a case it mostly does not have.
  */
 export const Route = createFileRoute(
-  "/_authed/settings/components-gallery/$name",
+  "/_authed/_app/settings/components-gallery/$name",
 )({
   component: RouteComponent,
 });

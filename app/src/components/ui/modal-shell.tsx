@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
  * The left column is the shell's own, not the sidebar primitive: `Sidebar collapsible="none"`
  * brings a provider, a rail and cookie-backed width state that a 220px list of links inside a
  * dialog has no use for. Rows are router `Link`s, so the active one lights from the URL, with the
- * same `exact` flag `settings-sidebar.tsx` needed for an entry whose path prefixes the others.
+ * `exact` flag the General row needs, since `/settings` prefixes every other row.
  *
  * Below `md` the dialog is the whole screen and the column becomes a scrollable row along the
  * top, the pattern `agent-dialog.tsx` arrived at when its sidebar hid on a phone and left the

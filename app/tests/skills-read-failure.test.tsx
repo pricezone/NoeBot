@@ -11,16 +11,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
   createRootRoute,
-  createRoute,
   createRouter,
-  Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { EditSkill } from "@/components/skills/edit-skill";
+import { SkillsSections } from "@/components/skills/skills-sections";
 import { type PluginsPage, pluginKeys } from "@/lib/plugins/queries";
-import { Route as SkillsRoute } from "@/routes/_authed/_app/skills";
 import { Route as AdminSkillsRoute } from "@/routes/_authed/admin/skills";
 
 /**
@@ -35,8 +33,9 @@ import { Route as AdminSkillsRoute } from "@/routes/_authed/admin/skills";
  *
  * THE HARNESS IS THIS REPOSITORY'S, as in `agent-roster-error.test.tsx` and
  * `boundaries-read-failure.test.tsx`: `GlobalRegistrator` in `beforeAll`/`afterAll`, `cleanup` in
- * `afterEach`, queries off `render()`'s own return, a `QueryClient` with `retry: false`, and the
- * exported `Route` singleton captured and restored around its `.update()`.
+ * `afterEach`, queries off `render()`'s own return, and a `QueryClient` with `retry: false`. The
+ * personal list is `SkillsSections`, the component the Marketplace's Skills tab draws since
+ * `/skills` became a redirect, rendered on its own under a bare root route.
  */
 
 beforeAll(() => GlobalRegistrator.register());
@@ -101,66 +100,6 @@ async function waitForFailedRead(client: QueryClient) {
   });
 }
 
-function captureRouteState(route: object): Record<string, unknown> {
-  return { ...route, options: { ...(route as { options: object }).options } };
-}
-
-function restoreRouteState(
-  route: object,
-  snapshot: Record<string, unknown>,
-): void {
-  for (const key of Object.keys(route)) {
-    if (!(key in snapshot)) {
-      delete (route as Record<string, unknown>)[key];
-    }
-  }
-  Object.assign(route, snapshot);
-}
-
-const pristineSkillsRouteState = captureRouteState(SkillsRoute);
-let skillsRouteSnapshot: Record<string, unknown>;
-
-beforeEach(() => {
-  skillsRouteSnapshot = captureRouteState(pristineSkillsRouteState);
-});
-
-afterEach(() => {
-  restoreRouteState(SkillsRoute, skillsRouteSnapshot);
-});
-
-/** `/skills`, at the id its `Route.useSearch()` reads: `/_authed/_app/skills`. */
-function renderSkills(client: QueryClient) {
-  const rootRoute = createRootRoute({ component: Outlet });
-  const authedRoute = createRoute({
-    id: "/_authed",
-    getParentRoute: () => rootRoute,
-    component: Outlet,
-  });
-  const appRoute = createRoute({
-    id: "/_app",
-    getParentRoute: () => authedRoute,
-    component: Outlet,
-  });
-  const skills = (
-    SkillsRoute as unknown as { update: (options: unknown) => unknown }
-  ).update({
-    path: "/skills",
-    getParentRoute: () => appRoute,
-  });
-  const tree = rootRoute.addChildren([
-    authedRoute.addChildren([appRoute.addChildren([skills as never])]),
-  ]);
-  const router = createRouter({
-    routeTree: tree,
-    history: createMemoryHistory({ initialEntries: ["/skills"] }),
-  });
-  return render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router as never} />
-    </QueryClientProvider>,
-  );
-}
-
 /** A component that reads no route of its own, drawn under a root route for `Link`/`useNavigate`. */
 function renderAlone(client: QueryClient, Component: ComponentType) {
   const router = createRouter({
@@ -174,9 +113,9 @@ function renderAlone(client: QueryClient, Component: ComponentType) {
   );
 }
 
-test("a person's skills page says the skills failed to load, not that they have none", async () => {
+test("a person's skills list says the skills failed to load, not that they have none", async () => {
   const client = failingQueryClient();
-  const view = renderSkills(client);
+  const view = renderAlone(client, SkillsSections);
   await waitForFailedRead(client);
 
   expect(
@@ -187,7 +126,7 @@ test("a person's skills page says the skills failed to load, not that they have 
 
 test("a person with genuinely no skills is still told so", async () => {
   const client = answeredEmpty();
-  const view = renderSkills(client);
+  const view = renderAlone(client, SkillsSections);
   await waitForFailedRead(client);
 
   expect(await view.findByText("You don't have any skills yet.")).toBeTruthy();

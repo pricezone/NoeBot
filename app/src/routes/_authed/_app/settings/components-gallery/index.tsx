@@ -19,7 +19,9 @@ import { componentListQueryOptions } from "@/lib/components/queries";
  * capability nobody has. The description shown is the published one — what the model is actually
  * told — rather than a draft an administrator may be part-way through rewording.
  */
-export const Route = createFileRoute("/_authed/settings/components-gallery/")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/components-gallery/",
+)({
   component: RouteComponent,
 });
 
