@@ -11,7 +11,7 @@ const tenantPackageDirectory = configuredTenantPackageDirectory
   ? isAbsolute(configuredTenantPackageDirectory)
     ? configuredTenantPackageDirectory
     : resolve(projectRoot, "server", configuredTenantPackageDirectory)
-  : resolve(projectRoot, "examples/fintech");
+  : resolve(projectRoot, "examples/noebot");
 const tenantPackage = await loadTenantPackage(tenantPackageDirectory);
 const applicationConfiguration = createApplicationConfiguration(tenantPackage);
 const outputPath = resolve(

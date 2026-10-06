@@ -26,6 +26,17 @@ export type DeploymentCapabilities = {
   selfHostBanner: boolean;
   transcription?: boolean;
   voice?: boolean;
+  /**
+   * Whether this deployment is metered by the platform that runs it, and so has a usage figure to
+   * show. Off on a deployment that brings its own model key: the account menu then has no usage row
+   * and the Usage & Billing tab says the model is billed elsewhere.
+   */
+  usage?: boolean;
+  /**
+   * Where the subscription behind this deployment is managed. A link out to the platform, opened in
+   * a new tab, never fetched. Absent when the server named none.
+   */
+  billingUrl?: string;
 };
 
 export const deploymentKeys = {
@@ -64,6 +75,8 @@ export function deploymentCapabilitiesQueryOptions() {
         selfHostBanner?: boolean;
         transcription?: boolean;
         voice?: boolean;
+        usage?: boolean;
+        billingUrl?: string | null;
       };
 
       return {
@@ -71,6 +84,12 @@ export function deploymentCapabilitiesQueryOptions() {
         selfHostBanner: body.selfHostBanner === true,
         transcription: body.transcription === true,
         voice: body.voice === true,
+        usage: body.usage === true,
+        // A string or nothing: the server answers null when it has no billing page, and an older
+        // server answers no field at all. Both read as "no link to offer".
+        ...(typeof body.billingUrl === "string" && body.billingUrl
+          ? { billingUrl: body.billingUrl }
+          : {}),
       };
     },
   });

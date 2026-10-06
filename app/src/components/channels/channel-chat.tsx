@@ -943,6 +943,11 @@ export function ChannelChat({
             commands={skillCommands}
             // Readiness is handled by `say`; deletion is the only disabled-chat state.
             disabled={!channel.active}
+            // The pill reads "Message Noë", the way a messages app names who the words go to; a
+            // channel the server has not named yet gets the composer's own default.
+            placeholder={
+              channel.name ? `Message ${channel.name}` : "Ask anything"
+            }
             messages={withVoiceChats(
               transcriptMessages(agent.messages, seed),
               voiceArchive.entries,

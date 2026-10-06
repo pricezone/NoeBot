@@ -41,7 +41,7 @@ export function desktopAuthPage(
   }).replaceAll("<", "\\u003c");
   const nonce = crypto.randomUUID();
   return new Response(
-    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in to OpenBot</title></head><body><main><h1>Sign in to OpenBot</h1><p id="status">Continue with your organization account to return to OpenBot.</p><button id="continue">Continue</button></main><script nonce="${nonce}">
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Sign in to Noë Bot</title></head><body><main><h1>Sign in to Noë Bot</h1><p id="status">Continue with your organization account to return to Noë Bot.</p><button id="continue">Continue</button></main><script nonce="${nonce}">
 const config=${config};
 const status=document.getElementById('status');
 const button=document.getElementById('continue');

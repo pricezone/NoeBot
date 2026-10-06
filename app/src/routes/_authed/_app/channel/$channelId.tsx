@@ -19,6 +19,7 @@ import { ComputerViewPanel } from "@/components/computer/computer-panel";
 import { DetailPanel } from "@/components/layout/detail-panel";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { Button } from "@/components/ui/button";
+import { rememberLastBot } from "@/lib/agents/last-bot";
 import { markChannelReadMutationOptions } from "@/lib/channels/mutations";
 import {
   type AgentChannel,
@@ -56,6 +57,16 @@ function RouteComponent() {
   const isWatching = watch === true;
   /** Channel routing currently supports one coworker. */
   const agentId = channel.data?.agentIds[0];
+
+  /*
+   * This is the Bot home returns to next time (`lib/landing.ts`). Only a conversation with one
+   * Bot counts: a group's first participant is not "the Bot you were with", and the group route
+   * this one redirects to is not where a landing should go.
+   */
+  const isWithOneBot = channel.data?.agentIds.length === 1;
+  useEffect(() => {
+    if (agentId && isWithOneBot) rememberLastBot(agentId);
+  }, [agentId, isWithOneBot]);
 
   const queryClient = useQueryClient();
   const markRead = useMutation(markChannelReadMutationOptions(queryClient));

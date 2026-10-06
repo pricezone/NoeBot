@@ -27,6 +27,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useBotNames } from "@/lib/agents/bot-names";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { brand } from "@/lib/brand";
 import { setComputerStateMutationOptions } from "@/lib/computers/mutations";
 import {
   hostAccessQueryOptions,
@@ -358,7 +359,7 @@ function HostFoldersSection({
 
   return (
     <PageSection
-      description="Choose folders a Bot can read on this computer. The desktop app asks before each edit or command. Access ends when you stop OpenBot."
+      description={`Choose folders a Bot can read on this computer. The desktop app asks before each edit or command. Access ends when you stop ${brand.productName}.`}
       title="Folders on this computer"
     >
       {problem ? (

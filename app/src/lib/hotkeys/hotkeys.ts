@@ -36,6 +36,13 @@ export const HOTKEYS = [
     description: "Start a new chat from anywhere in the app.",
     combo: { key: "n", shift: true },
   },
+  {
+    id: "dictate",
+    label: "Dictate a message",
+    description:
+      "Start recording a message for the composer, on instances with transcription configured.",
+    combo: { key: "d", mod: true },
+  },
 ] as const satisfies readonly Hotkey[];
 
 export type HotkeyId = (typeof HOTKEYS)[number]["id"];

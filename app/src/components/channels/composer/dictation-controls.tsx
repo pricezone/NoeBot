@@ -31,14 +31,14 @@ export function DictationButton({
           ? "Dictate a message"
           : "Dictation requires a supported browser and HTTPS (or localhost)"
       }
-      className="size-8 shrink-0 self-end rounded-full"
+      className="size-9 shrink-0 self-end rounded-full"
       disabled={disabled || !dictation.supported || dictation.busy}
       onClick={() => void dictation.session.start()}
       size="icon"
       type="button"
       variant="ghost"
     >
-      <IconMicrophone className="size-4" />
+      <IconMicrophone className="size-5" />
     </Button>
   );
 }
@@ -113,7 +113,7 @@ function RecordingControls({
         size="icon"
         type="button"
         variant="ghost"
-        className="size-8 shrink-0 rounded-full"
+        className="size-9 shrink-0 rounded-full"
         onClick={session.cancel}
       >
         <IconX className="size-4" />
@@ -185,7 +185,7 @@ function RecordingControls({
               size="icon"
               type="button"
               variant="ghost"
-              className="size-8 rounded-full"
+              className="size-9 rounded-full"
               onClick={() => void session.finish("draft")}
             >
               <IconPlayerStopFilled className="size-3.5" />
@@ -196,7 +196,7 @@ function RecordingControls({
               disabled={!recording || !canSend}
               size="icon"
               type="button"
-              className="size-8 rounded-full"
+              className="size-9 rounded-full"
               onClick={() => void session.finish("send")}
             >
               <motion.span

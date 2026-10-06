@@ -18,6 +18,8 @@ import {
   type QueuedMessage,
   reduceQueue,
 } from "@/components/channels/composer";
+import type { ComposerHandle } from "@/components/channels/composer/composer";
+import { SendFailedNotice } from "@/components/channels/send-failed-notice";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import { newId } from "../../lib/new-id";
 
@@ -35,6 +37,7 @@ export function ConversationView({
   stoppable,
   queueWhileBusy = false,
   restoring = false,
+  placeholder,
   onSubmit,
   onStop,
   voiceCall,
@@ -90,6 +93,8 @@ export function ConversationView({
   queueWhileBusy?: boolean;
   /** History has been asked for and has not arrived. Drawn as placeholder rows; see `ChatTranscript`. */
   restoring?: boolean;
+  /** The composer's hint while empty; forwarded. The channel chat names the Bot here. */
+  placeholder?: string;
   onSubmit: (draft: ComposerDraft) => void | Promise<void>;
   /** Stop the Bot mid-answer; forwarded to turn the send button into a stop button. */
   onStop?: () => void;
@@ -151,6 +156,22 @@ export function ConversationView({
    */
   const [running, setRunning] = useState(false);
   const inFlight = pending || running;
+
+  /**
+   * THE LAST SEND FROM THE COMPOSER WAS REFUSED, AND NOTHING ON SCREEN WOULD OTHERWISE SAY SO.
+   *
+   * There is no failed message to mark: a send that fails never became one, and the composer puts
+   * the words back into the editor (its `submitDraft` catch). What the person sees is their
+   * sentence reappearing in the box with no explanation — so this draws "Failed to send" with a
+   * Resend and a Discard above it, both acting on the editor through `composerRef`.
+   *
+   * Only sends that came through the composer, deliberately. A drained run that fails goes back
+   * into the queue, whole, and is drawn there as parked (see the drain's `catch`); a Resend line
+   * whose button sent the editor's — probably empty — draft would be a remedy pointing at the wrong
+   * thing. Cleared the moment any send starts, so a line never outlives the attempt it describes.
+   */
+  const [sendFailed, setSendFailed] = useState(false);
+  const composerRef = useRef<ComposerHandle>(null);
 
   /**
    * Every change to the queue goes through here, so the ref and the state can never disagree.
@@ -291,6 +312,7 @@ export function ConversationView({
    */
   const submit = useCallback(
     (draft: ComposerDraft, whileBusy: boolean) => {
+      setSendFailed(false);
       const next = apply({
         busy: whileBusy,
         draft,
@@ -326,6 +348,12 @@ export function ConversationView({
           restoreFailedRun(carried);
         });
       }
+      // A second derived promise, settled by its own `catch` for the same reason as the one above:
+      // the composer still gets `started` itself, and the restore it does on rejection is what the
+      // line this raises is about.
+      void started.catch(() => {
+        setSendFailed(true);
+      });
       return started;
     },
     [apply, restoreFailedRun],
@@ -436,7 +464,19 @@ export function ConversationView({
       </div>
       <div className="max-w-2xl mx-auto w-full px-0 pb-4 shrink-0">
         {notice}
+        {sendFailed ? (
+          <SendFailedNotice
+            onResend={() => {
+              composerRef.current?.submit();
+            }}
+            onDiscard={() => {
+              composerRef.current?.clear();
+              setSendFailed(false);
+            }}
+          />
+        ) : null}
         <Composer
+          ref={composerRef}
           agents={agents}
           autoFocus={autoFocus}
           {...(channelId ? { channelId } : {})}
@@ -455,6 +495,7 @@ export function ConversationView({
           }
           onStop={onStop}
           onSubmit={(draft) => submit(draft, false)}
+          {...(placeholder ? { placeholder } : {})}
           /*
            * `inFlight` rather than the `pending` this was given. A drained turn is started from the
            * effect above rather than from the composer, so the composer's own send tracking knows

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { AgentCard } from "@/components/agents/agent-card";
 import { Composer, toAgentOptions } from "@/components/channels/composer";
@@ -14,12 +14,49 @@ import {
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { defaultAgentProfile } from "@/lib/agents/default-agent";
+import { readLastBot } from "@/lib/agents/last-bot";
 import { agentListQueryOptions, isSharedWithYou } from "@/lib/agents/queries";
+import { channelListQueryOptions } from "@/lib/channels/queries";
 import { routeMessage } from "@/lib/channels/route";
 import { useStartChannel } from "@/lib/channels/start";
 import { appConfig } from "@/lib/generated/application-config";
+import { type LandingTarget, landingTarget } from "@/lib/landing";
 
 export const Route = createFileRoute("/_authed/_app/")({
+  /*
+   * Home lands on a conversation, not on this composer: the Bot this person was with last, else
+   * the newest conversation, else a fresh one with the default coworker (`lib/landing.ts`). Both
+   * lists are ensured rather than fetched, so a return to `/` from inside the app reads the
+   * sidebar's cache and redirects without a round trip; a cold load pays for one.
+   *
+   * The whole decision sits inside a try, and any failure means no redirect at all. The component
+   * below is the fallback, and it already knows how to say that the roster could not be loaded —
+   * a redirect decided on half the data would send somebody to the wrong place with no
+   * explanation, which is worse than the composer they always had. The tests that mount the
+   * component alone (`home-fallback-routing`, `agent-roster-error`) never run this.
+   *
+   * `ensureInfiniteQueryData` hands back the pages as stored, not the flattened array the
+   * query's `select` gives components, so the pages are joined here the same way.
+   */
+  beforeLoad: async ({ context }) => {
+    let target: LandingTarget | null = null;
+    try {
+      const [pages, agents] = await Promise.all([
+        context.queryClient.ensureInfiniteQueryData(channelListQueryOptions()),
+        context.queryClient.ensureQueryData(agentListQueryOptions()),
+      ]);
+      target = landingTarget({
+        lastBotId: readLastBot(),
+        channels: pages.pages.flatMap((page) => page.channels),
+        agents,
+      });
+    } catch {
+      return;
+    }
+    // Replaced, not pushed: Back from the conversation should not land on `/` only to be sent
+    // forward to the same conversation again.
+    if (target) throw redirect({ ...target, replace: true });
+  },
   component: RouteComponent,
 });
 

@@ -5,6 +5,7 @@ import { PageSection, PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { brand } from "@/lib/brand";
 import {
   learningDeliveryQueryOptions,
   learningKeys,
@@ -392,9 +393,9 @@ export function LearningPage() {
           </Button>
           <p className="text-muted-foreground text-sm">
             Management requires your Intelligence account and project
-            permissions. OpenBot keeps project credentials on the server.
-            Pausing here preserves settings and thread assignments; schedules
-            and publication remain managed in Intelligence.
+            permissions. {brand.productName} keeps project credentials on the
+            server. Pausing here preserves settings and thread assignments;
+            schedules and publication remain managed in Intelligence.
           </p>
         </div>
       </PageSection>

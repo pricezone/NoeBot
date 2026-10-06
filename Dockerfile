@@ -84,6 +84,9 @@ COPY shared shared
 # `server/src/tenant-package`, so the app cannot be built without it.
 COPY server server
 COPY examples examples
+# The app's prebuild bakes the tenant package into the bundle (name, tenant id); without this the
+# image ships the fintech example's branding.
+ENV TENANT_PACKAGE_DIR=/src/examples/noebot
 RUN bun run --cwd app build
 
 

@@ -79,7 +79,7 @@ describe("deployment configuration", () => {
       endpoint: new URL("http://localhost:4200/ag-ui"),
       token: "managed-agent-token",
     });
-    expect(config.tenantPackageDirectory).toBe("../examples/fintech");
+    expect(config.tenantPackageDirectory).toBe("../examples/noebot");
   });
 
   test("allows deployment without an authentication provider, when asked to", () => {

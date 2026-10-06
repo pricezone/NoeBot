@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ASSISTANT_AGENT_ID,
   defaultAgentId,
   defaultAgentProfile,
   PICKED_HARNESS_AGENT_ID,
@@ -42,7 +43,27 @@ describe("default agent selection", () => {
     ).toBe(PICKED_HARNESS_AGENT_ID);
   });
 
-  test("keeps the route-specific fallback when there is no picked harness", () => {
+  /*
+   * The tenant's built-in Noë sits between the package pick and everything else: a fresh Noë Bot
+   * workspace has no picked harness, and its home must land on Noë rather than on whichever
+   * coworker happens to be first in the roster or on the route's own fallback.
+   */
+  test("prefers the built-in assistant when there is no picked harness", () => {
+    const general = agent("general-assistant", "General Assistant");
+    const noe = agent(ASSISTANT_AGENT_ID, "Noë");
+    const shared = agent("shared-agent", "Shared Agent");
+
+    expect(defaultAgentProfile([general, noe], shared)?.id).toBe(
+      ASSISTANT_AGENT_ID,
+    );
+    expect(defaultAgentId([general, noe])).toBe(ASSISTANT_AGENT_ID);
+    // The package pick still outranks it.
+    expect(
+      defaultAgentId([noe, agent(PICKED_HARNESS_AGENT_ID, "LangGraph")]),
+    ).toBe(PICKED_HARNESS_AGENT_ID);
+  });
+
+  test("keeps the route-specific fallback when there is no picked harness or assistant", () => {
     const general = agent("general-assistant", "General Assistant");
     const shared = agent("shared-agent", "Shared Agent");
 

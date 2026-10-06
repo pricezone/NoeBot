@@ -19,8 +19,10 @@ import {
   type ChangeEvent,
   type DragEvent,
   type FormEvent,
+  type Ref,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
@@ -35,6 +37,7 @@ import {
   mediaTypeOf,
   shouldClaimPaste,
 } from "@/lib/channels/attachments";
+import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import { newId } from "@/lib/new-id";
 import { cn } from "@/lib/utils";
 import { Button } from "../../ui/button";
@@ -115,12 +118,30 @@ function stagedModality(attachment: Attachment) {
 
 const MAX_HEIGHT_PX = 220;
 /**
- * Tracks the compact `text-sm` line box so PromptArea stays vertically centered in one row.
+ * Tracks the compact `text-[15px] leading-6` line box so PromptArea stays vertically centered in
+ * one row: a 24px line inside the 36px the round buttons beside it are tall.
  */
-const COMPACT_MIN_HEIGHT_PX = 19;
+const COMPACT_MIN_HEIGHT_PX = 24;
 const COMPACT_MAX_HEIGHT_PX = 96;
 
+/**
+ * What a caller can ask of a mounted composer from outside it.
+ *
+ * Two verbs, for the "Failed to send" line: a failed send puts the words back into the editor
+ * (see `submitDraft`'s `catch`), so the editor is where the message that failed now lives, and the
+ * line's Resend and Discard act on it. Nothing else reaches in; the composer stays the owner of its
+ * draft.
+ */
+export type ComposerHandle = {
+  /** Send whatever the editor holds, through the same path as Enter and the button. */
+  submit: () => void;
+  /** Empty the editor, keeping whatever is on the attachment strip. */
+  clear: () => void;
+};
+
 export type ComposerProps = {
+  /** Exposes `ComposerHandle` to the caller; React 19 passes `ref` as an ordinary prop. */
+  ref?: Ref<ComposerHandle>;
   className?: string;
   /**
    * Classes for the editor itself rather than the frame. `className` styles the box — border,
@@ -129,6 +150,11 @@ export type ComposerProps = {
    */
   editorClassName?: string;
   compact?: boolean;
+  /**
+   * The editor's hint while it is empty. "Ask anything" by default; the channel chat names the Bot
+   * instead ("Message Noë"), the way a messages app says who the words go to.
+   */
+  placeholder?: string;
   voiceCall?: { active: boolean; supported: boolean; onStart(): void };
   /** Agents that `@` can address. Empty means the mention menu reports an empty channel. */
   agents?: readonly AgentOption[];
@@ -314,9 +340,11 @@ const UNACCEPTED_DROP_REASON = {
 } as const;
 
 export function Composer({
+  ref,
   className,
   editorClassName,
   compact = false,
+  placeholder = "Ask anything",
   voiceCall,
   agents = [],
   commands = PLACEHOLDER_COMMANDS,
@@ -1258,6 +1286,38 @@ export function Composer({
     void submitDraft(value);
   }, [value, submitDraft]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      submit: () => {
+        void submitDraft(value);
+      },
+      clear: () => {
+        setValue([]);
+      },
+    }),
+    [submitDraft, value],
+  );
+
+  /**
+   * Mod+D starts dictation from anywhere on the page, including from inside the editor: the combo
+   * carries a modifier, so `useHotkey` does not treat it as typing. `preventDefault` there is what
+   * keeps the browser from opening its bookmark dialog on the same keystroke. The same gates as the
+   * mic button, so the shortcut can never do what the button would refuse.
+   */
+  useHotkey("dictate", () => {
+    if (
+      !dictation.available ||
+      !dictation.supported ||
+      dictation.busy ||
+      disabled ||
+      voiceCall?.active === true
+    ) {
+      return;
+    }
+    void dictation.session.start();
+  });
+
   const wasDictating = useRef(false);
   /**
    * Put the caret back the moment the composer can accept it again.
@@ -1341,20 +1401,28 @@ export function Composer({
   const sendLabel = parking ? "Queue message" : "Send message";
   const callAction =
     draft.isEmpty && draft.attachments.length === 0 ? voiceCall : undefined;
+  /**
+   * One round button, drawn as Grok draws it: a filled circle in the foreground colour, so on the
+   * dark theme it is the one white disc in the pill. Stop is the exception and is red, because it
+   * is the one press here that ends something rather than starting it.
+   */
   const actionClassName = cn(
-    "rounded-full p-0",
-    compact ? "size-8 self-end" : "size-7",
+    "rounded-full p-0 bg-foreground text-background hover:bg-foreground/90",
+    compact ? "size-9 self-end" : "size-7",
   );
   const primaryAction = canStop ? (
     <Button
       aria-label="Stop the Bot"
-      className={actionClassName}
+      className={cn(
+        actionClassName,
+        "bg-destructive text-white hover:bg-destructive/90",
+      )}
       data-testid="composer-stop"
       onClick={onStop}
       size="icon"
       type="button"
     >
-      <IconPlayerStopFilled className="size-3" />
+      <IconPlayerStopFilled className="size-3.5" />
     </Button>
   ) : callAction ? (
     <Button
@@ -1372,7 +1440,7 @@ export function Composer({
       size="icon"
       type="button"
     >
-      <IconWaveform className="size-4" />
+      <IconWaveform className="size-5" />
     </Button>
   ) : (
     <Button
@@ -1382,7 +1450,7 @@ export function Composer({
       size="icon"
       type="submit"
     >
-      <IconArrowUp className="size-3.5" />
+      <IconArrowUp className="size-4" />
     </Button>
   );
 
@@ -1485,14 +1553,15 @@ export function Composer({
           aria-busy={isBusy}
           className={cn(
             /*
-             * `py-3` IS LOAD-BEARING ONCE THE TEXT WRAPS. On one line `min-h-14` and the controls
-             * row's own `items-center` fake the vertical padding, so it read as correct for as long
-             * as nobody typed a paragraph. Past that the box grows to fit its content exactly and
-             * the glyphs sit against the border.
+             * A PILL: 48px tall on one line, fully round-ended, no border. The 36px buttons plus
+             * `py-1.5` are what make the single-line height, and the editor's 24px line box sits
+             * centred between them. Once the text wraps the box grows to fit, and `py-1.5` is the
+             * only thing between the glyphs and the edge — so it stays on the form rather than on
+             * the editor, because the editor scrolls internally at COMPACT_MAX_HEIGHT_PX and
+             * padding inside that box would scroll away with the text.
              *
-             * It goes on the form rather than on the editor because the editor scrolls internally
-             * at COMPACT_MAX_HEIGHT_PX: padding inside that box would scroll away with the text, so
-             * the first visible line would still touch the top edge on a long message.
+             * No border and no ring at rest, as Grok draws it; a soft ring while focused keeps a
+             * keyboard user able to see which box has the caret.
              */
             /*
              * A COLUMN, SO THE ATTACHMENT STRIP CAN HAVE THE FULL WIDTH. It used to be one row —
@@ -1500,7 +1569,7 @@ export function Composer({
              * started it 42px in from the frame's left edge with nothing under it. The strip is
              * its own row across the top now, and the three controls keep their row below it.
              */
-            "flex min-h-14 flex-col rounded-2xl border border-border bg-card px-3 py-3 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+            "flex min-h-12 flex-col rounded-[26px] border-0 bg-card px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring/40",
             className,
           )}
           onSubmit={handleFormSubmit}
@@ -1519,11 +1588,11 @@ export function Composer({
              * the middle of that block rather than sitting on the line the person is typing. Empty,
              * the row is exactly a button tall, so centred and bottom are the same pixel.
              */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {attachmentsEnabled ? (
                 <Button
                   aria-label="Attach a file"
-                  className="self-end"
+                  className="size-9 self-end rounded-full bg-muted text-foreground"
                   // The button stays, and stays labelled: a conversation that cannot take another
                   // message has not lost the ability to attach, it has lost the message. Swapping it
                   // for the "unavailable" placeholder would say the wrong thing about why.
@@ -1538,7 +1607,7 @@ export function Composer({
               ) : (
                 <Button
                   aria-label="More message options unavailable"
-                  className="self-end disabled:opacity-100"
+                  className="size-9 self-end rounded-full bg-muted text-muted-foreground disabled:opacity-100"
                   disabled
                   size="icon"
                   type="button"
@@ -1550,7 +1619,7 @@ export function Composer({
               <PromptArea
                 aria-label="Message"
                 className={cn(
-                  "min-w-0 flex-1 border-0 bg-transparent p-0 text-sm shadow-none",
+                  "min-w-0 flex-1 border-0 bg-transparent p-0 text-[15px] leading-6 shadow-none",
                   editorClassName,
                 )}
                 disabled={disabled}
@@ -1559,7 +1628,7 @@ export function Composer({
                 onChange={handleChange}
                 onImagePaste={canAttach ? stagePastedImage : undefined}
                 onSubmit={submitDraft}
-                placeholder="Ask anything"
+                placeholder={placeholder}
                 ref={promptAreaRef}
                 triggers={triggers}
                 value={value}
@@ -1616,7 +1685,7 @@ export function Composer({
               onChange={handleChange}
               onImagePaste={canAttach ? stagePastedImage : undefined}
               onSubmit={submitDraft}
-              placeholder="Ask anything"
+              placeholder={placeholder}
               ref={promptAreaRef}
               triggers={triggers}
               value={value}

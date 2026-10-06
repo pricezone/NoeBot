@@ -49,6 +49,10 @@ describe("runtime capabilities", () => {
       selfHostBanner: true,
       transcription: false,
       voice: false,
+      // Off unless the platform that meters this deployment named where to read usage from.
+      usage: false,
+      // No billing page on an unmetered deployment; null so the browser can tell it from an older server.
+      billingUrl: null,
       // Names only. The sign-in screen reads this to know which buttons to draw.
       authProviders: ["google"],
       // The platform that signs people in through the handoff, when one is configured; this
@@ -78,6 +82,8 @@ describe("runtime capabilities", () => {
       "selfHostBanner",
       "transcription",
       "voice",
+      "usage",
+      "billingUrl",
       "authProviders",
       "signInHandoff",
       "ssoConfigured",

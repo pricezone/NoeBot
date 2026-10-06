@@ -129,6 +129,7 @@ import {
 } from "./user-instructions";
 import type { UserPreferencesStore } from "./user-preferences";
 import { userPreferencesRoutes } from "./user-preferences-routes";
+import { createUsageRoutes } from "./usage/routes";
 import { createVoiceProvider } from "./voice/provider";
 import { createVoiceRoutes } from "./voice/routes";
 import type { VoiceSessionServices } from "./voice/session-routes";
@@ -451,6 +452,20 @@ export function createApp(
       transcription: Boolean(config.transcription),
       voice: Boolean(config.voice),
       /*
+       * Whether this deployment has a usage meter to show. A boolean, never the endpoint or the
+       * bearer that reads it: both stay in `config.usage`, and the figures themselves are served by
+       * `/api/usage`, which asks for a signed-in person first. A deployment on its own model key
+       * answers false, and the account menu has no usage row.
+       */
+      usage: Boolean(config.usage),
+      /*
+       * Where the subscription behind this deployment is managed. A public address on the platform
+       * that provisioned the machine, behind that platform's own sign-in, so naming it tells an
+       * anonymous reader nothing they could not learn from the sign-in page. Null, not absent, so the
+       * browser can tell "no billing page" from "an older server".
+       */
+      billingUrl: config.billingUrl ?? null,
+      /*
        * Which identity providers this deployment can sign somebody in with.
        *
        * Ids only, never the credentials: `configuredAuthProviders` returns names, and the clients
@@ -610,6 +625,12 @@ export function createApp(
         : undefined,
     ),
   );
+  // Mounted only when the platform metering this deployment said where to read from. Without it the
+  // capability answers false above and there is no route to ask, rather than a route that always
+  // answers 503.
+  if (config.usage) {
+    app.route("/api/usage", createUsageRoutes(requireUser, config.usage));
+  }
   app.route(
     "/api/voice",
     createVoiceRoutes(

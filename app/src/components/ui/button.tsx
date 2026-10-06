@@ -18,6 +18,13 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        /*
+         * The rounded chip Grok Bot draws for "Connect apps" and the chat header's bot name: card
+         * colour on the page, muted on hover, a full radius. It carries its own height and type
+         * size, since the size scale below is tuned for rectangular buttons; paired with the
+         * default size, the classes here win on every property both set.
+         */
+        pill: "h-10 rounded-full bg-card px-4 text-[15px] font-medium text-foreground hover:bg-muted aria-expanded:bg-muted",
       },
       size: {
         default:

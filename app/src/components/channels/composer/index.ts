@@ -1,5 +1,6 @@
 export {
   Composer,
+  type ComposerHandle,
   type ComposerProps,
   type DroppedAttachmentCause,
   type DroppedAttachments,

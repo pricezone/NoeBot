@@ -5,6 +5,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { brand } from "@/lib/brand";
 import { conversationLabel } from "@/lib/channels/label";
 import { channelListQueryOptions } from "@/lib/channels/queries";
 import {
@@ -170,7 +171,7 @@ function ReachabilityPage() {
           {link.data && (
             <div className="grid gap-2 rounded border bg-muted/40 p-3 text-sm">
               <p>
-                Send this message to the OpenBot app in{" "}
+                Send this message to the {brand.productName} app in{" "}
                 {link.data.platform === "teams" ? "Microsoft Teams" : "Slack"}{" "}
                 within {link.data.expiresInMinutes} minutes. It links that
                 account to this conversation and Bot.
@@ -200,8 +201,8 @@ function ReachabilityPage() {
           </p>
           {reach.data && !reach.data.available.slack && (
             <p className="text-sm text-muted-foreground">
-              An administrator needs to pair OpenBot with OpenTag before Slack
-              or Teams can be linked.
+              An administrator needs to pair {brand.productName} with OpenTag
+              before Slack or Teams can be linked.
             </p>
           )}
           <form
@@ -293,8 +294,8 @@ function ReachabilityPage() {
         <section className="grid gap-3 rounded-lg border p-4">
           <h2 className="font-semibold">Native devices</h2>
           <p className="text-sm text-muted-foreground">
-            Sign in to the OpenBot native app and enable notifications to
-            register your device.
+            Sign in to the {brand.productName} native app and enable
+            notifications to register your device.
           </p>
           {reach.data?.devices.map((device) => (
             <div key={device.id} className="flex items-center justify-between">

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { stashFirstMessage } from "@/components/channels/transcript-messages";
+import { rememberLastBot } from "@/lib/agents/last-bot";
 import { createChannelMutationOptions } from "./mutations";
 import { channelKeys } from "./queries";
 import { routeMessage } from "./route";
@@ -44,6 +45,9 @@ export function useStartChannel() {
     const channel = await createChannel.mutateAsync([agentId]);
     queryClient.setQueryData(channelKeys.detail(channel.id), channel);
     stashFirstMessage(channel.id, text);
+    // Remembered here, not only once the channel route mounts: a conversation somebody just
+    // started is the one home should return to, even if they leave before the route settles.
+    rememberLastBot(agentId);
     await navigate({
       params: { channelId: channel.id },
       replace: true,

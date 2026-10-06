@@ -43,6 +43,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { brand } from "@/lib/brand";
 import {
   type CredentialFormValues,
   credentialFormSchema,
@@ -94,7 +95,7 @@ function CredentialsPage() {
           Add credential
         </Button>
       }
-      description="Credentials are write-only. OpenBot never displays their secret values."
+      description={`Credentials are write-only. ${brand.productName} never displays their secret values.`}
       title="Credentials"
     >
       {/*

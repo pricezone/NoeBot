@@ -181,12 +181,28 @@ export type HandoffCaps = {
   maxPerRun: number;
 };
 
+/**
+ * The platform endpoint that answers how many credits this deployment has spent, and the bearer it
+ * answers to. Both come from the platform that provisioned the machine, never from a person.
+ */
+export type UsageConfig = {
+  url: string;
+  token: string;
+};
+
 export type DeploymentConfig = {
   /** Optional environment default. A saved Admin setting takes precedence. */
   learning?: LearningTarget;
   /** Audio configuration is independent of agent model providers. */
   transcription?: TranscriptionConfig;
   voice?: VoiceConfig;
+  /**
+   * Where this deployment's metered usage is read from. Set by the platform that runs it on its own
+   * credits, absent on a deployment that brings its own model key; see `usageConfig`.
+   */
+  usage?: UsageConfig;
+  /** Where a person manages the subscription behind this deployment. A link out, never called. */
+  billingUrl?: string;
   /** The port the API listens on. Named `PORT` or `SERVER_PORT`; see `serverPort`. */
   port: number;
   databaseUrl: string;
@@ -1332,11 +1348,15 @@ export function loadConfig(
     : undefined;
   const managedAgent = managedAgentConfig(environment);
   const workerSharedSecret = optional(environment, "WORKER_SHARED_SECRET");
+  const usage = usageConfig(environment);
+  const billingUrl = url(environment, "OPENBOT_BILLING_URL");
 
   return {
     port: serverPort(environment),
     transcription: transcriptionConfig(environment),
     voice: voiceConfig(environment),
+    ...(usage ? { usage } : {}),
+    ...(billingUrl ? { billingUrl } : {}),
     databaseUrl: required(environment, "DATABASE_URL"),
     keyEncryptionKey: keyEncryptionKey(environment),
     ...(managedAgent ? { managedAgent } : {}),
@@ -1353,7 +1373,7 @@ export function loadConfig(
       auth?.baseUrl
     )?.replace(/\/+$/, ""),
     tenantPackageDirectory:
-      optional(environment, "TENANT_PACKAGE_DIR") ?? "../examples/fintech",
+      optional(environment, "TENANT_PACKAGE_DIR") ?? "../examples/noebot",
     runtime: runtimeCapabilities(environment),
     learning: learningDefault(environment),
     agentStallTimeoutMs: agentStallTimeoutMs(environment),
@@ -1382,6 +1402,28 @@ export function loadConfig(
       : {}),
     ...(workerSharedSecret ? { workerSharedSecret } : {}),
   };
+}
+
+/**
+ * The usage meter, when the platform running this deployment offers one.
+ *
+ * Both halves or neither. The URL without the bearer would answer 401 on every read, and the bearer
+ * without the URL has nothing to call, so a half-set pair is treated as unset: the capability stays
+ * off and the account menu simply has no usage row. Warned rather than refused, because a deployment
+ * that brings its own model key has no meter to show and must still boot — the same posture as
+ * every other optional feature here.
+ */
+function usageConfig(environment: Environment): UsageConfig | undefined {
+  const usageUrl = url(environment, "OPENBOT_USAGE_URL");
+  const token = optional(environment, "OPENBOT_USAGE_TOKEN");
+  if (!usageUrl && !token) return undefined;
+  if (!usageUrl || !token) {
+    console.warn(
+      "OPENBOT_USAGE_URL and OPENBOT_USAGE_TOKEN go together: set both, or neither. The usage meter is off.",
+    );
+    return undefined;
+  }
+  return { url: usageUrl, token };
 }
 
 /** Optional container default; the enabled preference alone does not collect or deliver. */

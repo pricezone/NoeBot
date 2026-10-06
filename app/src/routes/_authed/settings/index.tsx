@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { brand } from "@/lib/brand";
 import { formatHotkey, HOTKEYS } from "@/lib/hotkeys/hotkeys";
 
 export const Route = createFileRoute("/_authed/settings/")({
@@ -36,7 +37,7 @@ function RouteComponent() {
    */
   return (
     <PageShell
-      description="How OpenBot looks and behaves for you. Message list preferences sync with your account. Theme is saved in this browser."
+      description={`How ${brand.productName} looks and behaves for you. Message list preferences sync with your account. Theme is saved in this browser.`}
       title="Preferences"
     >
       <PageSection title="General">
@@ -45,7 +46,7 @@ function RouteComponent() {
             <ItemContent>
               <ItemTitle>Dark theme</ItemTitle>
               <ItemDescription>
-                Use the dark appearance across OpenBot.
+                Use the dark appearance across {brand.productName}.
               </ItemDescription>
             </ItemContent>
             <ItemActions>

@@ -24,6 +24,7 @@ import {
   updateTeamApprovalRule,
 } from "@/lib/approvals";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { brand } from "@/lib/brand";
 
 const HOST_LABELS: Record<HostCommandPolicy, string> = {
   ask: "Ask every time",
@@ -178,8 +179,8 @@ export function ApprovalInbox() {
                 inbox.data.hostCommands !== inbox.data.preferences.hostCommands
                   ? `Your team limits this to "${HOST_LABELS[inbox.data.hostCommands]}". `
                   : ""}
-                The OpenBot desktop app still shows each command before it runs
-                on your computer.
+                The {brand.productName} desktop app still shows each command
+                before it runs on your computer.
               </span>
             </span>
             <select

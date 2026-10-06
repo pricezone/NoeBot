@@ -6,6 +6,7 @@ import {
 import { useEffect } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { brand } from "@/lib/brand";
 import type { RouterContext } from "../router-context";
 import "@fontsource-variable/inter/wght.css";
 
@@ -118,6 +119,11 @@ export function useUnclaimedDropGuard() {
 
 function RootComponent() {
   useUnclaimedDropGuard();
+  // The tab title is the product's name from the tenant package, so `index.html` only carries a
+  // placeholder for the moment before this runs.
+  useEffect(() => {
+    document.title = brand.productName;
+  }, []);
   return (
     <div className="min-h-dvh w-full antialiased">
       <ThemeProvider>

@@ -13,11 +13,23 @@ import type {
 
 const PICKED_HARNESS_AGENT_ID = "picked-harness";
 
+/** The tenant's built-in Noë (`examples/noebot/agents.yaml`). */
+const ASSISTANT_AGENT_ID = "assistant";
+
+/**
+ * Where a message goes when the router cannot decide.
+ *
+ * Package-picked harness, then the built-in Noë, then the first public coworker, then the first
+ * of all. The browser's `defaultAgentProfile` (`app/src/lib/agents/default-agent.ts`) keeps the
+ * same order; the two must agree, or the composer promises one coworker and the server picks
+ * another.
+ */
 export function defaultRoutingProfile(
   roster: readonly AgentProfile[],
 ): AgentProfile | undefined {
   return (
     roster.find((agent) => agent.id === PICKED_HARNESS_AGENT_ID) ??
+    roster.find((agent) => agent.id === ASSISTANT_AGENT_ID) ??
     roster.find((agent) => agent.visibility === "public") ??
     roster[0]
   );

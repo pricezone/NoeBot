@@ -49,6 +49,7 @@ import { attachmentUrl } from "@/lib/channels/attachments";
 import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
 import { readFiring } from "@/lib/channels/routine-firing";
 import { splitChatOrigin } from "./chat-origin";
+import { DateSeparator, daySeparators, messageSentAt } from "./date-separator";
 import { markdownComponents } from "@/lib/markdown";
 import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { readToolName } from "@/lib/plugins/tool-name";
@@ -1560,6 +1561,30 @@ export function ChatTranscript({
   const anchorRows = anchorRowIds(items);
 
   /*
+   * WHERE A DAY ENDS. Each row is dated by the message it came from — `turnOf` for the attachments
+   * row, the id itself for everything else — and `daySeparators` picks the rows that open a new
+   * day. A message with no stamp dates nothing; today none carries one (see `messageSentAt`), so
+   * this draws nothing until the server starts stamping, and then the right thing.
+   *
+   * The separator is drawn INSIDE the row's `MessageScrollerItem`, above the row, and not as a
+   * sibling of it: the scroller finds a newly appended row by position in `content.children` (see
+   * the long comment on the block below), so an extra child per day boundary would put every row
+   * after it one slot off. Inside the item it is part of the row, keys stay what they were, and
+   * anchoring a day's first message to the top of the viewport brings its date with it.
+   */
+  const sentAt = new Map<string, Date>();
+  for (const message of messages) {
+    const at = messageSentAt(message);
+    if (at !== null) sentAt.set(message.id, at);
+  }
+  const separators = daySeparators(
+    items.map((item) => ({
+      id: item.id,
+      at: sentAt.get(turnOf(item)) ?? null,
+    })),
+  );
+
+  /*
    * One decider per mounted transcript, so opening a different channel starts the cascade over and
    * a message never inherits a delay from a conversation it was not in.
    */
@@ -1660,9 +1685,16 @@ export function ChatTranscript({
               ))}
             </div>
             {items.length === 0 && restoring ? <RestoringTranscript /> : null}
-            {items.map((item, index) =>
-              item.kind === "browser" ? (
+            {items.map((item, index) => {
+              const opensDay = separators.get(item.id);
+              // Keyed only to satisfy the key-in-iterable lint: it is one element per row, not a
+              // list, and it is rendered inside the row's own keyed `MessageScrollerItem`.
+              const separator = opensDay ? (
+                <DateSeparator date={opensDay} key="day" />
+              ) : null;
+              return item.kind === "browser" ? (
                 <MessageScrollerItem key={item.id} messageId={item.id}>
+                  {separator}
                   <Arriving
                     delay={delays.delayFor(item.id, index, items.length)}
                   >
@@ -1674,6 +1706,7 @@ export function ChatTranscript({
                 </MessageScrollerItem>
               ) : item.kind === "tool" ? (
                 <MessageScrollerItem key={item.id} messageId={item.id}>
+                  {separator}
                   <TranscriptToolCall
                     args={item.toolCall.function.arguments}
                     delay={delays.delayFor(item.id, index, items.length)}
@@ -1684,6 +1717,7 @@ export function ChatTranscript({
                 </MessageScrollerItem>
               ) : item.kind === "activity" ? (
                 <MessageScrollerItem key={item.id} messageId={item.id}>
+                  {separator}
                   <TranscriptActivity
                     delay={delays.delayFor(item.id, index, items.length)}
                     message={item.message}
@@ -1695,6 +1729,7 @@ export function ChatTranscript({
                   messageId={item.id}
                   scrollAnchor={anchorRows.has(item.id)}
                 >
+                  {separator}
                   <TranscriptMessage
                     commandNames={commandNames}
                     delay={delays.delayFor(item.id, index, items.length)}
@@ -1708,6 +1743,7 @@ export function ChatTranscript({
                   messageId={item.id}
                   scrollAnchor={anchorRows.has(item.id)}
                 >
+                  {separator}
                   <TranscriptAttachments
                     attachments={item.attachments}
                     delay={delays.delayFor(item.id, index, items.length)}
@@ -1718,8 +1754,8 @@ export function ChatTranscript({
                 // `never` here, so a future addition to `VisibleChatItem` fails to typecheck at
                 // this call instead of silently falling into this branch and rendering nothing.
                 assertNever(item)
-              ),
-            )}
+              );
+            })}
           </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton />

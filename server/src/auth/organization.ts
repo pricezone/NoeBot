@@ -22,7 +22,7 @@ export function organizationAuthority(value: string): string {
     url.pathname !== "/"
   ) {
     throw new Error(
-      "Organization sign-in requires an HTTPS OpenBot origin (HTTP is allowed only on loopback).",
+      "Organization sign-in requires an HTTPS Noë Bot origin (HTTP is allowed only on loopback).",
     );
   }
   return url.origin;
@@ -270,7 +270,7 @@ export function createOrganizationAuth(options: {
           );
         }
         return json(
-          { error: "Use the OpenBot organization sign-in screen." },
+          { error: "Use the Noë Bot organization sign-in screen." },
           404,
         );
       } catch (error) {
