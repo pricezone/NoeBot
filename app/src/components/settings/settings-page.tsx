@@ -1,4 +1,7 @@
+import { IconChevronLeft } from "@tabler/icons-react";
+import { Link, type LinkProps } from "@tanstack/react-router";
 import type * as React from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -7,14 +10,26 @@ import { cn } from "@/lib/utils";
  * The modal's body wrapper scrolls and carries no padding of its own, so the page brings it: the
  * same measure on every page, a title the column above md already names, and the sections stacked
  * with one gap. `PageShell` is not used here on purpose — it draws a sidebar toggle bar, a 2xl
- * heading and the spacing of a full page, none of which belong inside a card.
+ * heading and the spacing of a full page, none of which belong inside a card. The two things a
+ * page did need from it, a way back from a detail page and a verb beside the title, are here
+ * instead: the Back link is the same ghost button `PageShell` draws, without the toggle it drew it
+ * next to, and `action` sits on the title row.
  */
 export function SettingsPage({
+  action,
+  backButton,
   title,
   description,
   className,
   children,
 }: {
+  /** Sits on the title's baseline. For the page's one primary verb, if it has one. */
+  action?: React.ReactNode;
+  /** For a detail page: the way back to the list it came from, drawn above the title. */
+  backButton?: {
+    linkProps: LinkProps;
+    label: string;
+  };
   title: string;
   description?: React.ReactNode;
   className?: string;
@@ -28,7 +43,22 @@ export function SettingsPage({
       )}
     >
       <header className="flex flex-col gap-1">
-        <h2 className="text-[17px] font-semibold">{title}</h2>
+        {backButton ? (
+          // Pulled left by its own padding so the chevron sits on the title's edge, not inset from it.
+          <Button
+            className="-ml-3 mb-2 self-start"
+            render={(props) => <Link {...backButton.linkProps} {...props} />}
+            size="sm"
+            variant="ghost"
+          >
+            <IconChevronLeft />
+            {backButton.label}
+          </Button>
+        ) : null}
+        <div className="flex flex-row items-center justify-between gap-4">
+          <h2 className="text-[18px] font-semibold">{title}</h2>
+          {action}
+        </div>
         {description ? (
           <p className="max-w-prose text-pretty text-[13px] leading-[18px] text-muted-foreground">
             {description}

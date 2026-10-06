@@ -3,11 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ComponentPreview } from "@/components/component-preview";
-import {
-  PageRows,
-  PageSection,
-  PageShell,
-} from "@/components/layout/page-shell";
+import { PageRows, PageSection } from "@/components/layout/page-shell";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { SettingsItemBackground } from "@/components/settings/background";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,11 +73,11 @@ function RouteComponent() {
 
   if (components.error) {
     return (
-      <PageShell backButton={BACK} title="Components gallery">
+      <SettingsPage backButton={BACK} title="Components gallery">
         <p className="mt-8 text-destructive text-sm" role="alert">
           Could not load components.
         </p>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
@@ -94,7 +91,7 @@ function RouteComponent() {
 
   if (!component) {
     return (
-      <PageShell
+      <SettingsPage
         backButton={BACK}
         description="Nothing here answers to that name."
         title="No such component"
@@ -115,12 +112,12 @@ function RouteComponent() {
             Back to the gallery
           </Button>
         </Empty>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
   return (
-    <PageShell
+    <SettingsPage
       backButton={BACK}
       description={component.publishedDescription ?? undefined}
       title={component.title}
@@ -147,6 +144,6 @@ function RouteComponent() {
           </FactRow>
         </PageRows>
       </PageSection>
-    </PageShell>
+    </SettingsPage>
   );
 }

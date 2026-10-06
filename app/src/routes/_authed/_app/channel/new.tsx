@@ -1,6 +1,7 @@
 import type { Message } from "@ag-ui/core";
+import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import { canSend, type Recipient } from "@/components/channels/compose-state";
@@ -32,6 +33,27 @@ import { newId } from "../../../../lib/new-id";
 /** What `GET /api/agents/:id` answers for a Bot this person cannot see. */
 const AGENT_NOT_FOUND = "Agent not found.";
 
+/**
+ * The "Create new Bot" and "Create group chat" rows at the top of the To: menu. They are links,
+ * not combobox items: the items are Bots, and picking one answers the field, whereas these two
+ * leave the page. They sit above the Bot list so the menu offers them before a name is typed.
+ */
+const ACTION_ROW_CLASS =
+  "flex h-10 w-full items-center gap-2 rounded-lg px-2 text-[15px] hover:bg-muted";
+const ACTION_BADGE_CLASS =
+  "flex size-6 items-center justify-center rounded-full bg-muted";
+
+/**
+ * Whether what is typed narrows the Bot list. Base UI leaves the list unfiltered while the input
+ * still holds the chosen Bot's name (opening the menu again shows every Bot), and the action rows
+ * follow the same rule: they are shown until the person starts typing a name of their own.
+ */
+function isFilteringBots(typed: string, chosen: AgentProfile | undefined) {
+  const query = typed.trim();
+  if (query === "") return false;
+  return query.toLocaleLowerCase() !== chosen?.name.toLocaleLowerCase();
+}
+
 export const Route = createFileRoute("/_authed/_app/channel/new")({
   validateSearch: (search: Record<string, unknown>): { agent?: string } => ({
     ...(typeof search.agent === "string" ? { agent: search.agent } : {}),
@@ -50,6 +72,8 @@ function RouteComponent() {
   const [error, setError] = useState<string | null>(null);
   // Optimistic seed shown before the first channel record exists.
   const [sent, setSent] = useState<Message | null>(null);
+  // What the To: input holds, so the action rows can step aside once a name is being typed.
+  const [typed, setTyped] = useState("");
 
   // Stale or private `?agent=` values are ignored because the roster is permission-filtered.
   const listed = profiles?.find((profile) => profile.id === agent);
@@ -93,6 +117,7 @@ function RouteComponent() {
     ? [{ id: chosen.id, name: chosen.name }]
     : [];
   const skillCommands = useSkillCommands(chosen?.id ?? "");
+  const showActions = !isFilteringBots(typed, chosen);
 
   if (profiles === undefined && !rosterError) return null;
 
@@ -111,6 +136,7 @@ function RouteComponent() {
           }
           itemToStringLabel={(item: AgentProfile) => item.name}
           itemToStringValue={(item: AgentProfile) => item.id}
+          onInputValueChange={(next) => setTyped(next)}
           onValueChange={(next) => {
             // Recipient changes are not separate navigation history entries.
             void navigate({
@@ -125,12 +151,46 @@ function RouteComponent() {
             // the caret starts here whenever the recipient question is still open. Same condition
             // as `defaultOpen` — a recipient from the URL means the composer takes focus instead.
             autoFocus={!chosen}
-            placeholder="Choose a coworker…"
+            /*
+             * Read from the field itself as well: clearing the whole selection in one keystroke
+             * does not always reach `onInputValueChange`, and the rows above the Bot list stayed
+             * hidden on a field that was visibly empty.
+             */
+            onChange={(event) => setTyped(event.currentTarget.value)}
+            placeholder="Start a chat with…"
             // InputGroup owns focus rings via `has-[…:focus-visible]`; disable that wrapper ring here.
             className="border-none w-full bg-transparent! text-sm has-[[data-slot=input-group-control]:focus-visible]:ring-0"
           />
           {/* Allow max-w to constrain the popup even though its anchor is full-width. */}
           <ComboboxContent className="min-w-0 max-w-lg" sideOffset={12}>
+            {showActions ? (
+              <div className="border-b border-border p-1">
+                <Link
+                  className={ACTION_ROW_CLASS}
+                  // The row is taken with the mouse. A mousedown would move focus off the input
+                  // and close the menu before the click lands, so focus stays put until the link
+                  // navigates.
+                  onMouseDown={(event) => event.preventDefault()}
+                  search={{ tab: "agents", new: true }}
+                  to="/marketplace"
+                >
+                  <span className={ACTION_BADGE_CLASS}>
+                    <IconPlus className="size-4" />
+                  </span>
+                  Create new Bot
+                </Link>
+                <Link
+                  className={ACTION_ROW_CLASS}
+                  onMouseDown={(event) => event.preventDefault()}
+                  to="/group/new"
+                >
+                  <span className={ACTION_BADGE_CLASS}>
+                    <IconUsersGroup className="size-4" />
+                  </span>
+                  Create group chat
+                </Link>
+              </div>
+            ) : null}
             <ComboboxEmpty>No agents found.</ComboboxEmpty>
             <ComboboxList>
               {(item: AgentProfile) => (

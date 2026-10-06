@@ -28,13 +28,18 @@ function agent(id: string): AgentProfile {
 }
 
 /** A roster row, in the order the server hands them out: the first is the newest. */
-function channel(id: string, agentIds: string[]): ChannelSummary {
+function channel(
+  id: string,
+  agentIds: string[],
+  extra: Partial<ChannelSummary> = {},
+): ChannelSummary {
   return {
     id,
     name: id,
     agentIds,
     threadId: `thread-${id}`,
     active: true,
+    ...extra,
     lastMessageAt: null,
     summary: null,
     lastMessage: null,
@@ -83,6 +88,40 @@ describe("landing target", () => {
         agents: [agent("researcher"), agent("writer")],
       }),
     ).toEqual({ to: "/channel/$channelId", params: { channelId: "c2" } });
+  });
+
+  /*
+   * Deleting a Bot is a soft delete: its channels stay in the roster, readable but closed, flagged
+   * `active: false`. The remembered id is not cleared when that happens, so without this rule the
+   * first rule would reopen the closed conversation on every visit home.
+   */
+  test("a conversation whose Bot was deleted is skipped, even when it is the remembered one", () => {
+    expect(
+      landingTarget({
+        lastBotId: "gone",
+        channels: [
+          channel("closed", ["gone"], { active: false }),
+          channel("c1", ["writer"]),
+        ],
+        agents: [agent("writer")],
+      }),
+    ).toEqual({ to: "/channel/$channelId", params: { channelId: "c1" } });
+  });
+
+  test("with only closed conversations left, a fresh one with the default coworker", () => {
+    expect(
+      landingTarget({
+        lastBotId: null,
+        channels: [
+          channel("closed-newest", ["gone"], { active: false }),
+          channel("closed-pinned", ["also-gone"], {
+            active: false,
+            pinned: true,
+          }),
+        ],
+        agents: [agent("writer"), agent(ASSISTANT_AGENT_ID)],
+      }),
+    ).toEqual({ to: "/channel/new", search: { agent: ASSISTANT_AGENT_ID } });
   });
 
   test("group conversations are never a landing", () => {

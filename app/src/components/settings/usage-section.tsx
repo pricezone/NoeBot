@@ -24,6 +24,15 @@ import {
  *
  * The meter is read only on a metered deployment: `/api/usage` answers 404 on the other kind, and
  * an error card on a page that just explained why there is no meter would contradict itself.
+ *
+ * AND NEITHER PAGE IS DRAWN UNTIL THE SERVER HAS SAID WHICH DEPLOYMENT THIS IS. The branch used to
+ * be "metered, else own key", with pending as the only wait — so a capabilities read that failed
+ * (the first fetch and its one retry, while the server was restarting) was not pending, had no
+ * data, and fell through to the own-key copy: a metered instance telling its owner that the model
+ * is on some other provider's bill and that there is no billing page. Both false. A failed read
+ * now says it failed and offers to read again, and the Billing section waits for an answer too,
+ * since "no billing page to send you to" is a statement about what the server said, not about what
+ * it failed to say.
  */
 export function UsageSection() {
   const capabilities = useQuery(deploymentCapabilitiesQueryOptions());
@@ -33,7 +42,25 @@ export function UsageSection() {
 
   return (
     <>
-      {capabilities.isPending ? null : metered ? (
+      {capabilities.isPending ? null : capabilities.isError ? (
+        <SettingsSection label="Usage">
+          <SettingsCard>
+            <SettingsRow
+              label="Billing could not be determined"
+              description={capabilities.error.message}
+              control={
+                <Button
+                  onClick={() => capabilities.refetch()}
+                  size="sm"
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              }
+            />
+          </SettingsCard>
+        </SettingsSection>
+      ) : metered ? (
         <SettingsSection label="Usage">
           {usage.isPending ? null : usage.error ? (
             <p className="text-destructive text-sm" role="alert">
@@ -65,32 +92,34 @@ export function UsageSection() {
           </SettingsCard>
         </SettingsSection>
       )}
-      <SettingsSection label="Billing">
-        <SettingsCard>
-          <SettingsRow
-            label="Manage billing"
-            description={
-              billingUrl
-                ? "Your plan, payment method and invoices, on the platform that runs this deployment."
-                : "This deployment has no billing page to send you to."
-            }
-            control={
-              billingUrl ? (
-                <Button
-                  render={
-                    <a href={billingUrl} rel="noreferrer" target="_blank" />
-                  }
-                  size="sm"
-                  variant="outline"
-                >
-                  Manage billing
-                  <IconArrowUpRight />
-                </Button>
-              ) : undefined
-            }
-          />
-        </SettingsCard>
-      </SettingsSection>
+      {capabilities.isSuccess ? (
+        <SettingsSection label="Billing">
+          <SettingsCard>
+            <SettingsRow
+              label="Manage billing"
+              description={
+                billingUrl
+                  ? "Your plan, payment method and invoices, on the platform that runs this deployment."
+                  : "This deployment has no billing page to send you to."
+              }
+              control={
+                billingUrl ? (
+                  <Button
+                    render={
+                      <a href={billingUrl} rel="noreferrer" target="_blank" />
+                    }
+                    size="sm"
+                    variant="outline"
+                  >
+                    Manage billing
+                    <IconArrowUpRight />
+                  </Button>
+                ) : undefined
+              }
+            />
+          </SettingsCard>
+        </SettingsSection>
+      ) : null}
     </>
   );
 }

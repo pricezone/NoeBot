@@ -100,7 +100,7 @@ test("/memory, /reachability and /approvals go to their pages", async () => {
 
 /** A roster row with only what the redirect reads. */
 function channel(id: string, agentIds: string[]): ChannelSummary {
-  return { id, agentIds } as ChannelSummary;
+  return { id, agentIds, active: true } as ChannelSummary;
 }
 
 function clientWith(channels: ChannelSummary[]) {

@@ -28,20 +28,24 @@ export type LandingTarget =
  * Only channels in the array given are candidates. The roster the sidebar loads is one page and
  * already in the server's order — pinned first, then by recency (`server/src/channels/routes.ts`,
  * `ROSTER_ORDER`) — so "newest" is "first that matches" and nothing is sorted again here. The
- * remembered id is a lookup key, never a destination on its own: an id that matches no channel
- * — a Bot since deleted, a stale value — falls through to the next rule instead of opening a
- * conversation that does not exist.
+ * remembered id is a lookup key, never a destination on its own: an id that matches no open
+ * channel — a stale value, an id from another workspace — falls through to the next rule instead
+ * of opening a conversation that does not exist.
  *
- * Group conversations are skipped at every step. They hold several Bots and live under
- * `/group/$channelId`; a landing that opened one would just bounce through the channel route's
- * own redirect.
+ * Two kinds of channel are skipped at every step. Group conversations hold several Bots and live
+ * under `/group/$channelId`; a landing that opened one would just bounce through the channel
+ * route's own redirect. And a channel whose Bot has since been deleted (`active` false) stays in
+ * the roster because its transcript is still readable, but nothing more can be said in it —
+ * deleting a Bot is a soft delete that leaves its channels behind, and the remembered id is not
+ * cleared when that happens, so without this rule home would reopen a conversation the person
+ * cannot continue every time, rather than a fresh one with the default coworker.
  */
 export function landingTarget(input: {
   lastBotId: string | null;
   channels: readonly ChannelSummary[] | undefined;
   agents: readonly AgentProfile[] | undefined;
 }): LandingTarget | null {
-  const singles = (input.channels ?? []).filter(isWithOneBot);
+  const singles = (input.channels ?? []).filter(isOpenWithOneBot);
 
   const remembered =
     input.lastBotId === null
@@ -61,6 +65,6 @@ export function landingTarget(input: {
     : null;
 }
 
-function isWithOneBot(channel: ChannelSummary): boolean {
-  return channel.agentIds.length === 1;
+function isOpenWithOneBot(channel: ChannelSummary): boolean {
+  return channel.active && channel.agentIds.length === 1;
 }

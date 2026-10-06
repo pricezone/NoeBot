@@ -19,6 +19,14 @@ import { cn } from "@/lib/utils";
  *
  * The row is the `Item` family from `item.tsx` with the spacing this layout asks for, rather than
  * a fresh flex box, so a row that needs media or an action strip can keep using those parts.
+ *
+ * The card is a step lighter than the modal, not the modal's own colour. `ModalShell` paints the
+ * whole popup `bg-card`, and a `bg-card` card with no border on it drew nothing: the rounded shape
+ * never showed, and a one-row card — or a stat card with no hairline — had nothing marking it at
+ * all. `bg-muted` is the next step up in both themes (oklch 0.27 on 0.21 in dark, a light grey on
+ * white in light), the same relation Grok's settings have between its #1c1c1e surface and the
+ * cards on it. A row's hover is therefore a tint over the card rather than `bg-muted/50`, which on
+ * this fill is the fill.
  */
 function SettingsSection({
   label,
@@ -45,7 +53,7 @@ function SettingsCard({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="settings-card"
       className={cn(
-        "flex flex-col divide-y divide-border overflow-hidden rounded-2xl bg-card",
+        "flex flex-col divide-y divide-border overflow-hidden rounded-2xl bg-muted",
         className,
       )}
       {...props}
@@ -101,7 +109,7 @@ function SettingsRow({
   );
   const rowClassName = cn(
     "min-h-14 flex-nowrap justify-between gap-4 rounded-none border-0 px-4 py-2 text-[15px]",
-    href !== undefined && "hover:bg-muted/50 focus-visible:ring-inset",
+    href !== undefined && "hover:bg-foreground/5 focus-visible:ring-inset",
     className,
   );
   if (href !== undefined) {

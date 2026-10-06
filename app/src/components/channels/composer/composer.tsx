@@ -1301,11 +1301,23 @@ export function Composer({
 
   /**
    * Mod+D starts dictation from anywhere on the page, including from inside the editor: the combo
-   * carries a modifier, so `useHotkey` does not treat it as typing. `preventDefault` there is what
-   * keeps the browser from opening its bookmark dialog on the same keystroke. The same gates as the
-   * mic button, so the shortcut can never do what the button would refuse.
+   * carries a modifier, so `useHotkey` does not treat it as typing. The `preventDefault` the hook
+   * applies on `true` is what keeps the browser from opening its bookmark dialog on the same
+   * keystroke — and only then. The same gates as the mic button, so the shortcut can never do what
+   * the button would refuse, and when they refuse the handler returns `false` so the keystroke
+   * keeps its browser meaning: on an instance without transcription Cmd+D still bookmarks the chat
+   * instead of doing nothing at all.
+   *
+   * "Anywhere on the page" also has an edge. The combo skips the hook's editable check, so without
+   * one of our own, Mod+D in the sidebar search, in a Bot's instructions inside the Manage dialog,
+   * or in any other field over a chat would start the microphone in the composer BEHIND it, with
+   * no visible control in front of the person. A keystroke from an editable element outside this
+   * composer, or from inside a dialog this composer is not part of, is declined for the same
+   * reason — as is any keystroke while a modal is open, since a modal that trapped focus on the
+   * body still has the composer underneath it. `containerRef` is the same boundary the paste
+   * listener uses to tell this composer's events from everyone else's.
    */
-  useHotkey("dictate", () => {
+  useHotkey("dictate", (event) => {
     if (
       !dictation.available ||
       !dictation.supported ||
@@ -1313,9 +1325,34 @@ export function Composer({
       disabled ||
       voiceCall?.active === true
     ) {
-      return;
+      return false;
+    }
+    const container = containerRef.current;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const outsideComposer = (element: Element) => !container?.contains(element);
+    if (target && outsideComposer(target)) {
+      if (
+        target.closest(
+          '[role="dialog"],[role="alertdialog"],[aria-modal="true"]',
+        )
+      ) {
+        return false;
+      }
+      if (
+        target.isContentEditable ||
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT"
+      ) {
+        return false;
+      }
+    }
+    const modal = document.querySelector('[aria-modal="true"]');
+    if (modal && (!container || !modal.contains(container))) {
+      return false;
     }
     void dictation.session.start();
+    return true;
   });
 
   const wasDictating = useRef(false);

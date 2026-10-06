@@ -18,17 +18,63 @@ export const Route = createFileRoute("/_authed/_app/settings/bots")({
   component: RouteComponent,
 });
 
+/**
+ * How long the page keeps following the hash while the blocks above it fill in. Every list on this
+ * page has answered well within this on any server that answers at all; past it, a scroll that
+ * still moved would be a page jumping under somebody who has started reading.
+ */
+const SETTLE_MS = 3000;
+
 function RouteComponent() {
   const hash = useLocation({ select: (location) => location.hash });
+  /*
+   * The entry's key, so following the same hash link again while this page is already open scrolls
+   * again. The hash alone does not change then, and an effect keyed on it alone would not re-run.
+   * Two selects rather than one returning an object, because a fresh object every read is a
+   * re-render every read.
+   */
+  const entryKey = useLocation({
+    select: (location) => location.state.__TSR_key,
+  });
   /*
    * Scroll to the block the hash names. An effect rather than the browser's own anchor handling,
    * because the modal's body is its own scroller and a client-side navigation to a hash never
    * reaches the browser as a page load.
+   *
+   * AND KEEP SCROLLING WHILE THE PAGE ABOVE THE TARGET IS STILL GROWING. The page has no loader:
+   * on the first commit the Bots block is empty, Team Bots is fetching and Responsibilities is one
+   * line of "Loading…". One scroll at that moment lands on the target, and then each list arrives
+   * and pushes it down, so an old /routines bookmark ended somewhere in the middle of
+   * Responsibilities. The page body is watched with a ResizeObserver and the target re-aligned on
+   * every change in its height, until the person takes the scroller over themselves (a wheel,
+   * a touch, a key, a pointer on the scrollbar) or the lists have had long enough.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: entryKey is read by nothing inside; it is here so following the same hash link again scrolls again.
   useEffect(() => {
     if (!hash) return;
-    document.getElementById(hash)?.scrollIntoView({ block: "start" });
-  }, [hash]);
+    const target = document.getElementById(hash);
+    if (!target) return;
+    const scroll = () => target.scrollIntoView({ block: "start" });
+    scroll();
+    // The SettingsPage column holding every block, whose height is what the lists change.
+    const body = target.parentElement;
+    if (!body || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(scroll);
+    observer.observe(body);
+    const stop = () => observer.disconnect();
+    // The modal's scrolling body: the place the person's own scrolling lands.
+    const scroller = body.parentElement;
+    const handoffs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    for (const type of handoffs) {
+      scroller?.addEventListener(type, stop, { once: true, passive: true });
+    }
+    const timeout = window.setTimeout(stop, SETTLE_MS);
+    return () => {
+      stop();
+      window.clearTimeout(timeout);
+      for (const type of handoffs) scroller?.removeEventListener(type, stop);
+    };
+  }, [hash, entryKey]);
 
   return (
     <SettingsPage

@@ -55,8 +55,21 @@ export function useComputerAttention(agentId: string | undefined): {
     agentId ?? "",
     Boolean(agentId),
   );
-  // The store reports a failed read as a null control beside a "Reconnecting" problem.
-  const hasComputer = control !== null || problem === null;
+  /*
+   * The store reports a failed read as a null control beside a "Reconnecting" problem. Once this
+   * Bot's computer has answered, a later failed read is a reconnect rather than a missing computer,
+   * so it is remembered per Bot: without that the panel's default tab flipped from Computer to
+   * Details on every blip of the control poll. Switching Bots forgets it, like `openFor`.
+   */
+  const [computerSeenFor, setComputerSeenFor] = useState<string | null>(null);
+  const sawControl = control !== null;
+  useEffect(() => {
+    if (sawControl && agentId) setComputerSeenFor(agentId);
+  }, [sawControl, agentId]);
+  const hasComputer =
+    control !== null ||
+    problem === null ||
+    (agentId !== undefined && computerSeenFor === agentId);
   const needsYou = Boolean(
     control &&
       (control.requested ||

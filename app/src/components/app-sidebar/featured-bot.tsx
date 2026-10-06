@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { readLastBot } from "@/lib/agents/last-bot";
+import { useLastBot } from "@/lib/agents/last-bot";
 import { defaultAgentId } from "@/lib/agents/default-agent";
 import { type AgentProfile, agentListQueryOptions } from "@/lib/agents/queries";
 import { botAttentionQueryOptions } from "@/lib/bot-lifecycle/queries";
@@ -44,8 +44,12 @@ export function FeaturedBot() {
   const agents = useQuery(agentListQueryOptions()).data;
   const channels = useInfiniteQuery(channelListQueryOptions()).data;
   const attention = useQuery(botAttentionQueryOptions()).data;
+  // Subscribed, not read bare: nothing else here re-renders when the person moves to another
+  // Bot's conversation, and a storage read during render would keep showing the previous one
+  // until some unrelated query happened to change.
+  const lastBotId = useLastBot();
 
-  const bot = featuredAgent(agents, readLastBot());
+  const bot = featuredAgent(agents, lastBotId);
   if (!bot) return null;
 
   const target = botLandingTarget(bot.id, channels, agents);

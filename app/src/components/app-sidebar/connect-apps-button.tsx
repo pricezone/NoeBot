@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   type PluginConnection,
   type PluginServer,
@@ -58,10 +59,16 @@ export function ConnectAppsButton() {
   );
 
   return (
-    <Button
-      variant="pill"
-      className="min-w-0 flex-1 justify-center gap-2"
-      render={<Link to={MARKETPLACE_PATH} />}
+    /*
+     * A link, drawn as the pill: it goes somewhere. Drawn through Button's render prop it was
+     * announced as a button, which is the wrong promise for a control whose job is to open a page.
+     */
+    <Link
+      className={cn(
+        buttonVariants({ variant: "pill" }),
+        "min-w-0 flex-1 justify-center gap-2",
+      )}
+      to={MARKETPLACE_PATH}
     >
       <span className="truncate">Connect apps</span>
       {apps.length > 0 ? (
@@ -81,6 +88,6 @@ export function ConnectAppsButton() {
           ))}
         </span>
       ) : null}
-    </Button>
+    </Link>
   );
 }

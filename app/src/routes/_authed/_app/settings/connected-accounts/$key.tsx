@@ -6,8 +6,8 @@ import {
   PageEmpty,
   PageRows,
   PageSection,
-  PageShell,
 } from "@/components/layout/page-shell";
+import { SettingsPage } from "@/components/settings/settings-page";
 import {
   BrokeredAccountRow,
   useBrokeredAccount,
@@ -134,7 +134,7 @@ function RouteComponent() {
    * whole of its state defaulted to "you have never connected this".
    */
   if (plugins.isPending || connections.isPending) {
-    return <PageShell title="Account">{null}</PageShell>;
+    return <SettingsPage title="Account">{null}</SettingsPage>;
   }
 
   const back = {
@@ -160,13 +160,13 @@ function RouteComponent() {
    */
   if (connections.error) {
     return (
-      <PageShell backButton={back} title={server?.title ?? key}>
+      <SettingsPage backButton={back} title={server?.title ?? key}>
         <p className="mt-12 text-destructive text-sm" role="alert">
           Whether you have connected this account could not be loaded, so
           nothing about it is shown here rather than something that may be
           wrong. Reload the page, and tell an administrator if it persists.
         </p>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
@@ -177,13 +177,13 @@ function RouteComponent() {
    */
   if (!plugins.data) {
     return (
-      <PageShell backButton={back} title={key}>
+      <SettingsPage backButton={back} title={key}>
         <p className="mt-12 text-destructive text-sm" role="alert">
           This connector could not be loaded, so nothing about it is shown here
           rather than something that may be wrong. Reload the page, and tell an
           administrator if it persists.
         </p>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
@@ -201,7 +201,7 @@ function RouteComponent() {
     const reassurance = "No Bot can read this as you.";
 
     return (
-      <PageShell
+      <SettingsPage
         backButton={back}
         description="Reached through Composio, which holds the account, so a Bot sees only what you can see."
         title={server.title}
@@ -230,7 +230,7 @@ function RouteComponent() {
             />
           </PageRows>
         </PageSection>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
@@ -241,7 +241,7 @@ function RouteComponent() {
    */
   if (entry?.auth !== "user-oauth") {
     return (
-      <PageShell
+      <SettingsPage
         backButton={back}
         description="This is not a service you connect for yourself."
         title={entry?.title ?? key}
@@ -251,12 +251,12 @@ function RouteComponent() {
             ? "A Bot reaches this one with a credential the deployment holds, the same for everybody."
             : "This deployment has no connector by that name."}
         </PageEmpty>
-      </PageShell>
+      </SettingsPage>
     );
   }
 
   return (
-    <PageShell
+    <SettingsPage
       backButton={back}
       description={entry.summary}
       title={entry.title}
@@ -384,6 +384,6 @@ function RouteComponent() {
           </PageRows>
         </PageSection>
       ) : null}
-    </PageShell>
+    </SettingsPage>
   );
 }

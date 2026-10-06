@@ -19,8 +19,9 @@ import {
   matchingConnectableApps,
 } from "@/components/plugins/connectable-apps";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { cn } from "@/lib/utils";
 import {
   connectionsQueryOptions,
   pluginsPageQueryOptions,
@@ -113,16 +114,23 @@ export function AppsTab({ query }: { query: string }) {
                 return (
                   <PluginRow
                     action={
-                      <Button
-                        className="h-8 rounded-full px-3 text-xs"
-                        render={
-                          <Link
-                            params={{ key: app.key }}
-                            to="/settings/connected-accounts/$key"
-                          />
+                      // A link with the app in its name: every row says "Connect", and a list of
+                      // identically named controls tells a screen reader nothing about which is which.
+                      <Link
+                        aria-label={
+                          isConnected
+                            ? `${app.title} connected, manage`
+                            : `Connect ${app.title}`
                         }
-                        size="sm"
-                        variant={isConnected ? "ghost" : "secondary"}
+                        className={cn(
+                          buttonVariants({
+                            size: "sm",
+                            variant: isConnected ? "ghost" : "secondary",
+                          }),
+                          "h-8 rounded-full px-3 text-xs",
+                        )}
+                        params={{ key: app.key }}
+                        to="/settings/connected-accounts/$key"
                       >
                         {isConnected ? (
                           <>
@@ -135,7 +143,7 @@ export function AppsTab({ query }: { query: string }) {
                         ) : (
                           "Connect"
                         )}
-                      </Button>
+                      </Link>
                     }
                     data-testid={`account-${app.key}`}
                     key={app.key}

@@ -9,7 +9,14 @@
  * Written from two places: the channel route, when a conversation with one Bot is open, and
  * `lib/channels/start.ts`, when a brand-new channel is created — the second so a conversation that
  * was just started counts before its route has even mounted.
+ *
+ * Read from a component through `useLastBot`, never `readLastBot` during render: storage is not
+ * something React watches, so a value read bare only looks fresh until the next unrelated
+ * re-render. The writer notifies, and the hook subscribes, so the sidebar's featured Bot changes
+ * in the commit after the channel route records a new one.
  */
+import { useSyncExternalStore } from "react";
+
 export const LAST_BOT_STORAGE_KEY = "openbot.last-bot";
 
 /** The slice of `Storage` this module touches, so a test can pass a plain object. */
@@ -46,10 +53,71 @@ export function readLastBot(storage?: LastBotStorage): string | null {
 }
 
 /**
+ * Who wants to know when the remembered Bot changes.
+ *
+ * Module-level, like the key: there is one storage slot and so one set of watchers for it. Only
+ * writes to the real `window.localStorage` are announced — a test's fake storage is not what the
+ * hook below reads, so a write there would wake subscribers to a value that has not changed.
+ */
+const listeners = new Set<() => void>();
+
+function notifyLastBotListeners(): void {
+  for (const listener of listeners) listener();
+}
+
+/**
+ * Watch the remembered Bot. Returns the function that stops watching.
+ *
+ * Two sources: this tab's own writes, through `rememberLastBot`, and other tabs' writes, through
+ * the window's `storage` event — which fires only in the tabs that did not write, so the two
+ * never double up. The event wiring is guarded the way the reads are: under test there may be no
+ * `window`, and a page with storage blocked must still get the in-process half.
+ */
+export function subscribeLastBot(listener: () => void): () => void {
+  listeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === LAST_BOT_STORAGE_KEY) listener();
+  };
+  let watchingWindow = false;
+  try {
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", onStorage);
+      watchingWindow = true;
+    }
+  } catch {
+    // No window to watch. This tab's own writes still arrive through the set above.
+  }
+  return () => {
+    listeners.delete(listener);
+    if (watchingWindow) window.removeEventListener("storage", onStorage);
+  };
+}
+
+/**
+ * The remembered Bot id as React state: null when nothing usable is stored, and re-read whenever
+ * `rememberLastBot` records a different one.
+ *
+ * The snapshot is a string or null, so `useSyncExternalStore` compares it by value and a
+ * notification that changed nothing does not re-render. The server snapshot is null because
+ * there is no storage to read on a server, and this app does not render there anyway.
+ */
+export function useLastBot(): string | null {
+  return useSyncExternalStore(
+    subscribeLastBot,
+    () => readLastBot(),
+    () => null,
+  );
+}
+
+/**
  * Records `agentId` as the Bot to land on next time.
  *
  * A failed write is swallowed whole: the conversation that triggered it is already open, and the
  * only cost of the miss is landing somewhere else after the next reload.
+ *
+ * Subscribers hear about it only when the stored value actually changed, and only for the real
+ * storage: re-opening the same conversation writes the same id, and waking the sidebar for that
+ * would re-run its reads for nothing.
  */
 export function rememberLastBot(
   agentId: string,
@@ -57,7 +125,9 @@ export function rememberLastBot(
 ): void {
   try {
     const store = storage ?? window.localStorage;
+    const previous = parseStoredLastBot(store.getItem(LAST_BOT_STORAGE_KEY));
     store.setItem(LAST_BOT_STORAGE_KEY, agentId);
+    if (!storage && previous !== agentId) notifyLastBotListeners();
   } catch {
     // As above: this visit is unaffected, it just will not be remembered.
   }

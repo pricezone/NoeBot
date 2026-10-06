@@ -17,10 +17,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { readLastBot } from "@/lib/agents/last-bot";
+import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
   deleteChannelMutationOptions,
   setChannelPinnedMutationOptions,
 } from "@/lib/channels/mutations";
+import { channelListQueryOptions } from "@/lib/channels/queries";
+import { landingTarget } from "@/lib/landing";
 import type { MessageListEmphasis } from "@/lib/settings/message-list";
 import { useTypedReveal } from "@/lib/typed-reveal";
 import { ChannelItemContent } from "./channel-item-content";
@@ -91,9 +95,31 @@ export const Channel = memo(function Channel({
      * therefore ran in a component that was already gone, leaving somebody looking at a conversation
      * that no longer exists. Leaving before asking is safe in the other direction: a refused delete
      * puts them on the roster with the channel still in it, and says why in the dialog.
+     *
+     * Where to is decided here, not by `/`. Home now redirects to a conversation (`lib/landing.ts`)
+     * from the cached roster, and at this point the roster still holds the channel being deleted —
+     * the row only leaves the cache once the delete lands. The channel route also just recorded
+     * this Bot as the last one used, so the newest conversation with it, the one home would pick,
+     * is usually this very channel: going to `/` sent the person straight back into the
+     * conversation they asked to delete. So the same rule runs on the roster minus this channel,
+     * and the result replaces the history entry rather than stacking on it, so Back does not
+     * return to a conversation that is about to be gone. `/` remains the last resort, for a cache
+     * with nothing to land on.
      */
     if (isOpen) {
-      await navigate({ to: "/" });
+      const pages = queryClient.getQueryData(
+        channelListQueryOptions().queryKey,
+      );
+      const target = landingTarget({
+        lastBotId: readLastBot(),
+        channels: pages?.pages
+          .flatMap((page) => page.channels)
+          .filter((channel) => channel.id !== channelId),
+        agents: queryClient.getQueryData(agentListQueryOptions().queryKey),
+      });
+      await navigate(
+        target ? { ...target, replace: true } : { to: "/", replace: true },
+      );
     }
     try {
       await deleteChannel.mutateAsync(channelId);

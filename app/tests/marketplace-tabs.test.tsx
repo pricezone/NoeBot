@@ -231,12 +231,14 @@ test("the Apps tab is the default, with Connect leading to the account's setting
   const apps = await view.findByRole("tab", { name: "Apps" });
   expect(apps.getAttribute("aria-selected")).toBe("true");
 
-  // The connected account under Connected, the rest under Available. The action is a `Button`
-  // rendered as a router `Link`, which carries `role="button"` with the href.
+  // The connected account under Connected, the rest under Available. Each action is a link
+  // named for its app, so a list of them reads as which-is-which rather than "Connect" ten times.
   const gmail = await view.findByTestId("account-composio-gmail");
-  expect(within(gmail).getByRole("button", { name: /Connected/ })).toBeTruthy();
+  expect(
+    within(gmail).getByRole("link", { name: /connected, manage/ }),
+  ).toBeTruthy();
   const drive = await view.findByTestId("account-google-drive");
-  const connect = within(drive).getByRole("button", { name: "Connect" });
+  const connect = within(drive).getByRole("link", { name: /^Connect / });
   expect(connect.getAttribute("href")).toBe(
     "/settings/connected-accounts/google-drive",
   );

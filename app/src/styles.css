@@ -58,10 +58,10 @@ html {
 .dark {
   color-scheme: dark;
   /*
-   * Pure black behind everything, one grey for every raised surface (cards, popovers, the sidebar)
-   * and a second, lighter grey for the surfaces that sit on those (muted rows, chips, the selected
-   * state). Three steps is the whole palette; the border is a whisper of white rather than a fourth
-   * grey so it reads the same on all three.
+   * Pure black behind everything, the sidebar included, one grey for every raised surface (cards,
+   * popovers, the round sidebar buttons) and a second, lighter grey for the surfaces that sit on
+   * those (muted rows, chips, the selected state). Three steps is the whole palette; the border is
+   * a whisper of white rather than a fourth grey so it reads the same on all three.
    */
   --background: oklch(0 0 0);
   --foreground: oklch(0.985 0 0);
@@ -87,7 +87,7 @@ html {
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.21 0 0);
+  --sidebar: oklch(0 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);

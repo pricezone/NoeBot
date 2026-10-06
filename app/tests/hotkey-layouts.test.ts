@@ -1,5 +1,9 @@
-import { expect, test } from "bun:test";
-import { getHotkey, matchesHotkey } from "@/lib/hotkeys/hotkeys";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { cleanup, renderHook } from "@testing-library/react";
+import { formatHotkey, getHotkey, matchesHotkey } from "@/lib/hotkeys/hotkeys";
+import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { settleReactWork } from "./settle-react-work";
 
 /**
  * The New chat shortcut on a keyboard layout that does not write Latin letters.
@@ -75,4 +79,71 @@ test("the modifiers are still exact on the physical key", () => {
   expect(
     matchesHotkey(keydown("Shift", "ShiftLeft", { shiftKey: true }), combo),
   ).toBe(false);
+});
+
+/**
+ * What `useHotkey` does with the keystroke once the combo matched.
+ *
+ * The hook prevents the default only when the handler took the key. A handler that returns `false`
+ * declines it, and the browser keeps its own shortcut — Cmd/Ctrl+D bookmarks the page — while one
+ * that returns nothing is treated as having acted, which is what every handler did before it had
+ * the choice.
+ */
+
+beforeAll(() => GlobalRegistrator.register());
+afterAll(async () => {
+  await settleReactWork();
+  GlobalRegistrator.unregister();
+});
+
+/** Mod+D as this machine's keyboard sends it: the registry reads Cmd on a Mac and Ctrl elsewhere. */
+function pressModD(): boolean {
+  const mod =
+    formatHotkey(getHotkey("dictate").combo)[0] === "⌘"
+      ? { metaKey: true }
+      : { ctrlKey: true };
+  return window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "d",
+      code: "KeyD",
+      ...mod,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
+test("a handler that declines the keystroke leaves the browser default in place", () => {
+  const seen: KeyboardEvent[] = [];
+  const hook = renderHook(() =>
+    useHotkey("dictate", (event) => {
+      seen.push(event);
+      return false;
+    }),
+  );
+  try {
+    // `dispatchEvent` reports true while nothing prevented the default.
+    expect(pressModD()).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.defaultPrevented).toBe(false);
+  } finally {
+    hook.unmount();
+    cleanup();
+  }
+});
+
+test("a handler that returns nothing still takes the keystroke, as it always did", () => {
+  let calls = 0;
+  const hook = renderHook(() =>
+    useHotkey("dictate", () => {
+      calls += 1;
+    }),
+  );
+  try {
+    expect(pressModD()).toBe(false);
+    expect(calls).toBe(1);
+  } finally {
+    hook.unmount();
+    cleanup();
+  }
 });

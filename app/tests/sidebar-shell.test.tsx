@@ -167,8 +167,9 @@ test("the header and footer carry the redesign's controls and nothing of the old
     view.getByRole("button", { name: "New chat" }).getAttribute("href"),
   ).toBe("/channel/new");
   expect(view.getByRole("button", { name: "Account menu" })).toBeTruthy();
+  // A real link, announced as one: it opens a page.
   expect(
-    view.getByRole("button", { name: /Connect apps/ }).getAttribute("href"),
+    view.getByRole("link", { name: /Connect apps/ }).getAttribute("href"),
   ).toBe("/marketplace");
   for (const old of ["Bots", "Skills", "Agents", "Team Bots", "Memory"]) {
     expect(view.queryByRole("link", { name: old })).toBeNull();

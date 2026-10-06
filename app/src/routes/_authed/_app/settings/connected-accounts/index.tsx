@@ -8,11 +8,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import {
-  PageEmpty,
-  PageSection,
-  PageShell,
-} from "@/components/layout/page-shell";
+import { PageEmpty, PageSection } from "@/components/layout/page-shell";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { RowMark } from "@/components/layout/row-mark";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
 import {
@@ -161,7 +158,7 @@ function RouteComponent() {
   ];
 
   return (
-    <PageShell
+    <SettingsPage
       className="max-w-4xl @container"
       description="Connect your apps so your Bots can work with them."
       title="Connected accounts"
@@ -283,6 +280,6 @@ function RouteComponent() {
           )}
         </>
       )}
-    </PageShell>
+    </SettingsPage>
   );
 }

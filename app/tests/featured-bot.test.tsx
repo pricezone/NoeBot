@@ -9,7 +9,7 @@ import {
   Outlet,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { botLandingTarget } from "@/components/app-sidebar/bot-target";
 import {
@@ -17,7 +17,7 @@ import {
   featuredAgent,
 } from "@/components/app-sidebar/featured-bot";
 import { ASSISTANT_AGENT_ID } from "@/lib/agents/default-agent";
-import { LAST_BOT_STORAGE_KEY } from "@/lib/agents/last-bot";
+import { LAST_BOT_STORAGE_KEY, rememberLastBot } from "@/lib/agents/last-bot";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 import {
   type BotAttention,
@@ -204,6 +204,31 @@ test("the remembered Bot is featured, and a Bot with no conversation starts one"
   });
   const link = await view.findByRole("link", { name: "Open Other" });
   expect(link.getAttribute("href")).toBe("/channel/new?agent=other");
+});
+
+/*
+ * The channel route records the Bot it shows in an effect, after the sidebar has already drawn.
+ * Nothing else about the sidebar changes when the person moves to another Bot's already-read
+ * conversation, so the featured slot has to hear about the write itself or it keeps naming the
+ * Bot they just left.
+ */
+test("moving to another Bot's conversation changes the featured Bot without any query changing", async () => {
+  window.localStorage.setItem(LAST_BOT_STORAGE_KEY, "other");
+  const { view } = draw({
+    agents: [agent(ASSISTANT_AGENT_ID, "Noë"), agent("other", "Other")],
+    channels: [
+      channel("other-newest", ["other"]),
+      channel("noe-newest", [ASSISTANT_AGENT_ID]),
+    ],
+  });
+  const before = await view.findByRole("link", { name: "Open Other" });
+  expect(before.getAttribute("href")).toBe("/channel/other-newest");
+
+  act(() => rememberLastBot(ASSISTANT_AGENT_ID));
+
+  const after = await view.findByRole("link", { name: "Open Noë" });
+  expect(after.getAttribute("href")).toBe("/channel/noe-newest");
+  expect(view.queryByRole("link", { name: "Open Other" })).toBeNull();
 });
 
 test("the dot lights while the Bot works or has something waiting, and is muted otherwise", async () => {

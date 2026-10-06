@@ -1,5 +1,5 @@
-import { QueryClientContext } from "@tanstack/react-query";
-import { memo, useContext } from "react";
+import { hashKey, QueryClientContext } from "@tanstack/react-query";
+import { memo, useCallback, useContext, useSyncExternalStore } from "react";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 import { cn } from "@/lib/utils";
@@ -10,26 +10,33 @@ import { cn } from "@/lib/utils";
  *
  * A tenant package picks a coworker's face through `avatar_seed`, and the cards and the bot panel
  * draw from it. The roster, the chat pill and the featured bot used to draw from the id instead,
- * so one Bot wore two faces. Read from the cache without subscribing: the roster is already in
- * it wherever a channel is listed, and a face that catches up on the next render is better than a
- * query per row. Optional context, because the avatar is also drawn where no client exists.
+ * so one Bot wore two faces. Read from the cache rather than through a query per row, but
+ * subscribed to it: this component is memoized, and a face that only caught up when something
+ * else re-rendered the row was the roster showing the wrong face until the next message. Optional
+ * context, because the avatar is also drawn where no client exists.
  */
+const AGENT_LIST_KEY = agentKeys.list(false);
+const AGENT_LIST_HASH = hashKey(AGENT_LIST_KEY);
+
 function useAvatarSeeds(): (id: string) => string {
   const client = useContext(QueryClientContext);
-  const agents = client?.getQueryData<AgentProfile[]>(agentKeys.list(false));
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      client
+        ? client.getQueryCache().subscribe((event) => {
+            if (event.query.queryHash === AGENT_LIST_HASH) notify();
+          })
+        : () => undefined,
+    [client],
+  );
+  const agents = useSyncExternalStore(
+    subscribe,
+    () => client?.getQueryData<AgentProfile[]>(AGENT_LIST_KEY),
+    () => undefined,
+  );
   return (id) => agents?.find((agent) => agent.id === id)?.avatarSeed ?? id;
 }
 
-/**
- * Memoized roster avatar. Row updates usually change preview/timestamp only, and
- * `use-channel-events` preserves participant id arrays for unchanged rows.
- *
- * Each participant is drawn as Noë Bot's terminal face on a brand background, picked from the
- * Bot's avatar seed, so the same Bot has the same face in every row, card and panel.
- *
- * `typing` overlays a working indicator at the bottom-right — three bouncing dots, so a channel
- * whose agent is mid-turn reads as busy from the roster without moving the row's layout.
- */
 export const ChannelAvatar = memo(function ChannelAvatar({
   participantIds,
   size = 32,

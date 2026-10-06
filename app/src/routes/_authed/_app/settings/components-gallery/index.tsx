@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ComponentPreview } from "@/components/component-preview";
-import { PageShell } from "@/components/layout/page-shell";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { SettingsItemBackground } from "@/components/settings/background";
 import {
   Empty,
@@ -30,7 +30,7 @@ function RouteComponent() {
   const published = components.data?.filter((component) => component.published);
 
   return (
-    <PageShell
+    <SettingsPage
       description="The pieces a Bot can draw in a conversation instead of describing something in prose. Which of them any one Bot may use is an administrator's decision."
       title="Components gallery"
     >
@@ -84,6 +84,6 @@ function RouteComponent() {
           ))}
         </div>
       )}
-    </PageShell>
+    </SettingsPage>
   );
 }
