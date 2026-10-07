@@ -34,7 +34,7 @@
  */
 
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
@@ -163,6 +163,19 @@ export const LAUNCH_ARGS = [
  * window that overlaps it, slides out of the way. Told to Chromium at launch rather than done
  * afterwards, so the first frame a person sees already has it in place.
  */
+/**
+ * Where the browser this computer launches is installed, for reading it into the page cache at boot
+ * (see read-through.ts). Null for a person's own Chrome, which is theirs and already warm.
+ */
+export function managedBrowserDirectory(): string | null {
+  if (LOCAL_CHROME) return null;
+  try {
+    return dirname(chromium.executablePath());
+  } catch {
+    return null;
+  }
+}
+
 export function desktopWindowArgs(desktop: boolean): readonly string[] {
   return desktop ? ["--start-maximized"] : [];
 }

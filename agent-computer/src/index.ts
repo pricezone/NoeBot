@@ -37,7 +37,12 @@ import {
   navigateWebPage,
   type PagePurpose,
 } from "./navigation";
-import { createProfiles, numberFromEnv } from "./profiles";
+import {
+  createProfiles,
+  managedBrowserDirectory,
+  numberFromEnv,
+} from "./profiles";
+import { readThrough } from "./read-through";
 import {
   parseExecTimeout,
   parseInputMessage,
@@ -286,6 +291,32 @@ const profiles = createProfiles(
     await sessions.get(botId)?.viewer.releaseAll(COMPUTER_STOPPED);
   },
 );
+/*
+ * The browser's files read once in the background, so the first launch after a boot finds them in
+ * memory: 11.5 s became 0.7 s on a Fly instance. See read-through.ts.
+ */
+const BROWSER_DIRECTORY = managedBrowserDirectory();
+if (BROWSER_DIRECTORY && import.meta.main) {
+  const started = Date.now();
+  void readThrough(BROWSER_DIRECTORY).then(
+    ({ files, bytes }) =>
+      console.info(
+        JSON.stringify({
+          type: "computer-browser-warmed",
+          files,
+          megabytes: Math.round(bytes / 1_048_576),
+          ms: Date.now() - started,
+        }),
+      ),
+    (error: unknown) =>
+      console.warn(
+        JSON.stringify({
+          type: "computer-browser-not-warmed",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      ),
+  );
+}
 // Rooted in the same workspace the file tools use, so a command and a written file see one
 // directory rather than two.
 const shell = createShell(
