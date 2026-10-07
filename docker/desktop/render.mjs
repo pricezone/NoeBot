@@ -6,13 +6,15 @@
  *
  *   node /path/to/NoeBot/docker/desktop/render.mjs
  *
- * THE WALLPAPER IS DITHERED. It is all soft grey gradients, and a gradient rendered straight to eight
- * bits per pixel is a stack of flat bands one grey level apart, which a dark screen shows as rings.
- * So the steps are blurred away in floating point and the result rounded back to eight bits with a
- * little noise, which turns each band edge into grain too fine to see. Rendered at the desktop's
- * own size, 1440x900, because resampling (xfdesktop's zoom) would round to eight bits again and
- * bring the bands back. Grey, so it is saved with one channel, which also keeps it small.
+ * THE WALLPAPER'S SKY IS SMOOTHED AND DITHERED. It is wide soft gradients, and a gradient rendered
+ * straight to eight bits per pixel is a stack of flat bands one level apart, which shows as rings.
+ * So the sky (between the `sky` markers in wallpaper.svg) is rendered on its own and blurred in
+ * floating point; the scene (stars, arrows, hills, between the `scene` markers) is rendered on its
+ * own, transparent, and laid over it unblurred so its edges stay crisp; and the result is rounded
+ * back to eight bits with a fine grey grain, which hides what is left of any band. Rendered at the
+ * desktop's own size, 1440x900, because resampling (xfdesktop's zoom) would round to eight bits again.
  */
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +24,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const WIDTH = 1440;
 const HEIGHT = 900;
-/** The drawing's margin, in its own units; see wallpaper.svg. */
-const MARGIN = 240;
-const DRAWN = { width: 2560, height: 1600 };
+/** How far the sky is smoothed, as a box radius in pixels (three passes make it near Gaussian). */
+const SKY_BLUR = 6;
+/** The grain's height, in eight-bit levels either side. */
+const GRAIN = 1.6;
 
 /** Three box blurs make a close enough Gaussian, in place, one axis at a time. */
 function blur(values, width, height, radius) {
@@ -50,24 +53,35 @@ function blur(values, width, height, radius) {
   }
 }
 
-async function wallpaper() {
-  const scale = WIDTH / DRAWN.width;
-  const { data } = await sharp(join(here, "wallpaper.svg"), {
-    density: 72 * scale,
-  })
-    .extract({
-      left: Math.round(MARGIN * scale),
-      top: Math.round(MARGIN * scale),
-      width: WIDTH,
-      height: HEIGHT,
-    })
-    .flatten({ background: "#ffffff" })
-    .toColourspace("b-w")
+/** One part of wallpaper.svg: the other part's markers and everything between them taken out. */
+function part(source, drop) {
+  const marked = new RegExp(`<!-- ${drop} -->[\\s\\S]*<!-- /${drop} -->`);
+  if (!marked.test(source)) throw new Error(`wallpaper.svg has no ${drop} markers`);
+  return Buffer.from(source.replace(marked, ""));
+}
+
+async function rgba(svg) {
+  const { data, info } = await sharp(svg)
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  const values = Float32Array.from(data);
-  blur(values, WIDTH, HEIGHT, 6);
-  const out = Buffer.alloc(WIDTH * HEIGHT);
+  if (info.width !== WIDTH || info.height !== HEIGHT) {
+    throw new Error(`wallpaper.svg must be ${WIDTH}x${HEIGHT}`);
+  }
+  return data;
+}
+
+async function wallpaper() {
+  const source = await readFile(join(here, "wallpaper.svg"), "utf8");
+  const sky = await rgba(part(source, "scene"));
+  const scene = await rgba(part(source, "sky"));
+  const pixels = WIDTH * HEIGHT;
+  const smoothSky = [0, 1, 2].map((channel) => {
+    const values = new Float32Array(pixels);
+    for (let i = 0; i < pixels; i++) values[i] = sky[i * 4 + channel];
+    blur(values, WIDTH, HEIGHT, SKY_BLUR);
+    return values;
+  });
   // A fixed seed, so the same drawing renders to the same bytes.
   let seed = 0x9e3779b9;
   const random = () => {
@@ -76,12 +90,20 @@ async function wallpaper() {
     seed ^= seed << 5;
     return (seed >>> 0) / 0x100000000;
   };
-  for (let i = 0; i < values.length; i++) {
-    const noise = random() + random() - 1;
-    out[i] = Math.min(255, Math.max(0, Math.round(values[i] + noise)));
+  const out = Buffer.alloc(pixels * 3);
+  for (let i = 0; i < pixels; i++) {
+    const alpha = scene[i * 4 + 3] / 255;
+    // The same for all three channels, so the grain is grey rather than coloured speckle.
+    const grain = (random() + random() - 1) * GRAIN;
+    for (let channel = 0; channel < 3; channel++) {
+      const value =
+        smoothSky[channel][i] * (1 - alpha) +
+        scene[i * 4 + channel] * alpha +
+        grain;
+      out[i * 3 + channel] = Math.min(255, Math.max(0, Math.round(value)));
+    }
   }
-  await sharp(out, { raw: { width: WIDTH, height: HEIGHT, channels: 1 } })
-    .toColourspace("b-w")
+  await sharp(out, { raw: { width: WIDTH, height: HEIGHT, channels: 3 } })
     .png({ compressionLevel: 9 })
     .toFile(join(here, "wallpaper.png"));
 }
