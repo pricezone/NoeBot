@@ -159,6 +159,23 @@ export async function guardBotTurn(input: {
     : controller.signal;
 }
 
+/**
+ * How many background turns on this replica started within `withinMs` and were not stopped.
+ *
+ * An upper bound, not an exact count: the turn runner never says a turn finished, so a turn counts
+ * until it is this old. For keeping the machine awake (keep-awake.ts) that errs the safe way.
+ */
+export function recentTurnCount(withinMs: number, now = Date.now()): number {
+  let count = 0;
+  for (const turns of state.running.values()) {
+    for (const turn of turns) {
+      if (!turn.controller.signal.aborted && now - turn.startedAt <= withinMs)
+        count += 1;
+    }
+  }
+  return count;
+}
+
 /** Stop every turn this replica is running for this person and Bot. Returns how many. */
 function stopRunningTurns(key: string): number {
   const turns = state.running.get(key);

@@ -40,6 +40,7 @@ import {
 import {
   configureBotLifecycle,
   createBotLifecycleStore,
+  recentTurnCount,
 } from "./agents/lifecycle";
 import { createBotReset } from "./agents/lifecycle-reset";
 import { createAgentProfileStore } from "./agents/profile-store";
@@ -156,6 +157,7 @@ import {
   intelligenceChannelMappings,
   responsibilityRuns,
   routineRuns,
+  workItems,
 } from "./db/schema";
 import { createDeliveryRouter, DELIVERY_WORK_KINDS } from "./delivery/router";
 import {
@@ -176,6 +178,7 @@ import {
   createIntelligenceClient,
   observeIntelligenceAuthentication,
 } from "./intelligence-client";
+import { startKeepAwake } from "./keep-awake";
 import { createSelfHostBanner } from "./self-host-banner";
 import { clearLearningRevisionFallback } from "./learning/runtime";
 import { createLearningSettingsStore } from "./learning/settings";
@@ -1055,6 +1058,54 @@ const memoryIngestion = createMemoryIngestion({
 const proactiveReadOnlyRefs = createReadOnlyClassifier(pluginStore);
 const loadPersonalMemoryForActor = (ownerUserId: string) => (botId: string) =>
   memoryIngestion.contextFor(ownerUserId, botId);
+/*
+ * A deployment that sleeps when idle (the hosted Noë Bot) stays awake while a Bot is working. See
+ * keep-awake.ts. Off unless OPENBOT_KEEP_AWAKE=on and the public address is known.
+ */
+if (
+  process.env.OPENBOT_KEEP_AWAKE?.trim().toLowerCase() === "on" &&
+  config.publicUrl
+) {
+  const computer = config.computer;
+  startKeepAwake({
+    publicUrl: config.publicUrl,
+    signals: async () => {
+      const [leased] = await database
+        .select({ count: sql<number>`count(*)::int` })
+        .from(workItems)
+        .where(
+          and(
+            isNull(workItems.finishedAt),
+            sql`${workItems.leaseUntil} > now()`,
+          ),
+        );
+      let browserLastUsedAt: Date | null = null;
+      if (computer?.provider === "shared") {
+        const health = (await fetch(
+          `${computer.baseUrl.replace(/\/$/, "")}/health`,
+          {
+            headers: computer.token
+              ? { "x-openbot-computer-token": computer.token }
+              : {},
+            signal: AbortSignal.timeout(5_000),
+          },
+        )
+          .then((response) => response.json())
+          .catch(() => null)) as { browserLastUsedAt?: string | null } | null;
+        if (health?.browserLastUsedAt)
+          browserLastUsedAt = new Date(health.browserLastUsedAt);
+      }
+      return {
+        // A background turn is cut off at five minutes (routines/run-turn.ts), so one that started
+        // longer ago than that has finished.
+        recentTurns: recentTurnCount(6 * 60_000),
+        leasedWork: leased?.count ?? 0,
+        browserLastUsedAt,
+      };
+    },
+  });
+}
+
 const memorySweep = repeatAfterEach(async () => {
   try {
     await memoryIngestion.syncDue();
