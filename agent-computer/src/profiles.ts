@@ -39,10 +39,8 @@ import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
 import { browserRuntimeFromEnv } from "./browser-runtime";
-import { desktopLayout } from "./desktop";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
-import { displaySizeFromEnv } from "./virtual-display";
 import { chooseLivePage } from "./live-page";
 import { botIdsIn } from "./profile-listing";
 import {
@@ -159,23 +157,17 @@ export const LAUNCH_ARGS = [
 ];
 
 /**
- * Where the browser window goes on a desktop, as Chromium switches. Nothing without one.
+ * How the browser window opens on a desktop, as Chromium switches. Nothing without one.
  *
- * On a desktop the browser is a window among others, and the layout in desktop.ts decides where:
- * the top of the work area, full width, with the terminal under it. Told to Chromium at launch
- * rather than moved afterwards, so the first frame a person sees already has it in place.
+ * Maximized: the browser is the screen while the Bot is browsing, and the dock, which hides from any
+ * window that overlaps it, slides out of the way. Told to Chromium at launch rather than done
+ * afterwards, so the first frame a person sees already has it in place.
  */
-export const DESKTOP_WINDOW_ARGS: readonly string[] = BROWSER_RUNTIME.desktop
-  ? (() => {
-      const { browser } = desktopLayout(
-        displaySizeFromEnv(process.env.COMPUTER_DISPLAY_SIZE, true),
-      );
-      return [
-        `--window-position=${browser.x},${browser.y}`,
-        `--window-size=${browser.width},${browser.height}`,
-      ];
-    })()
-  : [];
+export function desktopWindowArgs(desktop: boolean): readonly string[] {
+  return desktop ? ["--start-maximized"] : [];
+}
+
+const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop);
 
 /**
  * WebRTC kept inside the proxy, written into the profile before Chromium reads it.

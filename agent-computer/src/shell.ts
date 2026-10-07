@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 
 import { egressShellEnvironment, splitProxyCredentials } from "./egress";
-import type { ShellLog } from "./shell-log";
 
 /**
  * Running a command on the Bot's computer.
@@ -211,12 +210,6 @@ function clamp(text: string): { text: string; truncated: boolean } {
 export function createShell(
   workspaceDir: string,
   sourceEnv: NodeJS.ProcessEnv = process.env,
-  {
-    log,
-  }: {
-    /** A mirror of every command and its output, for the desktop's terminal window to tail. */
-    log?: ShellLog;
-  } = {},
 ) {
   return {
     async run(input: {
@@ -281,7 +274,6 @@ export function createShell(
       });
 
       let timedOut = false;
-      log?.begin(input.command);
 
       /*
        * Trimmed while it arrives, not at the end.
@@ -321,11 +313,9 @@ export function createShell(
 
       child.stdout.on("data", (chunk) => {
         outBuffer.add(chunk);
-        log?.write(String(chunk));
       });
       child.stderr.on("data", (chunk) => {
         errBuffer.add(chunk);
-        log?.write(String(chunk));
       });
 
       const stop = () => {
@@ -358,7 +348,6 @@ export function createShell(
 
       const out = clamp(outBuffer.text);
       const err = clamp(errBuffer.text);
-      log?.end({ exitCode, timedOut, elapsedMs: Date.now() - started });
       return {
         command: input.command,
         exitCode,

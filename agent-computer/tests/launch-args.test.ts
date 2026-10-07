@@ -1,9 +1,15 @@
 import { expect, test } from "bun:test";
 import {
   DISABLED_FEATURES,
+  desktopWindowArgs,
   LAUNCH_ARGS,
   PLAYWRIGHT_DISABLED_FEATURES,
 } from "../src/profiles";
+
+test("on a desktop the browser opens maximized, and is told nothing about windows without one", () => {
+  expect(desktopWindowArgs(true)).toEqual(["--start-maximized"]);
+  expect(desktopWindowArgs(false)).toEqual([]);
+});
 
 test("one --disable-features switch carries Playwright's list and the Client-Hints restarts", () => {
   const switches = LAUNCH_ARGS.filter((arg) =>

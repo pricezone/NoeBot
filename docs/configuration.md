@@ -590,7 +590,7 @@ is still the record.
 | `COMPUTER_BROWSER_IDLE_MS`           | How long an untouched browser is kept. 30 minutes by default; `0` keeps them resident.    |
 | `COMPUTER_BROWSER_BACKEND`           | `managed` by default (full bundled Chromium); `local-chrome` opts into installed Chrome with dedicated profiles and a loopback API. |
 | `COMPUTER_BROWSER_MODE`              | Managed defaults to `headless` (full Chromium's new headless mode). `headed` uses Xvfb on Linux and a native window on macOS/Windows. Local Chrome requires `headed`. |
-| `COMPUTER_DESKTOP`                   | `on` draws a whole desktop (XFCE) on the virtual display, with the browser as a window and a terminal mirroring the Bot's shell; the live screen shows the display. Implies `headed`; Linux only. Off by default. |
+| `COMPUTER_DESKTOP`                   | `on` draws a whole desktop (XFCE) on the virtual display: a wallpaper, a dock of Chrome, Terminal and File Manager, and the browser maximized over it; the live screen shows the display. Implies `headed`; Linux only. Off by default. |
 | `COMPUTER_DISPLAY_SIZE`              | The virtual display, as `WIDTHxHEIGHT`. `1440x900` with a desktop, `1280x800` without. 800x600 to 4096x4096. |
 | `OPENBOT_LOCAL_COMPUTER_DIR`         | Local startup helper's absolute data root. Defaults to the platform's OpenBot user-data directory; contains `profiles/` and `workspace/`. |
 | `COMPUTER_SUPERVISOR_URL`            | Supervisor URL for per-Bot computers. If absent, Bots share `AGENT_COMPUTER_URL`.         |
@@ -620,13 +620,21 @@ The supervisor recreates each computer with the same named volumes on its next r
 
 ### A desktop on the live screen
 
-`COMPUTER_DESKTOP=on` makes the computer's live screen a Linux desktop rather than one browser page:
-XFCE's window manager, panel and dock, the Bot's Chromium as a window at the top of the screen, and a
-terminal window beneath it that tails every command the Bot runs and what it printed. A person who
-takes the wheel drives the whole screen, so they can open the panel's menu, use the file manager or
-type into the browser's address bar, not only click inside the page. The Bot's own tools are
-unchanged: `computer_screenshot` is still a picture of its page, and clicks by reference still go
-through the page.
+`COMPUTER_DESKTOP=on` makes the computer's live screen a Linux desktop rather than one browser page.
+It is deliberately bare: a wallpaper and a frameless dock at the bottom with three buttons, Chrome,
+Terminal and File Manager, and no menu bar or desktop icons. The Bot's Chromium opens maximized, and
+the dock slides down out of its way while a window covers it and back up when the pointer reaches the
+bottom edge. The dock's Chrome button brings back the browser of the Bot that last used one, opening
+it again if it was closed. Terminal and File Manager open in the workspace, for the person who has
+taken the wheel; the Bot's own shell commands are not shown on the desktop, and the app lists them in
+the Bot's activity. A person who takes the wheel drives the whole screen, so they can use the
+terminal, the file manager or the browser's address bar, not only click inside the page. The Bot's
+own tools are unchanged: `computer_screenshot` is still a picture of its page, and clicks by
+reference still go through the page.
+
+The look is written by the computer each time the desktop starts (`agent-computer/src/desktop.ts`),
+so a change made inside the session lasts until the computer restarts. The wallpaper is
+`docker/desktop/wallpaper.svg`, rendered to the PNG the image ships.
 
 The desktop is one per computer process, so on the single-container image every Bot shares it, as
 they share the browser. It costs roughly 150 MB of memory while idle and one ffmpeg process while

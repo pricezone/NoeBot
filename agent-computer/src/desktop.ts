@@ -1,16 +1,20 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import type { DisplaySize } from "./virtual-display";
+import { dirname, join } from "node:path";
 
 /**
  * The desktop around the Bot's browser.
  *
  * A page-only live screen shows what the Bot is reading and nothing else. The desktop shows the
- * computer: the browser as a window, the shell as a terminal the person can watch, a panel with a
- * menu and a clock. It is what a person expects of "the Bot's computer" when they open the screen,
- * and it is what lets them take the wheel on something other than the one page the Bot had open.
+ * computer: a wallpaper, a dock with the browser, a terminal and a file manager, and whatever of them
+ * is open. It is what a person expects of "the Bot's computer" when they open the screen, and it is
+ * what lets them take the wheel on something other than the one page the Bot had open.
+ *
+ * Kept deliberately bare, like Grok's: no menu bar, no desktop icons, three launchers and no frame
+ * around them. The browser opens maximized and the dock slides out of its way, so while the Bot is
+ * browsing the screen is the page. The Bot's shell commands are a tool of their own and are shown in
+ * the app's activity log, not typed into a window here; the dock's terminal is for the person.
  *
  * XFCE, because it is the lightest desktop that still looks like one: a window manager, a panel and
  * a wallpaper for a few hundred megabytes of image and well under that of memory. It runs on the
@@ -20,63 +24,253 @@ import type { DisplaySize } from "./virtual-display";
  * on the computer shares it, the same way they share the browser process and the shell today. A
  * per-Bot desktop is the same change as a per-Bot computer and arrives with it.
  *
- * Supervised, not merely started. The session and the terminal are restarted when they die, with a
- * short pause so a desktop that cannot start does not spin, and a cap so one that keeps dying is
- * eventually left dead and said so rather than restarted for ever.
+ * Supervised, not merely started. The session is restarted when it dies, with a short pause so a
+ * desktop that cannot start does not spin, and a cap so one that keeps dying is eventually left dead
+ * and said so rather than restarted for ever.
  */
 
-/** Where the panel and the dock sit, and the space left to put windows in. */
-export type DesktopLayout = {
-  /** XFCE's default top panel: the menu, the task list, the clock. */
-  panelHeight: number;
-  /** XFCE's default bottom dock of launchers. */
-  dockHeight: number;
-  /** Where the browser window goes: the top of the work area. */
-  browser: { x: number; y: number; width: number; height: number };
-  /** Where the terminal goes: the strip under the browser, measured in character cells. */
-  terminal: { x: number; y: number; columns: number; rows: number };
+/** The wallpaper the image ships, rendered from `docker/desktop/wallpaper.svg`. */
+export const WALLPAPER_PATH = "/usr/share/backgrounds/noebot/wallpaper.png";
+/** The Chromium logo the image copies out of the Playwright browser, as a PNG the panel can draw. */
+export const CHROME_ICON_PATH = "/usr/share/pixmaps/noebot-chrome.png";
+
+/**
+ * Where the dock's Chrome button leaves its request, under the runtime directory.
+ *
+ * The desktop holds no `COMPUTER_TOKEN`, on purpose (see `desktopEnvironment`), so it cannot ask the
+ * computer for a browser over HTTP. `openbot-browser`, which the image installs and the button runs,
+ * touches a file here instead, and `browser-request.ts` watches for it.
+ */
+export const BROWSER_REQUEST_DIR = "openbot-desktop";
+export const BROWSER_REQUEST_FILE = "open-browser";
+
+/** One button on the dock. */
+export type DockLauncher = {
+  /** The panel plugin id, which also names the directory the launcher reads its file from. */
+  id: number;
+  file: string;
+  name: string;
+  comment: string;
+  exec: string;
+  icon: string;
 };
 
-/*
- * XFCE's own defaults, which `default.xml` below asks for: a 26-pixel top panel and a 48-pixel dock
- * at the bottom, each with a few pixels of margin the window manager keeps clear.
- */
-const PANEL_HEIGHT = 30;
-const DOCK_HEIGHT = 52;
-/** What a window manager adds above a window it is asked to place. */
-const TITLE_BAR = 26;
-/** The browser gets most of the work area; the terminal gets what is left. */
-const BROWSER_SHARE = 0.68;
 /**
- * xfce4-terminal's default font, DejaVu Sans Mono at 12 points, as one character cell on the
- * desktop. Measured on the deployed image with `xdotool getwindowgeometry`: 149 columns came out
- * 1517 pixels wide and 12 rows 264 pixels tall, padding included.
+ * The dock: the browser, a terminal and a file manager, and nothing else.
+ *
+ * Icons are PNG files or theme names that resolve to PNG: the image has no SVG loader for GTK, and a
+ * launcher whose icon cannot be loaded draws as a blank square.
  */
-export const TERMINAL_CELL = { width: 10.2, height: 22 };
-const GAP = 4;
-
-/** How the screen is divided. Pure, so the browser's launch arguments can be derived from it. */
-export function desktopLayout(size: DisplaySize): DesktopLayout {
-  const workTop = PANEL_HEIGHT;
-  const workBottom = size.height - DOCK_HEIGHT;
-  const workHeight = workBottom - workTop;
-  const browserHeight = Math.round(workHeight * BROWSER_SHARE);
-  const terminalTop = workTop + browserHeight + GAP;
-  const terminalPixels = workBottom - terminalTop - TITLE_BAR - GAP;
-  return {
-    panelHeight: PANEL_HEIGHT,
-    dockHeight: DOCK_HEIGHT,
-    browser: { x: 0, y: workTop, width: size.width, height: browserHeight },
-    terminal: {
-      x: 0,
-      y: terminalTop,
-      columns: Math.max(
-        40,
-        Math.floor((size.width - 2 * GAP) / TERMINAL_CELL.width),
-      ),
-      rows: Math.max(3, Math.floor(terminalPixels / TERMINAL_CELL.height)),
+export function dockLaunchers(workspace: string): DockLauncher[] {
+  return [
+    {
+      id: 1,
+      file: "noebot-chrome.desktop",
+      name: "Chrome",
+      comment: "Open the Bot's browser",
+      exec: "openbot-browser",
+      icon: CHROME_ICON_PATH,
     },
-  };
+    {
+      id: 2,
+      file: "noebot-terminal.desktop",
+      name: "Terminal",
+      comment: "Open a terminal in the workspace",
+      exec: `xfce4-terminal --working-directory=${workspace}`,
+      icon: "org.xfce.terminal",
+    },
+    {
+      id: 3,
+      file: "noebot-files.desktop",
+      name: "File Manager",
+      comment: "Browse the workspace",
+      exec: `thunar ${workspace}`,
+      icon: "org.xfce.filemanager",
+    },
+  ];
+}
+
+/** The `.desktop` entry a launcher plugin reads. */
+export function launcherDesktopEntry(launcher: DockLauncher): string {
+  return `[Desktop Entry]
+Version=1.0
+Type=Application
+Name=${launcher.name}
+Comment=${launcher.comment}
+Exec=${launcher.exec}
+Icon=${launcher.icon}
+Terminal=false
+StartupNotify=false
+`;
+}
+
+/**
+ * The panel: one dock at the bottom centre, and no top bar.
+ *
+ * - `autohide-behavior` 1 is XFCE's "intelligently": the dock slides down out of the way while a
+ *   window overlaps it, which a maximized browser always does, and comes back when the pointer
+ *   reaches the bottom edge or the window goes. `popdown-speed` is the slide.
+ * - `background-style` 1 is a solid colour, and the colour is fully transparent: the icons, no frame.
+ *   That needs the compositor, which `xfwm4ConfigXml` turns on.
+ * - `disable-struts`, so a maximized window takes the whole screen rather than stopping above a dock
+ *   that is about to hide.
+ * - `position` `p=10` is bottom centre; `length` 1 with `length-adjust` is "as long as its icons".
+ */
+export function panelConfigXml(launchers: DockLauncher[]): string {
+  const ids = launchers
+    .map((launcher) => `        <value type="int" value="${launcher.id}"/>`)
+    .join("\n");
+  const plugins = launchers
+    .map(
+      (
+        launcher,
+      ) => `    <property name="plugin-${launcher.id}" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="${launcher.file}"/>
+      </property>
+      <property name="show-label" type="bool" value="false"/>
+    </property>`,
+    )
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="configver" type="int" value="2"/>
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+    <property name="dark-mode" type="bool" value="true"/>
+    <property name="panel-1" type="empty">
+      <property name="position" type="string" value="p=10;x=0;y=0"/>
+      <property name="position-locked" type="bool" value="true"/>
+      <property name="mode" type="uint" value="0"/>
+      <property name="nrows" type="uint" value="1"/>
+      <property name="size" type="uint" value="56"/>
+      <property name="icon-size" type="uint" value="44"/>
+      <property name="length" type="uint" value="1"/>
+      <property name="length-adjust" type="bool" value="true"/>
+      <property name="autohide-behavior" type="uint" value="1"/>
+      <property name="popdown-speed" type="uint" value="25"/>
+      <property name="disable-struts" type="bool" value="true"/>
+      <property name="background-style" type="uint" value="1"/>
+      <property name="background-rgba" type="array">
+        <value type="double" value="0"/>
+        <value type="double" value="0"/>
+        <value type="double" value="0"/>
+        <value type="double" value="0"/>
+      </property>
+      <property name="enter-opacity" type="uint" value="100"/>
+      <property name="leave-opacity" type="uint" value="100"/>
+      <property name="plugin-ids" type="array">
+${ids}
+      </property>
+    </property>
+  </property>
+  <property name="plugins" type="empty">
+${plugins}
+  </property>
+</channel>
+`;
+}
+
+/**
+ * The desktop itself: the wallpaper, zoomed to fill whatever size the screen is, and no icons.
+ *
+ * `monitorscreen` is what xfdesktop calls Xvfb's one output. The grey under the image is what shows
+ * if the image is missing, instead of XFCE's blue.
+ */
+export function desktopConfigXml(wallpaper: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorscreen" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.62"/>
+            <value type="double" value="0.62"/>
+            <value type="double" value="0.62"/>
+            <value type="double" value="1"/>
+          </property>
+          <property name="image-style" type="int" value="5"/>
+          <property name="last-image" type="string" value="${wallpaper}"/>
+        </property>
+      </property>
+    </property>
+    <property name="single-workspace-mode" type="bool" value="true"/>
+    <property name="single-workspace-number" type="int" value="0"/>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="0"/>
+  </property>
+</channel>
+`;
+}
+
+/**
+ * The window manager: compositing on, which the transparent dock depends on, new windows centred,
+ * one workspace, and no shadow drawn around the dock.
+ */
+export function xfwm4ConfigXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfwm4" version="1.0">
+  <property name="general" type="empty">
+    <property name="use_compositing" type="bool" value="true"/>
+    <property name="show_dock_shadow" type="bool" value="false"/>
+    <property name="placement_mode" type="string" value="center"/>
+    <property name="workspace_count" type="int" value="1"/>
+  </property>
+</channel>
+`;
+}
+
+/**
+ * No saved session, no session saving. XFCE otherwise asks on the way out whether to save, and
+ * restores whatever was open on the way in, neither of which a desktop that is restarted by a
+ * supervisor wants: the supervisor decides what is open.
+ */
+const SESSION_CONFIG_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-session" version="1.0">
+  <property name="general" type="empty">
+    <property name="SaveOnExit" type="bool" value="false"/>
+    <property name="PromptOnLogout" type="bool" value="false"/>
+  </property>
+</channel>
+`;
+
+/** Every file the session reads its look from, as paths under `configHome` and their contents. */
+export function desktopConfigFiles({
+  configHome,
+  workspace,
+  wallpaper = WALLPAPER_PATH,
+}: {
+  configHome: string;
+  workspace: string;
+  wallpaper?: string;
+}): { path: string; content: string }[] {
+  const channels = join(configHome, "xfce4", "xfconf", "xfce-perchannel-xml");
+  const launchers = dockLaunchers(workspace);
+  return [
+    {
+      path: join(channels, "xfce4-panel.xml"),
+      content: panelConfigXml(launchers),
+    },
+    {
+      path: join(channels, "xfce4-desktop.xml"),
+      content: desktopConfigXml(wallpaper),
+    },
+    { path: join(channels, "xfwm4.xml"), content: xfwm4ConfigXml() },
+    { path: join(channels, "xfce4-session.xml"), content: SESSION_CONFIG_XML },
+    ...launchers.map((launcher) => ({
+      path: join(
+        configHome,
+        "xfce4",
+        "panel",
+        `launcher-${launcher.id}`,
+        launcher.file,
+      ),
+      content: launcherDesktopEntry(launcher),
+    })),
+  ];
 }
 
 /**
@@ -117,21 +311,17 @@ function runtimeDirectory(source: NodeJS.ProcessEnv): string {
   return join("/tmp", `openbot-runtime-${process.getuid?.() ?? "user"}`);
 }
 
-/** XFCE's own default panel: a top bar and a bottom dock. Copied so the panel never has to ask. */
-const DEFAULT_PANEL_CONFIG = "/etc/xdg/xfce4/panel/default.xml";
-
 /**
  * What the session needs on disk before it starts.
  *
- * The panel, started with no configuration of its own, opens a dialog asking whether to use the
- * default one, and a dialog on a desktop nobody is sitting at is a desktop with no panel. Copying the
- * default answers the question the way the button would. Only when nothing is there, so a desktop a
- * person has rearranged stays rearranged across a restart.
+ * Written every time, not only when missing: the look is the computer's, and a file left from an
+ * older image (or XFCE's own default panel, which an older image copied in) would otherwise win.
  *
  * The runtime directory is where the session bus puts its socket. It has to exist and be ours.
  */
 export async function prepareDesktopHome(
   env: Record<string, string>,
+  workspace: string,
 ): Promise<void> {
   const runtimeDir = env.XDG_RUNTIME_DIR;
   if (runtimeDir) {
@@ -141,30 +331,20 @@ export async function prepareDesktopHome(
   }
   const configHome = env.XDG_CONFIG_HOME;
   if (!configHome) return;
-  const channels = join(configHome, "xfce4", "xfconf", "xfce-perchannel-xml");
-  await mkdir(channels, { recursive: true }).catch(() => undefined);
-  const panel = join(channels, "xfce4-panel.xml");
-  await copyFile(DEFAULT_PANEL_CONFIG, panel, 1 /* COPYFILE_EXCL */).catch(
-    () => undefined,
-  );
-  /*
-   * No saved session, no session saving. XFCE otherwise asks on the way out whether to save, and
-   * restores whatever was open on the way in, neither of which a desktop that is restarted by a
-   * supervisor wants: the supervisor decides what is open.
-   */
-  const session = join(channels, "xfce4-session.xml");
-  await writeFile(
-    session,
-    `<?xml version="1.0" encoding="UTF-8"?>
-<channel name="xfce4-session" version="1.0">
-  <property name="general" type="empty">
-    <property name="SaveOnExit" type="bool" value="false"/>
-    <property name="PromptOnLogout" type="bool" value="false"/>
-  </property>
-</channel>
-`,
-    { flag: "wx" },
-  ).catch(() => undefined);
+  for (const file of desktopConfigFiles({ configHome, workspace })) {
+    try {
+      await mkdir(dirname(file.path), { recursive: true });
+      await writeFile(file.path, file.content);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          type: "computer-desktop-config-failed",
+          path: file.path,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
 }
 
 export type DesktopRuntime = {
@@ -225,46 +405,36 @@ const systemRuntime: DesktopRuntime = {
 };
 
 export type Desktop = {
-  layout: DesktopLayout;
   /** Whether the window manager answered, which is what makes a desktop a desktop. */
   ready: boolean;
+  /** Where the dock's Chrome button leaves its request. See `BROWSER_REQUEST_DIR`. */
+  browserRequestDir: string;
   stop: () => Promise<void>;
 };
 
 /** How long the window manager gets to appear before the computer carries on without waiting. */
 const WM_BUDGET_MS = 20_000;
 const WM_POLL_MS = 250;
-/** A dead session or terminal comes back after this, and gives up after too many deaths in a row. */
+/** A dead session comes back after this, and gives up after too many deaths in a row. */
 const RESTART_DELAY_MS = 2_000;
 const MAX_RESTARTS = 5;
 const STOP_BUDGET_MS = 3_000;
 
-/**
- * Start the desktop on `display`, and keep it there.
- *
- * `shellLog` is the file the terminal window tails: the Bot's shell, as it happens, read-only.
- */
+/** Start the desktop on `display`, and keep it there. */
 export async function startDesktop(
   {
     display,
-    size,
-    shellLog,
     home = homedir(),
     source = process.env,
   }: {
     display: string;
-    size: DisplaySize;
-    shellLog: string;
     home?: string;
     source?: NodeJS.ProcessEnv;
   },
   runtime: DesktopRuntime = systemRuntime,
 ): Promise<Desktop> {
   const env = desktopEnvironment(display, source, home);
-  const layout = desktopLayout(size);
-  await prepareDesktopHome(env);
-  // The terminal tails this; made first so it tails a file rather than complaining about one.
-  await writeFile(shellLog, "", { flag: "a" }).catch(() => undefined);
+  await prepareDesktopHome(env, source.WORKSPACE_DIR?.trim() || "/workspace");
 
   let stopping = false;
   const supervised = new Map<string, ChildProcess>();
@@ -307,8 +477,8 @@ export async function startDesktop(
   supervise("session", "dbus-launch", ["--exit-with-session", "startxfce4"]);
 
   /*
-   * The window manager is what the browser's `--window-position` and the terminal's geometry are
-   * addressed to; before it is up, a window lands wherever the X server puts it. Waited for, within
+   * The window manager is what the browser's `--start-maximized` is addressed to; before it is up,
+   * a window lands wherever the X server puts it, at whatever size. Waited for, within
    * a budget: a desktop that never comes up is reported in the log and the browser still works
    * without it, as it did before there was a desktop.
    */
@@ -335,20 +505,9 @@ export async function startDesktop(
     );
   }
 
-  const { terminal } = layout;
-  supervise("terminal", "xfce4-terminal", [
-    // Its own process, so the exit we supervise is the window's. Without this it hands the window to
-    // a shared terminal server and exits at once, which the supervisor would read as a crash.
-    "--disable-server",
-    "--title=Bot shell",
-    "--hide-menubar",
-    `--geometry=${terminal.columns}x${terminal.rows}+${terminal.x}+${terminal.y}`,
-    `--command=tail -n +1 -F ${shellLog}`,
-  ]);
-
   return {
-    layout,
     ready,
+    browserRequestDir: join(env.XDG_RUNTIME_DIR, BROWSER_REQUEST_DIR),
     async stop() {
       if (stopping) return;
       stopping = true;

@@ -1,0 +1,64 @@
+<!--
+  The Noë Bot computer's wallpaper: a soft grey field crossed by one dark curved fold, after the
+  desktop Grok Bot's computer shows. Drawn rather than photographed so it is ours, small, and the same
+  on every build. Rendered to wallpaper.png, which is what the image ships (the desktop has no SVG
+  loader):
+    node -e 'require("sharp")("docker/desktop/wallpaper.svg").extract({left:240,top:240,width:2560,height:1600}).png({compressionLevel:9}).toFile("docker/desktop/wallpaper.png")'
+  from any checkout that has sharp installed. The drawing carries a 240px margin that the render crops
+  away: a blur samples nothing beyond the edge of what is drawn, so without it the fold and the shade
+  fade out before they reach the top and the bottom of the picture.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="3040" height="2080" viewBox="-240 -240 3040 2080">
+  <title>Noë Bot desktop wallpaper</title>
+  <defs>
+    <!-- Light on the left, settling to a mid grey on the right. -->
+    <linearGradient id="field" x1="0" y1="0" x2="1" y2="0.35">
+      <stop offset="0" stop-color="#c9c9c9"/>
+      <stop offset="0.45" stop-color="#b4b4b4"/>
+      <stop offset="1" stop-color="#8c8c8c"/>
+    </linearGradient>
+    <!-- The shaded side of the fold: darkest low in the middle, lifting toward the top right. -->
+    <radialGradient id="shade" cx="0.6" cy="0.74" r="0.78">
+      <stop offset="0" stop-color="#5a5a5a"/>
+      <stop offset="0.5" stop-color="#6c6c6c"/>
+      <stop offset="1" stop-color="#959595"/>
+    </radialGradient>
+    <!-- A faint darker corner at the top left, the second, softer fold Grok's has. -->
+    <radialGradient id="corner" cx="0.02" cy="0.02" r="0.32">
+      <stop offset="0" stop-color="#8f8f8f" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#8f8f8f" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="120"/>
+    </filter>
+    <filter id="crease" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="38"/>
+    </filter>
+    <filter id="sheen" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="55"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="table" tableValues="0 0.035"/></feComponentTransfer>
+    </filter>
+  </defs>
+
+  <rect x="-240" y="-240" width="3040" height="2080" fill="url(#field)"/>
+  <rect x="-240" y="-240" width="3040" height="2080" fill="url(#corner)"/>
+
+  <!-- Everything right of the fold, its edge blurred so it reads as a turn of the surface. -->
+  <path filter="url(#soft)" fill="url(#shade)"
+        d="M 240 -420 C 300 -300, 340 -200, 380 -120 C 760 420, 1180 760, 1330 1060 C 1430 1270, 1500 1480, 1560 1760 C 1590 1900, 1610 2000, 1630 2200 L 3100 2200 L 3100 -420 Z"/>
+
+  <!-- A lifted sheen just left of the fold. -->
+  <path filter="url(#sheen)" fill="none" stroke="#dedede" stroke-opacity="0.4" stroke-width="170"
+        d="M 110 -420 C 170 -300, 210 -200, 250 -120 C 630 420, 1050 760, 1200 1060 C 1300 1270, 1370 1480, 1430 1760 C 1460 1900, 1480 2000, 1500 2200"/>
+
+  <!-- The crease itself: one dark line along the fold. -->
+  <path filter="url(#crease)" fill="none" stroke="#404040" stroke-opacity="0.6" stroke-width="90"
+        stroke-linecap="round"
+        d="M 220 -420 C 280 -300, 320 -200, 360 -120 C 740 420, 1160 760, 1310 1060 C 1410 1270, 1480 1480, 1540 1760 C 1570 1900, 1590 2000, 1610 2200"/>
+
+  <rect x="-240" y="-240" width="3040" height="2080" filter="url(#grain)"/>
+</svg>

@@ -1,0 +1,10 @@
+#!/bin/sh
+# The desktop dock's Chrome button.
+#
+# The desktop holds no token to ask the computer for anything over HTTP, by design, so the button asks
+# by touching a file in a directory only this user can reach. The computer process watches it and
+# opens the browser of the Bot that last used one, or brings it to the front when it is already open
+# (agent-computer/src/browser-request.ts).
+set -eu
+dir="${XDG_RUNTIME_DIR:-/tmp/openbot-runtime-$(id -u)}/openbot-desktop"
+exec touch "$dir/open-browser"

@@ -1,5 +1,4 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serve } from "bun";
 import type { Page } from "playwright";
@@ -17,6 +16,7 @@ import {
   offeredToken,
 } from "./authorisation";
 import { isPlainBotId } from "./bot-id";
+import { raiseBrowserWindow, watchBrowserRequests } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { detectChallenge } from "./challenge";
 import {
@@ -53,7 +53,6 @@ import {
 } from "./secret-masking";
 import { type BotSession, createSessions } from "./sessions";
 import { createShell } from "./shell";
-import { createShellLog } from "./shell-log";
 import { fillSignIn, parseSignInFill } from "./sign-in";
 import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
 import {
@@ -121,21 +120,10 @@ const VIRTUAL_DISPLAY = await startVirtualDisplay(
   DISPLAY_SIZE,
 );
 if (VIRTUAL_DISPLAY) process.env.DISPLAY = VIRTUAL_DISPLAY.name;
-/**
- * The desktop around the browser, when `COMPUTER_DESKTOP=on`. See desktop.ts.
- *
- * The shell is mirrored to a file the desktop's terminal window tails, so a person watching the
- * screen sees the Bot's commands as they run. Only with a desktop: without a window to show it in,
- * the mirror is a file nobody reads.
- */
-const SHELL_LOG_PATH = join(tmpdir(), "openbot-shell.log");
+/** The desktop around the browser, when `COMPUTER_DESKTOP=on`. See desktop.ts. */
 const DESKTOP =
   RUNTIME.desktop && VIRTUAL_DISPLAY
-    ? await startDesktop({
-        display: VIRTUAL_DISPLAY.name,
-        size: DISPLAY_SIZE,
-        shellLog: SHELL_LOG_PATH,
-      })
+    ? await startDesktop({ display: VIRTUAL_DISPLAY.name })
     : null;
 console.info(
   JSON.stringify({
@@ -301,7 +289,6 @@ const profiles = createProfiles(
 const shell = createShell(
   process.env.WORKSPACE_DIR?.trim() || "/workspace",
   process.env,
-  DESKTOP ? { log: createShellLog(SHELL_LOG_PATH) } : {},
 );
 
 /**
@@ -321,12 +308,16 @@ const DEFAULT_BOT_ID = (() => {
   return configured;
 })();
 
+/** The Bot whose browser was last in use: the one the dock's Chrome button brings back. */
+let lastBrowserBot: string | null = null;
+
 async function currentPage(
   botId: string,
   purpose: PagePurpose = "read",
 ): Promise<Page> {
   const session = sessions.for(botId);
   const page = await profiles.page(botId);
+  lastBrowserBot = botId;
   sessions.observeBrowser(botId, page.context());
   assertPageAccess(RUNTIME.backend, page.url(), purpose);
   // A ref names an element on the page it was taken from, so moving to a window the site opened has
@@ -335,6 +326,17 @@ async function currentPage(
   session.livePage = page;
   return page;
 }
+
+/**
+ * The dock's Chrome button: the browser of the Bot that last used one, opened again if it was closed
+ * and brought to the front either way. See browser-request.ts.
+ */
+const BROWSER_REQUESTS = DESKTOP
+  ? await watchBrowserRequests(DESKTOP.browserRequestDir, async () => {
+      const page = await currentPage(lastBrowserBot ?? DEFAULT_BOT_ID);
+      await raiseBrowserWindow(page);
+    })
+  : null;
 
 /**
  * The page as text, the way a reader sees it.
@@ -1648,6 +1650,7 @@ async function shutDown(reason: string, exitCode: number): Promise<void> {
   shuttingDown = true;
   console.info(`${reason}: closing the browser so its profile is flushed`);
   await profiles.closeAll();
+  BROWSER_REQUESTS?.close();
   await DESKTOP?.stop();
   await VIRTUAL_DISPLAY?.stop();
   process.exit(exitCode);

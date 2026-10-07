@@ -172,8 +172,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # A desktop for the computer to draw, when asked for.
 #
 # OFF UNLESS ASKED FOR, like Postgres above. `COMPUTER_DESKTOP=on` on the computer puts XFCE on the
-# virtual display beside the browser, with a terminal window that mirrors the Bot's shell, and the
-# live screen then shows the whole display rather than the page. See agent-computer/src/desktop.ts.
+# virtual display around the browser: a wallpaper and a frameless dock of Chrome, Terminal and File
+# Manager that slides away from the maximized browser. The live screen then shows the whole display
+# rather than the page. See agent-computer/src/desktop.ts.
 # ffmpeg grabs the display for the live screen; libXtst and xdotool carry a person's input back to
 # it. `xfce4-settings` is what makes fonts anti-aliased; `dbus-uuidgen` is what lets a session bus
 # start in a container that never ran a system one.
@@ -185,6 +186,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && mkdir -p /run/user/1001 \
   && chown pwuser:pwuser /run/user/1001 \
   && chmod 0700 /run/user/1001
+
+# The desktop's look. The wallpaper is rendered from docker/desktop/wallpaper.svg; the dock's Chrome
+# button runs openbot-browser; its icon is the logo of the Chromium Playwright installed, as a PNG,
+# because GTK here has no SVG loader. A build of that browser without the logo gets XFCE's browser
+# icon instead, and a build without either gets a blank button rather than a failed image.
+COPY docker/desktop/wallpaper.png /usr/share/backgrounds/noebot/wallpaper.png
+COPY --chmod=0755 docker/desktop/openbot-browser /usr/local/bin/openbot-browser
+RUN logo="$(ls /ms-playwright/chromium-*/chrome-linux*/product_logo_48.png 2>/dev/null | head -n 1)"; \
+    mkdir -p /usr/share/pixmaps \
+  && if [ -n "$logo" ]; then cp "$logo" /usr/share/pixmaps/noebot-chrome.png; \
+     else cp /usr/share/icons/hicolor/48x48/apps/org.xfce.webbrowser.png /usr/share/pixmaps/noebot-chrome.png || true; fi
 
 # A Bot can install what a task needs, and nothing else as root.
 #
