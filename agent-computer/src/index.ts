@@ -341,6 +341,9 @@ const BROWSER_REQUESTS = DESKTOP
         lastBrowserBot ??
         (await profiles.lastUsed()) ??
         DEFAULT_BOT_ID;
+      console.info(
+        JSON.stringify({ type: "computer-desktop-browser-request", botId }),
+      );
       const page = await currentPage(botId);
       await raiseBrowserWindow(page);
     })

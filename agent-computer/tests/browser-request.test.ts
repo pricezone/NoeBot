@@ -78,3 +78,28 @@ describe("the dock's Chrome button", () => {
     }
   });
 });
+
+test("a request that never finishes does not stop the button answering", async () => {
+  const dir = join(root, "openbot-desktop");
+  let asked = 0;
+  const watcher = await watchBrowserRequests(
+    dir,
+    () => {
+      asked++;
+      // The first never settles, like a browser launch that hangs.
+      return asked === 1 ? new Promise<void>(() => undefined) : undefined;
+    },
+    { debounceMs: 20, stallMs: 150 },
+  );
+  try {
+    const request = join(dir, BROWSER_REQUEST_FILE);
+    await writeFile(request, "");
+    await waitFor(() => asked === 1);
+    await Bun.sleep(300);
+    await writeFile(request, "");
+    await waitFor(() => asked === 2);
+    expect(asked).toBe(2);
+  } finally {
+    watcher.close();
+  }
+});

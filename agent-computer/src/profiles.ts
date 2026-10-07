@@ -523,6 +523,14 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         return existing.page;
       }
       if (existing) {
+        console.info(
+          JSON.stringify({
+            type: "computer-browser-replacing",
+            botId,
+            connected: Boolean(existing.context.browser()?.isConnected()),
+            pageClosed: existing.page.isClosed(),
+          }),
+        );
         // Half-dead: the browser went away, or its page did. Dropped rather than repaired, because a
         // context whose browser has gone is not usable for anything.
         //
@@ -544,6 +552,9 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           await keepWebRtcInsideProxy(dir);
         }
         const proxy = egressFor(botId, process.env);
+        console.info(
+          JSON.stringify({ type: "computer-browser-launching", botId }),
+        );
         const context = await chromium.launchPersistentContext(dir, {
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
@@ -619,6 +630,17 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           opened.on("close", () => record.retarget());
         });
         page.on("close", () => record.retarget());
+        // Said, because nothing else is: a person closing the window ends the browser without any
+        // call here, and the next request finds it half-dead.
+        context.once("close", () => {
+          console.info(
+            JSON.stringify({
+              type: "computer-browser-gone",
+              botId,
+              startedAt: record.startedAt,
+            }),
+          );
+        });
         live.set(botId, record);
         // After the new one is in the map, so the cap counts what is really running and the Bot that
         // just asked is the most recently used and therefore never the one closed.
@@ -628,8 +650,27 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
       })();
 
       starting.set(botId, launch);
+      const launchedAt = Date.now();
       try {
-        return await launch;
+        const launched = await launch;
+        console.info(
+          JSON.stringify({
+            type: "computer-browser-launched",
+            botId,
+            ms: Date.now() - launchedAt,
+          }),
+        );
+        return launched;
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            type: "computer-browser-launch-failed",
+            botId,
+            ms: Date.now() - launchedAt,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        throw error;
       } finally {
         // Cleared whether it worked or not so a failed launch does not pin future calls to a rejected
         // promise.

@@ -18,7 +18,10 @@ import { BROWSER_REQUEST_FILE } from "./desktop";
 export async function watchBrowserRequests(
   dir: string,
   open: () => Promise<void> | void,
-  { debounceMs = 150 }: { debounceMs?: number } = {},
+  {
+    debounceMs = 150,
+    stallMs = 45_000,
+  }: { debounceMs?: number; stallMs?: number } = {},
 ): Promise<{ close: () => void }> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // mkdir leaves an existing directory's mode alone.
@@ -40,16 +43,40 @@ export async function watchBrowserRequests(
     );
     if (!removed) return;
     running = true;
+    const started = Date.now();
+    /*
+     * Bounded. A request that never settles (a launch that hangs) used to hold `running` for good,
+     * and every later click was dropped: the dock's Chrome button simply stopped working. Past the
+     * budget the button answers again; the stalled attempt is left to finish or fail on its own.
+     */
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<"stalled">((resolve) => {
+      watchdog = setTimeout(() => resolve("stalled"), stallMs);
+    });
     try {
-      await open();
+      const outcome = await Promise.race([
+        Promise.resolve(open()).then(() => "opened" as const),
+        stalled,
+      ]);
+      console.info(
+        JSON.stringify({
+          type:
+            outcome === "opened"
+              ? "computer-desktop-browser-opened"
+              : "computer-desktop-browser-request-stalled",
+          ms: Date.now() - started,
+        }),
+      );
     } catch (error) {
       console.error(
         JSON.stringify({
           type: "computer-desktop-browser-request-failed",
+          ms: Date.now() - started,
           error: error instanceof Error ? error.message : String(error),
         }),
       );
     } finally {
+      clearTimeout(watchdog);
       running = false;
     }
   };
