@@ -9,7 +9,7 @@
  * Free of Playwright on purpose. `profiles.ts` launches browsers, so a test that wanted this rule had
  * to drag a browser runtime in with it, which is most of why the copy existed in the first place.
  */
-import { readlink, stat } from "node:fs/promises";
+import { readFile, readlink, stat } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { isPlainBotId } from "./bot-id";
@@ -98,4 +98,24 @@ export async function browserProcessAlive(
   const [, owner, pid] = match;
   if (owner !== host) return false;
   return isRunning(Number(pid));
+}
+
+/**
+ * The last warnings Chromium wrote to `chrome_debug.log` in its profile (it is launched with
+ * `--enable-logging --log-level=1`), for the line that says a browser has gone. Empty when there is
+ * no log. Short and cut, because it goes into the deployment's log.
+ */
+export async function chromiumLogTail(
+  profileDir: string,
+  lines = 15,
+): Promise<string[]> {
+  const text = await readFile(
+    join(profileDir, "chrome_debug.log"),
+    "utf8",
+  ).catch(() => "");
+  return text
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(-lines)
+    .map((line) => line.slice(0, 300));
 }

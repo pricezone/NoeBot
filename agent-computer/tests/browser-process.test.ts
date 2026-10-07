@@ -47,3 +47,16 @@ test("a host name with hyphens in it is read up to the last one", async () => {
     await browserProcessAlive(profile, { host: "83d1304be129e8-fly" }),
   ).toBe(true);
 });
+
+test("the last lines Chromium logged come back short, and nothing when there is no log", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const { chromiumLogTail } = await import("../src/profile-listing");
+  expect(await chromiumLogTail(profile)).toEqual([]);
+  const lines = Array.from({ length: 20 }, (_, n) => `line ${n}`);
+  await writeFile(
+    join(profile, "chrome_debug.log"),
+    `${lines.join("\n")}\n${"x".repeat(500)}\n\n`,
+  );
+  const tail = await chromiumLogTail(profile, 3);
+  expect(tail).toEqual(["line 18", "line 19", "x".repeat(300)]);
+});

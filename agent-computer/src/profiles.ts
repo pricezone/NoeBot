@@ -46,6 +46,7 @@ import { chooseLivePage } from "./live-page";
 import {
   botIdsIn,
   browserProcessAlive,
+  chromiumLogTail,
   lastUsedProfile,
 } from "./profile-listing";
 import { withProfilePreferences } from "./profile-preferences";
@@ -366,8 +367,6 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     retarget: () => void;
     /** Keeps this browser's session cookies on the profile volume. Absent for a native Chrome. */
     sessionCookies?: SessionCookieKeeper;
-    /** The last lines Chromium itself wrote, for saying why it went when it goes. */
-    chromiumLog: string[];
   };
 
   /**
@@ -561,7 +560,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
             botId,
             startedAt: existing.startedAt,
             detectedBy: "process",
-            chromium: existing.chromiumLog.slice(-15),
+            chromium: await chromiumLogTail(directoryFor(botId)),
           }),
         );
       }
@@ -613,22 +612,16 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         console.info(
           JSON.stringify({ type: "computer-browser-launching", botId }),
         );
-        /*
-         * What Chromium writes to its own stdout and stderr, kept short. Playwright's logger is the
-         * one place those lines surface; without them a browser that quits leaves no reason behind.
-         */
-        const chromiumLog: string[] = [];
         const context = await chromium.launchPersistentContext(dir, {
-          logger: {
-            isEnabled: (name) => name === "browser",
-            log: (_name, _severity, message) => {
-              chromiumLog.push(String(message).slice(0, 300));
-              if (chromiumLog.length > 40) chromiumLog.shift();
-            },
-          },
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
-          args: [...LAUNCH_ARGS, ...DESKTOP_WINDOW_ARGS],
+          args: [
+            ...LAUNCH_ARGS,
+            ...DESKTOP_WINDOW_ARGS,
+            // Chromium's own warnings, to `chrome_debug.log` in the profile: what a browser that
+            // quits leaves behind to say why (read by `chromiumLogTail` when one goes).
+            ...(LOCAL_CHROME ? [] : ["--enable-logging", "--log-level=1"]),
+          ],
           // Playwright launches with `--enable-automation`, which sets `navigator.webdriver` and the
           // "controlled by automated software" banner. Dropped for the same reason as the flag above:
           // a person who takes the wheel should be able to sign in. Named explicitly so the sandbox
@@ -678,7 +671,6 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           usedAt: Date.now(),
           retarget: () => {},
           ...(sessionCookies ? { sessionCookies } : {}),
-          chromiumLog,
         };
         record.retarget = () => {
           const next = chooseLivePage(context.pages());
@@ -704,14 +696,16 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         // Said, because nothing else is: a person closing the window ends the browser without any
         // call here, and the next request finds it half-dead.
         context.once("close", () => {
-          console.info(
-            JSON.stringify({
-              type: "computer-browser-gone",
-              botId,
-              startedAt: record.startedAt,
-              detectedBy: "playwright",
-              chromium: chromiumLog.slice(-15),
-            }),
+          void chromiumLogTail(dir).then((chromiumSaid) =>
+            console.info(
+              JSON.stringify({
+                type: "computer-browser-gone",
+                botId,
+                startedAt: record.startedAt,
+                detectedBy: "playwright",
+                chromium: chromiumSaid,
+              }),
+            ),
           );
         });
         live.set(botId, record);
@@ -851,7 +845,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           botId,
           startedAt: existing.startedAt,
           detectedBy: "process",
-          chromium: existing.chromiumLog.slice(-15),
+          chromium: await chromiumLogTail(directoryFor(botId)),
         }),
       );
       live.delete(botId);
