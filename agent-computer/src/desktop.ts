@@ -31,7 +31,7 @@ import { dirname, join } from "node:path";
 
 /** The wallpaper the image ships, rendered from `docker/desktop/wallpaper.svg`. */
 export const WALLPAPER_PATH = "/usr/share/backgrounds/noebot/wallpaper.png";
-/** The Chromium logo the image copies out of the Playwright browser, as a PNG the panel can draw. */
+/** The dock's Chrome icon, rendered from `docker/desktop/chrome.svg`, as a PNG the panel can draw. */
 export const CHROME_ICON_PATH = "/usr/share/pixmaps/noebot-chrome.png";
 
 /**
@@ -112,7 +112,7 @@ StartupNotify=false
  *   reaches the bottom edge or the window goes. `popdown-speed` is the slide.
  * - `background-style` 1 is a solid colour, and the colour is fully transparent: the icons, no frame.
  *   That needs the compositor, which `xfwm4ConfigXml` turns on.
- * - `disable-struts`, so a maximized window takes the whole screen rather than stopping above a dock
+ * - No struts, so a maximized window takes the whole screen rather than stopping above a dock
  *   that is about to hide.
  * - `position` `p=10` is bottom centre; `length` 1 with `length-adjust` is "as long as its icons".
  */
@@ -149,7 +149,7 @@ export function panelConfigXml(launchers: DockLauncher[]): string {
       <property name="length-adjust" type="bool" value="true"/>
       <property name="autohide-behavior" type="uint" value="1"/>
       <property name="popdown-speed" type="uint" value="25"/>
-      <property name="disable-struts" type="bool" value="true"/>
+      <property name="enable-struts" type="bool" value="false"/>
       <property name="background-style" type="uint" value="1"/>
       <property name="background-rgba" type="array">
         <value type="double" value="0"/>

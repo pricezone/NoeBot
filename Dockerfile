@@ -187,16 +187,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chown pwuser:pwuser /run/user/1001 \
   && chmod 0700 /run/user/1001
 
-# The desktop's look. The wallpaper is rendered from docker/desktop/wallpaper.svg; the dock's Chrome
-# button runs openbot-browser; its icon is the logo of the Chromium Playwright installed, as a PNG,
-# because GTK here has no SVG loader. A build of that browser without the logo gets XFCE's browser
-# icon instead, and a build without either gets a blank button rather than a failed image.
+# The desktop's look: the wallpaper and the dock's Chrome icon, rendered from the SVGs beside them in
+# docker/desktop/ (PNG, because GTK here has no SVG loader), and openbot-browser, which the Chrome
+# button runs.
 COPY docker/desktop/wallpaper.png /usr/share/backgrounds/noebot/wallpaper.png
+COPY docker/desktop/chrome.png /usr/share/pixmaps/noebot-chrome.png
 COPY --chmod=0755 docker/desktop/openbot-browser /usr/local/bin/openbot-browser
-RUN logo="$(ls /ms-playwright/chromium-*/chrome-linux*/product_logo_48.png 2>/dev/null | head -n 1)"; \
-    mkdir -p /usr/share/pixmaps \
-  && if [ -n "$logo" ]; then cp "$logo" /usr/share/pixmaps/noebot-chrome.png; \
-     else cp /usr/share/icons/hicolor/48x48/apps/org.xfce.webbrowser.png /usr/share/pixmaps/noebot-chrome.png || true; fi
 
 # A Bot can install what a task needs, and nothing else as root.
 #

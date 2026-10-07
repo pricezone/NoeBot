@@ -329,11 +329,14 @@ async function currentPage(
 
 /**
  * The dock's Chrome button: the browser of the Bot that last used one, opened again if it was closed
- * and brought to the front either way. See browser-request.ts.
+ * and brought to the front either way. After a restart, before any Bot has asked for a browser, that
+ * is the profile used last. See browser-request.ts.
  */
 const BROWSER_REQUESTS = DESKTOP
   ? await watchBrowserRequests(DESKTOP.browserRequestDir, async () => {
-      const page = await currentPage(lastBrowserBot ?? DEFAULT_BOT_ID);
+      const botId =
+        lastBrowserBot ?? (await profiles.lastUsed()) ?? DEFAULT_BOT_ID;
+      const page = await currentPage(botId);
       await raiseBrowserWindow(page);
     })
   : null;

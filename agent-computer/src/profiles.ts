@@ -33,7 +33,14 @@
  * Kubernetes or ECS, where the orchestrator's own restart policy brings a process back.
  */
 
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
@@ -378,6 +385,22 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     }
   };
 
+  /**
+   * Every Bot that has a computer, whether or not one is running.
+   *
+   * Read from disk rather than from memory, because a Bot's computer exists as long as its profile
+   * does: after a restart nothing is running and every login is still there, and an admin page that
+   * listed only live browsers would show an empty screen and imply the logins were gone.
+   */
+  const known = async (): Promise<string[]> => {
+    const onDisk = await readdir(root, { withFileTypes: true }).catch(() => []);
+    /*
+     * The rule lives in its own module, so the test that covers it imports the same one this uses.
+     * It had a copy before, which meant deleting this filter left the suite green.
+     */
+    return [...new Set([...botIdsIn(onDisk), ...live.keys()])].sort();
+  };
+
   // Checked, not joined. `join(root, botId)` normalizes `..` away, so a Bot id of `../workspace`
   // used to resolve outside the root and `reset` would delete whatever was there.
   const directoryFor = (botId: string): string =>
@@ -648,22 +671,26 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
       });
     },
 
+    /** Every Bot that has a computer, whether or not one is running. See `known` above. */
+    known,
+
     /**
-     * Every Bot that has a computer, whether or not one is running.
+     * The Bot whose browser was used last, by its profile on disk; null when there is none.
      *
-     * Read from disk rather than from memory, because a Bot's computer exists as long as its profile
-     * does: after a restart nothing is running and every login is still there, and an admin page that
-     * listed only live browsers would show an empty screen and imply the logins were gone.
+     * For the desktop's Chrome button after a restart, when nothing has asked for a browser yet: the
+     * person expects the browser they were looking at, not a Bot nobody uses. Chromium rewrites
+     * `Local State` while it runs, so its time is the last time that Bot's browser was open.
      */
-    async known(): Promise<string[]> {
-      const onDisk = await readdir(root, { withFileTypes: true }).catch(
-        () => [],
-      );
-      /*
-       * The rule lives in its own module, so the test that covers it imports the same one this uses.
-       * It had a copy before, which meant deleting this filter left the suite green.
-       */
-      return [...new Set([...botIdsIn(onDisk), ...live.keys()])].sort();
+    async lastUsed(): Promise<string | null> {
+      let newest: { botId: string; at: number } | null = null;
+      for (const botId of await known()) {
+        const at = await stat(join(directoryFor(botId), "Local State")).then(
+          (info) => info.mtimeMs,
+          () => 0,
+        );
+        if (at > 0 && (!newest || at > newest.at)) newest = { botId, at };
+      }
+      return newest?.botId ?? null;
     },
 
     /** What the admin surface lists. Running or not, because a Bot that has a profile has a computer. */

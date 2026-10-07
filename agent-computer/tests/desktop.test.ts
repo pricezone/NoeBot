@@ -38,7 +38,7 @@ describe("the dock", () => {
 
   test("slides away from a window that overlaps it and reserves no space", () => {
     expect(property(panel, "autohide-behavior")).toBe("1");
-    expect(property(panel, "disable-struts")).toBe("true");
+    expect(property(panel, "enable-struts")).toBe("false");
   });
 
   test("draws no frame: a solid background, fully transparent", () => {
