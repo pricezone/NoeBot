@@ -7,10 +7,14 @@ import {
 } from "../src/profiles";
 
 test("on a desktop the browser opens maximized, and is told nothing about windows without one", () => {
-  expect(desktopWindowArgs(true)).toEqual(["--start-maximized"]);
+  expect(desktopWindowArgs(true)).toEqual([
+    "--start-maximized",
+    "--hide-crash-restore-bubble",
+  ]);
   expect(desktopWindowArgs(false)).toEqual([]);
   expect(desktopWindowArgs(true, { gpu: false })).toEqual([
     "--start-maximized",
+    "--hide-crash-restore-bubble",
     "--disable-gpu",
   ]);
 });

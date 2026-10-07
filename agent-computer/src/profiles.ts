@@ -190,7 +190,13 @@ export function desktopWindowArgs(
   if (!desktop) return [];
   // `COMPUTER_BROWSER_GPU=off`: composite in software in the browser process instead of emulating a
   // GPU, which on a machine with no GPU is the cheaper of two software paths.
-  return ["--start-maximized", ...(gpu ? [] : ["--disable-gpu"])];
+  return [
+    "--start-maximized",
+    // After an unclean exit Chrome offers to restore pages in a bubble over the page, which the Bot
+    // cannot read and the person did not ask for; the browser reopens on its start page instead.
+    "--hide-crash-restore-bubble",
+    ...(gpu ? [] : ["--disable-gpu"]),
+  ];
 }
 
 const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop, {
