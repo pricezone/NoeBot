@@ -167,3 +167,20 @@ test("a replacement context interrupts a live handoff; the same context keeps it
   expect(session.control.get(request.id).request?.status).toBe("interrupted");
   expect(session.control.humanMayDrive()).toBe(false);
 });
+
+describe("the Bot a person is driving", () => {
+  test("is the one whose control they took, and nobody's before that", async () => {
+    const sessions = createSessions({
+      isLive: () => false,
+      mintRun: counting(),
+    });
+    sessions.for("bot-1");
+    const driven = sessions.for("bot-2");
+    expect(sessions.drivenByPerson()).toBeUndefined();
+
+    const requestId = driven.control.requestHelp("Sign in").request?.id ?? "";
+    await driven.control.take(requestId);
+
+    expect(sessions.drivenByPerson()).toBe("bot-2");
+  });
+});

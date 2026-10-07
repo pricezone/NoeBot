@@ -159,6 +159,19 @@ export function createSessions(options: SessionsOptions) {
     },
 
     /**
+     * The Bot a person is driving, when one is: the screen they hold control of.
+     *
+     * For the desktop's Chrome button, which a person presses while driving and which should bring
+     * back the browser of the Bot on that screen, whichever Bot used a browser last.
+     */
+    drivenByPerson(): string | undefined {
+      for (const [botId, session] of sessions) {
+        if (session.control.get().holder === "human") return botId;
+      }
+      return undefined;
+    },
+
+    /**
      * Start a new run for this Bot, because its browser session is over.
      *
      * A reset closes the browser and deletes the profile, and the session survives it: nothing takes
