@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { serve } from "bun";
+import { type ServerWebSocket, serve } from "bun";
 import type { Page } from "playwright";
 import { downloadHeaders } from "../../shared/file-download";
 import {
@@ -31,6 +31,7 @@ import { startDesktop } from "./desktop";
 import { captureDesktopFrame, startDesktopCast } from "./desktop-cast";
 import { handleEgressPolicyRequest, startEgressFilter } from "./egress";
 import { identity } from "./identity";
+import { inOrder } from "./in-order";
 import {
   assertPageAccess,
   navigateWebPage,
@@ -502,7 +503,120 @@ const SCREEN_NO_LONGER_LIVE =
 const FOLLOW_INTERVAL_MS = 1_000;
 
 /** What a live-screen socket carries: the Bot whose screen it is showing. */
-type StreamData = { botId: string; recordingId?: string };
+type StreamData = {
+  botId: string;
+  recordingId?: string;
+  /** Applies this socket's input in the order it arrived. See `message`. */
+  applyInput?: (input: string | Buffer) => Promise<void>;
+};
+
+/**
+ * One message from a live-screen socket: a person's input, applied if they may drive.
+ *
+ * Called in order, one at a time per socket (see `message` below).
+ */
+async function applyStreamInput(
+  ws: ServerWebSocket<StreamData>,
+  raw: string | Buffer,
+): Promise<void> {
+  const session = sessions.for(ws.data.botId);
+  /*
+   * Whose screen this is, asked before anything is done with the input.
+   *
+   * A superseded socket used to dispatch through whatever the session held, so a replaced
+   * window's typing landed in the page the current viewer was watching. It heard nothing about
+   * it either, because the old missing-viewer check returned before reaching anything that could
+   * report, which is why this answers the sender rather than returning quietly.
+   *
+   * Starting and gone are told apart deliberately. Both own no cast, and answering them the same
+   * way tells somebody whose screen is still opening that their session ended.
+   */
+  const standing = session.viewer.standingOf(ws);
+  if (standing.state !== "casting") {
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        error:
+          standing.state === "starting"
+            ? SCREEN_STILL_STARTING
+            : SCREEN_NO_LONGER_LIVE,
+      }),
+    );
+    return;
+  }
+  let message: InputMessage;
+  try {
+    const parsed: unknown = JSON.parse(String(raw));
+    const validated = parseInputMessage(parsed);
+    if (!validated.ok) {
+      ws.send(JSON.stringify({ type: "error", error: validated.error }));
+      return;
+    }
+    message = validated.message;
+  } catch {
+    // The validated-but-wrong branch above sends an error frame; unparseable input used to
+    // be dropped silently, so a buggy surface saw input "ignored" with no diagnostic.
+    ws.send(JSON.stringify({ type: "error", error: "Input is not JSON." }));
+    return;
+  }
+  // A person's input is accepted only while they hold the wheel. The socket being open is not permission:
+  // without this check, anything that could reach this port could drive the browser while a Bot
+  // was working, which is the one thing the control state exists to prevent.
+  //
+  // Owning the screen is not permission either, which is why this stands after the ownership
+  // question above and not instead of it: the two refuse different things, and the one asked
+  // first only decides whether the input has anywhere to land.
+  //
+  // Refuse with an error so the surface can explain why input is ignored.
+  if (!session.control.humanMayDrive()) {
+    ws.send(JSON.stringify({ type: "error", error: TAKE_CONTROL_FIRST }));
+    return;
+  }
+  try {
+    /*
+     * On a desktop the gesture is in screen coordinates and the page is one window among others:
+     * it is described only when it lands in this Bot's open browser (see `gestureInPage`), and
+     * a browser is never opened just to describe one, so a click on the wallpaper stays a click.
+     */
+    const recordingPage = !ws.data.recordingId
+      ? null
+      : DESKTOP
+        ? session.livePage && !session.livePage.isClosed()
+          ? session.livePage
+          : null
+        : await currentPage(ws.data.botId);
+    const recorded = recordingPage
+      ? await describeHumanGesture(recordingPage, message, {
+          desktop: Boolean(DESKTOP),
+        })
+      : null;
+    await standing.cast.send(message);
+    if (recorded)
+      ws.send(
+        JSON.stringify({
+          type: "demonstration.action",
+          recordingId: ws.data.recordingId,
+          action: recorded,
+        }),
+      );
+  } catch (error) {
+    // Reported rather than swallowed. A dispatch that fails means the person's input did nothing,
+    // and they must not be left believing it landed.
+    console.error(
+      JSON.stringify({
+        type: "screencast-input-error",
+        message: message.type,
+        error: String(error),
+      }),
+    );
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        error: describe(error, "That input could not be applied."),
+      }),
+    );
+  }
+}
 
 serve<StreamData>({
   port: PORT,
@@ -600,104 +714,16 @@ serve<StreamData>({
       }
     },
 
-    async message(ws, raw) {
-      const session = sessions.for(ws.data.botId);
+    message(ws, raw) {
       /*
-       * Whose screen this is, asked before anything is done with the input.
-       *
-       * A superseded socket used to dispatch through whatever the session held, so a replaced
-       * window's typing landed in the page the current viewer was watching. It heard nothing about
-       * it either, because the old missing-viewer check returned before reaching anything that could
-       * report, which is why this answers the sender rather than returning quietly.
-       *
-       * Starting and gone are told apart deliberately. Both own no cast, and answering them the same
-       * way tells somebody whose screen is still opening that their session ended.
+       * In the order sent, one after another (see in-order.ts): describing a gesture for a recording
+       * awaits the page, and without this a key's "down" waited while its "up" went straight through,
+       * so keys reached the screen out of order and "example.com" arrived as "exampl.co".
        */
-      const standing = session.viewer.standingOf(ws);
-      if (standing.state !== "casting") {
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            error:
-              standing.state === "starting"
-                ? SCREEN_STILL_STARTING
-                : SCREEN_NO_LONGER_LIVE,
-          }),
-        );
-        return;
-      }
-      let message: InputMessage;
-      try {
-        const parsed: unknown = JSON.parse(String(raw));
-        const validated = parseInputMessage(parsed);
-        if (!validated.ok) {
-          ws.send(JSON.stringify({ type: "error", error: validated.error }));
-          return;
-        }
-        message = validated.message;
-      } catch {
-        // The validated-but-wrong branch above sends an error frame; unparseable input used to
-        // be dropped silently, so a buggy surface saw input "ignored" with no diagnostic.
-        ws.send(JSON.stringify({ type: "error", error: "Input is not JSON." }));
-        return;
-      }
-      // A person's input is accepted only while they hold the wheel. The socket being open is not permission:
-      // without this check, anything that could reach this port could drive the browser while a Bot
-      // was working, which is the one thing the control state exists to prevent.
-      //
-      // Owning the screen is not permission either, which is why this stands after the ownership
-      // question above and not instead of it: the two refuse different things, and the one asked
-      // first only decides whether the input has anywhere to land.
-      //
-      // Refuse with an error so the surface can explain why input is ignored.
-      if (!session.control.humanMayDrive()) {
-        ws.send(JSON.stringify({ type: "error", error: TAKE_CONTROL_FIRST }));
-        return;
-      }
-      try {
-        /*
-         * On a desktop the gesture is in screen coordinates and the page is one window among others:
-         * it is described only when it lands in this Bot's open browser (see `gestureInPage`), and
-         * a browser is never opened just to describe one, so a click on the wallpaper stays a click.
-         */
-        const recordingPage = !ws.data.recordingId
-          ? null
-          : DESKTOP
-            ? session.livePage && !session.livePage.isClosed()
-              ? session.livePage
-              : null
-            : await currentPage(ws.data.botId);
-        const recorded = recordingPage
-          ? await describeHumanGesture(recordingPage, message, {
-              desktop: Boolean(DESKTOP),
-            })
-          : null;
-        await standing.cast.send(message);
-        if (recorded)
-          ws.send(
-            JSON.stringify({
-              type: "demonstration.action",
-              recordingId: ws.data.recordingId,
-              action: recorded,
-            }),
-          );
-      } catch (error) {
-        // Reported rather than swallowed. A dispatch that fails means the person's input did nothing,
-        // and they must not be left believing it landed.
-        console.error(
-          JSON.stringify({
-            type: "screencast-input-error",
-            message: message.type,
-            error: String(error),
-          }),
-        );
-        ws.send(
-          JSON.stringify({
-            type: "error",
-            error: describe(error, "That input could not be applied."),
-          }),
-        );
-      }
+      ws.data.applyInput ??= inOrder((input: string | Buffer) =>
+        applyStreamInput(ws, input),
+      );
+      void ws.data.applyInput(raw).catch(() => undefined);
     },
 
     async close(ws) {
