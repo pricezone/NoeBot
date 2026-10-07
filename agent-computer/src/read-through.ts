@@ -25,7 +25,10 @@ export async function readThrough(
         continue;
       }
       if (!entry.isFile()) continue;
-      const handle = await open(full, "r");
+      // Skipped, not fatal: the install carries packaging files this user may not read
+      // (`rpm.deps`, measured), and the browser never opens those either.
+      const handle = await open(full, "r").catch(() => null);
+      if (!handle) continue;
       try {
         for (;;) {
           const { bytesRead } = await handle.read(
