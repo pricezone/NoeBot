@@ -194,6 +194,20 @@ COPY docker/desktop/wallpaper.png /usr/share/backgrounds/noebot/wallpaper.png
 COPY docker/desktop/chrome.png /usr/share/pixmaps/noebot-chrome.png
 COPY --chmod=0755 docker/desktop/openbot-browser /usr/local/bin/openbot-browser
 
+# Chromium's font cache, built here once instead of on every boot. The Chromium Playwright installs
+# carries a newer fontconfig than the system's, so it cannot use /var/cache/fontconfig and writes its
+# own under the user's ~/.cache, which a restart does not keep: the first browser after every boot
+# took seventeen seconds, six of them writing that cache (seen on a Fly instance, 2026-10-07). Rendering
+# one line of text as pwuser leaves that cache in the image. Best effort: a build where it cannot run
+# still builds, and the browser builds the cache itself as before.
+RUN chrome="$(ls /ms-playwright/chromium-*/chrome-linux*/chrome | head -n 1)" \
+  && runuser -u pwuser -- env HOME=/home/pwuser XDG_CACHE_HOME=/home/pwuser/.cache \
+       "$chrome" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+       --screenshot=/tmp/font-warm.png "data:text/html,<p style='font-family:sans-serif'>Warm</p>" \
+       >/dev/null 2>&1 \
+  ; rm -f /tmp/font-warm.png \
+  ; ls /home/pwuser/.cache/fontconfig || echo "Chromium's font cache was not built" >&2
+
 # A Bot can install what a task needs, and nothing else as root.
 #
 # `sudo` without a password, because a package manager that cannot install is not one, and "install a
