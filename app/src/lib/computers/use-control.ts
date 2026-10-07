@@ -115,9 +115,11 @@ function createControlStore(computerId: string): ControlStore {
       listeners.add(listener);
       if (timer === undefined) {
         if (!snapshot.busy) void refresh();
+        // Every two seconds, not every one: each read is a request through to the machine. Kept going
+        // in a hidden tab on purpose, so a Bot asking for help is still noticed there.
         timer = setInterval(() => {
           if (!snapshot.busy && !reading) void refresh();
-        }, 1000);
+        }, 2000);
       }
       return () => {
         listeners.delete(listener);

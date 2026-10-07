@@ -148,6 +148,9 @@ type Props = {
   toolCallId?: string;
 };
 
+/** How often a desktop preview nobody is driving asks for a frame. */
+const DESKTOP_PREVIEW_INTERVAL_MS = 3_000;
+
 export function ComputerView({
   computerId,
   active = true,
@@ -232,6 +235,19 @@ export function ComputerView({
 
   const visualVisible =
     pageVisible && (expanded || (previewIntersecting && !paused));
+  /*
+   * How often the screen is polled. A desktop preview nobody is driving changes slowly and every poll
+   * is a fresh capture on the machine, so it asks every few seconds rather than every second.
+   */
+  const pollEvery =
+    desktop && !driving
+      ? Math.max(intervalMs, DESKTOP_PREVIEW_INTERVAL_MS)
+      : intervalMs;
+  /** The full-window viewer is open on a live stream (see `showLiveScreen` below). */
+  const liveInViewer =
+    expanded &&
+    !settled &&
+    (driving || (shot !== null && !isBlankBrowser(shot)));
 
   /*
    * The frame this turn's page was showing, fetched once and then kept.
@@ -273,6 +289,8 @@ export function ComputerView({
   useEffect(() => {
     if (settled) return;
     if (!visualVisible) return;
+    // The full-window viewer is showing the live stream: polling under it is the same screen twice.
+    if (liveInViewer) return;
     const mine = ++generation.current;
     let timer: ReturnType<typeof setTimeout>;
     // Consecutive identical frames observed during post-action settling.
@@ -312,7 +330,7 @@ export function ComputerView({
         }
       } finally {
         if (generation.current === mine && shouldContinue()) {
-          timer = setTimeout(tick, intervalMs);
+          timer = setTimeout(tick, pollEvery);
         }
       }
     };
@@ -325,11 +343,12 @@ export function ComputerView({
   }, [
     computerId,
     active,
-    intervalMs,
+    pollEvery,
     secretPending,
     settled,
     visualVisible,
     desktop,
+    liveInViewer,
   ]);
 
   // Which screen this computer has. A finished turn shows its kept frame and never asks.

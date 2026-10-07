@@ -47,7 +47,11 @@ export const demonstrationsQueryOptions = (botId: string) =>
         "demonstrations",
         { fallback: "Could not load demonstrations" },
       ),
-    refetchInterval: 2000,
+    // Quickly only while something is recording, whose step count is on screen; slowly otherwise.
+    refetchInterval: (query) =>
+      query.state.data?.some((demo) => demo.status === "recording")
+        ? 2000
+        : 15_000,
   });
 /**
  * The title a recording starts under. The start route requires one, and the person names the
