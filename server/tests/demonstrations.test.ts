@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { draftDemonstration } from "../src/demonstrations/draft";
-import { createDemonstrationRecorder } from "../src/demonstrations/recording";
+import {
+  createDemonstrationRecorder,
+  type DemonstrationRecorder,
+} from "../src/demonstrations/recording";
+import { createDemonstrationRoutes } from "../src/demonstrations/routes";
 import {
   demonstrationRoutineInstruction,
   parseDemonstrationSchedule,
@@ -8,6 +12,7 @@ import {
 import type { DemonstrationStore } from "../src/demonstrations/store";
 import {
   DEMONSTRATION_MAX_DURATION_MS,
+  DemonstrationNotFoundError,
   DemonstrationRefusedError,
   demonstrationExpiresAt,
   parseDemonstrationAction,
@@ -346,4 +351,59 @@ test("scheduling refuses an unpublished demonstration and carries routine refusa
   await expect(
     gone.schedule("owner", "r", { cron: "0 9 * * *" }),
   ).rejects.toBeInstanceOf(DemonstrationRefusedError);
+});
+
+test("the rename route sends the signed-in owner's title to the store and refuses a body without one", async () => {
+  const renames: { owner: string; id: string; title: string }[] = [];
+  const store = {
+    rename: async (owner: string, id: string, title: string) => {
+      renames.push({ owner, id, title });
+      if (id === "someone-elses") throw new DemonstrationNotFoundError();
+      if (title.trim() === "")
+        throw new DemonstrationRefusedError(
+          "Name this demonstration in 120 characters or fewer.",
+        );
+      return recordingRow({ id, title: title.trim(), status: "stopped" });
+    },
+  } as unknown as DemonstrationStore;
+  const routes = createDemonstrationRoutes(
+    store,
+    {} as DemonstrationRecorder,
+    async (context, next) => {
+      context.set("actor", {
+        id: "owner",
+        email: "owner@example.test",
+        role: "member",
+      } as never);
+      await next();
+    },
+  );
+  const patch = (id: string, body: unknown) =>
+    routes.request(`/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  const renamed = await patch("r", { title: " Find an invoice " });
+  expect(renamed.status).toBe(200);
+  expect(
+    ((await renamed.json()) as { demonstration: { title: string } })
+      .demonstration.title,
+  ).toBe("Find an invoice");
+  expect(renames).toEqual([
+    { owner: "owner", id: "r", title: " Find an invoice " },
+  ]);
+
+  const untitled = await patch("r", { name: "Find an invoice" });
+  expect(untitled.status).toBe(400);
+  expect(await untitled.json()).toEqual({
+    error: "Name this demonstration in 120 characters or fewer.",
+  });
+  expect(renames).toHaveLength(1);
+
+  expect((await patch("r", { title: "  " })).status).toBe(400);
+  expect((await patch("someone-elses", { title: "Mine now" })).status).toBe(
+    404,
+  );
 });

@@ -21,6 +21,7 @@ import {
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 import { BOT_PANEL_STORAGE_KEY } from "@/lib/bot-panel";
 import { Route as BotRoute } from "@/routes/_authed/_app/bot";
+import { settleReactWork } from "./settle-react-work";
 
 let originalRect: typeof HTMLElement.prototype.getBoundingClientRect;
 beforeAll(() => {
@@ -37,7 +38,11 @@ afterEach(() => {
   window.localStorage.removeItem(BOT_PANEL_STORAGE_KEY);
 });
 
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(async () => {
+  // The screen viewer's queries and timers can leave React work posted; drain it first.
+  await settleReactWork();
+  GlobalRegistrator.unregister();
+});
 
 function agent(
   overrides: Partial<AgentProfile> & { id: string },
@@ -340,24 +345,36 @@ test("/bot opens the bot panel on the Computer by default, and the chat survives
     name: "Computer sidebar",
   });
   const sidebar = within(sidebarElement);
-  await waitFor(() =>
-    expect(
-      sidebar
-        .getByRole("button", { name: "Take control" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
-  );
-  expect(
-    sidebar.getByRole("button", {
-      name: "Open the assistant's screen full size",
-    }),
-  ).toBeTruthy();
   expect(sidebar.getByRole("heading", { name: "Activity" })).toBeTruthy();
   expect(
     view.getByRole("tab", { name: "Computer" }).getAttribute("aria-selected"),
   ).toBe("true");
-  // The header carries no wheel of its own any more: the one in the card is the one.
+  // The panel's card is a preview: the wheel is in the viewer it opens, not under the picture.
+  expect(sidebar.queryByRole("button", { name: "Take control" })).toBeNull();
+  fireEvent.click(
+    sidebar.getByRole("button", {
+      name: "Open the assistant's screen full size",
+    }),
+  );
+  const viewer = within(
+    await view.findByRole("dialog", { name: "The assistant's screen" }),
+  );
+  await waitFor(() =>
+    expect(
+      viewer
+        .getByRole("button", { name: "Take control" })
+        .hasAttribute("disabled"),
+    ).toBe(false),
+  );
+  expect(viewer.getByText("General Assistant")).toBeTruthy();
+  // The header carries no wheel of its own any more: the one in the viewer is the one.
   expect(view.getAllByRole("button", { name: "Take control" })).toHaveLength(1);
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+  await waitFor(() =>
+    expect(
+      view.queryAllByRole("dialog", { name: "The assistant's screen" }),
+    ).toHaveLength(0),
+  );
   const toggle = view.getByRole("button", { name: "Hide details" });
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
 
@@ -428,13 +445,12 @@ test("/bot?watch=true restores the live Computer panel on reload", async () => {
   const sidebar = within(
     await view.findByRole("region", { name: "Computer sidebar" }),
   );
-  await waitFor(() =>
-    expect(
-      sidebar
-        .getByRole("button", { name: "Take control" })
-        .hasAttribute("disabled"),
-    ).toBe(false),
-  );
+  expect(
+    sidebar.getByRole("button", {
+      name: "Open the assistant's screen full size",
+    }),
+  ).toBeTruthy();
+  expect(sidebar.getByText("General Assistant's screen")).toBeTruthy();
   expect(
     view.getByRole("tab", { name: "Computer" }).getAttribute("aria-selected"),
   ).toBe("true");

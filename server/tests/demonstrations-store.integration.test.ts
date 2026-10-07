@@ -165,6 +165,74 @@ test("publication links only an actual owned saved skill", async () => {
   expect(granted.tools).toHaveLength(0);
 });
 
+test("a recording is renamed by its owner, within 120 characters, and not once published", async () => {
+  const value = await recorder.start(owner, bot, "Untitled workflow");
+  await recorder.capture(owner, bot, value.id, click);
+  await store.stop(owner, value.id);
+  expect(
+    (await store.rename(owner, value.id, "  Find an invoice  ")).title,
+  ).toBe("Find an invoice");
+  await expect(
+    store.rename(other, value.id, "Someone else's name"),
+  ).rejects.toBeInstanceOf(DemonstrationNotFoundError);
+  await expect(store.rename(owner, value.id, "   ")).rejects.toThrow(
+    "Name this demonstration in 120 characters or fewer.",
+  );
+  await expect(
+    store.rename(owner, value.id, "x".repeat(121)),
+  ).rejects.toBeInstanceOf(DemonstrationRefusedError);
+  expect((await store.get(owner, value.id)).title).toBe("Find an invoice");
+  // The draft is made from the new name.
+  const draft = await store.draft(owner, value.id);
+  expect(draft.title).toBe("Find an invoice");
+  expect(draft.slug).toBe("find-an-invoice");
+  const published = (await store.list(owner, bot)).find(
+    (row) => row.status === "published",
+  );
+  if (!published) throw new Error("Expected the published demonstration.");
+  await expect(
+    store.rename(owner, published.id, "Renamed after publishing"),
+  ).rejects.toThrow("already has a saved skill");
+  expect((await store.get(owner, published.id)).title).toBe(
+    "Reviewed workflow",
+  );
+});
+test("the rename route takes the title over HTTP for the signed-in owner", async () => {
+  const routes = createDemonstrationRoutes(
+    store,
+    recorder,
+    async (context, next) => {
+      context.set("actor", {
+        id: owner,
+        email: `${owner}@example.test`,
+        role: "member",
+      } as never);
+      await next();
+    },
+  );
+  const value = await recorder.start(owner, bot, "Untitled workflow");
+  await store.stop(owner, value.id);
+  const renamed = await routes.request(`/${value.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Pay a supplier" }),
+  });
+  expect(renamed.status).toBe(200);
+  const { demonstration } = (await renamed.json()) as {
+    demonstration: { id: string; title: string };
+  };
+  expect(demonstration).toMatchObject({
+    id: value.id,
+    title: "Pay a supplier",
+  });
+  const refused = await routes.request(`/${value.id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "" }),
+  });
+  expect(refused.status).toBe(400);
+});
+
 test("a recording past ten minutes is stopped at its limit and keeps no later step", async () => {
   const value = await recorder.start(owner, bot, "Long workflow");
   expect(value.expiresAt.getTime() - value.createdAt.getTime()).toBe(600_000);

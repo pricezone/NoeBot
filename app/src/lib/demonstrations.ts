@@ -49,6 +49,11 @@ export const demonstrationsQueryOptions = (botId: string) =>
       ),
     refetchInterval: 2000,
   });
+/**
+ * The title a recording starts under. The start route requires one, and the person names the
+ * workflow after recording it, once they have seen what they did.
+ */
+export const UNTITLED_WORKFLOW = "Untitled workflow";
 export const startDemonstration = (
   botId: string,
   title: string,
@@ -57,6 +62,16 @@ export const startDemonstration = (
     method: "POST",
     body: { botId, title },
     fallback: "Could not start recording",
+  });
+/** Name a recording after it was made; recording starts under {@link UNTITLED_WORKFLOW}. */
+export const renameDemonstration = (
+  id: string,
+  title: string,
+): Promise<Demonstration> =>
+  client(`/api/demonstrations/${encodeURIComponent(id)}`, "demonstration", {
+    method: "PATCH",
+    body: { title },
+    fallback: "Could not name this workflow",
   });
 export const stopDemonstration = (id: string) =>
   client(`/api/demonstrations/${encodeURIComponent(id)}/stop`, {

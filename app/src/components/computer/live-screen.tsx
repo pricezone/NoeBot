@@ -72,6 +72,10 @@ function isPasteShortcut(event: KeyboardEvent): boolean {
  * body (or whatever non-editable element last took a click). One targeted at an input, textarea,
  * select or contenteditable is someone typing into this page while driving: the recorder's
  * workflow name, the secret box under the screen. Taking those keys left the fields dead.
+ *
+ * So is anything inside one of this app's dialogs ("Name this workflow" opens over the screen while
+ * the person is still driving): Tab, Enter and Space on its buttons belong to the dialog, and
+ * sending them to the Bot's browser left its Save button unreachable from the keyboard.
  */
 function isLocalField(target: EventTarget | null): boolean {
   return (
@@ -79,7 +83,8 @@ function isLocalField(target: EventTarget | null): boolean {
     (target.isContentEditable ||
       target.tagName === "INPUT" ||
       target.tagName === "TEXTAREA" ||
-      target.tagName === "SELECT")
+      target.tagName === "SELECT" ||
+      target.closest('[data-slot="dialog-content"]') !== null)
   );
 }
 

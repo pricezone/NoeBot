@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, getTableColumns, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, ne, sql } from "drizzle-orm";
 import type { Database } from "../db/client";
 import { demonstrations } from "../db/schema/demonstrations";
 import { draftDemonstration } from "./draft";
@@ -16,6 +16,15 @@ type DemonstrationRow = typeof demonstrations.$inferSelect;
 /** The ten-minute bound as a database interval, so expiry uses the database clock. */
 const limit = () =>
   sql`(${DEMONSTRATION_MAX_DURATION_MS}::integer * interval '1 millisecond')`;
+/** A recording's name, trimmed, or a refusal a person can act on. Starting and renaming agree. */
+function cleanTitle(title: string): string {
+  const clean = title.trim();
+  if (!clean || clean.length > 120)
+    throw new DemonstrationRefusedError(
+      "Name this demonstration in 120 characters or fewer.",
+    );
+  return clean;
+}
 /** A recording as the API returns it: its row plus when the server stops it. */
 function present(row: DemonstrationRow) {
   return {
@@ -93,11 +102,7 @@ export function createDemonstrationStore(database: Database) {
       return row ? present(row) : null;
     },
     async start(ownerUserId: string, botId: string, title: string) {
-      const clean = title.trim();
-      if (!clean || clean.length > 120)
-        throw new DemonstrationRefusedError(
-          "Name this demonstration in 120 characters or fewer.",
-        );
+      const clean = cleanTitle(title);
       const [row] = await database
         .insert(demonstrations)
         .values({ id: randomUUID(), ownerUserId, botId, title: clean })
@@ -183,6 +188,36 @@ export function createDemonstrationStore(database: Database) {
           ),
         );
       return get(ownerUserId, id);
+    },
+    /**
+     * Names a recording after it was made. Recording starts under a placeholder, so the person names
+     * the workflow once they have seen what they did. A published recording is the saved skill's
+     * source and keeps its name; the skill itself is renamed from Skills.
+     */
+    async rename(ownerUserId: string, id: string, title: string) {
+      const clean = cleanTitle(title);
+      const row = await get(ownerUserId, id);
+      if (row.status === "published")
+        throw new DemonstrationRefusedError(
+          "This demonstration already has a saved skill. Rename it from Skills.",
+        );
+      const [renamed] = await database
+        .update(demonstrations)
+        .set({ title: clean })
+        .where(
+          and(
+            eq(demonstrations.id, id),
+            eq(demonstrations.ownerUserId, ownerUserId),
+            // Published between the read and this write: the same refusal, not a silent rename.
+            ne(demonstrations.status, "published"),
+          ),
+        )
+        .returning();
+      if (!renamed)
+        throw new DemonstrationRefusedError(
+          "This demonstration already has a saved skill. Rename it from Skills.",
+        );
+      return present(renamed);
     },
     async draft(ownerUserId: string, id: string) {
       const row = await get(ownerUserId, id);

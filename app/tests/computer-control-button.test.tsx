@@ -7,9 +7,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import type { ControlState } from "@/lib/computers/control";
 import { ComputerControlButton } from "@/components/computer/computer-controls";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => GlobalRegistrator.register());
@@ -279,4 +281,34 @@ test("both controls stay disabled while the current browser action drains", asyn
   ).toBe(true);
   fireEvent.click(view.chat.getByRole("button", { name: "Take control" }));
   expect(backend.calls.filter((call) => call.body)).toHaveLength(0);
+});
+
+test("in the viewer, hovering Take control explains teaching a browser workflow", async () => {
+  const backend = server();
+  const view = render(
+    <TooltipProvider>
+      <ComputerControlButton computerId="tooltip-control" withTooltip />
+    </TooltipProvider>,
+  );
+  const button = await view.findByRole("button", { name: "Take control" });
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+  // Nothing is said until it is asked for.
+  expect(view.queryByText("Teach a browser workflow")).toBeNull();
+
+  await userEvent
+    .setup({ document: view.container.ownerDocument })
+    .hover(button);
+
+  expect(await view.findByText("Teach a browser workflow")).toBeTruthy();
+  expect(
+    view.getByText(
+      "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
+    ),
+  ).toBeTruthy();
+  // The tooltip wraps the same wheel: it still takes control.
+  fireEvent.click(button);
+  expect(await view.findByRole("button", { name: "Hand back" })).toBeTruthy();
+  expect(
+    backend.calls.filter((call) => call.path.endsWith("/control/take")),
+  ).toHaveLength(1);
 });

@@ -77,13 +77,39 @@ const BOT: AgentProfile = {
   visibility: "private",
 };
 
+/** A recording as the server lists it. */
+function recording(
+  overrides: Record<string, unknown> & { id: string; title: string },
+) {
+  return {
+    botId: BOT.id,
+    status: "stopped",
+    actions: [
+      {
+        kind: "click",
+        target: { role: "button", name: "Search", sensitive: false },
+      },
+    ],
+    draft: null,
+    skillSlug: null,
+    createdAt: "2026-10-07T09:00:00Z",
+    finishedAt: "2026-10-07T09:02:00Z",
+    expiresAt: "2026-10-07T09:10:00Z",
+    maxDurationMs: 600_000,
+    reachedTimeLimit: false,
+    ...overrides,
+  };
+}
+
 /** A wide window, where the panel sits inline, and a backend with a computer to show. */
-function wideWithComputer() {
+function wideWithComputer(recordings: ReturnType<typeof recording>[] = []) {
   HTMLElement.prototype.getBoundingClientRect = () =>
     new DOMRect(0, 0, 1200, 800);
   globalThis.fetch = Object.assign(
     async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === `/api/demonstrations?botId=${BOT.id}`)
+        return Response.json({ demonstrations: recordings });
       if (url.endsWith("/control"))
         return Response.json({
           holder: "bot",
@@ -250,10 +276,54 @@ test("the panel is open by default on the Computer, and a tab switch is a naviga
   );
   expect(selectedTab(view)).toBe("Library");
   expect(view.getByText("Nothing granted yet")).toBeTruthy();
+  expect(
+    view.getByRole("heading", { name: "Recorded workflows" }),
+  ).toBeTruthy();
+  expect(
+    await view.findByText(
+      "No recorded workflows yet. Open the Bot's screen and choose Record your steps.",
+    ),
+  ).toBeTruthy();
   // The screen stays mounted behind the other tabs, hidden rather than torn down.
   expect(
     view.getByRole("region", { name: "Computer sidebar", hidden: true }),
   ).toBeTruthy();
+});
+
+test("Library lists the workflows recorded on the Bot's screen, and an unnamed one is named first", async () => {
+  wideWithComputer([
+    recording({ id: "r1", title: "Untitled workflow" }),
+    recording({
+      id: "r2",
+      title: "Find an invoice",
+      status: "published",
+      skillSlug: "find-an-invoice",
+      reachedTimeLimit: true,
+    }),
+    recording({ id: "r3", title: "Still going", status: "recording" }),
+  ]);
+  const { view } = draw("/channel/c1?panel=library");
+  const section = within(
+    (await view.findByRole("heading", { name: "Recorded workflows" })).closest(
+      "section",
+    ) as HTMLElement,
+  );
+  expect(await section.findByText(/Find an invoice · 1 step/)).toBeTruthy();
+  expect(section.getByText(/stopped at the ten-minute limit/)).toBeTruthy();
+  expect(section.getByText("Edit /find-an-invoice")).toBeTruthy();
+  expect(
+    section.getByRole("button", { name: "Run on a schedule" }),
+  ).toBeTruthy();
+  // The one still recording is the viewer's, not the library's.
+  expect(section.queryByText(/Still going/)).toBeNull();
+  expect(section.getAllByRole("button", { name: "Delete" })).toHaveLength(2);
+
+  fireEvent.click(section.getByRole("button", { name: "Review skill draft" }));
+  const dialog = within(await view.findByRole("dialog"));
+  expect(
+    dialog.getByRole("heading", { name: "Name this workflow" }),
+  ).toBeTruthy();
+  expect(dialog.getByLabelText("Workflow name")).toBeTruthy();
 });
 
 test("the close X remembers 'closed' and clears the tab; the pill reopens on Details", async () => {

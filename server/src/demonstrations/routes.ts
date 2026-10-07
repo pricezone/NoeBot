@@ -63,6 +63,21 @@ export function createDemonstrationRoutes(
       ),
     }),
   );
+  /** Names a recording after the fact: recording starts under a placeholder title. */
+  routes.patch("/:id", async (context) => {
+    const input = await body(context.req.raw);
+    if (typeof input.title !== "string")
+      throw new DemonstrationRefusedError(
+        "Name this demonstration in 120 characters or fewer.",
+      );
+    return context.json({
+      demonstration: await store.rename(
+        context.var.actor.id,
+        context.req.param("id"),
+        input.title,
+      ),
+    });
+  });
   routes.post("/:id/stop", async (context) =>
     context.json({
       demonstration: await recorder.stop(
