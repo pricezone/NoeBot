@@ -59,13 +59,63 @@ export function safeDemonstrationUrl(raw: string): string {
   }
 }
 /** Never reads a field's value, page body, clipboard or image. All text entry is parameterized. */
-export async function describeHumanGesture(page: Page, input: InputMessage) {
+/** Where a browser's page sits on the desktop, and whether its window has the keyboard. */
+export type PageOnScreen = {
+  focused: boolean;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Where a gesture made on the desktop lands in the page, or null when it does not land in the page.
+ *
+ * On a desktop the person's input is in screen coordinates, and the page is one window among others,
+ * under the browser's own tab strip and toolbar. A gesture belongs to the recording only when that
+ * window has focus (a click on the terminal moves focus there first, so it is left out) and, for the
+ * pointer, only inside the page: a click on the tab strip or the address bar is the browser's, and
+ * the page cannot describe it.
+ */
+export function gestureInPage(
+  view: PageOnScreen,
+  point: { x: number; y: number } | null,
+): { point: { x: number; y: number } | null } | null {
+  if (!view.focused) return null;
+  if (!point) return { point: null };
+  const x = point.x - view.left;
+  const y = point.y - view.top;
+  if (x < 0 || y < 0 || x >= view.width || y >= view.height) return null;
+  return { point: { x, y } };
+}
+
+export async function describeHumanGesture(
+  page: Page,
+  input: InputMessage,
+  { desktop = false }: { desktop?: boolean } = {},
+) {
   const gesture = gestureForRecording(input);
   if (!gesture) return null;
-  const point =
+  let point =
     input.type === "mouse" || input.type === "wheel"
       ? { x: input.x, y: input.y }
       : null;
+  if (desktop) {
+    /*
+     * The page's viewport on the screen: the window's position plus whatever of its outer size is not
+     * page, which on a maximized Chromium is the tab strip and toolbar above it.
+     */
+    const view = await page.evaluate(() => ({
+      focused: document.hasFocus(),
+      left: window.screenX + (window.outerWidth - window.innerWidth),
+      top: window.screenY + (window.outerHeight - window.innerHeight),
+      width: window.innerWidth,
+      height: window.innerHeight,
+    }));
+    const placed = gestureInPage(view, point);
+    if (!placed) return null;
+    point = placed.point;
+  }
   const target = await page.evaluate((point) => {
     const hit = point
       ? document.elementFromPoint(point.x, point.y)

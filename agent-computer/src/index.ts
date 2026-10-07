@@ -652,14 +652,23 @@ serve<StreamData>({
         return;
       }
       try {
-        // A gesture on the desktop lands in screen coordinates, which the page cannot describe.
-        const recorded =
-          ws.data.recordingId && !DESKTOP
-            ? await describeHumanGesture(
-                await currentPage(ws.data.botId),
-                message,
-              )
-            : null;
+        /*
+         * On a desktop the gesture is in screen coordinates and the page is one window among others:
+         * it is described only when it lands in this Bot's open browser (see `gestureInPage`), and
+         * a browser is never opened just to describe one, so a click on the wallpaper stays a click.
+         */
+        const recordingPage = !ws.data.recordingId
+          ? null
+          : DESKTOP
+            ? session.livePage && !session.livePage.isClosed()
+              ? session.livePage
+              : null
+            : await currentPage(ws.data.botId);
+        const recorded = recordingPage
+          ? await describeHumanGesture(recordingPage, message, {
+              desktop: Boolean(DESKTOP),
+            })
+          : null;
         await standing.cast.send(message);
         if (recorded)
           ws.send(
