@@ -21,7 +21,15 @@ export async function watchBrowserRequests(
   {
     debounceMs = 150,
     stallMs = 45_000,
-  }: { debounceMs?: number; stallMs?: number } = {},
+    pollMs = 2_000,
+    events = true,
+  }: {
+    debounceMs?: number;
+    stallMs?: number;
+    pollMs?: number;
+    /** Off only in a test, to stand for a platform that dropped every file event. */
+    events?: boolean;
+  } = {},
 ): Promise<{ close: () => void }> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   // mkdir leaves an existing directory's mode alone.
@@ -95,12 +103,33 @@ export async function watchBrowserRequests(
     }
   };
 
+  const soon = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => void handle(), debounceMs);
+  };
+  /*
+   * And looked for now and then, because a file event can be dropped (seen on macOS under load), and
+   * a dropped event is a click that is never answered. Cheap: one failed unlink when there is none.
+   */
+  const poll = setInterval(() => {
+    if (!running && !timer) void handle();
+  }, pollMs);
+  poll.unref?.();
+
+  if (!events) {
+    return {
+      close() {
+        closed = true;
+        clearInterval(poll);
+      },
+    };
+  }
+
   let watcher: FSWatcher;
   try {
     watcher = watch(dir, (_event, filename) => {
       if (filename && String(filename) !== BROWSER_REQUEST_FILE) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void handle(), debounceMs);
+      soon();
     });
   } catch (error) {
     console.error(
@@ -110,7 +139,12 @@ export async function watchBrowserRequests(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    return { close: () => undefined };
+    return {
+      close() {
+        closed = true;
+        clearInterval(poll);
+      },
+    };
   }
   watcher.on("error", () => undefined);
 
@@ -118,6 +152,7 @@ export async function watchBrowserRequests(
     close() {
       closed = true;
       if (timer) clearTimeout(timer);
+      clearInterval(poll);
       watcher.close();
     },
   };

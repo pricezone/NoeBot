@@ -136,3 +136,23 @@ test("a click while a browser is opening is answered when it has opened", async 
     watcher.close();
   }
 });
+
+test("a click whose file event never arrives is still answered", async () => {
+  const dir = join(root, "openbot-desktop");
+  let opened = 0;
+  const watcher = await watchBrowserRequests(
+    dir,
+    () => {
+      opened++;
+    },
+    // No file events at all: every one of them dropped.
+    { debounceMs: 20, pollMs: 100, events: false },
+  );
+  try {
+    await writeFile(join(dir, BROWSER_REQUEST_FILE), "");
+    await waitFor(() => opened === 1);
+    expect(opened).toBe(1);
+  } finally {
+    watcher.close();
+  }
+});
