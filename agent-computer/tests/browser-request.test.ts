@@ -103,3 +103,36 @@ test("a request that never finishes does not stop the button answering", async (
     watcher.close();
   }
 });
+
+test("a click while a browser is opening is answered when it has opened", async () => {
+  const dir = join(root, "openbot-desktop");
+  let asked = 0;
+  let finishFirst: () => void = () => undefined;
+  const watcher = await watchBrowserRequests(
+    dir,
+    () => {
+      asked++;
+      // The first is a slow launch, still going when the person clicks again.
+      return asked === 1
+        ? new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          })
+        : undefined;
+    },
+    { debounceMs: 20 },
+  );
+  try {
+    const request = join(dir, BROWSER_REQUEST_FILE);
+    await writeFile(request, "");
+    await waitFor(() => asked === 1);
+    await writeFile(request, "");
+    await Bun.sleep(150);
+    expect(asked).toBe(1);
+
+    finishFirst();
+    await waitFor(() => asked === 2);
+    expect(asked).toBe(2);
+  } finally {
+    watcher.close();
+  }
+});

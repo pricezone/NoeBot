@@ -33,10 +33,16 @@ export async function watchBrowserRequests(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let running = false;
   let closed = false;
+  /** A click that arrived while a browser was opening: handled when that finishes, not dropped. */
+  let waiting = false;
 
-  const handle = async () => {
+  const handle = async (): Promise<void> => {
     timer = undefined;
-    if (running || closed) return;
+    if (closed) return;
+    if (running) {
+      waiting = true;
+      return;
+    }
     const removed = await rm(request).then(
       () => true,
       () => false,
@@ -78,6 +84,14 @@ export async function watchBrowserRequests(
     } finally {
       clearTimeout(watchdog);
       running = false;
+    }
+    /*
+     * Its file is still there, and no new event will say so: the platform reported it once, while
+     * this was busy. Looked at again now, so a click during a slow launch still opens a browser.
+     */
+    if (waiting) {
+      waiting = false;
+      await handle();
     }
   };
 
