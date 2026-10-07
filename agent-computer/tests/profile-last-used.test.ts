@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createProfiles } from "../src/profiles";
+import { botIdsIn, lastUsedProfile } from "../src/profile-listing";
 
 let root: string;
 
@@ -30,12 +37,12 @@ test("the browser used last is the profile Chromium wrote to last", async () => 
   await profile("fresh", null);
   await mkdir(join(root, "lost+found"));
 
-  const profiles = createProfiles(root, () => undefined);
-  expect(await profiles.lastUsed()).toBe("assistant");
+  const ids = botIdsIn(await readdir(root, { withFileTypes: true }));
+  expect(ids).not.toContain("lost+found");
+  expect(await lastUsedProfile(root, ids)).toBe("assistant");
 });
 
 test("no profile with a browser in it means no last-used Bot", async () => {
   await profile("fresh", null);
-  const profiles = createProfiles(root, () => undefined);
-  expect(await profiles.lastUsed()).toBeNull();
+  expect(await lastUsedProfile(root, ["fresh"])).toBeNull();
 });

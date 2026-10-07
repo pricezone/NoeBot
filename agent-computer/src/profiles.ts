@@ -33,14 +33,7 @@
  * Kubernetes or ECS, where the orchestrator's own restart policy brings a process back.
  */
 
-import {
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
@@ -49,7 +42,7 @@ import { browserRuntimeFromEnv } from "./browser-runtime";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
 import { chooseLivePage } from "./live-page";
-import { botIdsIn } from "./profile-listing";
+import { botIdsIn, lastUsedProfile } from "./profile-listing";
 import {
   type SessionCookieKeeper,
   sessionCookieKeeper,
@@ -678,19 +671,10 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
      * The Bot whose browser was used last, by its profile on disk; null when there is none.
      *
      * For the desktop's Chrome button after a restart, when nothing has asked for a browser yet: the
-     * person expects the browser they were looking at, not a Bot nobody uses. Chromium rewrites
-     * `Local State` while it runs, so its time is the last time that Bot's browser was open.
+     * person expects the browser they were looking at, not a Bot nobody uses.
      */
     async lastUsed(): Promise<string | null> {
-      let newest: { botId: string; at: number } | null = null;
-      for (const botId of await known()) {
-        const at = await stat(join(directoryFor(botId), "Local State")).then(
-          (info) => info.mtimeMs,
-          () => 0,
-        );
-        if (at > 0 && (!newest || at > newest.at)) newest = { botId, at };
-      }
-      return newest?.botId ?? null;
+      return lastUsedProfile(root, await known());
     },
 
     /** What the admin surface lists. Running or not, because a Bot that has a profile has a computer. */

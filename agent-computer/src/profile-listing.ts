@@ -9,6 +9,8 @@
  * Free of Playwright on purpose. `profiles.ts` launches browsers, so a test that wanted this rule had
  * to drag a browser runtime in with it, which is most of why the copy existed in the first place.
  */
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { isPlainBotId } from "./bot-id";
 
 /** The shape of a directory entry, as both `readdir` and a test can supply it. */
@@ -35,4 +37,26 @@ export function botIdsIn(entries: readonly ProfileEntry[]): string[] {
         .map((entry) => entry.name),
     ),
   ].sort();
+}
+
+/**
+ * The Bot whose browser was used last, among `botIds` under `root`; null when none has been opened.
+ *
+ * Chromium rewrites `Local State` while it runs, so its time is the last time that Bot's browser was
+ * open. A profile without one was made and never opened, and is never the answer.
+ */
+export async function lastUsedProfile(
+  root: string,
+  botIds: readonly string[],
+): Promise<string | null> {
+  let newest: { botId: string; at: number } | null = null;
+  for (const botId of botIds) {
+    if (!isPlainBotId(botId)) continue;
+    const at = await stat(join(root, botId, "Local State")).then(
+      (info) => info.mtimeMs,
+      () => 0,
+    );
+    if (at > 0 && (!newest || at > newest.at)) newest = { botId, at };
+  }
+  return newest?.botId ?? null;
 }
