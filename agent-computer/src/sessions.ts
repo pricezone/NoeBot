@@ -64,6 +64,13 @@ export type SessionsOptions = {
   profilesDirectory?: string;
   /** Injected so a test can name the run it expects rather than match a uuid. */
   mintRun?: () => string;
+  /**
+   * The person drives a whole desktop, not one browser (`COMPUTER_DESKTOP=on`).
+   *
+   * Then a browser closing or starting again does not end a person's control: they closed it, or
+   * reopened it from the dock, while driving the screen it sits on.
+   */
+  desktop?: boolean;
 };
 
 /**
@@ -187,9 +194,20 @@ export function createSessions(options: SessionsOptions) {
       const existing = sessions.get(botId);
       // Nothing to renew: a Bot nobody has touched yet gets a session, and its run is already new.
       if (!existing) return sessionFor(botId).run;
-      existing.control.interrupt(
-        "The browser was stopped or replaced; request help again to continue.",
-      );
+      /*
+       * A person driving a desktop keeps control. Their hands are on the screen, not on this browser:
+       * closing its window and opening it again from the dock replaced it, and taking control away
+       * for that left them looking at a screen that refused every click and key, with nothing saying
+       * why. A Bot's request still waiting for a person ends as before, since it described the page
+       * that is gone; so does control in a page-only screen, whose page is the whole of it.
+       */
+      const personDrivesDesktop =
+        options.desktop === true && existing.control.get().holder === "human";
+      if (!personDrivesDesktop) {
+        existing.control.interrupt(
+          "The browser was stopped or replaced; request help again to continue.",
+        );
+      }
       existing.livePage = undefined;
       existing.browserContext = undefined;
       existing.run = mintRun();

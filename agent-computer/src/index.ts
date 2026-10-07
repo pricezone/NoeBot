@@ -177,6 +177,7 @@ const TEXT_EXTRACT_LIMIT = 6000;
 const sessions = createSessions({
   isLive: (botId) => profiles.isLive(botId),
   profilesDirectory: process.env.PROFILES_DIR?.trim() || "/profiles",
+  desktop: RUNTIME.desktop,
 });
 
 /**

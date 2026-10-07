@@ -184,3 +184,53 @@ describe("the Bot a person is driving", () => {
     expect(sessions.drivenByPerson()).toBe("bot-2");
   });
 });
+
+describe("a browser started again while a person drives", () => {
+  async function driving(desktop: boolean) {
+    const sessions = createSessions({
+      isLive: () => false,
+      mintRun: counting(),
+      desktop,
+    });
+    const session = sessions.for("bot-1");
+    const requestId = session.control.requestHelp("Sign in").request?.id ?? "";
+    await session.control.take(requestId);
+    return { sessions, session };
+  }
+
+  test("leaves a person driving a desktop in control, under a new run", async () => {
+    const { sessions, session } = await driving(true);
+    const before = session.run;
+
+    sessions.observeBrowser("bot-1", {});
+    sessions.observeBrowser("bot-1", {});
+
+    expect(session.control.get().holder).toBe("human");
+    expect(session.run).not.toBe(before);
+  });
+
+  test("ends control on a page-only screen, whose page was the whole of it", async () => {
+    const { sessions, session } = await driving(false);
+
+    sessions.observeBrowser("bot-1", {});
+    sessions.observeBrowser("bot-1", {});
+
+    expect(session.control.get().holder).toBe("bot");
+    expect(session.control.get().request?.status).toBe("interrupted");
+  });
+
+  test("still ends a Bot's request nobody has taken, even on a desktop", () => {
+    const sessions = createSessions({
+      isLive: () => false,
+      mintRun: counting(),
+      desktop: true,
+    });
+    const session = sessions.for("bot-1");
+    session.control.requestHelp("Sign in");
+
+    sessions.observeBrowser("bot-1", {});
+    sessions.observeBrowser("bot-1", {});
+
+    expect(session.control.get().request?.status).toBe("interrupted");
+  });
+});
