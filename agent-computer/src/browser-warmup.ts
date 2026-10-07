@@ -15,6 +15,11 @@ import { join } from "node:path";
  * Throwaway in every sense: its own profile in a temporary directory, deleted after; one line of
  * text rendered from a data: URL; and no network, because every request goes to a proxy that is
  * not there, so nothing it might try (an update check, a field trial) gets past the egress filter.
+ *
+ * The profile is placed with XDG_CONFIG_HOME, not `--user-data-dir`: given that flag, this Chromium
+ * in headless mode never took the screenshot and never exited (measured on the instance; without
+ * it, the same run exits in a second). The font cache stays the user's real one, which the image
+ * builds, so the warm-up does not build a second one only to delete it.
  */
 export function warmUpArgs(profile: string): string[] {
   return [
@@ -28,11 +33,23 @@ export function warmUpArgs(profile: string): string[] {
     "--disable-component-update",
     // Port 9 is discard; nothing listens there, so every connection is refused at once.
     "--proxy-server=socks5://127.0.0.1:9",
-    `--user-data-dir=${join(profile, "profile")}`,
     `--screenshot=${join(profile, "warm.png")}`,
     "--window-size=800,600",
     "data:text/html,<p style='font-family:sans-serif'>Warm</p>",
   ];
+}
+
+export function warmUpEnvironment(
+  profile: string,
+  source: NodeJS.ProcessEnv,
+): Record<string, string> {
+  const home = source.HOME ?? profile;
+  return {
+    PATH: source.PATH ?? "/usr/bin:/bin",
+    HOME: home,
+    XDG_CONFIG_HOME: join(profile, "config"),
+    XDG_CACHE_HOME: source.XDG_CACHE_HOME ?? join(home, ".cache"),
+  };
 }
 
 export async function warmUpBrowser(
@@ -45,10 +62,7 @@ export async function warmUpBrowser(
     return await new Promise((resolve) => {
       const child = spawn(executable, warmUpArgs(profile), {
         stdio: "ignore",
-        env: {
-          PATH: process.env.PATH ?? "/usr/bin:/bin",
-          HOME: process.env.HOME ?? profile,
-        },
+        env: warmUpEnvironment(profile, process.env),
       });
       let timedOut = false;
       const timer = setTimeout(() => {

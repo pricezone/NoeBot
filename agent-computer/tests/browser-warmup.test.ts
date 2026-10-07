@@ -2,7 +2,11 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { warmUpArgs, warmUpBrowser } from "../src/browser-warmup";
+import {
+  warmUpArgs,
+  warmUpBrowser,
+  warmUpEnvironment,
+} from "../src/browser-warmup";
 
 let root: string;
 
@@ -17,16 +21,31 @@ afterEach(async () => {
 test("a warm-up launch is headless, uses its own profile and can reach nothing", () => {
   const args = warmUpArgs("/tmp/w");
   expect(args).toContain("--headless=new");
-  expect(args).toContain("--user-data-dir=/tmp/w/profile");
+  // Not --user-data-dir: with it, this headless Chromium never exits.
+  expect(args.some((arg) => arg.startsWith("--user-data-dir"))).toBe(false);
   expect(args).toContain("--proxy-server=socks5://127.0.0.1:9");
   expect(args).toContain("--disable-background-networking");
   expect(args.at(-1)).toStartWith("data:text/html,");
 });
 
+test("keeps the profile in the throwaway directory and the font cache where the image built it", () => {
+  expect(
+    warmUpEnvironment("/tmp/w", { HOME: "/home/pwuser", PATH: "/bin" }),
+  ).toEqual({
+    PATH: "/bin",
+    HOME: "/home/pwuser",
+    XDG_CONFIG_HOME: "/tmp/w/config",
+    XDG_CACHE_HOME: "/home/pwuser/.cache",
+  });
+});
+
 test("runs the browser once with those arguments and cleans up after it", async () => {
   const seen = join(root, "seen");
   const fake = join(root, "chrome");
-  await writeFile(fake, `#!/bin/sh\necho "$@" > "${seen}"\nexit 0\n`);
+  await writeFile(
+    fake,
+    `#!/bin/sh\necho "$XDG_CONFIG_HOME $@" > "${seen}"\nexit 0\n`,
+  );
   await chmod(fake, 0o755);
 
   const result = await warmUpBrowser(fake);
@@ -35,7 +54,7 @@ test("runs the browser once with those arguments and cleans up after it", async 
   expect(result.timedOut).toBe(false);
   const args = await readFile(seen, "utf8");
   expect(args).toContain("--headless=new");
-  const profile = args.match(/--user-data-dir=(\S+)\/profile/)?.[1] ?? "";
+  const profile = args.match(/^(\S+)\/config /)?.[1] ?? "";
   expect(profile).not.toBe("");
   expect(await Bun.file(profile).exists()).toBe(false);
 });
