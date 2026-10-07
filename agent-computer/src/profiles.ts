@@ -34,7 +34,7 @@
  */
 
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
@@ -164,13 +164,13 @@ export const LAUNCH_ARGS = [
  * afterwards, so the first frame a person sees already has it in place.
  */
 /**
- * Where the browser this computer launches is installed, for reading it into the page cache at boot
- * (see read-through.ts). Null for a person's own Chrome, which is theirs and already warm.
+ * The browser this computer launches, for the warm-up launch at boot (see browser-warmup.ts). Null
+ * for a person's own Chrome, which is theirs and already warm.
  */
-export function managedBrowserDirectory(): string | null {
+export function managedBrowserExecutable(): string | null {
   if (LOCAL_CHROME) return null;
   try {
-    return dirname(chromium.executablePath());
+    return chromium.executablePath();
   } catch {
     return null;
   }

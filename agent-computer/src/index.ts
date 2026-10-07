@@ -18,6 +18,7 @@ import {
 import { isPlainBotId } from "./bot-id";
 import { raiseBrowserWindow, watchBrowserRequests } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
+import { warmUpBrowser } from "./browser-warmup";
 import { detectChallenge } from "./challenge";
 import {
   ControlError,
@@ -39,10 +40,9 @@ import {
 } from "./navigation";
 import {
   createProfiles,
-  managedBrowserDirectory,
+  managedBrowserExecutable,
   numberFromEnv,
 } from "./profiles";
-import { readThrough } from "./read-through";
 import {
   parseExecTimeout,
   parseInputMessage,
@@ -292,21 +292,15 @@ const profiles = createProfiles(
   },
 );
 /*
- * The browser's files read once in the background, so the first launch after a boot finds them in
- * memory: 11.5 s became 0.7 s on a Fly instance. See read-through.ts.
+ * A hidden headless launch at boot, so the first real one finds the browser in memory: 11.5 s
+ * became 0.7 s on a Fly instance. See browser-warmup.ts.
  */
-const BROWSER_DIRECTORY = managedBrowserDirectory();
-if (BROWSER_DIRECTORY && import.meta.main) {
-  const started = Date.now();
-  void readThrough(BROWSER_DIRECTORY).then(
-    ({ files, bytes }) =>
+const BROWSER_EXECUTABLE = managedBrowserExecutable();
+if (BROWSER_EXECUTABLE && import.meta.main) {
+  void warmUpBrowser(BROWSER_EXECUTABLE).then(
+    (result) =>
       console.info(
-        JSON.stringify({
-          type: "computer-browser-warmed",
-          files,
-          megabytes: Math.round(bytes / 1_048_576),
-          ms: Date.now() - started,
-        }),
+        JSON.stringify({ type: "computer-browser-warmed", ...result }),
       ),
     (error: unknown) =>
       console.warn(
