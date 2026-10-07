@@ -38,11 +38,17 @@ import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
+import { homepageFromEnv } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
 import { chooseLivePage } from "./live-page";
-import { botIdsIn, lastUsedProfile } from "./profile-listing";
+import {
+  botIdsIn,
+  browserProcessAlive,
+  lastUsedProfile,
+} from "./profile-listing";
+import { withProfilePreferences } from "./profile-preferences";
 import {
   type SessionCookieKeeper,
   sessionCookieKeeper,
@@ -176,11 +182,22 @@ export function managedBrowserExecutable(): string | null {
   }
 }
 
-export function desktopWindowArgs(desktop: boolean): readonly string[] {
-  return desktop ? ["--start-maximized"] : [];
+export function desktopWindowArgs(
+  desktop: boolean,
+  { gpu = true }: { gpu?: boolean } = {},
+): readonly string[] {
+  if (!desktop) return [];
+  // `COMPUTER_BROWSER_GPU=off`: composite in software in the browser process instead of emulating a
+  // GPU, which on a machine with no GPU is the cheaper of two software paths.
+  return ["--start-maximized", ...(gpu ? [] : ["--disable-gpu"])];
 }
 
-const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop);
+const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop, {
+  gpu: process.env.COMPUTER_BROWSER_GPU?.trim().toLowerCase() !== "off",
+});
+
+/** The Home button's page on a desktop; the dock's Chrome button opens the same one. */
+const DESKTOP_HOMEPAGE = homepageFromEnv(process.env.COMPUTER_DESKTOP_HOMEPAGE);
 
 /**
  * WebRTC kept inside the proxy, written into the profile before Chromium reads it.
@@ -192,7 +209,10 @@ const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop);
  * no longer reads (measured: the switch on the command line, packets still sent). Merged into
  * whatever Preferences the profile already has, so nothing else the profile remembers is lost.
  */
-export async function keepWebRtcInsideProxy(profileDir: string) {
+export async function keepWebRtcInsideProxy(
+  profileDir: string,
+  { homepage }: { homepage?: string } = {},
+) {
   const file = join(profileDir, "Default", "Preferences");
   let preferences: Record<string, unknown> = {};
   try {
@@ -202,17 +222,10 @@ export async function keepWebRtcInsideProxy(profileDir: string) {
   } catch {
     // No Preferences yet (a new profile), or one Chromium never finished writing: start clean.
   }
-  const webrtc =
-    preferences.webrtc && typeof preferences.webrtc === "object"
-      ? (preferences.webrtc as Record<string, unknown>)
-      : {};
-  if (webrtc.ip_handling_policy === "disable_non_proxied_udp") return;
-  preferences.webrtc = {
-    ...webrtc,
-    ip_handling_policy: "disable_non_proxied_udp",
-  };
+  const wanted = withProfilePreferences(preferences, { homepage });
+  if (JSON.stringify(wanted) === JSON.stringify(preferences)) return;
   await mkdir(join(profileDir, "Default"), { recursive: true });
-  await writeFile(file, JSON.stringify(preferences));
+  await writeFile(file, JSON.stringify(wanted));
 }
 
 console.info(
@@ -237,6 +250,9 @@ console.info(
  * 30s stop grace period, so a shutdown never becomes the reason a computer does not come back.
  */
 const CLOSE_SETTLE_MS = 2_000;
+
+/** How long tearing down a browser that died behind Playwright's back may take before it is dropped. */
+const DEAD_CLOSE_BUDGET_MS = 5_000;
 
 /**
  * How long telling a viewer its browser went away may take before the close carries on without it.
@@ -350,6 +366,8 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     retarget: () => void;
     /** Keeps this browser's session cookies on the profile volume. Absent for a native Chrome. */
     sessionCookies?: SessionCookieKeeper;
+    /** The last lines Chromium itself wrote, for saying why it went when it goes. */
+    chromiumLog: string[];
   };
 
   /**
@@ -527,9 +545,30 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
       // Asked before the page is judged, so a close that has not been delivered yet does not read as
       // a browser that has gone.
       existing?.retarget();
+      /*
+       * And the process asked directly, because Playwright does not always notice: on the live
+       * instance a browser exited, Playwright went on calling it connected, and every request after
+       * that waited for an answer that was never coming. See `browserProcessAlive`.
+       */
+      const processGone =
+        existing !== undefined &&
+        !LOCAL_CHROME &&
+        !(await browserProcessAlive(directoryFor(botId)));
+      if (existing && processGone) {
+        console.info(
+          JSON.stringify({
+            type: "computer-browser-gone",
+            botId,
+            startedAt: existing.startedAt,
+            detectedBy: "process",
+            chromium: existing.chromiumLog.slice(-15),
+          }),
+        );
+      }
       if (
         existing?.context.browser()?.isConnected() &&
-        !existing.page.isClosed()
+        !existing.page.isClosed() &&
+        !processGone
       ) {
         // Touched on every use, which is what makes "least recently used" mean anything.
         existing.usedAt = Date.now();
@@ -551,8 +590,12 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         // next line and the live screen's follow loop re-attaches to it within the second, so this is
         // a browser being swapped rather than one going away. Telling the viewer here would end a
         // screen that is about to be fine, which is the opposite of what the announcement is for.
-        await existing.sessionCookies?.stop();
-        await existing.context.close().catch(() => undefined);
+        // Bounded: a context whose browser died without Playwright noticing can wait for ever.
+        await settleWithin(
+          existing.sessionCookies?.stop(),
+          DEAD_CLOSE_BUDGET_MS,
+        );
+        await settleWithin(existing.context.close(), DEAD_CLOSE_BUDGET_MS);
         live.delete(botId);
       }
 
@@ -562,13 +605,27 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         // active Chrome profile's lock; Chrome reports contention and handles its own stale locks.
         if (!LOCAL_CHROME) {
           await sweepLocks(dir);
-          await keepWebRtcInsideProxy(dir);
+          await keepWebRtcInsideProxy(dir, {
+            ...(BROWSER_RUNTIME.desktop ? { homepage: DESKTOP_HOMEPAGE } : {}),
+          });
         }
         const proxy = egressFor(botId, process.env);
         console.info(
           JSON.stringify({ type: "computer-browser-launching", botId }),
         );
+        /*
+         * What Chromium writes to its own stdout and stderr, kept short. Playwright's logger is the
+         * one place those lines surface; without them a browser that quits leaves no reason behind.
+         */
+        const chromiumLog: string[] = [];
         const context = await chromium.launchPersistentContext(dir, {
+          logger: {
+            isEnabled: (name) => name === "browser",
+            log: (_name, _severity, message) => {
+              chromiumLog.push(String(message).slice(0, 300));
+              if (chromiumLog.length > 40) chromiumLog.shift();
+            },
+          },
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
           args: [...LAUNCH_ARGS, ...DESKTOP_WINDOW_ARGS],
@@ -621,6 +678,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           usedAt: Date.now(),
           retarget: () => {},
           ...(sessionCookies ? { sessionCookies } : {}),
+          chromiumLog,
         };
         record.retarget = () => {
           const next = chooseLivePage(context.pages());
@@ -651,6 +709,8 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
               type: "computer-browser-gone",
               botId,
               startedAt: record.startedAt,
+              detectedBy: "playwright",
+              chromium: chromiumLog.slice(-15),
             }),
           );
         });
@@ -775,6 +835,37 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     /** Whether this Bot has a browser right now, so a caller can drop state that belongs to one. */
     isLive(botId: string): boolean {
       return live.has(botId);
+    },
+
+    /**
+     * Forget a browser whose process has exited, so status reads true. `page()` does the same on its
+     * way to relaunching; this is for a caller that only wants to know, like `/health`.
+     */
+    async forgetIfGone(botId: string): Promise<void> {
+      const existing = live.get(botId);
+      if (!existing || LOCAL_CHROME || starting.has(botId)) return;
+      if (await browserProcessAlive(directoryFor(botId))) return;
+      console.info(
+        JSON.stringify({
+          type: "computer-browser-gone",
+          botId,
+          startedAt: existing.startedAt,
+          detectedBy: "process",
+          chromium: existing.chromiumLog.slice(-15),
+        }),
+      );
+      live.delete(botId);
+      await settleWithin(existing.sessionCookies?.stop(), DEAD_CLOSE_BUDGET_MS);
+      await settleWithin(existing.context.close(), DEAD_CLOSE_BUDGET_MS);
+    },
+
+    /** When any browser was last asked for, or null with none running. For keeping the machine awake. */
+    lastUsedAt(): number | null {
+      let latest: number | null = null;
+      for (const running of live.values()) {
+        if (latest === null || running.usedAt > latest) latest = running.usedAt;
+      }
+      return latest;
     },
 
     /** Run the idle sweep now. Exposed so a test does not have to wait a minute for the interval. */

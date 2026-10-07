@@ -32,11 +32,53 @@ const STOP_BUDGET_MS = 2_000;
 const ONE_FRAME_BUDGET_MS = 5_000;
 const MAX_RESTARTS = 3;
 
+/**
+ * How the stream is encoded: an optional smaller size to scale to before encoding, and the JPEG
+ * quality. The frame still says the screen's size, so the viewer maps a click to screen pixels
+ * whatever size the picture is.
+ */
+export type StreamSettings = { scale: DisplaySize | null; quality: number };
+
+export const DEFAULT_STREAM: StreamSettings = {
+  scale: null,
+  quality: Number(JPEG_QUALITY),
+};
+
+/**
+ * `COMPUTER_DESKTOP_STREAM_SIZE` (`WIDTHxHEIGHT`, no larger than the screen) and
+ * `COMPUTER_DESKTOP_STREAM_QUALITY` (2 best to 31 worst). Anything unreadable keeps the default.
+ */
+export function streamSettingsFromEnv(
+  env: NodeJS.ProcessEnv,
+  screen: DisplaySize,
+): StreamSettings {
+  const size = /^(\d{3,4})x(\d{3,4})$/.exec(
+    env.COMPUTER_DESKTOP_STREAM_SIZE?.trim() ?? "",
+  );
+  const width = Number(size?.[1]);
+  const height = Number(size?.[2]);
+  const scale =
+    size && width <= screen.width && height <= screen.height
+      ? { width, height }
+      : null;
+  const quality = Number(env.COMPUTER_DESKTOP_STREAM_QUALITY?.trim());
+  return {
+    scale,
+    quality:
+      Number.isInteger(quality) && quality >= 2 && quality <= 31
+        ? quality
+        : DEFAULT_STREAM.quality,
+  };
+}
+
 /** The grab, as ffmpeg's arguments. `once` captures one frame and exits; otherwise it streams. */
 export function ffmpegGrabArguments(
   display: string,
   size: DisplaySize,
-  { once = false }: { once?: boolean } = {},
+  {
+    once = false,
+    stream = DEFAULT_STREAM,
+  }: { once?: boolean; stream?: StreamSettings } = {},
 ): string[] {
   return [
     "-nostdin",
@@ -52,12 +94,18 @@ export function ffmpegGrabArguments(
     "-i",
     display,
     ...(once ? ["-frames:v", "1"] : []),
+    ...(stream.scale
+      ? [
+          "-vf",
+          `scale=${stream.scale.width}:${stream.scale.height}:flags=fast_bilinear`,
+        ]
+      : []),
     "-f",
     "image2pipe",
     "-c:v",
     "mjpeg",
     "-q:v",
-    JPEG_QUALITY,
+    String(stream.quality),
     "-",
   ];
 }
@@ -160,11 +208,13 @@ export function startDesktopCast(
     size,
     onFrame,
     input: openInput = openXInput,
+    stream = DEFAULT_STREAM,
   }: {
     display: string;
     size: DisplaySize;
     onFrame: (frame: FrameMessage) => void;
     input?: (display: string) => Promise<XInput>;
+    stream?: StreamSettings;
   },
   spawnImpl: Spawn = spawn,
 ): Screencast {
@@ -187,9 +237,13 @@ export function startDesktopCast(
 
   const startGrabber = () => {
     if (stopped) return;
-    const child = spawnImpl("ffmpeg", ffmpegGrabArguments(display, size), {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawnImpl(
+      "ffmpeg",
+      ffmpegGrabArguments(display, size, { stream }),
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     grabber = child;
     child.stdout?.on("data", (chunk: Buffer) => splitter.push(chunk));
     let said = 0;

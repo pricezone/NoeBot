@@ -3,6 +3,7 @@ import {
   createMjpegSplitter,
   ffmpegGrabArguments,
   startDesktopCast,
+  streamSettingsFromEnv,
 } from "../src/desktop-cast";
 import type { FrameMessage } from "../src/screencast";
 import type { XInput } from "../src/x-input";
@@ -57,6 +58,55 @@ describe("the ffmpeg grab", () => {
     // Measured to hold the first frame back until the screen changed; the cast dedupes instead.
     expect(args.join(" ")).not.toContain("mpdecimate");
     expect(args.at(-1)).toBe("-");
+  });
+
+  test("can scale the picture down and change its quality, and says nothing of either by default", () => {
+    const plain = ffmpegGrabArguments(":9", { width: 1440, height: 900 });
+    expect(plain).not.toContain("-vf");
+    expect(plain.slice(plain.indexOf("-q:v"))[1]).toBe("5");
+
+    const smaller = ffmpegGrabArguments(
+      ":9",
+      { width: 1440, height: 900 },
+      { stream: { scale: { width: 1280, height: 800 }, quality: 6 } },
+    );
+    // Grabbed at the screen's size, so the whole screen is in it; scaled before it is encoded.
+    expect(smaller.slice(smaller.indexOf("-video_size"))[1]).toBe("1440x900");
+    expect(smaller.slice(smaller.indexOf("-vf"))[1]).toBe(
+      "scale=1280:800:flags=fast_bilinear",
+    );
+    expect(smaller.slice(smaller.indexOf("-q:v"))[1]).toBe("6");
+  });
+
+  test("reads the stream settings from the environment, and refuses what it cannot use", () => {
+    const screen = { width: 1440, height: 900 };
+    expect(streamSettingsFromEnv({}, screen)).toEqual({
+      scale: null,
+      quality: 5,
+    });
+    expect(
+      streamSettingsFromEnv(
+        {
+          COMPUTER_DESKTOP_STREAM_SIZE: "1280x800",
+          COMPUTER_DESKTOP_STREAM_QUALITY: "7",
+        },
+        screen,
+      ),
+    ).toEqual({ scale: { width: 1280, height: 800 }, quality: 7 });
+    // Larger than the screen, nonsense, out of range: the defaults.
+    expect(
+      streamSettingsFromEnv(
+        {
+          COMPUTER_DESKTOP_STREAM_SIZE: "2560x1600",
+          COMPUTER_DESKTOP_STREAM_QUALITY: "99",
+        },
+        screen,
+      ),
+    ).toEqual({ scale: null, quality: 5 });
+    expect(
+      streamSettingsFromEnv({ COMPUTER_DESKTOP_STREAM_SIZE: "big" }, screen)
+        .scale,
+    ).toBeNull();
   });
 
   test("a single capture asks for one frame", () => {

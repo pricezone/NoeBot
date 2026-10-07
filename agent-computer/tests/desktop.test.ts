@@ -99,6 +99,9 @@ describe("the desktop and the window manager", () => {
   test("composite, which the transparent dock needs", () => {
     const xml = xfwm4ConfigXml();
     expect(property(xml, "use_compositing")).toBe("true");
+    expect(
+      property(xfwm4ConfigXml({ compositing: false }), "use_compositing"),
+    ).toBe("false");
     expect(property(xml, "workspace_count")).toBe("1");
   });
 });

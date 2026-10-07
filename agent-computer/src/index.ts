@@ -16,7 +16,13 @@ import {
   offeredToken,
 } from "./authorisation";
 import { isPlainBotId } from "./bot-id";
-import { raiseBrowserWindow, watchBrowserRequests } from "./browser-request";
+import {
+  homepageFromEnv,
+  raiseBrowserWindow,
+  wantsHomepage,
+  watchBrowserRequests,
+  within,
+} from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { warmUpBrowser } from "./browser-warmup";
 import { detectChallenge } from "./challenge";
@@ -29,7 +35,11 @@ import {
 } from "./control";
 import { describeHumanGesture } from "./demonstration";
 import { startDesktop } from "./desktop";
-import { captureDesktopFrame, startDesktopCast } from "./desktop-cast";
+import {
+  captureDesktopFrame,
+  startDesktopCast,
+  streamSettingsFromEnv,
+} from "./desktop-cast";
 import { handleEgressPolicyRequest, startEgressFilter } from "./egress";
 import { identity } from "./identity";
 import { inOrder } from "./in-order";
@@ -126,6 +136,9 @@ const VIRTUAL_DISPLAY = await startVirtualDisplay(
   DISPLAY_SIZE,
 );
 if (VIRTUAL_DISPLAY) process.env.DISPLAY = VIRTUAL_DISPLAY.name;
+/** How the desktop's live screen is encoded. See `streamSettingsFromEnv`. */
+const DESKTOP_STREAM = streamSettingsFromEnv(process.env, DISPLAY_SIZE);
+
 /** The desktop around the browser, when `COMPUTER_DESKTOP=on`. See desktop.ts. */
 const DESKTOP =
   RUNTIME.desktop && VIRTUAL_DISPLAY
@@ -359,6 +372,9 @@ async function currentPage(
  * way. Whose: the Bot whose screen a person is driving; else the Bot that last used a browser; else,
  * after a restart, the profile used last. See browser-request.ts.
  */
+/** Where Chrome opens from the dock: Google unless `COMPUTER_DESKTOP_HOMEPAGE` says otherwise. */
+const DESKTOP_HOMEPAGE = homepageFromEnv(process.env.COMPUTER_DESKTOP_HOMEPAGE);
+
 const BROWSER_REQUESTS = DESKTOP
   ? await watchBrowserRequests(DESKTOP.browserRequestDir, async () => {
       const botId =
@@ -370,6 +386,21 @@ const BROWSER_REQUESTS = DESKTOP
         JSON.stringify({ type: "computer-desktop-browser-request", botId }),
       );
       const page = await currentPage(botId);
+      if (wantsHomepage(page.url())) {
+        // Only until the navigation commits: the window comes forward while Google loads.
+        await within(
+          page.goto(DESKTOP_HOMEPAGE, { waitUntil: "commit", timeout: 15_000 }),
+          16_000,
+          "Opening the start page",
+        ).catch((error: unknown) =>
+          console.warn(
+            JSON.stringify({
+              type: "computer-desktop-homepage-failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        );
+      }
       await raiseBrowserWindow(page);
     })
   : null;
@@ -701,6 +732,7 @@ serve<StreamData>({
             display: VIRTUAL_DISPLAY.name,
             size: DISPLAY_SIZE,
             onFrame: send,
+            stream: DESKTOP_STREAM,
           });
           await claim.install(cast);
           return;
@@ -1029,12 +1061,20 @@ serve<StreamData>({
       }
 
       if (url.pathname === "/health") {
+        // A browser that exited without Playwright noticing is not reported as running.
+        await profiles.forgetIfGone(botId);
         const [profile] = profiles.summary([botId]);
+        const lastUsedAt = profiles.lastUsedAt();
         return json({
           status: "ok",
           // `browser` kept as it was: it is in the published contract and start.sh reads it.
           browser: profile?.running ?? false,
           profile,
+          // When any Bot's browser was last asked for, so the API can keep the machine awake while
+          // a Bot is still working in it. Null with no browser running.
+          browserLastUsedAt: lastUsedAt
+            ? new Date(lastUsedAt).toISOString()
+            : null,
           // Which Bot this computer can prove it is, when the deployment runs SPIRE. Null is a
           // deployment without it, not a failure, and it is reported rather than omitted so the
           // difference between "no identity here" and "identity broken" is visible.

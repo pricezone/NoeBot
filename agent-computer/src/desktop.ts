@@ -208,13 +208,18 @@ export function desktopConfigXml(wallpaper: string): string {
 
 /**
  * The window manager: compositing on, which the transparent dock depends on, new windows centred,
- * one workspace, and no shadow drawn around the dock.
+ * one workspace, and no shadow drawn around the dock. `COMPUTER_DESKTOP_COMPOSITING=off` turns the
+ * compositor off, to measure what it costs; the dock then draws its background.
  */
-export function xfwm4ConfigXml(): string {
+export function xfwm4ConfigXml({
+  compositing = true,
+}: {
+  compositing?: boolean;
+} = {}): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfwm4" version="1.0">
   <property name="general" type="empty">
-    <property name="use_compositing" type="bool" value="true"/>
+    <property name="use_compositing" type="bool" value="${compositing}"/>
     <property name="show_dock_shadow" type="bool" value="false"/>
     <property name="placement_mode" type="string" value="center"/>
     <property name="workspace_count" type="int" value="1"/>
@@ -242,10 +247,12 @@ export function desktopConfigFiles({
   configHome,
   workspace,
   wallpaper = WALLPAPER_PATH,
+  compositing = true,
 }: {
   configHome: string;
   workspace: string;
   wallpaper?: string;
+  compositing?: boolean;
 }): { path: string; content: string }[] {
   const channels = join(configHome, "xfce4", "xfconf", "xfce-perchannel-xml");
   const launchers = dockLaunchers(workspace);
@@ -258,7 +265,10 @@ export function desktopConfigFiles({
       path: join(channels, "xfce4-desktop.xml"),
       content: desktopConfigXml(wallpaper),
     },
-    { path: join(channels, "xfwm4.xml"), content: xfwm4ConfigXml() },
+    {
+      path: join(channels, "xfwm4.xml"),
+      content: xfwm4ConfigXml({ compositing }),
+    },
     { path: join(channels, "xfce4-session.xml"), content: SESSION_CONFIG_XML },
     ...launchers.map((launcher) => ({
       path: join(
@@ -322,6 +332,7 @@ function runtimeDirectory(source: NodeJS.ProcessEnv): string {
 export async function prepareDesktopHome(
   env: Record<string, string>,
   workspace: string,
+  { compositing = true }: { compositing?: boolean } = {},
 ): Promise<void> {
   const runtimeDir = env.XDG_RUNTIME_DIR;
   if (runtimeDir) {
@@ -331,7 +342,11 @@ export async function prepareDesktopHome(
   }
   const configHome = env.XDG_CONFIG_HOME;
   if (!configHome) return;
-  for (const file of desktopConfigFiles({ configHome, workspace })) {
+  for (const file of desktopConfigFiles({
+    configHome,
+    workspace,
+    compositing,
+  })) {
     try {
       await mkdir(dirname(file.path), { recursive: true });
       await writeFile(file.path, file.content);
@@ -434,7 +449,10 @@ export async function startDesktop(
   runtime: DesktopRuntime = systemRuntime,
 ): Promise<Desktop> {
   const env = desktopEnvironment(display, source, home);
-  await prepareDesktopHome(env, source.WORKSPACE_DIR?.trim() || "/workspace");
+  await prepareDesktopHome(env, source.WORKSPACE_DIR?.trim() || "/workspace", {
+    compositing:
+      source.COMPUTER_DESKTOP_COMPOSITING?.trim().toLowerCase() !== "off",
+  });
 
   let stopping = false;
   const supervised = new Map<string, ChildProcess>();

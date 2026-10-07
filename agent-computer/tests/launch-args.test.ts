@@ -9,6 +9,10 @@ import {
 test("on a desktop the browser opens maximized, and is told nothing about windows without one", () => {
   expect(desktopWindowArgs(true)).toEqual(["--start-maximized"]);
   expect(desktopWindowArgs(false)).toEqual([]);
+  expect(desktopWindowArgs(true, { gpu: false })).toEqual([
+    "--start-maximized",
+    "--disable-gpu",
+  ]);
 });
 
 test("one --disable-features switch carries Playwright's list and the Client-Hints restarts", () => {

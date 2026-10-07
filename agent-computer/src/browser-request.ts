@@ -158,27 +158,82 @@ export async function watchBrowserRequests(
   };
 }
 
+/** `work`, or a rejection once `ms` have passed: so a call into a browser that died cannot hang. */
+export function within<T>(
+  work: Promise<T>,
+  ms: number,
+  what: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${what} took longer than ${ms} ms`)),
+      ms,
+    );
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+/** How long each step of bringing the browser forward may take. */
+const STEP_MS = 5_000;
+
 /**
  * Bring a browser window to the front, restoring it first if it was minimized.
  *
  * `bringToFront` activates the tab and asks the window manager for the window, which raises one that
  * is merely behind another; a minimized window has to be restored first, through the DevTools
- * protocol, since the desktop gives the computer no other handle on it.
+ * protocol, since the desktop gives the computer no other handle on it. Every step is bounded: a
+ * browser that is dying answers nothing, and the person's click should fail fast rather than wait.
  */
 export async function raiseBrowserWindow(page: Page): Promise<void> {
-  const client = await page.context().newCDPSession(page);
+  const client = await within(
+    page.context().newCDPSession(page),
+    STEP_MS,
+    "Opening a DevTools session",
+  );
   try {
-    const { windowId, bounds } = await client.send(
-      "Browser.getWindowForTarget",
+    const { windowId, bounds } = await within(
+      client.send("Browser.getWindowForTarget"),
+      STEP_MS,
+      "Finding the browser window",
     );
     if (bounds.windowState === "minimized") {
-      await client.send("Browser.setWindowBounds", {
-        windowId,
-        bounds: { windowState: "normal" },
-      });
+      await within(
+        client.send("Browser.setWindowBounds", {
+          windowId,
+          bounds: { windowState: "normal" },
+        }),
+        STEP_MS,
+        "Restoring the browser window",
+      );
     }
   } finally {
-    await client.detach().catch(() => undefined);
+    void client.detach().catch(() => undefined);
   }
-  await page.bringToFront();
+  await within(page.bringToFront(), STEP_MS, "Raising the browser window");
+}
+
+/** What a person opening Chrome from the dock sees first, unless the deployment says otherwise. */
+export const DEFAULT_HOMEPAGE = "https://www.google.com";
+
+/** The start page, from `COMPUTER_DESKTOP_HOMEPAGE` when it is an http(s) address. */
+export function homepageFromEnv(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) return DEFAULT_HOMEPAGE;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.href
+      : DEFAULT_HOMEPAGE;
+  } catch {
+    return DEFAULT_HOMEPAGE;
+  }
+}
+
+/**
+ * Whether a page the dock just brought up should go to the start page: only a blank one. A browser
+ * the Bot is using is showing the Bot's page, and the person opening Chrome wants to see that.
+ */
+export function wantsHomepage(url: string): boolean {
+  return url === "about:blank" || url === "";
 }

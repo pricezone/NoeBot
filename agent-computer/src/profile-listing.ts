@@ -9,7 +9,8 @@
  * Free of Playwright on purpose. `profiles.ts` launches browsers, so a test that wanted this rule had
  * to drag a browser runtime in with it, which is most of why the copy existed in the first place.
  */
-import { stat } from "node:fs/promises";
+import { readlink, stat } from "node:fs/promises";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { isPlainBotId } from "./bot-id";
 
@@ -59,4 +60,42 @@ export async function lastUsedProfile(
     if (at > 0 && (!newest || at > newest.at)) newest = { botId, at };
   }
   return newest?.botId ?? null;
+}
+
+/**
+ * Whether the Chromium that owns this profile is still running, read from the profile itself.
+ *
+ * Chromium keeps a `SingletonLock` symlink in its profile whose target is `<host>-<pid>`, removes it
+ * on a clean exit, and leaves it pointing at a dead pid after a crash. So: no lock, a lock from
+ * another host, or a pid that is not running all mean the browser is gone.
+ *
+ * WHY THIS EXISTS. Playwright did not always notice. On the live instance a browser exited and
+ * Playwright went on reporting it connected; every request then waited on a page nobody would ever
+ * answer, and the dock's Chrome button stopped working until the machine restarted. The process is
+ * the ground truth, and asking for it costs one readlink and one signal 0.
+ */
+export async function browserProcessAlive(
+  profileDir: string,
+  {
+    host = hostname(),
+    isRunning = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        // EPERM: it exists and belongs to someone else, which still means it is running.
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+      }
+    },
+  }: { host?: string; isRunning?: (pid: number) => boolean } = {},
+): Promise<boolean> {
+  const target = await readlink(join(profileDir, "SingletonLock")).catch(
+    () => null,
+  );
+  if (!target) return false;
+  const match = /^(.*)-(\d+)$/.exec(target);
+  if (!match) return false;
+  const [, owner, pid] = match;
+  if (owner !== host) return false;
+  return isRunning(Number(pid));
 }

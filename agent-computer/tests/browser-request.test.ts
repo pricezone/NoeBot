@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { watchBrowserRequests } from "../src/browser-request";
+import {
+  DEFAULT_HOMEPAGE,
+  homepageFromEnv,
+  wantsHomepage,
+  watchBrowserRequests,
+  within,
+} from "../src/browser-request";
 import { BROWSER_REQUEST_FILE } from "../src/desktop";
 
 let root: string;
@@ -155,4 +161,31 @@ test("a click whose file event never arrives is still answered", async () => {
   } finally {
     watcher.close();
   }
+});
+
+describe("the start page", () => {
+  test("is Google unless the deployment names another http(s) page", () => {
+    expect(homepageFromEnv(undefined)).toBe(DEFAULT_HOMEPAGE);
+    expect(homepageFromEnv("  ")).toBe(DEFAULT_HOMEPAGE);
+    expect(homepageFromEnv("https://duckduckgo.com")).toBe(
+      "https://duckduckgo.com/",
+    );
+    expect(homepageFromEnv("javascript:alert(1)")).toBe(DEFAULT_HOMEPAGE);
+    expect(homepageFromEnv("not a url")).toBe(DEFAULT_HOMEPAGE);
+  });
+
+  test("replaces only a blank page, never one the Bot is using", () => {
+    expect(wantsHomepage("about:blank")).toBe(true);
+    expect(wantsHomepage("")).toBe(true);
+    expect(wantsHomepage("https://mail.example.com/inbox")).toBe(false);
+  });
+});
+
+test("a call into a browser that never answers fails after its budget", async () => {
+  const started = Date.now();
+  await expect(
+    within(new Promise<void>(() => undefined), 50, "Raising the window"),
+  ).rejects.toThrow("Raising the window took longer than 50 ms");
+  expect(Date.now() - started).toBeLessThan(1_000);
+  expect(await within(Promise.resolve(7), 50, "Quick")).toBe(7);
 });
