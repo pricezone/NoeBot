@@ -56,7 +56,8 @@ function blur(values, width, height, radius) {
 /** One part of wallpaper.svg: the other part's markers and everything between them taken out. */
 function part(source, drop) {
   const marked = new RegExp(`<!-- ${drop} -->[\\s\\S]*<!-- /${drop} -->`);
-  if (!marked.test(source)) throw new Error(`wallpaper.svg has no ${drop} markers`);
+  if (!marked.test(source))
+    throw new Error(`wallpaper.svg has no ${drop} markers`);
   return Buffer.from(source.replace(marked, ""));
 }
 
