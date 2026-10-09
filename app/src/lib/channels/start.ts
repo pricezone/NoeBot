@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { stashFirstMessage } from "@/components/channels/transcript-messages";
 import { rememberLastBot } from "@/lib/agents/last-bot";
+import type { BotPanelTab } from "@/lib/bot-panel";
 import { createChannelMutationOptions } from "./mutations";
 import { channelKeys } from "./queries";
 import { routeMessage } from "./route";
@@ -30,6 +31,32 @@ export async function startWithChosen(input: {
   await input.start(input.agentId, input.text);
 }
 
+/** What a caller may ask of the conversation it is about to open. */
+export type StartChannelOptions = {
+  /**
+   * The bot panel tab the new channel opens on, as its `?panel=`. Absent, the channel opens the way
+   * any other does. `/channel/new` asks for the Computer tab on somebody's very first send, because
+   * that tab's screenshot poll is what starts the Bot's browser.
+   */
+  panel?: BotPanelTab;
+};
+
+/**
+ * Where a just-created channel is opened. Pure, so what a caller's options do to the URL can be
+ * tested without a router.
+ */
+export function startedChannelTarget(
+  channelId: string,
+  options: StartChannelOptions = {},
+) {
+  return {
+    params: { channelId },
+    replace: true,
+    to: "/channel/$channelId",
+    ...(options.panel ? { search: { panel: options.panel } } : {}),
+  } as const;
+}
+
 /**
  * Start a channel from a just-submitted first message, then navigate there.
  *
@@ -41,25 +68,34 @@ export function useStartChannel() {
   const navigate = useNavigate();
   const createChannel = useMutation(createChannelMutationOptions(queryClient));
 
-  const start = async (agentId: string, text: string) => {
+  const start = async (
+    agentId: string,
+    text: string,
+    options?: StartChannelOptions,
+  ) => {
     const channel = await createChannel.mutateAsync([agentId]);
     queryClient.setQueryData(channelKeys.detail(channel.id), channel);
     stashFirstMessage(channel.id, text);
     // Remembered here, not only once the channel route mounts: a conversation somebody just
     // started is the one home should return to, even if they leave before the route settles.
     rememberLastBot(agentId);
-    await navigate({
-      params: { channelId: channel.id },
-      replace: true,
-      to: "/channel/$channelId",
-    });
+    await navigate(startedChannelTarget(channel.id, options));
   };
 
   return {
     pending: createChannel.isPending,
     start,
     /** `start`, for a coworker the person chose: the choice is recorded first. */
-    startChosen: (agentId: string, text: string) =>
-      startWithChosen({ agentId, text, record: routeMessage, start }),
+    startChosen: (
+      agentId: string,
+      text: string,
+      options?: StartChannelOptions,
+    ) =>
+      startWithChosen({
+        agentId,
+        text,
+        record: routeMessage,
+        start: (chosenId, chosenText) => start(chosenId, chosenText, options),
+      }),
   };
 }

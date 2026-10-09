@@ -705,8 +705,9 @@ bun scripts/start-local-chrome-computer.ts
 ```
 
 Restart the API with the configuration above. Open a Bot's computer and navigate to a website; its
-dedicated Chrome window starts on first use. Use **Take control** in the app before interacting and
-**Hand back** when finished. Closing a viewer does not close the Bot's browser or erase its logins.
+dedicated Chrome window starts on first use. Use **Take control** in the app before interacting;
+minimizing the screen hands control back, unless **Keep control** is on. Closing a viewer does not
+close the Bot's browser or erase its logins.
 The helper exits with an error for a missing token, missing Chrome, or occupied port instead of
 silently selecting another browser or port. Ctrl-C shuts down its computer process and browsers.
 

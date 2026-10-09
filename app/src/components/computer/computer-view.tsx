@@ -409,7 +409,39 @@ export function ComputerView({
    * hour ago, with the hand-back footer already gone.
    */
   const wheelHere = driving && !settled;
-  const minimize = useCallback(() => setExpanded(false), []);
+
+  /**
+   * "Keep control" in the viewer: whether minimizing it leaves the wheel with the person.
+   *
+   * Off by default and only for the hold it was switched on in. It goes back to off when control
+   * returns to the Bot and when a new take starts, so somebody who did not ask to keep control
+   * this time is not left holding the Bot's browser because they once did.
+   */
+  const [keepControl, setKeepControl] = useState(false);
+  const holder = control?.holder;
+  useEffect(() => {
+    if (holder === "bot") setKeepControl(false);
+  }, [holder]);
+  const onTakeControl = useCallback(() => setKeepControl(false), []);
+
+  /*
+   * MINIMIZING HANDS CONTROL BACK; there is no separate "Hand back" any more. It goes through the
+   * shared store's own release, the path that button took, and closes only once that has worked: a
+   * release that fails keeps the viewer open with the control button saying why, rather than
+   * closing on a person who still holds a wheel they can no longer see. The store also refuses a
+   * change while the Bot's current action is finishing, and the viewer's status pill says so. With
+   * "Keep control" on, while the Bot holds control, or while a request is only waiting, minimizing
+   * just closes.
+   */
+  const minimize = useCallback(() => {
+    if (holder !== "human" || keepControl) {
+      setExpanded(false);
+      return;
+    }
+    void changeControl?.("release").then((released) => {
+      if (released) setExpanded(false);
+    });
+  }, [holder, keepControl, changeControl]);
 
   const polledScreen = showScreen ? (
     <img
@@ -584,9 +616,17 @@ export function ComputerView({
                       ? "You have control. Open the screen to click and type."
                       : "The assistant has control."}
               </span>
+              {/*
+                While the person holds control this reads "Open screen": the card has no minimize,
+                so the viewer is where they drive and where minimizing hands control back.
+              */}
               <ComputerControlButton
                 computerId={computerId}
-                onTakeControl={() => setExpanded(true)}
+                onOpenScreen={() => setExpanded(true)}
+                onTakeControl={() => {
+                  onTakeControl();
+                  setExpanded(true);
+                }}
               />
             </div>
           ) : null}
@@ -610,8 +650,11 @@ export function ComputerView({
               drawn={settled ? drawn : null}
               driving={driving}
               frameAspect={frameAspect}
+              keepControl={keepControl}
               name={name}
+              onKeepControlChange={setKeepControl}
               onMinimize={minimize}
+              onTakeControl={onTakeControl}
               page={knownPage}
               problem={problem}
               settled={settled}

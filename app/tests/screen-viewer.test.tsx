@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -13,6 +14,7 @@ import { ComputerView } from "@/components/computer/computer-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { agentKeys } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
+import { useComputerControl } from "@/lib/computers/use-control";
 import { queryClient } from "@/query-client";
 import { settleReactWork } from "./settle-react-work";
 
@@ -22,6 +24,9 @@ import { settleReactWork } from "./settle-react-work";
  * Opened from the preview card. Whose screen it is sits top-left; Take control (with what teaching
  * a workflow means), Record your steps and Minimize sit top-right. Minimize and Escape close it,
  * and Escape inside "Name this workflow" belongs to that dialog, not to the viewer behind it.
+ *
+ * While the person holds control there is no Hand back: minimizing hands control back, unless they
+ * switched on Keep control, in which case it only closes the viewer.
  */
 
 class SocketDouble {
@@ -46,6 +51,9 @@ const BOT = "viewer-bot";
 let holder: "bot" | "human" = "bot";
 let requested = false;
 let recordings: { id: string; status: string; steps: number }[] = [];
+/** Every change of control the viewer asked for, in order: take, release, cancel. */
+let controlChanges: { path: string; body: unknown }[] = [];
+let failRelease = false;
 const originalFetch = globalThis.fetch;
 let originalWebSocket: typeof WebSocket;
 
@@ -55,7 +63,15 @@ beforeAll(() => {
   globalThis.WebSocket = SocketDouble as unknown as typeof WebSocket;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes("/control/") && !url.endsWith("/control/request"))
+      controlChanges.push({
+        path: url.slice(url.lastIndexOf("/") + 1),
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+    if (url.endsWith("/control/release") && failRelease)
+      return Response.json({ error: "Unavailable" }, { status: 503 });
     if (url.endsWith("/control/take")) holder = "human";
+    if (url.endsWith("/control/release")) holder = "bot";
     if (url.includes("/control"))
       return Response.json({
         holder,
@@ -108,6 +124,8 @@ afterEach(() => {
   holder = "bot";
   requested = false;
   recordings = [];
+  controlChanges = [];
+  failRelease = false;
 });
 
 afterAll(async () => {
@@ -286,4 +304,154 @@ test("when the Bot asks for help, the card says so and Open screen opens the vie
   expect(
     await viewer.findByRole("button", { name: "Take control" }),
   ).toBeTruthy();
+});
+
+/**
+ * Asks the shared control store to read the server now, rather than waiting out its two-second
+ * poll: how a change made somewhere else — another tab, the Bot's own computer — reaches the viewer.
+ */
+function controlProbe() {
+  let refresh: (() => Promise<void>) | undefined;
+  function Probe() {
+    refresh = useComputerControl(BOT).refresh;
+    return null;
+  }
+  render(<Probe />);
+  return () => act(async () => void (await refresh?.()));
+}
+
+/** The viewer's control button once the store has read who holds control, and can be pressed. */
+async function readyButton(
+  viewer: ReturnType<typeof within>,
+  name: "Take control" | "Keep control",
+) {
+  const button = await viewer.findByRole("button", { name });
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+  return button;
+}
+
+const releases = () =>
+  controlChanges.filter((change) => change.path === "release");
+
+test("holding control, the viewer offers Keep control, off, and no Hand back", async () => {
+  holder = "human";
+  const { view } = preview();
+  const { viewer } = await open(view);
+
+  const keep = await readyButton(viewer, "Keep control");
+  expect(keep.getAttribute("aria-pressed")).toBe("false");
+  expect(view.queryByRole("button", { name: "Hand back" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Take control" })).toBeNull();
+});
+
+test("Minimize with Keep control off hands control back once and closes", async () => {
+  holder = "human";
+  const { view } = preview();
+  const { viewer } = await open(view);
+  await readyButton(viewer, "Keep control");
+
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+  expect(releases()).toEqual([
+    { path: "release", body: { requestId: "request-1" } },
+  ]);
+});
+
+test("Escape with Keep control off hands control back once and closes", async () => {
+  holder = "human";
+  const { view } = preview();
+  const { viewer } = await open(view);
+  await readyButton(viewer, "Keep control");
+
+  fireEvent.keyDown(window, { key: "Escape" });
+
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+  expect(releases()).toHaveLength(1);
+});
+
+test("with Keep control on, Minimize only closes; handing back is reopen, switch off, minimize", async () => {
+  holder = "human";
+  const { view, user } = preview();
+  const { viewer } = await open(view);
+
+  await user.click(await readyButton(viewer, "Keep control"));
+  expect(
+    viewer
+      .getByRole("button", { name: "Keep control" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+  expect(releases()).toHaveLength(0);
+  // Still theirs, and the card says so.
+  expect(view.getByText("You have control")).toBeTruthy();
+
+  // Reopened, it is still on: the choice belongs to this hold, not to one opening of the viewer.
+  const reopened = await open(view);
+  const keep = await readyButton(reopened.viewer, "Keep control");
+  expect(keep.getAttribute("aria-pressed")).toBe("true");
+  await user.click(keep);
+  expect(keep.getAttribute("aria-pressed")).toBe("false");
+  fireEvent.click(
+    reopened.viewer.getByRole("button", { name: "Minimize screen" }),
+  );
+
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+  expect(releases()).toHaveLength(1);
+});
+
+test("Keep control starts off again once control has gone back to the Bot", async () => {
+  holder = "human";
+  const refresh = controlProbe();
+  const { view, user } = preview();
+  const { viewer } = await open(view);
+  await user.click(await readyButton(viewer, "Keep control"));
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+
+  // Control returns to the Bot from somewhere other than this viewer.
+  holder = "bot";
+  await refresh();
+  await waitFor(() => expect(view.queryByText("You have control")).toBeNull());
+
+  // A new take starts a new hold, with Keep control off.
+  const reopened = await open(view);
+  await user.click(await readyButton(reopened.viewer, "Take control"));
+  const keep = await readyButton(reopened.viewer, "Keep control");
+  expect(keep.getAttribute("aria-pressed")).toBe("false");
+  expect(releases()).toHaveLength(0);
+});
+
+test("minimizing while the Bot holds control, or only asks for it, never hands anything back", async () => {
+  const { view } = preview();
+  const { viewer } = await open(view);
+  await readyButton(viewer, "Take control");
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+
+  requested = true;
+  const reopened = await open(view);
+  await readyButton(reopened.viewer, "Take control");
+  fireEvent.keyDown(window, { key: "Escape" });
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+
+  expect(controlChanges).toEqual([]);
+});
+
+test("a hand-back that fails keeps the viewer open and says why", async () => {
+  holder = "human";
+  failRelease = true;
+  const { view } = preview();
+  const { viewer } = await open(view);
+  await readyButton(viewer, "Keep control");
+
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+
+  expect((await viewer.findByRole("alert")).textContent).toBe(
+    "Control could not be changed. Check the connection and retry.",
+  );
+  expect(viewerOpen(view)).toBe(true);
+  expect(releases()).toHaveLength(1);
 });

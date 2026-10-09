@@ -17,31 +17,63 @@ import { useComputerControl } from "@/lib/computers/use-control";
  * it says what the two together are for. There the viewer's own status pill says that the current
  * action is finishing, so this does not say it a second time, and a problem hangs below the button
  * rather than stretching the bar.
+ *
+ * THERE IS NO "HAND BACK" WHILE THE PERSON HOLDS THE WHEEL. Minimizing the viewer hands control
+ * back (`ComputerView`'s `minimize`), so the viewer's button becomes "Keep control" instead: a
+ * toggle, off by default, for somebody who wants to put the screen away and still hold it. Its state belongs to the viewer and comes in as `keepControl`,
+ * because what it decides is what minimizing does. The card has no minimize of its own, so there
+ * the button opens the viewer (`onOpenScreen`), which is where control is handed back.
  */
 export function ComputerControlButton({
   computerId,
   onTakeControl,
   withTooltip = false,
+  keepControl = false,
+  onKeepControlChange,
+  onOpenScreen,
 }: {
   computerId: string;
   onTakeControl?: () => void;
   withTooltip?: boolean;
+  /** Whether "Keep control" is switched on. Only drawn while the person holds control. */
+  keepControl?: boolean;
+  onKeepControlChange?: (keep: boolean) => void;
+  /**
+   * Given by a surface without a minimize of its own: while the person holds control the button
+   * reads "Open screen" and opens the viewer, rather than offering a toggle that would decide
+   * nothing there.
+   */
+  onOpenScreen?: () => void;
 }) {
   const { control, busy, problem, change } = useComputerControl(computerId);
   const human = control?.holder === "human";
-  const button = (
+  const disabled = busy || !control || control.transitioning;
+  const button = !human ? (
     <Button
       size="sm"
-      variant={human ? "default" : "outline"}
-      disabled={busy || !control || control.transitioning}
+      variant="outline"
+      disabled={disabled}
       aria-busy={busy || control?.transitioning}
       onClick={async () => {
-        if (await change?.(human ? "release" : "take")) {
-          if (!human) onTakeControl?.();
-        }
+        if (await change?.("take")) onTakeControl?.();
       }}
     >
-      {human ? "Hand back" : "Take control"}
+      Take control
+    </Button>
+  ) : onOpenScreen ? (
+    <Button size="sm" onClick={onOpenScreen}>
+      Open screen
+    </Button>
+  ) : (
+    <Button
+      size="sm"
+      variant={keepControl ? "default" : "outline"}
+      aria-pressed={keepControl}
+      disabled={disabled}
+      aria-busy={busy || control?.transitioning}
+      onClick={() => onKeepControlChange?.(!keepControl)}
+    >
+      Keep control
     </Button>
   );
   if (withTooltip)

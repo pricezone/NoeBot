@@ -8,10 +8,11 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
 import type { ControlState } from "@/lib/computers/control";
 import { ComputerControlButton } from "@/components/computer/computer-controls";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useComputerControl } from "@/lib/computers/use-control";
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => GlobalRegistrator.register());
@@ -110,6 +111,20 @@ function server(initial: "bot" | "human" = "bot") {
     },
   };
 }
+/**
+ * The viewer's Minimize, as far as control goes: the shared store's own release. Handing back is
+ * no longer this button's job — there is no Hand back — so the tests that need control returned
+ * return it the way the viewer does.
+ */
+function MinimizeProbe({ botId }: { botId: string }) {
+  const { change } = useComputerControl(botId);
+  return (
+    <button type="button" onClick={() => void change?.("release")}>
+      Minimize screen
+    </button>
+  );
+}
+
 function controls(botId = "control-test") {
   const view = render(
     <>
@@ -140,10 +155,11 @@ test("chat and sidebar always show controls and update together using the exact 
   );
   fireEvent.click(view.chat.getByRole("button", { name: "Take control" }));
   expect(
-    await view.sidebar.findByRole("button", { name: "Hand back" }),
+    await view.sidebar.findByRole("button", { name: "Keep control" }),
   ).toBeTruthy();
-  expect(view.chat.getByRole("button", { name: "Hand back" })).toBeTruthy();
-  fireEvent.click(view.sidebar.getByRole("button", { name: "Hand back" }));
+  expect(view.chat.getByRole("button", { name: "Keep control" })).toBeTruthy();
+  const minimize = render(<MinimizeProbe botId="control-test" />);
+  fireEvent.click(minimize.getByRole("button", { name: "Minimize screen" }));
   expect(
     await view.chat.findByRole("button", { name: "Take control" }),
   ).toBeTruthy();
@@ -182,7 +198,7 @@ test("an in-flight takeover disables both controls and prevents duplicate reques
   );
   fireEvent.click(view.sidebar.getByRole("button", { name: "Take control" }));
   backend.finishTake();
-  await view.chat.findByRole("button", { name: "Hand back" });
+  await view.chat.findByRole("button", { name: "Keep control" });
   expect(
     backend.calls.filter((call) => call.path.endsWith("/control/take")),
   ).toHaveLength(1);
@@ -205,18 +221,63 @@ test("a failed takeover is visible in both surfaces and can be retried", async (
   backend.recover();
   fireEvent.click(view.sidebar.getByRole("button", { name: "Take control" }));
   expect(
-    await view.chat.findByRole("button", { name: "Hand back" }),
+    await view.chat.findByRole("button", { name: "Keep control" }),
   ).toBeTruthy();
   expect(view.chat.queryByRole("alert")).toBeNull();
 });
 
-test("active human control is immediately offered as Hand back on mounting either surface", async () => {
+test("active human control is offered as Keep control, off, on mounting either surface, never as Hand back", async () => {
   server("human");
   const view = controls();
-  expect(
-    await view.chat.findByRole("button", { name: "Hand back" }),
-  ).toBeTruthy();
-  expect(view.sidebar.getByRole("button", { name: "Hand back" })).toBeTruthy();
+  const chat = await view.chat.findByRole("button", { name: "Keep control" });
+  const sidebar = view.sidebar.getByRole("button", { name: "Keep control" });
+  expect(chat.getAttribute("aria-pressed")).toBe("false");
+  expect(sidebar.getAttribute("aria-pressed")).toBe("false");
+  expect(view.queryByRole("button", { name: "Hand back" })).toBeNull();
+});
+
+test("Keep control is a toggle its caller holds, and pressing it changes nothing on the computer", async () => {
+  const backend = server("human");
+  function Viewer() {
+    const [keep, setKeep] = useState(false);
+    return (
+      <ComputerControlButton
+        computerId="keep-control"
+        keepControl={keep}
+        onKeepControlChange={setKeep}
+      />
+    );
+  }
+  const view = render(<Viewer />);
+  const keep = await view.findByRole("button", { name: "Keep control" });
+  await waitFor(() => expect(keep.hasAttribute("disabled")).toBe(false));
+
+  fireEvent.click(keep);
+  await waitFor(() => expect(keep.getAttribute("aria-pressed")).toBe("true"));
+  fireEvent.click(keep);
+  await waitFor(() => expect(keep.getAttribute("aria-pressed")).toBe("false"));
+
+  // Only what minimizing does depends on it; nothing was taken, released or cancelled here.
+  expect(backend.calls.filter((call) => call.body)).toHaveLength(0);
+});
+
+test("a surface without a minimize of its own offers Open screen while the person holds control", async () => {
+  const backend = server("human");
+  let opened = 0;
+  const view = render(
+    <ComputerControlButton
+      computerId="card-control"
+      onOpenScreen={() => {
+        opened += 1;
+      }}
+    />,
+  );
+
+  fireEvent.click(await view.findByRole("button", { name: "Open screen" }));
+
+  expect(opened).toBe(1);
+  expect(view.queryByRole("button", { name: "Keep control" })).toBeNull();
+  expect(backend.calls.filter((call) => call.body)).toHaveLength(0);
 });
 
 test("Strict Mode keeps chat and sidebar on one ownership store", async () => {
@@ -236,7 +297,9 @@ test("Strict Mode keeps chat and sidebar on one ownership store", async () => {
   );
   fireEvent.click(view.getAllByRole("button", { name: "Take control" })[0]!);
   await waitFor(() =>
-    expect(view.getAllByRole("button", { name: "Hand back" })).toHaveLength(2),
+    expect(view.getAllByRole("button", { name: "Keep control" })).toHaveLength(
+      2,
+    ),
   );
   expect(
     backend.calls.filter((call) => call.path.endsWith("/control/request")),
@@ -260,7 +323,9 @@ test("a takeover stays shared when chat remounts before its response", async () 
   const second = render(<ComputerControlButton computerId="remount-control" />);
   expect(second.getByRole("button").hasAttribute("disabled")).toBe(true);
   backend.finishTake();
-  expect(await second.findByRole("button", { name: "Hand back" })).toBeTruthy();
+  expect(
+    await second.findByRole("button", { name: "Keep control" }),
+  ).toBeTruthy();
 });
 
 test("both controls stay disabled while the current browser action drains", async () => {
@@ -307,7 +372,9 @@ test("in the viewer, hovering Take control explains teaching a browser workflow"
   ).toBeTruthy();
   // The tooltip wraps the same wheel: it still takes control.
   fireEvent.click(button);
-  expect(await view.findByRole("button", { name: "Hand back" })).toBeTruthy();
+  expect(
+    await view.findByRole("button", { name: "Keep control" }),
+  ).toBeTruthy();
   expect(
     backend.calls.filter((call) => call.path.endsWith("/control/take")),
   ).toHaveLength(1);

@@ -1,12 +1,15 @@
 import type { Message } from "@ag-ui/core";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import { canSend, type Recipient } from "@/components/channels/compose-state";
 import { ConversationView } from "@/components/channels/conversation-view";
-import { seedMessage } from "@/components/channels/transcript-messages";
+import {
+  firstRunGreeting,
+  seedMessage,
+} from "@/components/channels/transcript-messages";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import {
   Combobox,
@@ -22,6 +25,7 @@ import {
   agentListQueryOptions,
   agentQueryOptions,
 } from "@/lib/agents/queries";
+import { channelListQueryOptions } from "@/lib/channels/queries";
 import { useStartChannel } from "@/lib/channels/start";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import { newId } from "../../../../lib/new-id";
@@ -68,6 +72,7 @@ function RouteComponent() {
   const { data: profiles, isError: rosterError } = useQuery(
     agentListQueryOptions(),
   );
+  const channels = useInfiniteQuery(channelListQueryOptions());
 
   const [error, setError] = useState<string | null>(null);
   // Optimistic seed shown before the first channel record exists.
@@ -118,6 +123,15 @@ function RouteComponent() {
     : [];
   const skillCommands = useSkillCommands(chosen?.id ?? "");
   const showActions = !isFilteringBots(typed, chosen);
+  /*
+   * Somebody who has never had a conversation, which is where onboarding lands a new person. Only
+   * once the list has loaded and holds nothing at all: a list still loading, or one that failed,
+   * says nothing about whether they have channels, and anybody with one must never be greeted as
+   * new. Their first send opens the conversation on the Computer tab, whose screenshot poll is
+   * what starts the Bot's browser, so the greeting's promise is kept.
+   */
+  const firstRun =
+    channels.isSuccess && channels.data.length === 0 && !channels.hasNextPage;
 
   if (profiles === undefined && !rosterError) return null;
 
@@ -215,7 +229,8 @@ function RouteComponent() {
         disabled={
           Boolean(loadError) || waitingForUrlAgent || recipients.length === 0
         }
-        messages={sent ? [sent] : []}
+        // The greeting is local: drawn here, never sent to the model and never stored.
+        messages={sent ? [sent] : firstRun ? [firstRunGreeting()] : []}
         notice={
           loadError || error ? (
             <p className="pb-2 text-sm text-destructive" role="alert">
@@ -233,7 +248,11 @@ function RouteComponent() {
           try {
             // Recorded, then started: a coworker picked here is as much a choice as an `@` on the
             // home screen, and the trail has to say so for both.
-            await startChosen(recipient.id, draft.text);
+            await startChosen(
+              recipient.id,
+              draft.text,
+              firstRun ? { panel: "computer" } : undefined,
+            );
           } catch (caught) {
             // Preserve the unsent draft when channel creation fails.
             setSent(null);

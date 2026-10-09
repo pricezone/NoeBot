@@ -489,7 +489,9 @@ export function LiveScreen({
   return (
     <canvas
       ref={canvasRef}
-      className={`block h-auto w-full ${driving ? "cursor-crosshair" : ""}`}
+      // The frames no longer carry the desktop's own pointer, so the person's is the only one on
+      // the screen and should look like a desktop's arrow rather than a crosshair, as in Grok.
+      className={`block h-auto w-full ${driving ? "cursor-default" : ""}`}
       // Only forward input during takeover.
       {...(driving
         ? {

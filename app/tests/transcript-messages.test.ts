@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@ag-ui/core";
+import { toVisibleChatItems } from "../src/components/channels/chat-messages";
 import {
+  FIRST_RUN_GREETING_ID,
+  firstRunGreeting,
   seedMessage,
   stashFirstMessage,
   takeFirstMessage,
@@ -51,6 +54,30 @@ describe("seedMessage", () => {
   test("is a user message carrying the text", () => {
     const message = seedMessage("hello", "id-1");
     expect(message).toEqual({ id: "id-1", role: "user", content: "hello" });
+  });
+});
+
+describe("firstRunGreeting", () => {
+  test("is the Bot speaking, under one id, in the product's name", () => {
+    expect(firstRunGreeting()).toEqual({
+      id: FIRST_RUN_GREETING_ID,
+      role: "assistant",
+      content:
+        "Hi, I'm Noë Bot. Type a message below to get started — I'll start my computer, and you can watch it work in the panel on the right.",
+    });
+    // The same row on every render, so React never remounts it.
+    expect(firstRunGreeting().id).toBe(firstRunGreeting().id);
+  });
+
+  test("is drawn by the transcript as an assistant text message", () => {
+    expect(toVisibleChatItems([firstRunGreeting()])).toEqual([
+      {
+        kind: "text",
+        id: FIRST_RUN_GREETING_ID,
+        role: "assistant",
+        text: firstRunGreeting().content as string,
+      },
+    ]);
   });
 });
 

@@ -115,7 +115,16 @@ type Props = {
   name?: string | undefined;
   /** Width over height of the frames this computer sends. */
   frameAspect: number;
+  /**
+   * Minimize, and Escape. The caller decides what else it does: while the person holds control it
+   * hands control back first unless "Keep control" is on (`ComputerView`'s `minimize`).
+   */
   onMinimize: () => void;
+  /** "Keep control", held by the caller because it decides what `onMinimize` does. */
+  keepControl: boolean;
+  onKeepControlChange: (keep: boolean) => void;
+  /** A take from the viewer's own button worked; the caller starts the new hold with it off. */
+  onTakeControl: () => void;
   /**
    * A finished turn: a record opened larger, not a window on the browser. No wheel, no recorder,
    * no live stream — those are about the present.
@@ -144,7 +153,8 @@ type Props = {
  * page by the canvas's whole width and height, so the box is sized from the frame's aspect and both
  * window dimensions rather than stretched to fit.
  *
- * Minimize and Escape close it; the backdrop does not, so a click that misses the screen while
+ * Minimize and Escape close it, and while the person holds control they hand it back on the way
+ * out unless "Keep control" is on; the backdrop does not, so a click that misses the screen while
  * driving is not the end of the session. Escape is left alone while a dialog inside the viewer is
  * open ("Name this workflow"), where it belongs to that dialog.
  */
@@ -153,6 +163,9 @@ export function ScreenViewer({
   name,
   frameAspect,
   onMinimize,
+  keepControl,
+  onKeepControlChange,
+  onTakeControl,
   settled,
   drawn,
   showLiveScreen,
@@ -234,7 +247,13 @@ export function ScreenViewer({
           */}
           {settled ? null : (
             <>
-              <ComputerControlButton computerId={computerId} withTooltip />
+              <ComputerControlButton
+                computerId={computerId}
+                keepControl={keepControl}
+                onKeepControlChange={onKeepControlChange}
+                onTakeControl={onTakeControl}
+                withTooltip
+              />
               <RecordStepsButton
                 botId={computerId}
                 driving={driving}
