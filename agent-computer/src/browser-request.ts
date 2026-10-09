@@ -213,8 +213,16 @@ export async function raiseBrowserWindow(page: Page): Promise<void> {
   await within(page.bringToFront(), STEP_MS, "Raising the browser window");
 }
 
-/** What a person opening Chrome from the dock sees first, unless the deployment says otherwise. */
-export const DEFAULT_HOMEPAGE = "https://www.google.com";
+/**
+ * What every fresh browser opens on, unless the deployment says otherwise.
+ *
+ * English by name: Google picks its language from the address a request comes from rather than from
+ * what the browser asks for, and the computers run in Germany, so a plain google.com greeted people
+ * in German (measured: with `--accept-lang=en-US,en` alone it still answered in the local language).
+ * `hl=en` settles it, and a search from that page stays English because Google's form carries `hl`
+ * along. Every other site gets English from the browser itself (`LAUNCH_ARGS` in profiles.ts).
+ */
+export const DEFAULT_HOMEPAGE = "https://www.google.com/?hl=en";
 
 /** The start page, from `COMPUTER_DESKTOP_HOMEPAGE` when it is an http(s) address. */
 export function homepageFromEnv(value: string | undefined): string {
@@ -236,4 +244,40 @@ export function homepageFromEnv(value: string | undefined): string {
  */
 export function wantsHomepage(url: string): boolean {
   return url === "about:blank" || url === "";
+}
+
+/** What a start page that would not open leaves behind: one line for the log, never an error. */
+export type StartPageFailure = {
+  type: "computer-start-page-failed";
+  homepage: string;
+  error: string;
+};
+
+/**
+ * Send a blank page to the start page; leave a page that is showing anything else alone.
+ *
+ * Only until the navigation commits, so a window comes forward, or a Bot gets its page, while the
+ * start page is still loading. Never throws: a start page is a courtesy, and one that will not load
+ * (no network, an egress policy that refuses it) must not fail the launch or the click that asked for
+ * a browser. Bounded twice, because a browser that died behind Playwright's back answers nothing,
+ * not even its own timeout.
+ */
+export async function openStartPage(
+  page: Pick<Page, "goto" | "url">,
+  homepage: string,
+  log: (failure: StartPageFailure) => void = (failure) =>
+    console.warn(JSON.stringify(failure)),
+): Promise<void> {
+  if (!wantsHomepage(page.url())) return;
+  await within(
+    page.goto(homepage, { waitUntil: "commit", timeout: 15_000 }),
+    16_000,
+    "Opening the start page",
+  ).catch((error: unknown) =>
+    log({
+      type: "computer-start-page-failed",
+      homepage,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }

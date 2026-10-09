@@ -33,6 +33,12 @@ test("one --disable-features switch carries Playwright's list and the Client-Hin
   expect(features).toContain("CriticalClientHint");
 });
 
+test("the browser speaks English, wherever the traffic leaves from", () => {
+  // The browser's own language, and the one it asks every site for, whatever the machine's locale.
+  expect(LAUNCH_ARGS).toContain("--lang=en-US");
+  expect(LAUNCH_ARGS).toContain("--accept-lang=en-US,en");
+});
+
 test("the list repeats what the installed Playwright switches off", async () => {
   const bundle = Bun.resolveSync(
     "playwright-core/package.json",

@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
-import { homepageFromEnv } from "./browser-request";
+import { homepageFromEnv, openStartPage } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
@@ -161,6 +161,11 @@ export const LAUNCH_ARGS = [
   // headed mode also provides a window a person can use on the native desktop or virtual display.
   "--disable-blink-features=AutomationControlled",
   `--disable-features=${DISABLED_FEATURES.join(",")}`,
+  // English wherever the traffic leaves from: `--lang` for the browser's own words, `--accept-lang`
+  // for what it asks every site for (the Accept-Language header and `navigator.languages`, measured
+  // on Chromium 145). Google goes by address rather than by this, which is why the start page names
+  // `hl=en` (browser-request.ts). Not for a person's own Chrome, whose language is that person's.
+  ...(LOCAL_CHROME ? [] : ["--lang=en-US", "--accept-lang=en-US,en"]),
 ];
 
 /**
@@ -203,8 +208,13 @@ const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop, {
   gpu: process.env.COMPUTER_BROWSER_GPU?.trim().toLowerCase() !== "off",
 });
 
-/** The Home button's page on a desktop; the dock's Chrome button opens the same one. */
-const DESKTOP_HOMEPAGE = homepageFromEnv(process.env.COMPUTER_DESKTOP_HOMEPAGE);
+/**
+ * The page every browser this computer launches opens on, and the Home button's page on a desktop.
+ * One value, read once, so the Home button, a fresh browser and the dock's Chrome button all agree.
+ */
+export const START_PAGE = homepageFromEnv(
+  process.env.COMPUTER_DESKTOP_HOMEPAGE,
+);
 
 /**
  * WebRTC kept inside the proxy, written into the profile before Chromium reads it.
@@ -611,7 +621,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         if (!LOCAL_CHROME) {
           await sweepLocks(dir);
           await keepWebRtcInsideProxy(dir, {
-            ...(BROWSER_RUNTIME.desktop ? { homepage: DESKTOP_HOMEPAGE } : {}),
+            ...(BROWSER_RUNTIME.desktop ? { homepage: START_PAGE } : {}),
           });
         }
         const proxy = egressFor(botId, process.env);
@@ -670,6 +680,19 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         }
         // Persistent contexts open with a page already; reuse it rather than leaving an extra blank tab.
         const page = context.pages()[0] ?? (await context.newPage());
+        /*
+         * Playwright opens every browser on `about:blank`, which is what a person on the desktop and
+         * a Bot's first screenshot both saw. The start page instead, headed and headless alike, and
+         * before the page is handed back, so a Bot's own `goto` comes after this one and is not cut
+         * short by it. Not for a person's own Chrome, which keeps its own start page; there a start
+         * page that failed to load would also leave Chrome's error page, which local Chrome's tools
+         * refuse to read (navigation.ts) until the Bot navigates somewhere.
+         */
+        if (!LOCAL_CHROME) {
+          await openStartPage(page, START_PAGE, (failure) =>
+            console.warn(JSON.stringify({ ...failure, botId })),
+          );
+        }
         const record: LiveBrowser = {
           context,
           page,

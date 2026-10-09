@@ -118,6 +118,17 @@ describe("the ffmpeg grab", () => {
     expect(args.join(" ")).toContain("-frames:v 1");
     expect(args).not.toContain("-framerate");
   });
+
+  test("leaves the display's own pointer out of the stream and of a screenshot", () => {
+    const size = { width: 1440, height: 900 };
+    for (const args of [
+      ffmpegGrabArguments(":9", size),
+      ffmpegGrabArguments(":9", size, { once: true }),
+    ]) {
+      expect(args.slice(args.indexOf("-draw_mouse"))[1]).toBe("0");
+      expect(args.join(" ")).not.toContain("-draw_mouse 1");
+    }
+  });
 });
 
 import { EventEmitter } from "node:events";

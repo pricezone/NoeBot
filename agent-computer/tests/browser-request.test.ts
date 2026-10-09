@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Page } from "playwright";
 import {
   DEFAULT_HOMEPAGE,
   homepageFromEnv,
+  openStartPage,
+  type StartPageFailure,
   wantsHomepage,
   watchBrowserRequests,
   within,
@@ -178,6 +181,79 @@ describe("the start page", () => {
     expect(wantsHomepage("about:blank")).toBe(true);
     expect(wantsHomepage("")).toBe(true);
     expect(wantsHomepage("https://mail.example.com/inbox")).toBe(false);
+  });
+
+  test("asks Google for English, since it answers in the language of the server's country", () => {
+    expect(new URL(DEFAULT_HOMEPAGE).hostname).toBe("www.google.com");
+    expect(DEFAULT_HOMEPAGE).toContain("hl=en");
+    // Read back unchanged, so the Home button and the start page are the same address.
+    expect(homepageFromEnv(undefined)).toBe("https://www.google.com/?hl=en");
+  });
+});
+
+/** A page that records where it was sent and, unless told to fail, goes there. */
+function fakePage(start: string, failure?: Error) {
+  let url = start;
+  const visits: Array<{ target: string; options: unknown }> = [];
+  const page: Pick<Page, "goto" | "url"> = {
+    url: () => url,
+    async goto(target, options) {
+      visits.push({ target, options });
+      if (failure) throw failure;
+      url = target;
+      return null;
+    },
+  };
+  return { page, visits };
+}
+
+describe("opening the start page", () => {
+  test("sends a blank page there once, only until the navigation commits", async () => {
+    const { page, visits } = fakePage("about:blank");
+    const failures: StartPageFailure[] = [];
+    await openStartPage(page, DEFAULT_HOMEPAGE, (failure) =>
+      failures.push(failure),
+    );
+    expect(visits).toEqual([
+      {
+        target: DEFAULT_HOMEPAGE,
+        options: { waitUntil: "commit", timeout: 15_000 },
+      },
+    ]);
+    expect(page.url()).toBe(DEFAULT_HOMEPAGE);
+    expect(failures).toEqual([]);
+
+    // Already there, so a second call (the dock after a launch) goes nowhere.
+    await openStartPage(page, DEFAULT_HOMEPAGE);
+    expect(visits).toHaveLength(1);
+  });
+
+  test("leaves a page that is already on a site alone", async () => {
+    const { page, visits } = fakePage("https://mail.example.com/inbox");
+    await openStartPage(page, DEFAULT_HOMEPAGE);
+    expect(visits).toEqual([]);
+    expect(page.url()).toBe("https://mail.example.com/inbox");
+  });
+
+  test("says so, and does not throw, when the start page will not open", async () => {
+    const { page, visits } = fakePage(
+      "about:blank",
+      new Error("net::ERR_TUNNEL_CONNECTION_FAILED"),
+    );
+    const failures: StartPageFailure[] = [];
+    await expect(
+      openStartPage(page, DEFAULT_HOMEPAGE, (failure) =>
+        failures.push(failure),
+      ),
+    ).resolves.toBeUndefined();
+    expect(visits).toHaveLength(1);
+    expect(failures).toEqual([
+      {
+        type: "computer-start-page-failed",
+        homepage: DEFAULT_HOMEPAGE,
+        error: "net::ERR_TUNNEL_CONNECTION_FAILED",
+      },
+    ]);
   });
 });
 

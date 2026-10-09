@@ -17,11 +17,9 @@ import {
 } from "./authorisation";
 import { isPlainBotId } from "./bot-id";
 import {
-  homepageFromEnv,
+  openStartPage,
   raiseBrowserWindow,
-  wantsHomepage,
   watchBrowserRequests,
-  within,
 } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { warmUpBrowser } from "./browser-warmup";
@@ -52,6 +50,7 @@ import {
   createProfiles,
   managedBrowserExecutable,
   numberFromEnv,
+  START_PAGE,
 } from "./profiles";
 import {
   parseExecTimeout,
@@ -372,9 +371,6 @@ async function currentPage(
  * way. Whose: the Bot whose screen a person is driving; else the Bot that last used a browser; else,
  * after a restart, the profile used last. See browser-request.ts.
  */
-/** Where Chrome opens from the dock: Google unless `COMPUTER_DESKTOP_HOMEPAGE` says otherwise. */
-const DESKTOP_HOMEPAGE = homepageFromEnv(process.env.COMPUTER_DESKTOP_HOMEPAGE);
-
 const BROWSER_REQUESTS = DESKTOP
   ? await watchBrowserRequests(DESKTOP.browserRequestDir, async () => {
       const botId =
@@ -386,21 +382,9 @@ const BROWSER_REQUESTS = DESKTOP
         JSON.stringify({ type: "computer-desktop-browser-request", botId }),
       );
       const page = await currentPage(botId);
-      if (wantsHomepage(page.url())) {
-        // Only until the navigation commits: the window comes forward while Google loads.
-        await within(
-          page.goto(DESKTOP_HOMEPAGE, { waitUntil: "commit", timeout: 15_000 }),
-          16_000,
-          "Opening the start page",
-        ).catch((error: unknown) =>
-          console.warn(
-            JSON.stringify({
-              type: "computer-desktop-homepage-failed",
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          ),
-        );
-      }
+      // A browser launched for this click is on the start page already (profiles.ts); this is for one
+      // still blank because its start page did not load. The window comes forward while Google loads.
+      await openStartPage(page, START_PAGE);
       await raiseBrowserWindow(page);
     })
   : null;

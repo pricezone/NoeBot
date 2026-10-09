@@ -56,6 +56,12 @@ describe.skipIf(
           expect(options?.chromiumSandbox).toBe(true);
           expect(options?.args).not.toContain("--password-store=basic");
           expect(options?.args).not.toContain("--no-sandbox");
+          // A person's own Chrome keeps that person's language.
+          expect(options?.args).not.toContain("--lang=en-US");
+          expect(options?.args).not.toContain("--accept-lang=en-US,en");
+        } else {
+          expect(options?.args).toContain("--lang=en-US");
+          expect(options?.args).toContain("--accept-lang=en-US,en");
         }
       } finally {
         await profiles.closeAll();
