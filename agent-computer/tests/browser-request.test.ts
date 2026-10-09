@@ -195,7 +195,8 @@ describe("the start page", () => {
 function fakePage(start: string, failure?: Error) {
   let url = start;
   const visits: Array<{ target: string; options: unknown }> = [];
-  const page: Pick<Page, "goto" | "url"> = {
+  const waits: unknown[] = [];
+  const page: Pick<Page, "goto" | "url" | "waitForURL"> = {
     url: () => url,
     async goto(target, options) {
       visits.push({ target, options });
@@ -203,8 +204,13 @@ function fakePage(start: string, failure?: Error) {
       url = target;
       return null;
     },
+    /* Chromium's error page after a failed load: what the helper waits for. */
+    async waitForURL(_match, options) {
+      waits.push(options);
+      url = "chrome-error://chromewebdata/";
+    },
   };
-  return { page, visits };
+  return { page, visits, waits };
 }
 
 describe("opening the start page", () => {
@@ -236,7 +242,7 @@ describe("opening the start page", () => {
   });
 
   test("says so, and does not throw, when the start page will not open", async () => {
-    const { page, visits } = fakePage(
+    const { page, visits, waits } = fakePage(
       "about:blank",
       new Error("net::ERR_TUNNEL_CONNECTION_FAILED"),
     );
@@ -254,6 +260,9 @@ describe("opening the start page", () => {
         error: "net::ERR_TUNNEL_CONNECTION_FAILED",
       },
     ]);
+    // The error page that follows a failed load is let in, so it cannot cut off the next navigation.
+    expect(waits).toEqual([{ waitUntil: "commit", timeout: 2_000 }]);
+    expect(page.url()).toBe("chrome-error://chromewebdata/");
   });
 });
 

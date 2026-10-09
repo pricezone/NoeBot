@@ -263,21 +263,34 @@ export type StartPageFailure = {
  * not even its own timeout.
  */
 export async function openStartPage(
-  page: Pick<Page, "goto" | "url">,
+  page: Pick<Page, "goto" | "url"> & Partial<Pick<Page, "waitForURL">>,
   homepage: string,
   log: (failure: StartPageFailure) => void = (failure) =>
     console.warn(JSON.stringify(failure)),
 ): Promise<void> {
   if (!wantsHomepage(page.url())) return;
-  await within(
-    page.goto(homepage, { waitUntil: "commit", timeout: 15_000 }),
-    16_000,
-    "Opening the start page",
-  ).catch((error: unknown) =>
+  try {
+    await within(
+      page.goto(homepage, { waitUntil: "commit", timeout: 15_000 }),
+      16_000,
+      "Opening the start page",
+    );
+  } catch (error) {
     log({
       type: "computer-start-page-failed",
       homepage,
       error: error instanceof Error ? error.message : String(error),
-    }),
-  );
+    });
+    /*
+     * A load that fails (no network, or a proxy that refuses the host) is followed a moment later by
+     * Chromium committing its own error page. That is a navigation too: left in flight, it cut off
+     * the first page the Bot opened next. So it is let in before the page is handed on.
+     */
+    await page
+      .waitForURL?.((url) => url.protocol === "chrome-error:", {
+        waitUntil: "commit",
+        timeout: 2_000,
+      })
+      .catch(() => undefined);
+  }
 }
