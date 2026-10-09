@@ -1,8 +1,10 @@
 name: Publish NoeBot image
 
-# The image HyperNoesis boots on every subscriber's Fly machine. Built from the root Dockerfile on
-# each push to main and on version tags, and pushed to this fork's own registry namespace so the
+# The image HyperNoesis boots on every subscriber's server. Built from the root Dockerfile on each
+# push to main and on version tags, and pushed to this fork's own registry namespace so the
 # upstream release workflow (which publishes ghcr.io/copilotkit/*) is left exactly as it is.
+# The package is private: the VPS servers pull it with a read-only token. Fly machines cannot pull
+# a private GHCR package, so the same tags also go to Fly's org registry when FLY_API_TOKEN is set.
 on:
   push:
     branches: [main]
@@ -23,6 +25,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Whether the Fly mirror is pushed; the token itself only reaches the login step.
+      HAS_FLY_TOKEN: ${{ secrets.FLY_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,10 +38,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - if: env.HAS_FLY_TOKEN == 'true'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: registry.fly.io
+          username: x
+          password: ${{ secrets.FLY_API_TOKEN }}
       - id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/noebot
+          images: |
+            ghcr.io/${{ github.repository_owner }}/noebot
+            name=registry.fly.io/hypernoesis-noebot-image,enable=${{ env.HAS_FLY_TOKEN == 'true' }}
           tags: |
             type=sha,format=long
             type=ref,event=tag
