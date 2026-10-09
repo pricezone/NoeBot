@@ -63,7 +63,7 @@ function sessionCookie(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length <= 8192 &&
-    /^(?:__Secure-)?better-auth\.session_token=[^;\s\r\n]+$/.test(value)
+    /^(?:__Secure-|__Host-)?better-auth\.session_token=[^;\s\r\n]+$/.test(value)
   );
 }
 

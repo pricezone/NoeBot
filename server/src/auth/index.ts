@@ -161,6 +161,33 @@ export function mapEntraProfile(profile: Record<string, unknown>) {
   return { email };
 }
 
+/** The session cookies' prefix when they are host-only (see `hostOnlyCookies`). */
+export const HOST_ONLY_COOKIE_PREFIX = "__Host-better-auth";
+
+/**
+ * Every Better Auth cookie a `__Host-` cookie when the deployment is served over https: Secure,
+ * `Path=/` and no `Domain`, which a browser enforces for that prefix.
+ *
+ * A hosted deployment shares its parent domain with other customers' deployments (`<id>.fly.dev`,
+ * `<id>.hypernoesis.app`), and a page on one sibling can set a cookie for the parent that every other
+ * sibling then receives: another customer's server could plant or shadow a session cookie on this
+ * one. A browser refuses any `__Host-` cookie that names a `Domain`, so no sibling can set or
+ * overwrite these. It is the protection the parent being on the Public Suffix List gives, without
+ * waiting for that. Better Auth would put its own `__Secure-` in front of the prefix, so that is
+ * turned off and `Secure` is set directly. Plain http (local development) keeps the defaults, since a
+ * `__Host-` cookie needs https.
+ */
+export const hostOnlyCookies = (baseUrl: string | undefined) =>
+  baseUrl?.startsWith("https://")
+    ? {
+        advanced: {
+          useSecureCookies: false,
+          cookiePrefix: HOST_ONLY_COOKIE_PREFIX,
+          defaultCookieAttributes: { secure: true, path: "/" },
+        },
+      }
+    : {};
+
 export function createAuth(
   config: DeploymentConfig,
   database: Database,
@@ -335,6 +362,7 @@ export function createAuth(
     },
     baseURL: authConfig.baseUrl,
     secret: authConfig.secret,
+    ...hostOnlyCookies(authConfig.baseUrl),
     trustedOrigins: [
       ...authConfig.trustedOrigins,
       ...(nativeApp ? [NATIVE_APP_ORIGIN] : []),
