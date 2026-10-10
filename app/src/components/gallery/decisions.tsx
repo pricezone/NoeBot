@@ -1,3 +1,4 @@
+import { IconArrowUp, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -149,65 +150,187 @@ export const ChoiceCardProps = z.object({
 
 type ChoiceArgs = z.infer<typeof ChoiceCardProps>;
 
-export function ChoiceCard(props: Waiting<ChoiceArgs>) {
-  const { args, status, respond } = props;
+/** A, B, C… for the rows, and past Z the row's number, so a long list still has a name per row. */
+function letterFor(index: number): string {
+  return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
+}
+
+/**
+ * The answer a person gave, in the shape it is recorded: the option's id, or — for an answer they
+ * typed themselves — their words, marked as typed. One shape for both, so a reader of the result
+ * never has to learn a second one.
+ */
+export type ChoiceAnswer = { choice: string; label: string; typed?: true };
+
+/**
+ * A question with lettered options and a last row for an answer of the person's own.
+ *
+ * Drawn the same for the two things that ask one. `askChoice` suspends the run and its answer is
+ * the tool result (`respond`); a Bot's `ask_person` question with options has already ended its turn,
+ * and the answer is the person's next message — see `lib/copilot/escalation-tool.tsx`, which hands
+ * this a `respond` that sends one. Either way an option and a typed answer go out through the same
+ * `respond`, so typing is never a second-class way to answer.
+ *
+ * `onDismiss` puts an X beside the question for a caller that can do without the card: the person
+ * then answers in the composer like any other message.
+ */
+export function ChoiceCard(
+  props: Waiting<ChoiceArgs> & { onDismiss?: () => void },
+) {
+  const { args, status, respond, onDismiss } = props;
+  /** The option id or typed words on their way out, so the card stops taking answers at once. */
   const [sending, setSending] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [draft, setDraft] = useState("");
 
-  if (status === "inProgress") {
-    return (
-      <GalleryFrame title={args.title ?? "Waiting for the assistant…"}>
-        <p className="text-sm text-muted-foreground">Preparing the question…</p>
-      </GalleryFrame>
-    );
-  }
+  const recorded =
+    status === "complete" ? readChoiceAnswer(props.result) : undefined;
+  const chosen = recorded?.choice ?? sending ?? undefined;
+  const options = args.options ?? [];
+  const pickedOption = options.find((option) => option.id === chosen);
+  /** An answer that is none of the options: what the person typed. */
+  const ownAnswer =
+    chosen !== undefined && !pickedOption
+      ? (recorded?.label ?? chosen)
+      : undefined;
+  const settled = chosen !== undefined || status !== "executing";
 
-  const chosen = status === "complete" ? readChoice(props.result) : undefined;
+  const answer = async (value: ChoiceAnswer) => {
+    if (!respond || settled) return;
+    setSending(value.choice);
+    try {
+      await respond(value);
+    } catch {
+      // Not sent, so not answered: the card takes an answer again.
+      setSending(null);
+    }
+  };
+
+  const submitOwn = () => {
+    const text = draft.trim();
+    if (!text) return;
+    void answer({ choice: text, label: text, typed: true });
+  };
 
   return (
-    <GalleryFrame
-      action={
-        chosen ? (
+    <figure className="my-2 w-full max-w-2xl rounded-2xl bg-muted p-4 dark:bg-card">
+      <figcaption className="flex items-start justify-between gap-4 pb-3">
+        <div className="min-w-0">
+          <p className="text-[15px] font-medium">
+            {args.title ?? "Waiting for the assistant…"}
+          </p>
+          {args.summary ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {args.summary}
+            </p>
+          ) : null}
+        </div>
+        {recorded ? (
           <Badge tone="positive">Answered</Badge>
-        ) : (
-          <Badge tone="caution">Waiting on you</Badge>
-        )
-      }
-      caption={args.summary}
-      title={args.title}
-    >
-      <ul className="space-y-2">
-        {(args.options ?? []).map((option) => {
-          const picked = chosen === option.id;
-          return (
-            <li key={option.id}>
-              <button
-                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                  picked
-                    ? "border-emerald-500/40 bg-emerald-500/10"
-                    : chosen
-                      ? "border-border opacity-50"
-                      : "border-border hover:bg-foreground/5"
-                }`}
-                disabled={Boolean(chosen) || Boolean(sending)}
-                onClick={async () => {
-                  if (!respond) return;
-                  setSending(option.id);
-                  await respond({ choice: option.id, label: option.label });
+        ) : onDismiss && !settled ? (
+          <button
+            aria-label="Dismiss"
+            className="-m-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            onClick={onDismiss}
+            type="button"
+          >
+            <IconX className="size-4" />
+          </button>
+        ) : null}
+      </figcaption>
+
+      {status === "inProgress" ? (
+        <p className="text-sm text-muted-foreground">Preparing the question…</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background">
+            {options.map((option, index) => {
+              const picked = pickedOption?.id === option.id;
+              return (
+                <li key={option.id}>
+                  <button
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors ${
+                      picked
+                        ? "bg-emerald-500/10"
+                        : settled
+                          ? "opacity-50"
+                          : "hover:bg-foreground/5"
+                    }`}
+                    disabled={settled}
+                    onClick={() =>
+                      void answer({ choice: option.id, label: option.label })
+                    }
+                    type="button"
+                  >
+                    <span
+                      aria-hidden
+                      className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border text-xs text-muted-foreground"
+                    >
+                      {letterFor(index)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block">{option.label}</span>
+                      {option.description ? (
+                        <span className="block text-xs text-muted-foreground">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+
+          {ownAnswer !== undefined ? (
+            <p className="mt-3 rounded-xl border border-border bg-emerald-500/10 px-3 py-2.5 text-sm">
+              {ownAnswer}
+            </p>
+          ) : typing && !settled ? (
+            <form
+              className="mt-3 flex items-center gap-2 rounded-xl border border-ring bg-background px-3 py-1.5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitOwn();
+              }}
+            >
+              <input
+                aria-label="Your own answer"
+                // Opened by a click on the row it replaced, so the caret belongs here at once.
+                // biome-ignore lint/a11y/noAutofocus: the person just asked to type.
+                autoFocus
+                className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none"
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setTyping(false);
+                  }
                 }}
-                type="button"
+                placeholder="Type your own answer"
+                value={draft}
+              />
+              <Button
+                aria-label="Send answer"
+                disabled={!draft.trim()}
+                size="icon-xs"
+                type="submit"
               >
-                <span className="font-medium">{option.label}</span>
-                {option.description ? (
-                  <span className="block text-xs text-muted-foreground">
-                    {option.description}
-                  </span>
-                ) : null}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </GalleryFrame>
+                <IconArrowUp />
+              </Button>
+            </form>
+          ) : settled ? null : (
+            <button
+              className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-left text-sm text-muted-foreground hover:bg-foreground/5"
+              onClick={() => setTyping(true)}
+              type="button"
+            >
+              Type your own answer
+            </button>
+          )}
+        </>
+      )}
+    </figure>
   );
 }
 
@@ -235,9 +358,17 @@ function readDecision(
   return value === "approved" || value === "declined" ? value : undefined;
 }
 
-function readChoice(result: string | undefined): string | undefined {
-  const value = readResult(result)?.choice;
-  return typeof value === "string" ? value : undefined;
+/** The recorded answer, typed or picked, or nothing for a result that does not hold one. */
+function readChoiceAnswer(
+  result: string | undefined,
+): ChoiceAnswer | undefined {
+  const recorded = readResult(result);
+  const choice = recorded?.choice;
+  if (typeof choice !== "string") return undefined;
+  const label = typeof recorded?.label === "string" ? recorded.label : choice;
+  return recorded?.typed === true
+    ? { choice, label, typed: true }
+    : { choice, label };
 }
 
 /**
@@ -277,7 +408,7 @@ export const GALLERY: GalleryComponent[] = [
     title: "Choice",
     kind: "decision",
     description:
-      "Ask the person to pick one of several options, and WAIT for their answer. Use when you cannot sensibly guess which one they meant. You are given the id of the option they chose.",
+      "Ask the person to pick one of several options, and WAIT for their answer. Use when you cannot sensibly guess which one they meant. You are given the id of the option they chose, or, when they typed an answer of their own instead, their words with typed: true.",
     parameters: ChoiceCardProps,
     Component: ChoiceCard as GalleryComponent["Component"],
     preview: {

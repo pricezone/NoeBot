@@ -1540,7 +1540,12 @@ export function ChatTranscript({
        * last means the person went last — without this an attachment-only turn silently swallowed
        * the Thinking indicator.
        */
-      lastItem?.kind === "attachments");
+      lastItem?.kind === "attachments" ||
+      /*
+       * Nothing at all yet, once history is in: a Bot made in one click speaks first, so the turn
+       * starts on an empty conversation and the person watches the empty space for it.
+       */
+      (lastItem === undefined && !restoring));
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const newestUserMessageId =
