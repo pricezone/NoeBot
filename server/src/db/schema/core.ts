@@ -386,6 +386,13 @@ export const channelMemberships = pgTable(
      * pin: reading is one person's act, and the unread marker it feeds is that person's alone.
      */
     lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+    /**
+     * When this member hid the channel from their sidebar, or null. On the membership like the pin:
+     * hiding is one person tidying their own roster, while deleting (`channels.deleted_at`) is for
+     * everyone. Not a switch that stays off: the roster draws the row again as soon as something is
+     * said after this moment, so a conversation that comes back to life is never lost to a click.
+     */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (table) => [primaryKey({ columns: [table.channelId, table.userId] })],

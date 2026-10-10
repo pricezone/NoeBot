@@ -26,14 +26,22 @@ import {
   agentProfiles,
   channelAgents,
   channelMemberships,
+  channelSections,
   channels,
   intelligenceChannelMappings,
+  sidebarSections,
 } from "../db/schema";
 import {
   CHANNEL_ACTIVITY_TOPIC,
   type ChannelActivityEvent,
   type ChannelEventHub,
 } from "./events";
+import {
+  createSectionRoutes,
+  createSidebarSectionStore,
+  SectionNotFoundError,
+  type SidebarSectionStore,
+} from "./sections";
 import { upgradeWebSocket } from "./socket";
 import { oneLine } from "./text";
 import type { ThreadIdentity } from "./thread-identity";
@@ -66,6 +74,16 @@ export type ChannelSummary = AgentChannel & {
   pinned: boolean;
   /** When the caller last had this channel open, or null for never. The caller's, only. */
   lastReadAt: Date | null;
+  /**
+   * When the caller hid this channel from their sidebar, or null. The caller's, only.
+   *
+   * Listed anyway, not filtered out: a hidden conversation is still reachable from the search, and
+   * whether it is hidden RIGHT NOW is a comparison with `lastMessageAt` the browser repeats on every
+   * socket patch, which is what brings the row back the moment somebody speaks in it.
+   */
+  hiddenAt: Date | null;
+  /** Which of the caller's sections this channel is filed under, or null for none. */
+  sectionId: string | null;
 };
 
 /** What a client that ran an agent reports back about the message it just saw. */
@@ -168,7 +186,7 @@ const ROSTER_ORDER = [
 /** The transaction `create` and `direct` share, as the driver hands it to a callback. */
 type ChannelTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export type ChannelStore = {
+export type ChannelStore = SidebarSectionStore & {
   create(actor: AgentActor, agentIds: string[]): Promise<AgentChannel>;
   /**
    * The one conversation this person has with this Bot alone, made if they have not had one yet.
@@ -192,6 +210,32 @@ export type ChannelStore = {
   ): Promise<void>;
   /** Stamp the caller's own membership as read now. Throws ChannelNotFoundError for a non-member. */
   markRead(actor: AgentActor, channelId: string): Promise<void>;
+  /**
+   * Move the caller's read marker to just before the last thing a Bot said, so the roster shows the
+   * unread dot again. False, and nothing written, when the last message is not a Bot's: the dot is
+   * only ever for a Bot's words (`hasUnseenActivity` in the app), so there is nothing to bring
+   * back. Throws ChannelNotFoundError for a non-member.
+   */
+  markUnread(actor: AgentActor, channelId: string): Promise<boolean>;
+  /**
+   * Hide the channel from the caller's sidebar, or show it again. Returns the stamp written, or
+   * null when shown. The caller's alone, and undone by itself the moment anything newer is said.
+   * Throws ChannelNotFoundError for a non-member.
+   */
+  setHidden(
+    actor: AgentActor,
+    channelId: string,
+    hidden: boolean,
+  ): Promise<Date | null>;
+  /**
+   * File the channel under one of the caller's sections, or take it out of one with null. Throws
+   * ChannelNotFoundError for a non-member and SectionNotFoundError for a section not theirs.
+   */
+  setSection(
+    actor: AgentActor,
+    channelId: string,
+    sectionId: string | null,
+  ): Promise<void>;
   /**
    * Hide the channel for every member. Soft: the row and the thread survive, every read filters.
    * Throws ChannelNotFoundError for a non-member and ChannelPackageOwnedError for a channel the
@@ -320,6 +364,8 @@ export function createChannelStore(
   };
 
   const store: ChannelStore = {
+    ...createSidebarSectionStore(database),
+
     create(actor, agentIds) {
       return database.transaction(
         async (transaction) => makeChannel(transaction, actor, agentIds),
@@ -513,6 +559,8 @@ export function createChannelStore(
           createdAt: channels.createdAt,
           pinnedAt: channelMemberships.pinnedAt,
           lastReadAt: channelMemberships.lastReadAt,
+          hiddenAt: channelMemberships.hiddenAt,
+          sectionId: channelSections.sectionId,
         })
         .from(channels)
         .innerJoin(
@@ -520,6 +568,14 @@ export function createChannelStore(
           and(
             eq(channelMemberships.channelId, channels.id),
             eq(channelMemberships.userId, actor.id),
+          ),
+        )
+        // Left: most conversations are filed under nothing, and those are still on the page.
+        .leftJoin(
+          channelSections,
+          and(
+            eq(channelSections.channelId, channels.id),
+            eq(channelSections.userId, actor.id),
           ),
         )
         .innerJoin(
@@ -572,6 +628,8 @@ export function createChannelStore(
           createdAt: row.createdAt,
           pinned: row.pinnedAt !== null,
           lastReadAt: row.lastReadAt,
+          hiddenAt: row.hiddenAt,
+          sectionId: row.sectionId,
         });
       }
       return { channels: [...summaries.values()], nextCursor };
@@ -662,6 +720,187 @@ export function createChannelStore(
         .returning({ channelId: channelMemberships.channelId });
       // Not a member, or no such channel: the same answer either way, matching setPinned.
       if (updated.length === 0) throw new ChannelNotFoundError(channelId);
+    },
+
+    async markUnread(actor, channelId) {
+      const [row] = await database
+        .select({
+          lastMessageAt: channels.lastMessageAt,
+          lastMessageAgentId: channels.lastMessageAgentId,
+        })
+        .from(channelMemberships)
+        // A deleted channel is not there to mark, the same guard `markRead` carries.
+        .innerJoin(
+          channels,
+          and(
+            eq(channels.id, channelMemberships.channelId),
+            isNull(channels.deletedAt),
+          ),
+        )
+        .where(
+          and(
+            eq(channelMemberships.channelId, channelId),
+            eq(channelMemberships.userId, actor.id),
+          ),
+        );
+      if (!row) throw new ChannelNotFoundError(channelId);
+      /*
+       * Only the last message is known here. The transcript lives in the thread store, and the
+       * channel row denormalises the newest line and who said it, nothing older — so when the person
+       * spoke last there is no earlier Bot message whose time this could fall back to.
+       */
+      if (row.lastMessageAgentId === null || row.lastMessageAt === null) {
+        return false;
+      }
+
+      await database
+        .update(channelMemberships)
+        .set({
+          /*
+           * A millisecond before the message, computed from the stored column, not from the `Date`
+           * read above. The column keeps microseconds and a `Date` keeps milliseconds, so a marker
+           * made from the `Date` could land in the same millisecond as the message, and the browser
+           * compares millisecond strings: equal reads as seen, and the dot would not come back. A
+           * whole millisecond earlier stays earlier at either precision. Read again in the statement,
+           * so a message that arrives in between moves the marker with it.
+           */
+          lastReadAt: sql`(select ${channels.lastMessageAt} - interval '1 millisecond' from ${channels} where ${channels.id} = ${channelMemberships.channelId})`,
+        })
+        .where(
+          and(
+            eq(channelMemberships.channelId, channelId),
+            eq(channelMemberships.userId, actor.id),
+          ),
+        );
+      return true;
+    },
+
+    async setHidden(actor, channelId, hidden) {
+      return await database.transaction(
+        async (transaction) => {
+          const [updated] = await transaction
+            .update(channelMemberships)
+            .set({
+              /*
+               * The later of this clock and the channel's last-message stamp, for the reason
+               * `markRead` gives: last_message_at comes from other clocks, and a stamp a little
+               * behind it would read as "something was said after you hid this" and bring the row
+               * straight back.
+               */
+              hiddenAt: hidden
+                ? sql`greatest(now(), coalesce((select ${channels.lastMessageAt} from ${channels} where ${channels.id} = ${channelMemberships.channelId}), now()))`
+                : null,
+            })
+            .where(
+              and(
+                eq(channelMemberships.channelId, channelId),
+                eq(channelMemberships.userId, actor.id),
+                exists(
+                  transaction
+                    .select({ one: sql`1` })
+                    .from(channels)
+                    .where(
+                      and(
+                        eq(channels.id, channelId),
+                        isNull(channels.deletedAt),
+                      ),
+                    ),
+                ),
+              ),
+            )
+            .returning({ hiddenAt: channelMemberships.hiddenAt });
+          // Not a member, no such channel, or a deleted one: the same answer every way.
+          if (!updated) throw new ChannelNotFoundError(channelId);
+
+          // To this member's own tabs only, the way a pin is: nobody else's roster changed.
+          const event: ChannelActivityEvent = {
+            channelId,
+            memberIds: [actor.id],
+            lastMessage: null,
+            lastMessageAt: null,
+            lastMessageAgentId: null,
+            hiddenAt: updated.hiddenAt?.toISOString() ?? null,
+          };
+          await transaction.execute(
+            sql`select pg_notify(${CHANNEL_ACTIVITY_TOPIC}, ${JSON.stringify(event)})`,
+          );
+          return updated.hiddenAt;
+        },
+        { isolationLevel: "read committed" },
+      );
+    },
+
+    async setSection(actor, channelId, sectionId) {
+      await database.transaction(
+        async (transaction) => {
+          const [membership] = await transaction
+            .select({ channelId: channelMemberships.channelId })
+            .from(channelMemberships)
+            .innerJoin(
+              channels,
+              and(
+                eq(channels.id, channelMemberships.channelId),
+                isNull(channels.deletedAt),
+              ),
+            )
+            .where(
+              and(
+                eq(channelMemberships.channelId, channelId),
+                eq(channelMemberships.userId, actor.id),
+              ),
+            );
+          if (!membership) throw new ChannelNotFoundError(channelId);
+
+          if (sectionId === null) {
+            await transaction
+              .delete(channelSections)
+              .where(
+                and(
+                  eq(channelSections.channelId, channelId),
+                  eq(channelSections.userId, actor.id),
+                ),
+              );
+          } else {
+            /*
+             * Looked up rather than left to the foreign key, which would refuse the same row: the
+             * key is the guarantee, this is the sentence. Locked, so a delete of the section in
+             * another tab cannot land between this and the insert.
+             */
+            const [section] = await transaction
+              .select({ id: sidebarSections.id })
+              .from(sidebarSections)
+              .where(
+                and(
+                  eq(sidebarSections.id, sectionId),
+                  eq(sidebarSections.userId, actor.id),
+                ),
+              )
+              .for("update");
+            if (!section) throw new SectionNotFoundError(sectionId);
+            // One section per conversation per person is the primary key, so moving is an upsert.
+            await transaction
+              .insert(channelSections)
+              .values({ userId: actor.id, channelId, sectionId })
+              .onConflictDoUpdate({
+                target: [channelSections.userId, channelSections.channelId],
+                set: { sectionId },
+              });
+          }
+
+          const event: ChannelActivityEvent = {
+            channelId,
+            memberIds: [actor.id],
+            lastMessage: null,
+            lastMessageAt: null,
+            lastMessageAgentId: null,
+            sectionId,
+          };
+          await transaction.execute(
+            sql`select pg_notify(${CHANNEL_ACTIVITY_TOPIC}, ${JSON.stringify(event)})`,
+          );
+        },
+        { isolationLevel: "read committed" },
+      );
     },
 
     async softDelete(actor, channelId) {
@@ -1090,6 +1329,9 @@ export function createChannelRoutes(
     );
   }
 
+  // Before `/:channelId` as well, for the same reason: "sections" is not a channel id.
+  routes.route("/sections", createSectionRoutes(store, requireUser));
+
   routes.post("/", requireUser, async (context) => {
     const parsed = parseChannelInput(
       await context.req.json().catch(() => null),
@@ -1210,6 +1452,83 @@ export function createChannelRoutes(
     }
   });
 
+  routes.put("/:channelId/unread", requireUser, async (context) => {
+    try {
+      const marked = await store.markUnread(
+        context.var.actor,
+        context.req.param("channelId"),
+      );
+      if (!marked) {
+        return context.json(
+          {
+            error:
+              "The last message here is not from a Bot, so there is nothing to mark unread.",
+          },
+          409,
+        );
+      }
+      return context.body(null, 204);
+    } catch (error) {
+      return mapStoreError(context, error);
+    }
+  });
+
+  routes.put("/:channelId/hidden", requireUser, async (context) => {
+    const body = await context.req.json().catch(() => null);
+    if (!isChannelInputObject(body)) {
+      return context.json(
+        { error: "Hidden input must be a JSON object." },
+        400,
+      );
+    }
+    const { hidden } = body as { hidden?: unknown };
+    if (typeof hidden !== "boolean") {
+      return context.json({ error: "Hidden must be true or false." }, 400);
+    }
+
+    try {
+      const hiddenAt = await store.setHidden(
+        context.var.actor,
+        context.req.param("channelId"),
+        hidden,
+      );
+      return context.json({ hiddenAt: hiddenAt?.toISOString() ?? null });
+    } catch (error) {
+      return mapStoreError(context, error);
+    }
+  });
+
+  routes.put("/:channelId/section", requireUser, async (context) => {
+    const body = await context.req.json().catch(() => null);
+    if (!isChannelInputObject(body)) {
+      return context.json(
+        { error: "Section input must be a JSON object." },
+        400,
+      );
+    }
+    const { sectionId } = body as { sectionId?: unknown };
+    if (
+      sectionId !== null &&
+      (typeof sectionId !== "string" || sectionId.trim().length === 0)
+    ) {
+      return context.json(
+        { error: "Section id must be a section id or null." },
+        400,
+      );
+    }
+
+    try {
+      await store.setSection(
+        context.var.actor,
+        context.req.param("channelId"),
+        sectionId,
+      );
+      return context.json({ sectionId });
+    } catch (error) {
+      return mapStoreError(context, error);
+    }
+  });
+
   routes.delete("/:channelId", requireUser, async (context) => {
     const channelId = context.req.param("channelId");
     try {
@@ -1267,6 +1586,9 @@ function channelSummaryDto(channel: ChannelSummary) {
     pinned: channel.pinned,
     // Serialised as ISO-8601 like lastMessageAt, so the browser can compare the two as strings.
     lastReadAt: channel.lastReadAt?.toISOString() ?? null,
+    // The same, for the same comparison: a row is hidden until something newer than this is said.
+    hiddenAt: channel.hiddenAt?.toISOString() ?? null,
+    sectionId: channel.sectionId,
   };
 }
 
@@ -1276,6 +1598,9 @@ function mapStoreError(context: Context, error: unknown): Response {
   }
   if (error instanceof ChannelNotFoundError) {
     return context.json({ error: "Channel not found." }, 404);
+  }
+  if (error instanceof SectionNotFoundError) {
+    return context.json({ error: "Section not found." }, 404);
   }
   if (error instanceof ChannelPackageOwnedError) {
     return context.json(

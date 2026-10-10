@@ -182,9 +182,7 @@ function mount(open: ChannelSummary, roster: ChannelSummary[]) {
 async function deleteFromMenu(view: ReturnType<typeof render>, name: string) {
   const row = await view.findByRole("link", { name: new RegExp(name) });
   fireEvent.contextMenu(row, { clientX: 10, clientY: 10 });
-  fireEvent.click(
-    await view.findByRole("menuitem", { name: /Delete channel/ }),
-  );
+  fireEvent.click(await view.findByRole("menuitem", { name: "Delete" }));
   fireEvent.click(await view.findByRole("button", { name: "Delete" }));
 }
 

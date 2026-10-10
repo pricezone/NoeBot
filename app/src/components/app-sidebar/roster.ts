@@ -76,3 +76,68 @@ export function isUnread(
 ): boolean {
   return channel.id !== openChannelId && hasUnseenActivity(channel);
 }
+
+/**
+ * Whether this member has the row hidden from their sidebar right now.
+ *
+ * Hidden is a stamp, not a switch: it holds only while nothing newer has been said. The socket
+ * patches `lastMessageAt` the moment somebody speaks, so a hidden conversation comes back on its
+ * own without anybody un-hiding it — which is the point of hiding rather than deleting. Strictly
+ * newer, because the server stamps no earlier than the last message it had. Any message counts, the
+ * person's own included: writing in a conversation found through the search is wanting it back.
+ */
+export function isHiddenFromSidebar(channel: ChannelSummary): boolean {
+  const { hiddenAt } = channel;
+  if (hiddenAt === undefined || hiddenAt === null) return false;
+  return channel.lastMessageAt === null || channel.lastMessageAt <= hiddenAt;
+}
+
+/** A section heading and the rows filed under it, in the order the sidebar draws them. */
+export type RosterSection<Section extends { id: string }> = {
+  section: Section;
+  channels: ChannelSummary[];
+};
+
+/**
+ * The roster cut the way the sidebar draws it: pinned rows, then each section, then the rest.
+ *
+ * PINNED STAYS ON TOP. A pin was the one way to keep a conversation at the top before sections
+ * existed, and it still is: a pinned row is drawn in the pinned group whichever section it is filed
+ * under, and goes back to its section when it is unpinned. A row filed under a section this list
+ * does not hold (deleted in another tab, or not loaded yet) is drawn ungrouped rather than nowhere.
+ * Hidden rows are in none of the groups.
+ *
+ * Every group keeps the order the rows arrived in, which is the server's recency order, and the
+ * sections keep the order given, which is theirs.
+ */
+export function sidebarRoster<Section extends { id: string }>(
+  channels: readonly ChannelSummary[] | undefined,
+  sections: readonly Section[] | undefined,
+): {
+  pinned: ChannelSummary[];
+  sections: RosterSection<Section>[];
+  ungrouped: ChannelSummary[];
+} {
+  const grouped = new Map<string, ChannelSummary[]>(
+    (sections ?? []).map((section) => [section.id, []]),
+  );
+  const pinned: ChannelSummary[] = [];
+  const ungrouped: ChannelSummary[] = [];
+  for (const channel of channels ?? []) {
+    if (isHiddenFromSidebar(channel)) continue;
+    if (channel.pinned) {
+      pinned.push(channel);
+      continue;
+    }
+    const section = channel.sectionId ? grouped.get(channel.sectionId) : null;
+    (section ?? ungrouped).push(channel);
+  }
+  return {
+    pinned,
+    sections: (sections ?? []).map((section) => ({
+      section,
+      channels: grouped.get(section.id) ?? [],
+    })),
+    ungrouped,
+  };
+}

@@ -14,6 +14,7 @@ import { agentKeys } from "@/lib/agents/queries";
 import { authKeys } from "@/lib/auth/queries";
 import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
 import { channelKeys } from "@/lib/channels/queries";
+import { sectionKeys } from "@/lib/channels/sections";
 import { deploymentKeys } from "@/lib/deployment/queries";
 import { pluginKeys } from "@/lib/plugins/queries";
 import { userPreferencesQueryOptions } from "@/lib/settings/message-list";
@@ -125,6 +126,7 @@ function renderSidebar() {
     pages: [{ channels: [], nextCursor: null }],
     pageParams: [""],
   });
+  queryClient.setQueryData(sectionKeys.all, []);
   const routeTree = createRootRoute({
     component: () => (
       <SidebarProvider>
@@ -151,11 +153,13 @@ test("the sidebar opens the channel events socket exactly once", async () => {
     true,
   );
 
-  // A re-render of the sidebar (the search box opening) must not open a second socket.
+  // A re-render of the sidebar (the search popup opening) must not open a second socket.
   await act(async () => {
-    view.getByRole("button", { name: "Search channels" }).click();
+    view.getByRole("button", { name: "Search" }).click();
   });
-  expect(view.getByRole("textbox", { name: "Search channels" })).toBeTruthy();
+  expect(
+    await view.findByRole("combobox", { name: "Search Bots and Settings" }),
+  ).toBeTruthy();
   expect(RecordingWebSocket.opened).toHaveLength(1);
 });
 

@@ -1,10 +1,12 @@
-import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { CredentialStore } from "../credentials";
 import type { Database } from "../db/client";
 import {
   agentPreferences,
   agentProfiles,
   agents,
+  channelAgents,
+  channels,
   deploymentPackages,
 } from "../db/schema";
 import {
@@ -644,6 +646,36 @@ export function createAgentProfileStore(
               updatedAt,
             })
             .where(eq(agentProfiles.agentId, id));
+
+          if (input.name !== profile.name) {
+            /*
+             * A conversation is named after its Bots when it is made (`channelName` in
+             * channels/routes.ts), and the name is stored, so renaming a Bot used to leave every
+             * sidebar row and chat header with it saying the old name. Renamed here with the Bot, by
+             * the same rule: its Bots' names in agent-id order (the order `parseChannelInput` hands
+             * `create`), joined, and cut to 120 code points with an ellipsis. Not a tenant package's
+             * channels, whose names are configuration.
+             */
+            const joined = sql`(select string_agg(${agents.name}, ', ' order by ${channelAgents.agentId}) from ${channelAgents} inner join ${agents} on ${agents.id} = ${channelAgents.agentId} where ${channelAgents.channelId} = ${channels.id})`;
+            await transaction
+              .update(channels)
+              .set({
+                name: sql`case when char_length(${joined}) > 120 then left(${joined}, 119) || '…' else ${joined} end`,
+                updatedAt,
+              })
+              .where(
+                and(
+                  isNull(channels.packageId),
+                  inArray(
+                    channels.id,
+                    transaction
+                      .select({ id: channelAgents.channelId })
+                      .from(channelAgents)
+                      .where(eq(channelAgents.agentId, id)),
+                  ),
+                ),
+              );
+          }
 
           const updated = await findAccessibleProfile(transaction, actor, id);
           if (!updated) throw new AgentNotFoundError(id);

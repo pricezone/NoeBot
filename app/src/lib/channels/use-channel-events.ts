@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { type ChannelPage, type ChannelSummary, channelKeys } from "./queries";
+import { type SidebarSection, sectionKeys } from "./sections";
 import { socketUrl as buildSocketUrl } from "@/lib/socket-url";
 
 /**
@@ -84,6 +85,16 @@ export type ChannelActivityEvent = {
    */
   pinned?: boolean;
   /**
+   * This member hid the channel from their sidebar (a stamp) or showed it again (null), in another
+   * tab or on another replica. Absent on an ordinary activity event; addressed like a pin.
+   */
+  hiddenAt?: string | null;
+  /**
+   * This member filed the channel under one of their sections, or took it out (null). Absent on an
+   * ordinary activity event; addressed like a pin.
+   */
+  sectionId?: string | null;
+  /**
    * A turn started or ended in this channel. Absent on an ordinary activity event.
    *
    * Carries no message: it patches only the row's `busy` flag, so the roster can show a working
@@ -159,6 +170,23 @@ export function applyChannelEvent(
     if (previous.pinned === activity.pinned) return data;
     const channels = page.channels.slice();
     channels[index] = { ...previous, pinned: activity.pinned };
+    const pages = data.pages.slice();
+    pages[holdingPage] = { ...page, channels };
+    return { ...data, pages };
+  }
+  /* Hiding and filing are one member's markers, like a pin, and patch the one field each. */
+  if (activity.hiddenAt !== undefined) {
+    if ((previous.hiddenAt ?? null) === activity.hiddenAt) return data;
+    const channels = page.channels.slice();
+    channels[index] = { ...previous, hiddenAt: activity.hiddenAt };
+    const pages = data.pages.slice();
+    pages[holdingPage] = { ...page, channels };
+    return { ...data, pages };
+  }
+  if (activity.sectionId !== undefined) {
+    if ((previous.sectionId ?? null) === activity.sectionId) return data;
+    const channels = page.channels.slice();
+    channels[index] = { ...previous, sectionId: activity.sectionId };
     const pages = data.pages.slice();
     pages[holdingPage] = { ...page, channels };
     return { ...data, pages };
@@ -260,6 +288,22 @@ export function useChannelEvents() {
           },
         );
 
+        /*
+         * A chat filed, in another tab, under a section this tab has never heard of: that tab made
+         * the section too, a moment before. Without its heading the row would sit in the ungrouped
+         * list, so the sections are fetched again rather than waiting for a reload.
+         */
+        if (typeof activity.sectionId === "string") {
+          const sections = queryClient.getQueryData<SidebarSection[]>(
+            sectionKeys.all,
+          );
+          if (
+            sections !== undefined &&
+            !sections.some((section) => section.id === activity.sectionId)
+          ) {
+            void queryClient.invalidateQueries({ queryKey: sectionKeys.all });
+          }
+        }
         /*
          * A tab looking at the channel somebody just deleted in another tab.
          *

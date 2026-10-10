@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar/app-sidebar";
 import { SidebarShell } from "@/components/layout/sidebar-shell";
+import { Toaster } from "@/components/ui/toast";
 import { rememberReturnTo } from "@/lib/return-to";
 
 export const Route = createFileRoute("/_authed/_app")({
@@ -33,6 +34,7 @@ function RouteComponent() {
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         <Outlet />
       </main>
+      <Toaster />
     </SidebarShell>
   );
 }

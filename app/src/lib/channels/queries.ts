@@ -36,6 +36,17 @@ export type ChannelSummary = AgentChannel & {
   /** ISO-8601 when this member last had the channel open, or null for never. The caller's, only. */
   lastReadAt: string | null;
   /**
+   * ISO-8601 when this member hid the channel from their sidebar, or null. The caller's, only.
+   *
+   * The row is hidden only while nothing newer has been said (`isHiddenFromSidebar` in the
+   * sidebar's roster rules), so a conversation somebody speaks in again comes back by itself.
+   * Optional, like `sectionId`: absent reads the same as null, which is what a row built before
+   * either field existed (a fixture, a cache from an older build) means by leaving it out.
+   */
+  hiddenAt?: string | null;
+  /** Which of this member's sidebar sections the channel is filed under, or null for none. */
+  sectionId?: string | null;
+  /**
    * Whether a turn is running in this channel right now.
    *
    * Socket-only and transient: the server never persists it and the roster query never returns it,

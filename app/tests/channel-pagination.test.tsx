@@ -27,6 +27,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { agentKeys } from "@/lib/agents/queries";
 import { authKeys } from "@/lib/auth/queries";
 import { type ChannelSummary, channelKeys } from "@/lib/channels/queries";
+import { sectionKeys } from "@/lib/channels/sections";
 import { userPreferencesQueryOptions } from "@/lib/settings/message-list";
 import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
 import { deploymentKeys } from "@/lib/deployment/queries";
@@ -207,6 +208,8 @@ function renderSidebar() {
     ],
     pageParams: [""],
   });
+  // Seeded like the rest, so the only requests the fixture sees are the roster's own pages.
+  queryClient.setQueryData(sectionKeys.all, []);
   const routeTree = createRootRoute({
     component: () => (
       <SidebarProvider>
@@ -319,32 +322,23 @@ test("a failed page preserves rows and waits for an explicit retry", async () =>
   expect(requests.at(-1)).toBe("/api/channels?cursor=last-page");
 });
 
-test("search loads older history explicitly and includes new matches", async () => {
+test("the magnifier opens the search popup, which neither filters nor pages the roster", async () => {
   const view = renderSidebar();
   const user = userEvent.setup({ document: view.container.ownerDocument });
   await view.findByText("Recent conversation");
-  // The box is hidden until the header's magnifier asks for it.
-  expect(view.queryByRole("textbox", { name: "Search channels" })).toBeNull();
-  await user.click(view.getByRole("button", { name: "Search channels" }));
-  const search = view.getByRole("textbox", { name: "Search channels" });
+  await user.click(view.getByRole("button", { name: "Search" }));
+  const search = await view.findByRole("combobox", {
+    name: "Search Bots and Settings",
+  });
   await user.type(search, "Archived");
-  expect(
-    await view.findByText("No loaded channels match your search"),
-  ).toBeTruthy();
-  expect(ScrollObserver.active.size).toBe(0);
+  // The search looks for Bots and settings; the roster under it stays whole and asks for nothing.
   expect(requests).toEqual([]);
-  respond = async () =>
-    Response.json({
-      channels: [channel("Archived conversation")],
-      nextCursor: null,
-    });
-  fireEvent.click(
-    view.getByRole("button", { name: "Load older conversations" }),
-  );
-  expect(await view.findByText("Archived conversation")).toBeTruthy();
-  expect(view.queryByText("No loaded channels match your search")).toBeNull();
-  await user.click(search);
-  await user.keyboard("{Control>}a{/Control}{Backspace}");
-  expect(await view.findByText("Recent conversation")).toBeTruthy();
-  expect(view.getByText("Archived conversation")).toBeTruthy();
+  expect(view.getByText("Recent conversation")).toBeTruthy();
+  // `hidden`: the popup is modal, so what is under it is out of the accessibility tree meanwhile.
+  expect(
+    view.getByRole("button", {
+      name: "Load older conversations",
+      hidden: true,
+    }),
+  ).toBeTruthy();
 });

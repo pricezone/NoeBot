@@ -372,6 +372,13 @@
       "when": 1791650231189,
       "tag": "0052_avatar_choice",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791653182267,
+      "tag": "0053_sidebar_sections",
+      "breakpoints": true
     }
   ]
 }
