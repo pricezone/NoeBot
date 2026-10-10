@@ -38,6 +38,16 @@ export type ChannelActivityEvent = {
    */
   pinned?: boolean;
   /**
+   * One member hid the channel from their sidebar (an ISO-8601 stamp) or showed it again (null).
+   * Absent on an ordinary activity event. Addressed to that member alone, the same way as a pin.
+   */
+  hiddenAt?: string | null;
+  /**
+   * One member filed the channel under a section of theirs, or took it out of one (null). Absent on
+   * an ordinary activity event, and addressed to that member alone, the same way as a pin.
+   */
+  sectionId?: string | null;
+  /**
    * A turn started or ended in this channel. Absent on an ordinary activity event.
    *
    * Transient and message-less: it is never written to a table, only announced, so the roster can

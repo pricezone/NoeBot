@@ -365,6 +365,13 @@
       "when": 1790939356628,
       "tag": "0051_routine_enabled_at",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791650318521,
+      "tag": "0053_sidebar_sections",
+      "breakpoints": true
     }
   ]
 }
