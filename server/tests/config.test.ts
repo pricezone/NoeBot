@@ -1124,61 +1124,114 @@ test("a Composio key is read when set and absent when not", () => {
  * and a deployment that sets one must not have silently set the other.
  */
 describe("platform-provided plugin OAuth clients", () => {
+  /** The platform's token endpoint and the usage token it admits this deployment on. */
+  const proxy = {
+    OPENBOT_PLUGIN_OAUTH_TOKEN_URL:
+      "https://www.hypernoesis.ai/api/plugins/oauth/token",
+    OPENBOT_USAGE_TOKEN: "usage-token",
+  };
   const drive = {
     OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
-    OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_SECRET: "drive-secret",
+    ...proxy,
   };
 
-  test("none configured is an empty map and no relay, and sign-in's client is not one", () => {
+  test("none configured is an empty map, no proxy and no relay, and sign-in's client is not one", () => {
     const config = loadConfig(baseEnvironment);
     expect(config.pluginOauthClients).toEqual({});
+    expect(config.pluginOauthTokenProxy).toBeUndefined();
     expect(config.pluginOauthRedirectUrl).toBeUndefined();
   });
 
-  test("a pair is read under the catalogue key it spells", () => {
+  test("an id is read under the catalogue key it spells, with the proxy it is redeemed through", () => {
     const config = loadConfig({ ...baseEnvironment, ...drive });
     expect(config.pluginOauthClients).toEqual({
-      "google-drive": {
-        clientId: "drive-client",
-        clientSecret: "drive-secret",
-      },
+      "google-drive": { clientId: "drive-client" },
+    });
+    expect(config.pluginOauthTokenProxy).toEqual({
+      url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+      bearer: "usage-token",
     });
     // Still the sign-in client, untouched by the plugin one.
     expect(config.oauth.google?.clientId).toBe("google-client-id");
   });
 
-  test("half a pair refuses to start", () => {
+  /**
+   * The secret is the platform's and stays there. A deployment handed one would be one of many
+   * holding it, so the variable is refused outright rather than read and ignored.
+   */
+  test("a client secret refuses to start, saying the platform holds it", () => {
     expect(() =>
       loadConfig({
         ...baseEnvironment,
-        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+        ...drive,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_SECRET: "drive-secret",
       }),
-    ).toThrow("must be set together");
+    ).toThrow(
+      "OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_SECRET must not be set: the platform holds the client secret",
+    );
+    // Alone, too: a secret with no id is still the platform's secret in the wrong place.
     expect(() =>
       loadConfig({
         ...baseEnvironment,
         OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET: "s",
       }),
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET must not be set");
+  });
+
+  test("an id without the proxy or the usage token refuses to start", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+      }),
     ).toThrow(
-      "OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_ID and OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET must be set together",
+      "OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID needs OPENBOT_PLUGIN_OAUTH_TOKEN_URL and OPENBOT_USAGE_TOKEN",
     );
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+        OPENBOT_PLUGIN_OAUTH_TOKEN_URL: proxy.OPENBOT_PLUGIN_OAUTH_TOKEN_URL,
+      }),
+    ).toThrow("OPENBOT_USAGE_TOKEN");
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+        OPENBOT_USAGE_TOKEN: "usage-token",
+      }),
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_TOKEN_URL");
+    // The proxy on its own applies to nothing and refuses nothing: a platform may set it ahead of
+    // the first client it hands out.
+    expect(
+      loadConfig({ ...baseEnvironment, ...proxy }).pluginOauthClients,
+    ).toEqual({});
+  });
+
+  test("the proxy has to be https", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_TOKEN_URL: "http://platform.example/token",
+      }),
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_TOKEN_URL must be an https URL");
   });
 
   test("a key that is not a user-oauth entry refuses, naming the ones that are", () => {
-    // Parallel's anonymous entry takes no client; a secret sitting under its name would be presented
+    // Parallel's anonymous entry takes no client; an id sitting under its name would be presented
     // to nobody and read as configured.
     expect(() =>
       loadConfig({
         ...baseEnvironment,
+        ...proxy,
         OPENBOT_PLUGIN_OAUTH_CLIENT_PARALLEL_ID: "x",
-        OPENBOT_PLUGIN_OAUTH_CLIENT_PARALLEL_SECRET: "y",
       }),
     ).toThrow("GOOGLE_DRIVE");
     expect(() =>
       loadConfig({
         ...baseEnvironment,
+        ...proxy,
         OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID: "x",
-        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_SECRET: "y",
       }),
     ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID");
     // A blank value is unset, as everywhere else in this file.

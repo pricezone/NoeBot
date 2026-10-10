@@ -29,6 +29,7 @@ import {
   redirectUriFor,
   relayedState,
   sealConnectState,
+  type TokenProxy,
   unrelayedState,
 } from "./oauth";
 import {
@@ -193,6 +194,14 @@ export function createPluginRoutes(
      * Absent on a deployment that holds its own clients, where the callback is this API's.
      */
     externalRedirectUri?: string;
+    /**
+     * The platform's token endpoint, which holds the secret of a platform-provided client.
+     *
+     * A code for such a client is redeemed there rather than at the vendor, with the platform's
+     * bearer and no secret, because the secret never reaches this deployment; see
+     * {@link TokenProxy}. Absent on a deployment that holds its own clients.
+     */
+    tokenProxy?: TokenProxy;
   },
   /**
    * The broker this deployment talks to when an app is connected for somebody rather than
@@ -2230,6 +2239,11 @@ export function createPluginRoutes(
           client,
         ),
         verifier: state.verifier,
+        // A platform client's code goes to the platform, which holds the secret this deployment
+        // does not. A stored or dynamic client redeems at the vendor exactly as before.
+        ...(client.source === "env" && connect.tokenProxy
+          ? { proxy: connect.tokenProxy }
+          : {}),
       });
       if (!grant) return context.redirect(failed);
 

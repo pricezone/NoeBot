@@ -74,7 +74,12 @@ import {
 } from "./composio";
 import { inspectToolArguments } from "./content-governance";
 import { type ListedTool, McpServerError } from "./mcp";
-import { type OAuthClientSource, registerDynamicClient } from "./oauth";
+import {
+  type OAuthClientSource,
+  registerDynamicClient,
+  type TokenProxy,
+  tokenRequestFor,
+} from "./oauth";
 import { shareTargetOf } from "./share-target";
 import { transportFor } from "./transport";
 
@@ -914,6 +919,12 @@ export async function exchangeRefreshTokenOverHttp(input: {
   tokenUrl: string;
   client: OAuthClientCredentials;
   refreshToken: string;
+  /**
+   * The platform's token endpoint, for a platform-provided client: the same form goes there with
+   * the platform's bearer and no secret, and the vendor's answer comes back through it unchanged.
+   * See {@link TokenProxy}.
+   */
+  proxy?: TokenProxy;
 }): Promise<AccessToken> {
   const params = new URLSearchParams({
     grant_type: "refresh_token",
@@ -921,14 +932,16 @@ export async function exchangeRefreshTokenOverHttp(input: {
     client_id: input.client.clientId,
   });
   // A public (DCR) client proves itself without one, and some vendors refuse an unexpected empty
-  // field outright. The same guard the authorization-code redemption in `oauth.ts` uses.
+  // field outright. The same guard the authorization-code redemption in `oauth.ts` uses. A
+  // platform-provided client has none here on purpose: the platform adds it.
   if (input.client.clientSecret) {
     params.set("client_secret", input.client.clientSecret);
   }
 
-  const response = await fetch(input.tokenUrl, {
+  const request = tokenRequestFor(input.tokenUrl, input.proxy);
+  const response = await fetch(request.url, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: request.headers,
     body: params,
     /*
      * A redirect is a refusal, not a detour to be followed.
@@ -936,7 +949,8 @@ export async function exchangeRefreshTokenOverHttp(input: {
      * `tokenUrl` is pinned in the catalogue because this request carries the deployment's client
      * secret and somebody's refresh token, and following a 302 would hand both to whatever address
      * the answer named. Manual leaves the 3xx as the response, which is not `ok`, so it falls into
-     * the refusal below. The same guard the authorization-code redemption in `oauth.ts` uses.
+     * the refusal below. The same guard the authorization-code redemption in `oauth.ts` uses, and
+     * the platform's proxy is held to it too.
      */
     redirect: "manual",
     signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
@@ -1075,7 +1089,8 @@ function isUsableClient(value: unknown): value is OAuthClientCredentials {
  * minted moments ago. Null only for a row that has since disappeared, which the read refuses first.
  */
 type StoredClient = {
-  client: OAuthClientCredentials;
+  /** With its source, because where the refresh is sent follows the client. */
+  client: OAuthClient;
   registeredAt: Date | null;
 };
 
@@ -1167,6 +1182,8 @@ export type PluginStoreOptions = {
     tokenUrl: string;
     client: OAuthClientCredentials;
     refreshToken: string;
+    /** Present for a platform-provided client: where the form goes instead, and the bearer. */
+    proxy?: TokenProxy;
   }) => Promise<AccessToken>;
   /** RFC 7591 self-registration, for entries whose clientRegistration is dynamic. */
   registerClient?: (input: {
@@ -1178,17 +1195,24 @@ export type PluginStoreOptions = {
    *
    * ONE WINS OVER THE VAULT, EVERYWHERE A CLIENT IS READ. A platform that runs many deployments
    * registers one Google client, once, with one redirect URI, and hands every instance the same
-   * id and secret through the environment; no administrator pastes anything and no instance
+   * client id through the environment; no administrator pastes anything and no instance
    * registers itself. So where an entry has one of these, the vault is never consulted for it:
    * not for the consent URL, not for the redemption, not for the refresh. A vault row that
    * happens to exist beside it is left alone and unread, so removing the variable restores it.
    *
-   * It also needs no `credential_id` on the server row — which is what used to say "this
-   * deployment holds a client" — and it is never re-registered: `invalid_client` from a vendor
-   * about a client the platform owns is the platform's to fix, not something an instance can
-   * register its way out of.
+   * THE ID ALONE, NEVER THE SECRET. The secret stays with the platform, and every token exchange
+   * for such a client goes to {@link PluginStoreOptions.oauthTokenProxy} instead of the vendor,
+   * which is why a store with one of these and no proxy refuses to be built. It also needs no
+   * `credential_id` on the server row — which is what used to say "this deployment holds a
+   * client" — and it is never re-registered: `invalid_client` from a vendor about a client the
+   * platform owns is the platform's to fix, not something an instance can register its way out of.
    */
-  envOAuthClients?: Readonly<Record<string, OAuthClientCredentials>>;
+  envOAuthClients?: Readonly<Record<string, { clientId: string }>>;
+  /**
+   * The platform's token endpoint, which holds the secret for every client in
+   * {@link PluginStoreOptions.envOAuthClients}. See {@link TokenProxy}. Required with any of them.
+   */
+  oauthTokenProxy?: TokenProxy;
   /**
    * Composio the broker, absent on a deployment that has not configured one.
    *
@@ -1243,17 +1267,32 @@ export function createPluginStore(options: PluginStoreOptions) {
   // to, and a deployment with no Composio key is supposed to have no broker. See `./broker`.
   const broker = options.broker;
   const envOAuthClients = options.envOAuthClients ?? {};
+  const oauthTokenProxy = options.oauthTokenProxy;
+  /*
+   * A platform client without the platform's token endpoint is a client that can never redeem or
+   * renew anything: the secret is the platform's, and the vendor refuses the form without it. Said
+   * here, once, rather than at the first consent somebody completes against it.
+   */
+  if (Object.keys(envOAuthClients).length > 0 && !oauthTokenProxy) {
+    throw new Error(
+      "A platform-provided OAuth client needs the platform's token endpoint: set oauthTokenProxy with envOAuthClients.",
+    );
+  }
 
   /**
    * The platform-configured client for a server, or null where the platform configured none.
    *
    * Asked before the vault by every reader of a client — see {@link PluginStoreOptions.envOAuthClients}
-   * for why it wins — and marked with its source so the redirect URI follows the client rather than
-   * the deployment. Looked up by the server's id, which for a curated row is its catalogue key.
+   * for why it wins — and marked with its source so the redirect URI and the token endpoint follow
+   * the client rather than the deployment. The secret is the empty string, deliberately and
+   * permanently: the platform holds it. Looked up by the server's id, which for a curated row is
+   * its catalogue key.
    */
   function envClientFor(serverId: string): OAuthClient | null {
     const client = envOAuthClients[serverId];
-    return client ? { ...client, source: "env" } : null;
+    return client
+      ? { clientId: client.clientId, clientSecret: "", source: "env" }
+      : null;
   }
 
   /*
@@ -1795,7 +1834,10 @@ export function createPluginStore(options: PluginStoreOptions) {
       if (!isUsableClient(parsed)) {
         throw new PluginRefusedError(unusableClient, null);
       }
-      return { client: parsed, registeredAt: server.registeredAt };
+      return {
+        client: { ...parsed, source: "stored" },
+        registeredAt: server.registeredAt,
+      };
     }
 
     /*
@@ -1896,10 +1938,19 @@ export function createPluginStore(options: PluginStoreOptions) {
             locked.encryptedValue,
           );
 
+          /*
+           * The credentials by name, and the proxy only for the platform's client. A stored or
+           * dynamic client goes to the vendor with its secret, exactly as before; the platform's
+           * goes to the platform with none, and the platform adds it.
+           */
+          const { clientId, clientSecret, source } = stored.client;
           const minted = await exchangeRefreshToken({
             tokenUrl,
-            client: stored.client,
+            client: { clientId, clientSecret },
             refreshToken,
+            ...(source === "env" && oauthTokenProxy
+              ? { proxy: oauthTokenProxy }
+              : {}),
           });
 
           /*

@@ -1670,6 +1670,10 @@ export function createApp(
           ...(config.pluginOauthRedirectUrl
             ? { externalRedirectUri: config.pluginOauthRedirectUrl }
             : {}),
+          // And the platform's token endpoint, which holds such a client's secret for it.
+          ...(config.pluginOauthTokenProxy
+            ? { tokenProxy: config.pluginOauthTokenProxy }
+            : {}),
         },
         composio,
       ),

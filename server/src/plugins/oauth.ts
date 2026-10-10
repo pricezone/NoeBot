@@ -96,6 +96,44 @@ type SealedState = ConnectState & { exp: number };
 export type OAuthClientSource = "env" | "stored";
 
 /**
+ * The platform's token endpoint, standing in for the vendor's for a platform-provided client.
+ *
+ * THE CLIENT SECRET NEVER REACHES THIS DEPLOYMENT. A platform-provided client is one Google client
+ * shared by every deployment the platform runs, and a secret handed to each of them is a secret
+ * held in as many places as there are deployments. So the deployment holds the client id alone,
+ * and sends the token request — the same form it would send the vendor, with no `client_secret` —
+ * to the platform, which adds the secret and forwards it. `bearer` is what the platform admits the
+ * request on: the usage token it already issued this deployment. The answer is the vendor's,
+ * passed through unchanged, so everything that reads one reads it exactly as before.
+ */
+export type TokenProxy = { url: string; bearer: string };
+
+/**
+ * Where a token request goes and what it carries: the vendor directly, or the platform's proxy.
+ *
+ * One function for both exchanges — the code redemption here and the refresh in `store.ts` — so
+ * the two cannot address the proxy differently.
+ */
+export function tokenRequestFor(
+  tokenUrl: string,
+  proxy: TokenProxy | undefined,
+): { url: string; headers: Record<string, string> } {
+  if (!proxy) {
+    return {
+      url: tokenUrl,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    };
+  }
+  return {
+    url: proxy.url,
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization: `Bearer ${proxy.bearer}`,
+    },
+  };
+}
+
+/**
  * Where the vendor sends somebody back to.
  *
  * Built from the deployment's own public URL rather than from the incoming request, because this
@@ -379,6 +417,11 @@ export async function redeemAuthorizationCode(input: {
   code: string;
   redirectUri: string;
   verifier: string;
+  /**
+   * The platform's token endpoint, for a platform-provided client. The same form goes there
+   * instead of to `tokenUrl`, with the platform's bearer and no secret; see {@link TokenProxy}.
+   */
+  proxy?: TokenProxy;
 }): Promise<RedeemedGrant | null> {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
@@ -387,8 +430,11 @@ export async function redeemAuthorizationCode(input: {
     redirect_uri: input.redirectUri,
     code_verifier: input.verifier,
   });
-  // A public (DCR) client proves itself with PKCE, and some vendors refuse an unexpected empty field.
+  // A public (DCR) client proves itself with PKCE, and some vendors refuse an unexpected empty
+  // field. A platform-provided client has none here on purpose: the platform adds it.
   if (input.clientSecret) params.set("client_secret", input.clientSecret);
+
+  const request = tokenRequestFor(input.tokenUrl, input.proxy);
 
   /*
    * Our own catalogue, told apart from their outage before a request is attempted.
@@ -403,11 +449,11 @@ export async function redeemAuthorizationCode(input: {
    * Checking it here is also what leaves the catch below covering only the transport, rather than
    * quietly standing in for a mistake in a frozen literal.
    */
-  if (!URL.canParse(input.tokenUrl)) {
+  if (!URL.canParse(request.url)) {
     console.error(
       JSON.stringify({
         type: "oauth-token-endpoint-unusable",
-        tokenUrl: input.tokenUrl,
+        tokenUrl: request.url,
         note: "This vendor's token endpoint is not a usable address, so nobody can connect it until the catalogue is fixed.",
       }),
     );
@@ -430,9 +476,9 @@ export async function redeemAuthorizationCode(input: {
    */
   let response: Response;
   try {
-    response = await fetch(input.tokenUrl, {
+    response = await fetch(request.url, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: request.headers,
       body: params,
       /*
        * A redirect is a refusal, not a detour to be followed.
@@ -440,6 +486,7 @@ export async function redeemAuthorizationCode(input: {
        * `tokenUrl` is pinned in the catalogue because this request carries a client secret and an
        * authorization code, and following a 302 would hand both to whatever address the answer named.
        * Manual leaves the 3xx as the response, which is not `ok`, so it falls into the refusal below.
+       * The platform's proxy is configuration this deployment was handed, and is held to the same.
        */
       redirect: "manual",
       signal: AbortSignal.timeout(15_000),
@@ -458,7 +505,7 @@ export async function redeemAuthorizationCode(input: {
     console.error(
       JSON.stringify({
         type: "oauth-token-endpoint-unreachable",
-        tokenUrl: input.tokenUrl,
+        tokenUrl: request.url,
         note: "A person's consent could not be redeemed. They were sent back to Settings with a failure.",
         error: String(error),
       }),

@@ -297,9 +297,10 @@ describe("connecting a vendor this deployment has not added", () => {
  * on the same deployment was registered with this deployment's own callback and keeps naming it.
  */
 describe("connecting with a platform-provided client", () => {
+  // No secret: the platform holds it, and nothing on this route needs one anyway.
   const ENV_CLIENT: OAuthClient = {
     clientId: "platform-google",
-    clientSecret: "platform-secret",
+    clientSecret: "",
     source: "env",
   };
 

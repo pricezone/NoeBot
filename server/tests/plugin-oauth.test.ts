@@ -742,6 +742,61 @@ describe("redeeming an authorization code", () => {
   });
 
   /**
+   * A platform-provided client's code goes to the platform, which holds the secret this deployment
+   * never sees: the same form, no `client_secret`, under the platform's bearer, and the vendor's
+   * answer read back through it exactly as a direct one.
+   */
+  test("a platform client's code goes to the platform's proxy, with the bearer and no secret", async () => {
+    const seen: {
+      url: string;
+      authorization: string | null;
+      params: URLSearchParams;
+    }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get("authorization"),
+        params: new URLSearchParams(String(init?.body)),
+      });
+      return new Response(
+        JSON.stringify({ refresh_token: "rt-1", scope: "drive" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const grant = await redeemAuthorizationCode({
+        tokenUrl: "https://vendor.example/token",
+        clientId: "platform-1",
+        clientSecret: "",
+        code: "code-1",
+        redirectUri: "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+        verifier: "verifier-1",
+        proxy: {
+          url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+          bearer: "usage-token",
+        },
+      });
+      expect(grant).toEqual({ refreshToken: "rt-1", scope: "drive" });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.url).toBe(
+        "https://www.hypernoesis.ai/api/plugins/oauth/token",
+      );
+      expect(seen[0]?.authorization).toBe("Bearer usage-token");
+      expect(seen[0]?.params.get("grant_type")).toBe("authorization_code");
+      expect(seen[0]?.params.get("code")).toBe("code-1");
+      expect(seen[0]?.params.get("client_id")).toBe("platform-1");
+      expect(seen[0]?.params.get("redirect_uri")).toBe(
+        "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+      );
+      expect(seen[0]?.params.get("code_verifier")).toBe("verifier-1");
+      expect(seen[0]?.params.has("client_secret")).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  /**
    * A 200 carrying something that is not JSON.
    *
    * The documented contract is a refusal — "a refusal rather than an exception when the vendor

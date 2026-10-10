@@ -90,6 +90,8 @@ function app(input: {
   /** The platform's relay and this deployment's id, for a platform-provided client. */
   externalRedirectUri?: string;
   deploymentId?: string;
+  /** The platform's token endpoint, which holds a platform-provided client's secret. */
+  tokenProxy?: { url: string; bearer: string };
 }) {
   const store = {
     // The brokered read the connect handler makes before anything about the consent flow. This
@@ -124,19 +126,31 @@ function app(input: {
         ? { externalRedirectUri: input.externalRedirectUri }
         : {}),
       ...(input.deploymentId ? { deploymentId: input.deploymentId } : {}),
+      ...(input.tokenProxy ? { tokenProxy: input.tokenProxy } : {}),
     },
   );
   return new Hono().route("/api/plugins", routes);
 }
 
+/** One token request as the vendor — or the platform's proxy — received it. */
+type TokenRequest = {
+  url: string;
+  authorization: string | null;
+  params: URLSearchParams;
+};
+
 /** A vendor that would happily hand over a refresh token, so only our own checks can refuse. */
 async function withWillingVendor<T>(
-  run: (asked: { params: URLSearchParams }[]) => Promise<T>,
+  run: (asked: TokenRequest[]) => Promise<T>,
 ): Promise<T> {
-  const asked: { params: URLSearchParams }[] = [];
+  const asked: TokenRequest[] = [];
   const realFetch = globalThis.fetch;
-  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    asked.push({ params: new URLSearchParams(String(init?.body)) });
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    asked.push({
+      url: String(url),
+      authorization: new Headers(init?.headers).get("authorization"),
+      params: new URLSearchParams(String(init?.body)),
+    });
     return new Response(
       JSON.stringify({ refresh_token: "rt-1", scope: "read" }),
       { status: 200, headers: { "content-type": "application/json" } },
@@ -280,10 +294,15 @@ describe("a consent that came back the way it left", () => {
  * the redirect URI the code was actually sent to, which is the relay and not this deployment.
  */
 describe("a consent that came back through the platform's relay", () => {
+  // No secret, deliberately and permanently: the platform holds it, and redeems for us.
   const ENV_CLIENT: Client = {
     clientId: "platform-google",
-    clientSecret: "platform-secret",
+    clientSecret: "",
     source: "env",
+  };
+  const PROXY = {
+    url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+    bearer: "usage-token",
   };
 
   test("the deployment id in front of the state is stripped, and the state read", async () => {
@@ -328,13 +347,22 @@ describe("a consent that came back through the platform's relay", () => {
     expect(recorded).toHaveLength(1);
   });
 
-  test("the redemption names the relay as the redirect URI for a platform client", async () => {
+  /**
+   * The code goes to the platform, not the vendor, and the secret goes nowhere.
+   *
+   * The form is the one the vendor would get — grant, code, client id, the relay as the redirect
+   * URI, the PKCE verifier — with no `client_secret` in it, sent to the platform's token endpoint
+   * under the usage bearer. The platform adds the secret it alone holds and forwards it; what comes
+   * back is the vendor's answer, which is why the grant is recorded exactly as a direct one is.
+   */
+  test("a platform client's code is redeemed at the platform's proxy, with the bearer and no secret", async () => {
     const recorded: Recorded[] = [];
     const hono = app({
       recorded,
       oauthClientFor: async () => ENV_CLIENT,
       externalRedirectUri: RELAY,
       deploymentId: "inst1",
+      tokenProxy: PROXY,
     });
     const sealed = await sealConnectState(
       { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
@@ -349,9 +377,51 @@ describe("a consent that came back through the platform's relay", () => {
       return asked;
     });
 
-    expect(asked[0]?.params.get("redirect_uri")).toBe(RELAY);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.url).toBe(PROXY.url);
+    expect(asked[0]?.authorization).toBe("Bearer usage-token");
+    expect(asked[0]?.params.get("grant_type")).toBe("authorization_code");
+    expect(asked[0]?.params.get("code")).toBe("code-1");
     expect(asked[0]?.params.get("client_id")).toBe("platform-google");
-    expect(asked[0]?.params.get("client_secret")).toBe("platform-secret");
+    expect(asked[0]?.params.get("redirect_uri")).toBe(RELAY);
+    expect(asked[0]?.params.get("code_verifier")).toBe("v-1");
+    expect(asked[0]?.params.has("client_secret")).toBe(false);
+    expect(recorded).toEqual([
+      {
+        serverId: "google-drive",
+        userId: "user-1",
+        refreshToken: "rt-1",
+        scope: "read",
+      },
+    ]);
+  });
+
+  test("a stored client redeems at the vendor, with its secret and no bearer, relay or not", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({
+      recorded,
+      oauthClientFor: async () => ({
+        clientId: "pasted",
+        clientSecret: "pasted-secret",
+        source: "stored",
+      }),
+      externalRedirectUri: RELAY,
+      deploymentId: "inst1",
+      tokenProxy: PROXY,
+    });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+    );
+
+    const asked = await withWillingVendor(async (asked) => {
+      await hono.request(callbackUrl(sealed));
+      return asked;
+    });
+
+    expect(asked[0]?.url).toBe("https://oauth2.googleapis.com/token");
+    expect(asked[0]?.authorization).toBeNull();
+    expect(asked[0]?.params.get("client_secret")).toBe("pasted-secret");
     expect(recorded).toHaveLength(1);
   });
 
