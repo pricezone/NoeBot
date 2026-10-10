@@ -69,6 +69,12 @@ function RouteComponent() {
 
   const server = plugins.data?.servers.find((row) => row.id === key);
   const tool = server?.tools.find((row) => row.name === toolName);
+  /*
+   * Offered to every Bot from the Marketplace, so every switch below is on and none of them is
+   * the decision: the grants underneath are kept, and come back into force when an administrator
+   * switches the offer off on the app's own page.
+   */
+  const offeredToAll = server?.offeredToAllBots === true;
 
   const back = {
     label: server?.title ?? "Plugin",
@@ -184,7 +190,11 @@ function RouteComponent() {
       </PageSection>
 
       <PageSection
-        description="A Bot may call this tool only while its switch is on. Turning one off takes effect on the next call, with nothing cached in between."
+        description={
+          offeredToAll
+            ? `${server?.title ?? key} is offered to every Bot from the Marketplace, so every Bot may call this tool. Switch “Offered to every Bot” off on the app's page to decide per Bot here.`
+            : "A Bot may call this tool only while its switch is on. Turning one off takes effect on the next call, with nothing cached in between."
+        }
         title="Bots"
       >
         {bots.length === 0 ? (
@@ -195,7 +205,7 @@ function RouteComponent() {
         ) : (
           <PageRows>
             {bots.map((bot, index) => {
-              const held = tool.grantedTo.includes(bot.id);
+              const held = offeredToAll || tool.grantedTo.includes(bot.id);
               return (
                 <div key={bot.id}>
                   <Item size="sm">
@@ -211,17 +221,26 @@ function RouteComponent() {
                       </ItemDescription>
                     </ItemContent>
                     <ItemActions>
+                      {/* The reason the switch is on and will not move, said beside it. */}
+                      {offeredToAll ? (
+                        <span className="text-muted-foreground text-xs">
+                          Every Bot
+                        </span>
+                      ) : null}
                       {/*
                        * Binary and immediate, which is what a Switch is for: it takes effect when
                        * switched and there is no save. Disabled only while its own write is in
-                       * flight, so switching one Bot does not freeze the rest of the list.
+                       * flight, so switching one Bot does not freeze the rest of the list — and
+                       * for every Bot while the app is offered to every Bot, when the decision is
+                       * not here.
                        */}
                       <Switch
                         aria-label={`Let ${bot.name} call ${toolName}`}
                         checked={held}
                         disabled={
-                          setGrant.isPending &&
-                          setGrant.variables?.agentId === bot.id
+                          offeredToAll ||
+                          (setGrant.isPending &&
+                            setGrant.variables?.agentId === bot.id)
                         }
                         onCheckedChange={(next) => {
                           setError(null);

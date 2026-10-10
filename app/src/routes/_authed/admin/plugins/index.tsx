@@ -1,9 +1,4 @@
-import {
-  IconBrandGoogleDrive,
-  IconBrandNotion,
-  IconChevronRight,
-  IconPlug,
-} from "@tabler/icons-react";
+import { IconChevronRight, IconPlug } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
@@ -14,6 +9,7 @@ import {
   PageShell,
 } from "@/components/layout/page-shell";
 import { RowMark } from "@/components/layout/row-mark";
+import { catalogueMarkFor } from "@/components/plugins/catalogue-marks";
 import {
   Item,
   ItemActions,
@@ -46,19 +42,8 @@ export const Route = createFileRoute("/_authed/admin/plugins/")({
   component: RouteComponent,
 });
 
-/**
- * A vendor's own mark where there is one, and a plug where there is not.
- *
- * The fallback covers a server an administrator added by URL, which has no catalogue entry and so no
- * mark of its own — and it would cover a catalogue vendor Tabler ships no brand for. Only Drive is in
- * the catalogue today, and Tabler has it.
- */
-const MARKS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "google-drive": IconBrandGoogleDrive,
-  notion: IconBrandNotion,
-};
-
-const markFor = (key: string) => MARKS[key] ?? IconPlug;
+/** The catalogue's mark for the key, and a plug for a server an administrator added by URL. */
+const markFor = catalogueMarkFor;
 
 /**
  * What a connected row says on the right.
@@ -70,6 +55,10 @@ const markFor = (key: string) => MARKS[key] ?? IconPlug;
  * configured — client registered, tools listed — and still answer nothing, because the thing that
  * reads anything is a grant belonging to whoever is asking. "Not connected" is about you, not about
  * the deployment.
+ *
+ * "Every Bot" is the Marketplace's doing: an app connected or enabled there is offered to every
+ * Bot without a grant, so counting the Bots granted it would say "no Bots" about an app every Bot
+ * can call. Said as the rule rather than as a count, because it is one.
  */
 function summaryFor(
   server: PluginServer,
@@ -88,6 +77,7 @@ function summaryFor(
 
   const bots = new Set(server.tools.flatMap((tool) => tool.grantedTo)).size;
   const tools = `${server.tools.length} ${server.tools.length === 1 ? "tool" : "tools"}`;
+  if (server.offeredToAllBots) return `${tools} · every Bot`;
   if (bots === 0) return `${tools} · no Bots`;
   return `${tools} · ${bots} ${bots === 1 ? "Bot" : "Bots"}`;
 }
