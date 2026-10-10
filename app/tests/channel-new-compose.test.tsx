@@ -290,6 +290,24 @@ test("compose=1 opens the menu with nobody preselected", async () => {
   expect(view.queryAllByRole("option", { selected: true })).toHaveLength(0);
 });
 
+test("+ pressed on a new chat that already has a Bot opens the menu too", async () => {
+  serve();
+  const { router, view } = renderAt("/channel/new?agent=assistant");
+  // The first-run screen: a Bot chosen, so the menu stays shut and the composer has the caret.
+  const chosen = (await view.findByRole("combobox")) as HTMLInputElement;
+  await waitFor(() => expect(chosen.value).toBe("Noë"));
+  expect(view.queryByRole("button", { name: "Create new Bot" })).toBeNull();
+
+  // The sidebar's + is the same route with `compose`: it must ask again, not keep the old answer.
+  await act(async () => {
+    await router.navigate({ to: "/channel/new", search: { compose: 1 } });
+  });
+
+  await view.findByRole("button", { name: "Create new Bot" });
+  const input = (await view.findByRole("combobox")) as HTMLInputElement;
+  expect(input.value).toBe("");
+});
+
 test("the menu offers Create new Bot, then Create group chat, then every Bot", async () => {
   serve();
   const { view } = renderAt("/channel/new?compose=1");

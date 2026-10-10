@@ -323,6 +323,11 @@ function RouteComponent() {
           </Combobox>
         ) : (
           <Combobox
+            /*
+             * The sidebar's + on this same screen is a navigation to `compose` without a remount, so
+             * `defaultOpen` alone would leave the menu shut: a new key asks the question again.
+             */
+            key={compose && !agent ? "compose" : "answered"}
             // Do not auto-open when the recipient came from the URL; the field is already answered.
             defaultOpen={!chosen && !loadError && !waitingForUrlAgent}
             autoHighlight
