@@ -348,6 +348,32 @@ test("both controls stay disabled while the current browser action drains", asyn
   expect(backend.calls.filter((call) => call.body)).toHaveLength(0);
 });
 
+test("the outline buttons carry their own text colour, readable in the viewer's white-on-dark bar", async () => {
+  // The viewer sets white text on everything in it; an outline button is white in light mode.
+  server();
+  const take = render(
+    <div className="text-white">
+      <ComputerControlButton computerId="colour-take" />
+    </div>,
+  );
+  const takeButton = await take.findByRole("button", { name: "Take control" });
+  expect(takeButton.classList.contains("text-foreground")).toBe(true);
+  take.unmount();
+
+  server("human");
+  const keep = render(
+    <div className="text-white">
+      <ComputerControlButton
+        computerId="colour-keep"
+        keepControl={false}
+        onKeepControlChange={() => {}}
+      />
+    </div>,
+  );
+  const keepButton = await keep.findByRole("button", { name: "Keep control" });
+  expect(keepButton.classList.contains("text-foreground")).toBe(true);
+});
+
 test("in the viewer, hovering Take control explains teaching a browser workflow", async () => {
   const backend = server();
   const view = render(

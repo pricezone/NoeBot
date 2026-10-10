@@ -52,6 +52,8 @@ export function ComputerControlButton({
     <Button
       size="sm"
       variant="outline"
+      // The viewer's bar sets white text on everything in it, and outline is white in light mode.
+      className="text-foreground"
       disabled={disabled}
       aria-busy={busy || control?.transitioning}
       onClick={async () => {
@@ -68,6 +70,7 @@ export function ComputerControlButton({
     <Button
       size="sm"
       variant={keepControl ? "default" : "outline"}
+      className={keepControl ? undefined : "text-foreground"}
       aria-pressed={keepControl}
       disabled={disabled}
       aria-busy={busy || control?.transitioning}
