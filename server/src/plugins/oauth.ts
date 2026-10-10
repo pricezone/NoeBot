@@ -84,14 +84,119 @@ export type ConnectState = {
 type SealedState = ConnectState & { exp: number };
 
 /**
+ * Where the deployment got the OAuth client it presents to a vendor.
+ *
+ * `stored` is one this deployment holds in its vault: pasted in by an administrator, or registered
+ * by the deployment itself (RFC 7591). `env` is one the platform running this deployment configured
+ * for it — one client shared by every instance the platform runs, registered once at the vendor
+ * with ONE redirect URI. The distinction decides where the vendor sends people back
+ * ({@link redirectUriFor}) and how a connect state is addressed ({@link relayedState}), which is
+ * why it travels with the client rather than being asked of the configuration separately.
+ */
+export type OAuthClientSource = "env" | "stored";
+
+/**
+ * The platform's token endpoint, standing in for the vendor's for a platform-provided client.
+ *
+ * THE CLIENT SECRET NEVER REACHES THIS DEPLOYMENT. A platform-provided client is one Google client
+ * shared by every deployment the platform runs, and a secret handed to each of them is a secret
+ * held in as many places as there are deployments. So the deployment holds the client id alone,
+ * and sends the token request — the same form it would send the vendor, with no `client_secret` —
+ * to the platform, which adds the secret and forwards it. `bearer` is what the platform admits the
+ * request on: the usage token it already issued this deployment. The answer is the vendor's,
+ * passed through unchanged, so everything that reads one reads it exactly as before.
+ */
+export type TokenProxy = { url: string; bearer: string };
+
+/**
+ * Where a token request goes and what it carries: the vendor directly, or the platform's proxy.
+ *
+ * One function for both exchanges — the code redemption here and the refresh in `store.ts` — so
+ * the two cannot address the proxy differently.
+ */
+export function tokenRequestFor(
+  tokenUrl: string,
+  proxy: TokenProxy | undefined,
+): { url: string; headers: Record<string, string> } {
+  if (!proxy) {
+    return {
+      url: tokenUrl,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    };
+  }
+  return {
+    url: proxy.url,
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization: `Bearer ${proxy.bearer}`,
+    },
+  };
+}
+
+/**
  * Where the vendor sends somebody back to.
  *
  * Built from the deployment's own public URL rather than from the incoming request, because this
- * value has to match what an administrator registered with the vendor character for character. A
- * redirect URI assembled from a request header is a redirect URI an attacker has a say in.
+ * value has to match what was registered with the vendor character for character. A redirect URI
+ * assembled from a request header is a redirect URI an attacker has a say in.
+ *
+ * AN ENV-PROVIDED CLIENT IS REGISTERED WITH THE PLATFORM'S ADDRESS, NOT THIS DEPLOYMENT'S. One
+ * Google client serves every instance the platform runs, and Google will only send people back to
+ * the redirect URIs that client was registered with — so for such a client the consent request and
+ * the token exchange both name `external`, a relay the platform runs, and the relay forwards the
+ * callback here. Only when BOTH hold: a stored client was registered with this deployment's own
+ * callback and must keep naming it, and an external address with no env client behind it is a
+ * setting that applies to nothing. Called identically from the consent URL and the redemption, so
+ * the two cannot name different addresses.
  */
-export function redirectUriFor(publicUrl: string): string {
+export function redirectUriFor(
+  publicUrl: string,
+  external?: string,
+  client?: { source: OAuthClientSource } | null,
+): string {
+  if (external && client?.source === "env") return external;
   return `${publicUrl.replace(/\/+$/, "")}${CALLBACK_PATH}`;
+}
+
+/**
+ * The deployment id a relayed state may be addressed with: short, lowercase, and nothing a sealed
+ * state can contain. A sealed state is base64url, which never holds a dot, so the first dot in a
+ * state is unambiguously the end of the prefix.
+ */
+const RELAY_ID = /^[a-z0-9]{1,32}$/;
+const RELAY_PREFIX = /^[a-z0-9]{1,32}\./;
+
+/**
+ * The state to send a vendor, addressed so a relay can forward the callback here.
+ *
+ * A relay in front of many deployments receives `?code=…&state=…` and has to decide which
+ * deployment the person came from. It cannot open the sealed state — that is the whole point of
+ * sealing it — so the deployment's id travels in front of it, in the clear, as `<id>.<sealed>`. The
+ * id is routing, not a claim: the callback strips it and believes only what the sealed half says.
+ *
+ * Only for an env-provided client, because only those are sent back through a relay, and only when
+ * the deployment has an id of the shape a relay can route on. A stored client's callback lands here
+ * directly and its state goes out exactly as sealed.
+ */
+export function relayedState(
+  sealed: string,
+  deploymentId: string | undefined,
+  client: { source: OAuthClientSource },
+): string {
+  if (client.source !== "env" || !deploymentId || !RELAY_ID.test(deploymentId))
+    return sealed;
+  return `${deploymentId}.${sealed}`;
+}
+
+/**
+ * The sealed state out of what the callback received, whether or not a relay addressed it.
+ *
+ * Stripped unconditionally rather than only for env clients, because the callback has no client in
+ * hand until it has read the state. Harmless on a bare state: base64url has no dots, so nothing
+ * matches and the value passes through untouched.
+ */
+export function unrelayedState(received: string): string {
+  return received.replace(RELAY_PREFIX, "");
 }
 
 /**
@@ -312,6 +417,11 @@ export async function redeemAuthorizationCode(input: {
   code: string;
   redirectUri: string;
   verifier: string;
+  /**
+   * The platform's token endpoint, for a platform-provided client. The same form goes there
+   * instead of to `tokenUrl`, with the platform's bearer and no secret; see {@link TokenProxy}.
+   */
+  proxy?: TokenProxy;
 }): Promise<RedeemedGrant | null> {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
@@ -320,8 +430,11 @@ export async function redeemAuthorizationCode(input: {
     redirect_uri: input.redirectUri,
     code_verifier: input.verifier,
   });
-  // A public (DCR) client proves itself with PKCE, and some vendors refuse an unexpected empty field.
+  // A public (DCR) client proves itself with PKCE, and some vendors refuse an unexpected empty
+  // field. A platform-provided client has none here on purpose: the platform adds it.
   if (input.clientSecret) params.set("client_secret", input.clientSecret);
+
+  const request = tokenRequestFor(input.tokenUrl, input.proxy);
 
   /*
    * Our own catalogue, told apart from their outage before a request is attempted.
@@ -336,11 +449,11 @@ export async function redeemAuthorizationCode(input: {
    * Checking it here is also what leaves the catch below covering only the transport, rather than
    * quietly standing in for a mistake in a frozen literal.
    */
-  if (!URL.canParse(input.tokenUrl)) {
+  if (!URL.canParse(request.url)) {
     console.error(
       JSON.stringify({
         type: "oauth-token-endpoint-unusable",
-        tokenUrl: input.tokenUrl,
+        tokenUrl: request.url,
         note: "This vendor's token endpoint is not a usable address, so nobody can connect it until the catalogue is fixed.",
       }),
     );
@@ -363,9 +476,9 @@ export async function redeemAuthorizationCode(input: {
    */
   let response: Response;
   try {
-    response = await fetch(input.tokenUrl, {
+    response = await fetch(request.url, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: request.headers,
       body: params,
       /*
        * A redirect is a refusal, not a detour to be followed.
@@ -373,6 +486,7 @@ export async function redeemAuthorizationCode(input: {
        * `tokenUrl` is pinned in the catalogue because this request carries a client secret and an
        * authorization code, and following a 302 would hand both to whatever address the answer named.
        * Manual leaves the 3xx as the response, which is not `ok`, so it falls into the refusal below.
+       * The platform's proxy is configuration this deployment was handed, and is held to the same.
        */
       redirect: "manual",
       signal: AbortSignal.timeout(15_000),
@@ -391,7 +505,7 @@ export async function redeemAuthorizationCode(input: {
     console.error(
       JSON.stringify({
         type: "oauth-token-endpoint-unreachable",
-        tokenUrl: input.tokenUrl,
+        tokenUrl: request.url,
         note: "A person's consent could not be redeemed. They were sent back to Settings with a failure.",
         error: String(error),
       }),

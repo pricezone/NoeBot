@@ -27,7 +27,10 @@ import {
   readConnectState,
   redeemAuthorizationCode,
   redirectUriFor,
+  relayedState,
   sealConnectState,
+  type TokenProxy,
+  unrelayedState,
 } from "./oauth";
 import {
   CatalogueEntryUnknownError,
@@ -175,6 +178,30 @@ export function createPluginRoutes(
      * all — so the flow would complete correctly and end on a 404.
      */
     appUrl: string | undefined;
+    /**
+     * What this deployment is called by the platform running it, when one does.
+     *
+     * Put in front of a connect state — `<id>.<sealed>` — so a relay the platform runs can send
+     * the vendor's callback to the right deployment. Only for a platform-provided client, which is
+     * the only kind whose callback goes through a relay; see {@link relayedState}.
+     */
+    deploymentId?: string;
+    /**
+     * The redirect URI a platform-provided OAuth client was registered with, at the platform.
+     *
+     * Named instead of this deployment's own callback whenever the client is the platform's, on the
+     * consent URL and on the redemption alike, because the vendor will send people nowhere else.
+     * Absent on a deployment that holds its own clients, where the callback is this API's.
+     */
+    externalRedirectUri?: string;
+    /**
+     * The platform's token endpoint, which holds the secret of a platform-provided client.
+     *
+     * A code for such a client is redeemed there rather than at the vendor, with the platform's
+     * bearer and no secret, because the secret never reaches this deployment; see
+     * {@link TokenProxy}. Absent on a deployment that holds its own clients.
+     */
+    tokenProxy?: TokenProxy;
   },
   /**
    * The broker this deployment talks to when an app is connected for somebody rather than
@@ -275,6 +302,13 @@ export function createPluginRoutes(
       redirectUri: connect?.publicUrl
         ? redirectUriFor(connect.publicUrl)
         : null,
+      /*
+       * And the one a platform-provided client is registered with, where there is one. A server
+       * whose `oauthClientSource` is `env` sends people back through this address rather than the
+       * one above, so a screen explaining where a consent returns can say so. Null where the
+       * platform configured none, which is every deployment that holds its own clients.
+       */
+      externalRedirectUri: connect?.externalRedirectUri ?? null,
     }),
   );
 
@@ -985,6 +1019,8 @@ export function createPluginRoutes(
       redirectUri: connect?.publicUrl
         ? redirectUriFor(connect.publicUrl)
         : null,
+      // The platform's, for a platform-provided client. See the same field on `GET /`.
+      externalRedirectUri: connect?.externalRedirectUri ?? null,
     });
   });
 
@@ -1612,38 +1648,48 @@ export function createPluginRoutes(
     }
 
     /*
-     * A dynamic entry introduces the deployment itself on first use; a manual one still waits
-     * for an administrator. Registration lives here, on the one handler that already refuses
-     * without OPENBOT_PUBLIC_URL — the redirect URI it registers is guaranteed to exist.
-     */
-    /*
-     * A vendor in the catalogue that nobody has added to this deployment reaches here, gets past
-     * every check above — the entry is real — and then asks the store for a client it cannot have,
-     * because there is no server row to hold one. `ensureOAuthClient` says so by throwing, and
-     * unhandled that was a 500 on the one path where a person is trying to connect their account.
+     * A CATALOGUE VENDOR NOBODY HAS ADDED IS ADDED HERE, BY THE PERSON CONNECTING, FOR EVERY BOT.
      *
-     * The same 409 as a vendor whose client an administrator has not pasted in yet, because it is
-     * the same situation: the person pressing Connect has no step to take, and an administrator has
-     * one. The sentence names the step rather than the exception.
+     * This used to be an administrator's step and a 409 telling the person to go and find one.
+     * It is not a decision worth an administrator: the entry is reviewed code, the host is pinned,
+     * and the only thing the row holds that the person does not already control is their own
+     * grant. What connecting from the Marketplace means is "my Bots can use this", and the row
+     * is written to say so — offered to every Bot, the ones that exist and the ones made later —
+     * which an administrator can narrow afterwards on the Plugins page. Idempotent on a row that
+     * is already there: the add is an upsert that switches the flag on and nothing else.
+     *
+     * `addServer` refreshes an entry whose listing needs no grant (Drive) and skips one whose
+     * listing can only run as a connected person (Notion, Parallel); the callback refreshes those
+     * as the person who just consented. A fault on the `isDeploymentFault` shelf is answered the
+     * way `POST /servers` answers it, since this is the same call on a route anybody may press.
      */
-    let client: OAuthClient | null;
-    try {
-      client =
-        (await store.oauthClientFor(serverId)) ??
-        (entry.auth.clientRegistration === "dynamic"
-          ? await store.ensureOAuthClient(serverId, actorEmail(context))
-          : null);
-    } catch (error) {
-      if (error instanceof CatalogueEntryUnknownError) {
-        return context.json(
-          {
-            error: `${entry.title} has not been added to this deployment yet. An administrator has to add it first.`,
-          },
-          409,
-        );
+    if (!(await store.serverExists(serverId))) {
+      try {
+        await store.addServer({
+          key: serverId,
+          by: actorEmail(context),
+          offeredToAllBots: true,
+        });
+      } catch (error) {
+        if (isDeploymentFault(error)) {
+          return context.json({ error: deploymentFaultSentence(error) }, 409);
+        }
+        throw error;
       }
-      throw error;
     }
+
+    /*
+     * The client to send them to the vendor with: the platform's where it configured one, the
+     * vault's otherwise, and for a dynamic entry one the deployment registers right now — on the
+     * one handler that already refuses without OPENBOT_PUBLIC_URL, so the redirect URI it
+     * registers is guaranteed to exist. A manual entry with nothing in either place still waits
+     * for an administrator, and says so below.
+     */
+    const client: OAuthClient | null =
+      (await store.oauthClientFor(serverId)) ??
+      (entry.auth.clientRegistration === "dynamic"
+        ? await store.ensureOAuthClient(serverId, actorEmail(context))
+        : null);
     if (!client) {
       if (entry.auth.clientRegistration === "dynamic") {
         return context.json(
@@ -1676,14 +1722,134 @@ export function createPluginRoutes(
       authorizationUrl: authorizationUrlFor({
         auth: entry.auth,
         clientId: client.clientId,
-        redirectUri: redirectUriFor(connect.publicUrl),
-        state: await sealConnectState(
-          { userId: context.var.actor.id, serverId, verifier, returnTo },
-          connect.encryptionKey,
+        /*
+         * The redirect URI follows the client, and the callback builds it from the same three
+         * values: a platform client was registered with the platform's relay and names it, a
+         * stored one names this deployment's own callback. The state is addressed to match — a
+         * relay has to know which deployment to forward to, and the sealed half tells it nothing.
+         */
+        redirectUri: redirectUriFor(
+          connect.publicUrl,
+          connect.externalRedirectUri,
+          client,
+        ),
+        state: relayedState(
+          await sealConnectState(
+            { userId: context.var.actor.id, serverId, verifier, returnTo },
+            connect.encryptionKey,
+          ),
+          connect.deploymentId,
+          client,
         ),
         codeChallenge: challengeFor(verifier),
       }),
     });
+  });
+
+  /**
+   * Enable a catalogue app that needs no account, for every Bot.
+   *
+   * The Marketplace's other button. Connect is for an app reached on the person's own grant; this
+   * is for one that is reached with no credential at all (Parallel's anonymous search) or runs in
+   * this process (Routines). Nothing is handed to anybody and no secret is stored, so there is
+   * nothing here an administrator needs to decide: the entry is reviewed code at a pinned host, and
+   * the only thing enabling it changes is which Bots may use it — every one, which is what adding
+   * from the Marketplace means, and which the Plugins page can narrow afterwards.
+   *
+   * REFUSED FOR THE TWO KINDS THAT DO HOLD A SECRET, each with the step that applies. A
+   * `deployment-bearer` entry runs on a token this deployment holds for everybody, which is an
+   * administrator's to add; a `user-oauth` entry is connected, not enabled, and the Connect button
+   * is right there. 400 because the act does not apply to the entry, as the connect route answers an
+   * entry that is not connected as an individual person.
+   */
+  routes.post("/servers/:id/enable", requireUser, async (context) => {
+    const key = context.req.param("id");
+    const entry = catalogueEntry(key);
+    if (!entry) {
+      return context.json(
+        { error: `${key} is not an app this deployment offers.` },
+        404,
+      );
+    }
+    if (entry.auth.kind === "user-oauth") {
+      return context.json(
+        {
+          error: `${entry.title} is connected with your own account rather than enabled. Press Connect instead.`,
+        },
+        400,
+      );
+    }
+    if (entry.auth.kind === "deployment-bearer") {
+      return context.json(
+        {
+          error: `${entry.title} runs on a key this deployment holds, so an administrator has to add it.`,
+        },
+        400,
+      );
+    }
+
+    try {
+      const server = await store.addServer({
+        key,
+        by: actorEmail(context),
+        offeredToAllBots: true,
+      });
+      return context.json({ server });
+    } catch (error) {
+      if (
+        error instanceof CatalogueEntryUnknownError ||
+        error instanceof CustomServerRefusedError
+      ) {
+        return context.json({ error: error.message }, 400);
+      }
+      // The same mapping `POST /servers` makes, for the same reason: adding refreshes, so every
+      // fault the refresh can raise arrives here too.
+      if (isDeploymentFault(error)) {
+        return context.json({ error: deploymentFaultSentence(error) }, 409);
+      }
+      throw error;
+    }
+  });
+
+  /**
+   * Offer a server to every Bot, or take that back and let the grant rows decide.
+   *
+   * An administrator's, like every other decision about which Bots reach what. The Marketplace
+   * switches the flag on by adding; this is the switch in both directions, for the Plugins page.
+   * Off restores grant-only behaviour and removes no grant, which is what makes it safe to press.
+   */
+  routes.post("/servers/:id/offer-to-all", requireUser, async (context) => {
+    const forbidden = requireAdmin(context);
+    if (forbidden) return forbidden;
+
+    const body = (await context.req.json().catch(() => null)) as {
+      on?: unknown;
+    } | null;
+    // A boolean and nothing else: `"false"` is a string that reads as on, and nothing here coerces.
+    if (typeof body?.on !== "boolean") {
+      return context.json(
+        { error: "Say whether to offer it to every Bot: on, true or false." },
+        400,
+      );
+    }
+
+    try {
+      const server = await store.setOfferedToAllBots(
+        context.req.param("id"),
+        body.on,
+        actorEmail(context),
+      );
+      return context.json({ server });
+    } catch (error) {
+      if (error instanceof CatalogueEntryUnknownError) {
+        return context.json({ error: error.message }, 404);
+      }
+      // Resolving the row first can meet a row this deployment cannot say how to reach.
+      if (isDeploymentFault(error)) {
+        return context.json({ error: deploymentFaultSentence(error) }, 409);
+      }
+      throw error;
+    }
   });
 
   /**
@@ -2002,9 +2168,37 @@ export function createPluginRoutes(
      * redemption away from a refresh token.
      */
     try {
+      /*
+       * A vendor that answered the consent screen with a refusal rather than a code.
+       *
+       * Google sends `?error=access_denied&state=…` when somebody presses Cancel, or when a
+       * Testing-mode app meets an account that is not a test user. There is no code to redeem and
+       * nothing to write, so it is the same anonymous failure as a missing code — named in the
+       * log, because "the person declined" and "the vendor refused the app" are different
+       * afternoons for an operator, and the code is the one word that tells them apart. The
+       * state is deliberately not logged beside it: it names a person.
+       */
+      const refused = context.req.query("error");
+      if (refused) {
+        console.error(
+          JSON.stringify({
+            type: "oauth-consent-refused",
+            error: refused.slice(0, 64),
+            note: "The vendor sent somebody back without an authorization code. They were sent back to Settings with a failure, and nothing was written.",
+          }),
+        );
+        return context.redirect(failed);
+      }
+
       const code = context.req.query("code");
+      /*
+       * The state as sealed, with any relay addressing in front of it stripped. A platform relay
+       * forwards the vendor's callback here with the state it was given — `<deployment>.<sealed>` —
+       * and only the sealed half is a statement this deployment made. Stripped before reading
+       * rather than only for a platform client, because which client this is comes OUT of the state.
+       */
       const state = await readConnectState(
-        context.req.query("state") ?? "",
+        unrelayedState(context.req.query("state") ?? ""),
         connect.encryptionKey,
       );
       if (!code || !state) return context.redirect(failed);
@@ -2037,8 +2231,19 @@ export function createPluginRoutes(
         clientId: client.clientId,
         clientSecret: client.clientSecret,
         code,
-        redirectUri: redirectUriFor(connect.publicUrl),
+        // The same three values the consent URL was built from, so the vendor is told the redirect
+        // URI it actually sent the person to — a platform client's relay, or our own callback.
+        redirectUri: redirectUriFor(
+          connect.publicUrl,
+          connect.externalRedirectUri,
+          client,
+        ),
         verifier: state.verifier,
+        // A platform client's code goes to the platform, which holds the secret this deployment
+        // does not. A stored or dynamic client redeems at the vendor exactly as before.
+        ...(client.source === "env" && connect.tokenProxy
+          ? { proxy: connect.tokenProxy }
+          : {}),
       });
       if (!grant) return context.redirect(failed);
 
@@ -2088,6 +2293,33 @@ export function createPluginRoutes(
           }),
         );
         return context.redirect(failed);
+      }
+
+      /*
+       * What the vendor offers, asked as the person who just consented.
+       *
+       * A `user-oauth` MCP server (Notion, Parallel) lists on a person's grant and on nothing else,
+       * and this is the first moment anybody holds one: the add skipped its refresh for exactly
+       * that reason, so without this the row sits with no tools until an administrator who has
+       * connected presses Refresh. Drive and the like list without a grant and were refreshed at
+       * the add; asking again here costs one listing and keeps the rule simple.
+       *
+       * BEST EFFORT, AND THE REDIRECT DOES NOT DEPEND ON IT. The grant is already stored, which
+       * is what the person came back for. A vendor that lists nothing, or a listing that fails,
+       * is written into `lastError` by the refresh itself where the Plugins page reads it, and is
+       * logged here; the person is sent to the page that says Connected, because they are.
+       */
+      try {
+        await store.refreshTools(state.serverId, state.userId);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            type: "oauth-connection-tools-not-refreshed",
+            serverId: state.serverId,
+            note: "A person connected and the first listing on their grant failed. The connection is stored; the server's tools can be refreshed from the Plugins page.",
+            error: reasonWithoutStatement(error),
+          }),
+        );
       }
 
       return context.redirect(

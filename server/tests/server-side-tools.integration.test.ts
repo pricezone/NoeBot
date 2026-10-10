@@ -34,6 +34,8 @@ const database = createDatabase(testDatabaseUrl(), TEST_POOL);
 const suite = randomUUID().slice(0, 8);
 const holderId = `agent_tools_holder_${suite}`;
 const strangerId = `agent_tools_stranger_${suite}`;
+/** A Bot that does not exist yet when the app is offered to every Bot. Created mid-suite. */
+const laterId = `agent_tools_later_${suite}`;
 const serverId = `notes_${suite}`;
 const toolName = "search_notes";
 const ref = `${serverId}/${toolName}`;
@@ -112,6 +114,7 @@ afterAll(async () => {
   await database.delete(mcpServers).where(eq(mcpServers.id, serverId));
   await database.delete(agents).where(eq(agents.id, holderId));
   await database.delete(agents).where(eq(agents.id, strangerId));
+  await database.delete(agents).where(eq(agents.id, laterId));
   await mock.stop();
 });
 
@@ -200,5 +203,60 @@ describe("the tools a Bot is handed on the server", () => {
     } finally {
       policy = { mode: "enforce", deny: [], allow: ["true"] };
     }
+  });
+
+  /**
+   * A Bot made after the app was enabled from the Marketplace.
+   *
+   * Enabling an app there (`POST /servers/:id/enable`, or a first Connect) adds it offered to every
+   * Bot — one flag on the server, never a grant row per Bot — which is what makes a Bot created next
+   * week hold it too. The flag is what is set here, because the route is that flag plus an add this
+   * custom row cannot go through; what is asserted is the end of it: a brand-new Bot with no row of
+   * its own is handed the tool, and the call reaches the real server.
+   */
+  test("a Bot created after the app is offered to every Bot holds its tools, with no grant row", async () => {
+    await store.setOfferedToAllBots(serverId, true, "person@openkai.local");
+    try {
+      await database
+        .insert(agents)
+        .values({
+          id: laterId,
+          name: laterId,
+          type: "remote_ag_ui",
+          configuration: {},
+        })
+        .onConflictDoNothing();
+
+      const tools = await grantedTools({
+        store,
+        botId: laterId,
+        actorId: "someone@openkai.local",
+      });
+      expect(tools.map((tool) => tool.ref)).toEqual([ref]);
+
+      const text = await tools[0]?.execute({ query: "later" });
+      expect(text).toContain("Found one note about later");
+      expect(received).toContainEqual({ query: "later" });
+
+      // No row was written for it: the server is what was offered.
+      const rows = await database
+        .select()
+        .from(pluginGrants)
+        .where(
+          and(eq(pluginGrants.ref, ref), eq(pluginGrants.agentId, laterId)),
+        );
+      expect(rows).toEqual([]);
+    } finally {
+      await store.setOfferedToAllBots(serverId, false, "admin@openkai.local");
+    }
+
+    // Narrowed back to the grant rows, the new Bot holds nothing again.
+    expect(
+      await grantedTools({
+        store,
+        botId: laterId,
+        actorId: "someone@openkai.local",
+      }),
+    ).toHaveLength(0);
   });
 });

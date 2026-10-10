@@ -117,6 +117,16 @@ export const GATED_ROUTES: Rule[] = [
     path: /^\/api\/computers\/[^/]+\/(control|human)\/(secret|sign-in)$/,
     needs: async () => ["passwordManager"],
   },
+  /*
+   * The two Marketplace acts any signed-in person may perform: connecting an app on their own
+   * account, and enabling one that needs no account. Both add the app for every Bot, which is why
+   * they are one switch. Granting a tool to one Bot stays an administrator's and is not gated here.
+   */
+  {
+    method: "POST",
+    path: /^\/api\/plugins\/servers\/[^/]+\/(connect|enable)$/,
+    needs: async () => ["connectApps"],
+  },
 ];
 
 function matches(rule: Rule, method: string, path: string) {

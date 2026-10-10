@@ -10,7 +10,9 @@ import {
   redeemAuthorizationCode,
   redirectUriFor,
   registerDynamicClient,
+  relayedState,
   sealConnectState,
+  unrelayedState,
 } from "../src/plugins/oauth";
 
 /**
@@ -366,6 +368,80 @@ describe("the address the vendor sends them back to", () => {
       "https://openbot.example/api/plugins/oauth/callback",
     );
   });
+
+  /*
+   * A platform-provided client was registered with the platform's relay, and the vendor will send
+   * people nowhere else. The address follows the CLIENT: a stored client on the same deployment was
+   * registered with the callback above and keeps naming it, and a relay configured with no platform
+   * client behind it applies to nothing.
+   */
+  test("names the platform's relay for a platform-provided client, and only then", () => {
+    const relay = "https://www.hypernoesis.ai/api/plugins/oauth/relay";
+    expect(
+      redirectUriFor("https://openbot.example", relay, { source: "env" }),
+    ).toBe(relay);
+    expect(
+      redirectUriFor("https://openbot.example", relay, { source: "stored" }),
+    ).toBe("https://openbot.example/api/plugins/oauth/callback");
+    expect(redirectUriFor("https://openbot.example", relay, null)).toBe(
+      "https://openbot.example/api/plugins/oauth/callback",
+    );
+    expect(
+      redirectUriFor("https://openbot.example", undefined, { source: "env" }),
+    ).toBe("https://openbot.example/api/plugins/oauth/callback");
+  });
+});
+
+/**
+ * How a relay in front of many deployments knows which one a callback belongs to.
+ *
+ * The id travels in the clear in front of the sealed state, because the relay cannot open the
+ * state and must not be able to. The callback strips it and believes only the sealed half.
+ */
+describe("the state as a relay sees it", () => {
+  const sealed = "c2VhbGVk-state_value";
+
+  test("is addressed to this deployment for a platform-provided client", () => {
+    expect(relayedState(sealed, "inst1", { source: "env" })).toBe(
+      `inst1.${sealed}`,
+    );
+  });
+
+  test("goes out bare for a stored client, whose callback lands here directly", () => {
+    expect(relayedState(sealed, "inst1", { source: "stored" })).toBe(sealed);
+  });
+
+  test("goes out bare with no deployment id, or one a relay could not route on", () => {
+    expect(relayedState(sealed, undefined, { source: "env" })).toBe(sealed);
+    for (const unroutable of [
+      "Inst1",
+      "inst-1",
+      "inst.1",
+      "",
+      "a".repeat(33),
+    ]) {
+      expect(relayedState(sealed, unroutable, { source: "env" })).toBe(sealed);
+    }
+  });
+
+  test("the callback takes the id off and leaves a bare state alone", () => {
+    expect(unrelayedState(`inst1.${sealed}`)).toBe(sealed);
+    expect(unrelayedState(sealed)).toBe(sealed);
+    // Only one id, and only in front: a dot further in is the state's problem, not routing.
+    expect(unrelayedState(`a.b.${sealed}`)).toBe(`b.${sealed}`);
+  });
+
+  test("a sealed state never contains the separator, so the prefix cannot be mistaken", async () => {
+    const real = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+      NOW,
+    );
+    expect(real).not.toContain(".");
+    expect(unrelayedState(relayedState(real, "inst1", { source: "env" }))).toBe(
+      real,
+    );
+  });
 });
 
 describe("where the callback sends somebody afterwards", () => {
@@ -660,6 +736,61 @@ describe("redeeming an authorization code", () => {
         verifier: "verifier-1",
       });
       expect(seen[0]?.params.get("client_secret")).toBe("secret-1");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  /**
+   * A platform-provided client's code goes to the platform, which holds the secret this deployment
+   * never sees: the same form, no `client_secret`, under the platform's bearer, and the vendor's
+   * answer read back through it exactly as a direct one.
+   */
+  test("a platform client's code goes to the platform's proxy, with the bearer and no secret", async () => {
+    const seen: {
+      url: string;
+      authorization: string | null;
+      params: URLSearchParams;
+    }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get("authorization"),
+        params: new URLSearchParams(String(init?.body)),
+      });
+      return new Response(
+        JSON.stringify({ refresh_token: "rt-1", scope: "drive" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const grant = await redeemAuthorizationCode({
+        tokenUrl: "https://vendor.example/token",
+        clientId: "platform-1",
+        clientSecret: "",
+        code: "code-1",
+        redirectUri: "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+        verifier: "verifier-1",
+        proxy: {
+          url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+          bearer: "usage-token",
+        },
+      });
+      expect(grant).toEqual({ refreshToken: "rt-1", scope: "drive" });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.url).toBe(
+        "https://www.hypernoesis.ai/api/plugins/oauth/token",
+      );
+      expect(seen[0]?.authorization).toBe("Bearer usage-token");
+      expect(seen[0]?.params.get("grant_type")).toBe("authorization_code");
+      expect(seen[0]?.params.get("code")).toBe("code-1");
+      expect(seen[0]?.params.get("client_id")).toBe("platform-1");
+      expect(seen[0]?.params.get("redirect_uri")).toBe(
+        "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+      );
+      expect(seen[0]?.params.get("code_verifier")).toBe("verifier-1");
+      expect(seen[0]?.params.has("client_secret")).toBe(false);
     } finally {
       globalThis.fetch = realFetch;
     }

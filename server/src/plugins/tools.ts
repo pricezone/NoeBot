@@ -142,11 +142,14 @@ export function grantedToolGuidance(
     (system) => !held.includes(system),
   );
 
-  const researchConnector = ["parallel-authenticated", "parallel"].find(
-    (server) =>
-      ["web_search", "web_fetch"].every((name) =>
-        tools.some((tool) => tool.ref === `${server}/${name}`),
-      ),
+  const researchConnector = [
+    "parallel-oauth",
+    "parallel-authenticated",
+    "parallel",
+  ].find((server) =>
+    ["web_search", "web_fetch"].every((name) =>
+      tools.some((tool) => tool.ref === `${server}/${name}`),
+    ),
   );
   const researchTools = researchConnector
     ? tools.filter(
@@ -172,9 +175,10 @@ export function grantedToolGuidance(
           "that connecting an account has already solved.",
           "If one of these systems is involved and no tool above covers the part you need, that is a",
           "missing grant and not something to work around. Say so plainly, name the capability you would",
-          "need, and say an administrator can grant it on that connector. Do not reach for the browser, do",
-          "not ask the person to sign in, and do not ask them to fetch it for you: they already have the",
-          "access, and the thing that is missing is yours, not theirs.",
+          "need, and say the person can connect the app from the Marketplace (Connect apps) or an",
+          "administrator can grant it on that connector. Do not reach for the browser, do not ask the",
+          "person to sign in, and do not ask them to fetch it for you: they already have the access, and",
+          "the thing that is missing is yours, not theirs.",
         ]
       : []),
     ...(researchConnector
@@ -197,10 +201,11 @@ export function grantedToolGuidance(
       ? [
           ...(tools.length > 0 ? [""] : []),
           `This deployment also connects to: ${missing.join(", ")}. You hold none of their tools.`,
-          "If a question needs one of them, say plainly that you have not been granted it and that an",
-          "administrator can grant it on that connector. Do NOT browse to its website: that is not the",
-          "same thing, your browser is signed in as nobody, and it will meet a sign-in wall that the",
-          "connector exists to avoid. Do not ask the person to sign in there either.",
+          "If a question needs one of them, say plainly that you have not been granted it: the person can",
+          "connect the app from the Marketplace (Connect apps), or an administrator can grant it on that",
+          "connector. Do NOT browse to its website: that is not the same thing, your browser is signed in",
+          "as nobody, and it will meet a sign-in wall that the connector exists to avoid. Do not ask the",
+          "person to sign in there either.",
         ]
       : []),
   ].join("\n");

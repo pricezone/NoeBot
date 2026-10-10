@@ -48,6 +48,22 @@ type Recorded = {
   scope: string;
 };
 
+/** A client as the store answers one: the credentials, and where the deployment got them. */
+type Client = {
+  clientId: string;
+  clientSecret: string;
+  source: "env" | "stored";
+};
+
+const DYNAMIC: Client = {
+  clientId: "dyn-1",
+  clientSecret: "",
+  source: "stored",
+};
+
+/** The platform's relay, which a platform-provided client was registered with at the vendor. */
+const RELAY = "https://www.hypernoesis.ai/api/plugins/oauth/relay";
+
 function app(input: {
   recorded: Recorded[];
   /** Whether the person named by the state still has access. Present by default. */
@@ -60,20 +76,41 @@ function app(input: {
    * The callback asks it with no session in hand, so a throw here is the one failure on this route
    * that nothing above it was ever going to catch.
    */
-  oauthClientFor?: () => Promise<{ clientId: string; clientSecret: string }>;
+  oauthClientFor?: () => Promise<Client>;
+  /**
+   * The listing the callback runs as the person who just consented. Recorded by default; a test
+   * may make it fail, because its failure must never change where the person is sent.
+   */
+  refreshTools?: (
+    serverId: string,
+    actorId?: string,
+  ) => Promise<{ tools: number }>;
+  /** Every refresh the callback asked for, as (server, person). */
+  refreshed?: { serverId: string; actorId: string | undefined }[];
+  /** The platform's relay and this deployment's id, for a platform-provided client. */
+  externalRedirectUri?: string;
+  deploymentId?: string;
+  /** The platform's token endpoint, which holds a platform-provided client's secret. */
+  tokenProxy?: { url: string; bearer: string };
 }) {
   const store = {
     // The brokered read the connect handler makes before anything about the consent flow. This
     // deployment has no brokered rows, so it answers nothing and the flow below is untouched.
     serverAddress: async () => undefined,
-    oauthClientFor:
-      input.oauthClientFor ??
-      (async () => ({ clientId: "dyn-1", clientSecret: "" })),
-    ensureOAuthClient: async () => ({ clientId: "dyn-1", clientSecret: "" }),
+    // Every vendor here is already added, so connect goes straight to the client.
+    serverExists: async () => true,
+    oauthClientFor: input.oauthClientFor ?? (async () => DYNAMIC),
+    ensureOAuthClient: async () => DYNAMIC,
     recordConnection:
       input.recordConnection ??
       (async (connection: Recorded) => {
         input.recorded.push(connection);
+      }),
+    refreshTools:
+      input.refreshTools ??
+      (async (serverId: string, actorId?: string) => {
+        input.refreshed?.push({ serverId, actorId });
+        return { tools: 0 };
       }),
   };
   const routes = createPluginRoutes(
@@ -85,19 +122,35 @@ function app(input: {
       appUrl: "https://app.example",
       encryptionKey: KEY,
       personHasAccess: input.personHasAccess ?? (async () => true),
+      ...(input.externalRedirectUri
+        ? { externalRedirectUri: input.externalRedirectUri }
+        : {}),
+      ...(input.deploymentId ? { deploymentId: input.deploymentId } : {}),
+      ...(input.tokenProxy ? { tokenProxy: input.tokenProxy } : {}),
     },
   );
   return new Hono().route("/api/plugins", routes);
 }
 
+/** One token request as the vendor — or the platform's proxy — received it. */
+type TokenRequest = {
+  url: string;
+  authorization: string | null;
+  params: URLSearchParams;
+};
+
 /** A vendor that would happily hand over a refresh token, so only our own checks can refuse. */
 async function withWillingVendor<T>(
-  run: (asked: { params: URLSearchParams }[]) => Promise<T>,
+  run: (asked: TokenRequest[]) => Promise<T>,
 ): Promise<T> {
-  const asked: { params: URLSearchParams }[] = [];
+  const asked: TokenRequest[] = [];
   const realFetch = globalThis.fetch;
-  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
-    asked.push({ params: new URLSearchParams(String(init?.body)) });
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    asked.push({
+      url: String(url),
+      authorization: new Headers(init?.headers).get("authorization"),
+      params: new URLSearchParams(String(init?.body)),
+    });
     return new Response(
       JSON.stringify({ refresh_token: "rt-1", scope: "read" }),
       { status: 200, headers: { "content-type": "application/json" } },
@@ -157,6 +210,289 @@ describe("a consent that came back the way it left", () => {
     );
     // And it was never on the callback URL in a form anybody reading that URL could use.
     expect(state).not.toContain(verifier);
+    // A stored client was registered with this deployment's own callback, so that is what the
+    // vendor is told the code was sent to.
+    expect(asked[0]?.params.get("redirect_uri")).toBe(
+      "https://openbot.example/api/plugins/oauth/callback",
+    );
+  });
+
+  /**
+   * The first listing a `user-oauth` MCP server can ever have.
+   *
+   * Notion lists on a person's grant and on nothing else, and the add that used to refresh it at
+   * once could only write a refusal into `lastError`, so it no longer does. This is the first moment
+   * anybody holds a grant, so this is where the listing runs — as that person.
+   */
+  test("the server's tools are refreshed as the person who just connected", async () => {
+    const recorded: Recorded[] = [];
+    const refreshed: { serverId: string; actorId: string | undefined }[] = [];
+    const hono = app({ recorded, refreshed });
+    const state = await sealConnectState(
+      { userId: "user-1", serverId: "notion", verifier: "v-1" },
+      KEY,
+    );
+
+    await withWillingVendor(async () => {
+      const response = await hono.request(callbackUrl(state));
+      expect(response.headers.get("location")).toBe(
+        "https://app.example/settings/connected-accounts/notion",
+      );
+    });
+
+    expect(recorded).toHaveLength(1);
+    expect(refreshed).toEqual([{ serverId: "notion", actorId: "user-1" }]);
+  });
+
+  test("a listing that fails leaves the connection stored and the person sent to it", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({
+      recorded,
+      refreshTools: async () => {
+        throw new Error("the vendor listed nothing");
+      },
+    });
+    const state = await sealConnectState(
+      { userId: "user-1", serverId: "notion", verifier: "v-1" },
+      KEY,
+    );
+    const said: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => {
+      said.push(args.map(String).join(" "));
+    };
+
+    try {
+      await withWillingVendor(async () => {
+        const response = await hono.request(callbackUrl(state));
+        expect(response.status).toBe(302);
+        // Connected, because they are: the grant is in the vault whatever the listing said.
+        expect(response.headers.get("location")).toBe(
+          "https://app.example/settings/connected-accounts/notion",
+        );
+      });
+    } finally {
+      console.error = realError;
+    }
+
+    expect(recorded).toHaveLength(1);
+    expect(
+      said.find((line) =>
+        line.includes("oauth-connection-tools-not-refreshed"),
+      ),
+    ).toBeDefined();
+  });
+});
+
+/**
+ * A callback that came through the platform's relay.
+ *
+ * A platform-provided client was registered at the vendor with the relay's address, so the vendor
+ * sends the person there; the relay reads the deployment id in front of the state and forwards the
+ * whole request here. Two things follow. The id is routing and has to be stripped before the state
+ * is read — it is not something this deployment sealed. And the redemption has to tell the vendor
+ * the redirect URI the code was actually sent to, which is the relay and not this deployment.
+ */
+describe("a consent that came back through the platform's relay", () => {
+  // No secret, deliberately and permanently: the platform holds it, and redeems for us.
+  const ENV_CLIENT: Client = {
+    clientId: "platform-google",
+    clientSecret: "",
+    source: "env",
+  };
+  const PROXY = {
+    url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+    bearer: "usage-token",
+  };
+
+  test("the deployment id in front of the state is stripped, and the state read", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({ recorded, deploymentId: "inst1" });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "notion", verifier: "v-1" },
+      KEY,
+    );
+
+    await withWillingVendor(async () => {
+      const response = await hono.request(callbackUrl(`inst1.${sealed}`));
+      expect(response.headers.get("location")).toBe(
+        "https://app.example/settings/connected-accounts/notion",
+      );
+    });
+
+    expect(recorded).toEqual([
+      {
+        serverId: "notion",
+        userId: "user-1",
+        refreshToken: "rt-1",
+        scope: "read",
+      },
+    ]);
+  });
+
+  test("a bare state still reads, so a stored client's direct callback is untouched", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({ recorded, deploymentId: "inst1" });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "notion", verifier: "v-1" },
+      KEY,
+    );
+
+    await withWillingVendor(async () => {
+      const response = await hono.request(callbackUrl(sealed));
+      expect(response.headers.get("location")).toBe(
+        "https://app.example/settings/connected-accounts/notion",
+      );
+    });
+    expect(recorded).toHaveLength(1);
+  });
+
+  /**
+   * The code goes to the platform, not the vendor, and the secret goes nowhere.
+   *
+   * The form is the one the vendor would get — grant, code, client id, the relay as the redirect
+   * URI, the PKCE verifier — with no `client_secret` in it, sent to the platform's token endpoint
+   * under the usage bearer. The platform adds the secret it alone holds and forwards it; what comes
+   * back is the vendor's answer, which is why the grant is recorded exactly as a direct one is.
+   */
+  test("a platform client's code is redeemed at the platform's proxy, with the bearer and no secret", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({
+      recorded,
+      oauthClientFor: async () => ENV_CLIENT,
+      externalRedirectUri: RELAY,
+      deploymentId: "inst1",
+      tokenProxy: PROXY,
+    });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+    );
+
+    const asked = await withWillingVendor(async (asked) => {
+      const response = await hono.request(callbackUrl(`inst1.${sealed}`));
+      expect(response.headers.get("location")).toBe(
+        "https://app.example/settings/connected-accounts/google-drive",
+      );
+      return asked;
+    });
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.url).toBe(PROXY.url);
+    expect(asked[0]?.authorization).toBe("Bearer usage-token");
+    expect(asked[0]?.params.get("grant_type")).toBe("authorization_code");
+    expect(asked[0]?.params.get("code")).toBe("code-1");
+    expect(asked[0]?.params.get("client_id")).toBe("platform-google");
+    expect(asked[0]?.params.get("redirect_uri")).toBe(RELAY);
+    expect(asked[0]?.params.get("code_verifier")).toBe("v-1");
+    expect(asked[0]?.params.has("client_secret")).toBe(false);
+    expect(recorded).toEqual([
+      {
+        serverId: "google-drive",
+        userId: "user-1",
+        refreshToken: "rt-1",
+        scope: "read",
+      },
+    ]);
+  });
+
+  test("a stored client redeems at the vendor, with its secret and no bearer, relay or not", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({
+      recorded,
+      oauthClientFor: async () => ({
+        clientId: "pasted",
+        clientSecret: "pasted-secret",
+        source: "stored",
+      }),
+      externalRedirectUri: RELAY,
+      deploymentId: "inst1",
+      tokenProxy: PROXY,
+    });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+    );
+
+    const asked = await withWillingVendor(async (asked) => {
+      await hono.request(callbackUrl(sealed));
+      return asked;
+    });
+
+    expect(asked[0]?.url).toBe("https://oauth2.googleapis.com/token");
+    expect(asked[0]?.authorization).toBeNull();
+    expect(asked[0]?.params.get("client_secret")).toBe("pasted-secret");
+    expect(recorded).toHaveLength(1);
+  });
+
+  test("a stored client on a deployment with a relay configured still names its own callback", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({
+      recorded,
+      oauthClientFor: async () => ({
+        clientId: "pasted",
+        clientSecret: "s",
+        source: "stored",
+      }),
+      externalRedirectUri: RELAY,
+      deploymentId: "inst1",
+    });
+    const sealed = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+    );
+
+    const asked = await withWillingVendor(async (asked) => {
+      await hono.request(callbackUrl(sealed));
+      return asked;
+    });
+
+    expect(asked[0]?.params.get("redirect_uri")).toBe(
+      "https://openbot.example/api/plugins/oauth/callback",
+    );
+  });
+});
+
+/**
+ * The vendor sent somebody back with a refusal instead of a code.
+ *
+ * Google answers a cancelled consent, or a Testing-mode app meeting an account that is not a test
+ * user, with `?error=access_denied&state=…`. There is nothing to redeem and nothing to write, and
+ * the person is owed the same page every other failure sends them to rather than a 500.
+ */
+describe("a consent the vendor refused", () => {
+  test("ends at Settings, asks the vendor nothing, and writes nothing", async () => {
+    const recorded: Recorded[] = [];
+    const hono = app({ recorded });
+    const state = await sealConnectState(
+      { userId: "user-1", serverId: "google-drive", verifier: "v-1" },
+      KEY,
+    );
+    const said: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => {
+      said.push(args.map(String).join(" "));
+    };
+
+    try {
+      const asked = await withWillingVendor(async (asked) => {
+        const response = await hono.request(
+          `${CALLBACK}?error=access_denied&state=${encodeURIComponent(state)}`,
+        );
+        expect(response.status).toBe(302);
+        expect(response.headers.get("location")).toBe(FAILED);
+        return asked;
+      });
+      expect(asked).toEqual([]);
+    } finally {
+      console.error = realError;
+    }
+
+    expect(recorded).toEqual([]);
+    // Named in the log, because "declined" and "the app was refused" are different afternoons.
+    const line = said.find((line) => line.includes("oauth-consent-refused"));
+    expect(line).toContain("access_denied");
+    expect(line).not.toContain(state);
   });
 });
 

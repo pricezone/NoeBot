@@ -49,6 +49,7 @@ import {
 import { redirectUriFor } from "../src/plugins/oauth";
 import {
   type AccessToken,
+  CatalogueEntryUnknownError,
   CustomServerRefusedError,
   createPluginStore,
   exchangeRefreshTokenOverHttp,
@@ -614,6 +615,91 @@ describe("a grant is the permission", () => {
     expect(held.tools.map((tool) => tool.ref)).not.toContain(
       `${serverId}/${siblingToolName}`,
     );
+  });
+
+  /**
+   * The Marketplace's permission, which is written on the server rather than once per Bot.
+   *
+   * A grant row is still the explicit answer and `grantedTo` still reports exactly those rows; the
+   * flag is a second source the two readers — what a Bot is offered, and what it is let through on
+   * — consult in the same order, so they cannot disagree. Off takes nothing a row gave away.
+   */
+  test("a server offered to every Bot lists and decides for a Bot with no grant row; off restores grant-only", async () => {
+    const sibling = `${serverId}/${siblingToolName}`;
+    // The stranger holds nothing, which is the Bot this flag exists for.
+    expect((await store.listForAgent(strangerId)).tools).toEqual([]);
+    expect((await store.decide("mcp", ref, strangerId)).allowed).toBe(false);
+
+    const offered = await store.setOfferedToAllBots(
+      serverId,
+      true,
+      "person@openbot.local",
+    );
+    try {
+      expect(offered.offeredToAllBots).toBe(true);
+
+      // Every tool the server advertises, not one of them: the SERVER is what was offered.
+      const held = await store.listForAgent(strangerId);
+      expect(held.tools.map((tool) => tool.ref).sort()).toEqual(
+        [ref, sibling].sort(),
+      );
+      expect(held.tools.find((tool) => tool.ref === ref)?.toolName).toBe(
+        "mcp__google-drive__search_files",
+      );
+      expect((await store.decide("mcp", ref, strangerId)).allowed).toBe(true);
+      expect((await store.decide("mcp", sibling, strangerId)).allowed).toBe(
+        true,
+      );
+      // A skill is not widened by a flag on a server.
+      expect((await store.decide("skill", ref, strangerId)).allowed).toBe(
+        false,
+      );
+
+      // The explicit rows stay the explicit rows: the flag widens who may use the server, not
+      // the record of who was granted it.
+      const listed = (await store.listServers()).find(
+        (server) => server.id === serverId,
+      );
+      expect(listed?.offeredToAllBots).toBe(true);
+      expect(
+        listed?.tools.find((tool) => tool.ref === ref)?.grantedTo,
+      ).not.toContain(strangerId);
+
+      const trail = await database
+        .select({ payload: auditEvents.payload })
+        .from(auditEvents)
+        .where(
+          and(
+            eq(auditEvents.eventType, "configuration.changed"),
+            eq(auditEvents.targetId, serverId),
+          ),
+        );
+      expect(
+        trail.some(
+          (row) =>
+            (row.payload as { change?: string; actor?: string }).change ===
+              "mcp_server_offered_to_all_bots" &&
+            (row.payload as { actor?: string }).actor ===
+              "person@openbot.local",
+        ),
+      ).toBe(true);
+    } finally {
+      const restored = await store.setOfferedToAllBots(
+        serverId,
+        false,
+        "admin@openbot.local",
+      );
+      expect(restored.offeredToAllBots).toBe(false);
+    }
+
+    expect((await store.listForAgent(strangerId)).tools).toEqual([]);
+    expect((await store.decide("mcp", ref, strangerId)).allowed).toBe(false);
+  });
+
+  test("offering a server this deployment has not added is refused by name", async () => {
+    await expect(
+      store.setOfferedToAllBots(`nope_${suite}`, true, "admin@openbot.local"),
+    ).rejects.toBeInstanceOf(CatalogueEntryUnknownError);
   });
 });
 
@@ -1613,6 +1699,126 @@ describe("refresh token rotation", () => {
     const drive = servers.find((server) => server.id === serverId);
     expect(notion?.dynamicClient).toBe(true);
     expect(drive?.dynamicClient).toBe(false);
+    // And where each one's client comes from: the vault for Notion (`registerClient` above),
+    // nowhere yet for Drive. Null for the stored source means the screen has a form to draw.
+    expect(notion?.oauthClientSource).toBe("stored");
+    expect(drive?.oauthClientSource).toBeNull();
+    expect(await rotationStore.oauthClientFor(rotationServerId)).toEqual({
+      ...CLIENT,
+      source: "stored",
+    });
+  });
+
+  /**
+   * A client the platform running this deployment configured, which the vault is never asked for.
+   *
+   * One Google client serves every deployment the platform runs, handed to each through the
+   * environment — the id alone, because the secret stays with the platform. So it needs no vault
+   * row and no pointer on the server row — the two things that used to mean "this deployment holds
+   * a client" — and it is never replaced from here: a vendor refusing it is the platform's to fix.
+   * And every refresh for it goes to the platform's token endpoint, with the bearer and no secret,
+   * rather than to the vendor.
+   */
+  test("a platform-provided client is presented without a vault row, renewed at the platform, and never re-registered", async () => {
+    const PLATFORM = { clientId: "platform-notion" };
+    const PROXY = {
+      url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+      bearer: "usage-token",
+    };
+    const presented: {
+      client: { clientId: string; clientSecret: string };
+      proxy: { url: string; bearer: string } | undefined;
+    }[] = [];
+    const platformStore = createPluginStore({
+      database,
+      auditStore: createAuditStore(database),
+      credentials: vault,
+      encryptionKey: ROTATION_KEY,
+      policy: () => policy,
+      callVendor: async () => ({
+        text: "[vendor not reached in tests]",
+        isError: false,
+      }),
+      exchangeRefreshToken: async ({ client, refreshToken, proxy }) => {
+        presented.push({ client, proxy });
+        return { accessToken: "at-platform", refreshToken };
+      },
+      registerClient: async () => {
+        throw new Error("a platform client is never re-registered");
+      },
+      envOAuthClients: { [rotationServerId]: PLATFORM },
+      oauthTokenProxy: PROXY,
+      redirectUri: redirectUriFor("https://openbot.test"),
+    });
+
+    // A platform client with nowhere to redeem it is refused before any store exists.
+    expect(() =>
+      createPluginStore({
+        database,
+        auditStore: createAuditStore(database),
+        credentials: vault,
+        encryptionKey: ROTATION_KEY,
+        policy: () => policy,
+        envOAuthClients: { [rotationServerId]: PLATFORM },
+      }),
+    ).toThrow("oauthTokenProxy");
+
+    // The server row points at nothing, which for a stored client is the "no OAuth client" refusal.
+    const [before] = await database
+      .select({ credentialId: mcpServers.credentialId })
+      .from(mcpServers)
+      .where(eq(mcpServers.id, rotationServerId));
+    await database
+      .update(mcpServers)
+      .set({ credentialId: null })
+      .where(eq(mcpServers.id, rotationServerId));
+    try {
+      await connect();
+
+      const result = await platformStore.callTool({
+        ref: rotationRef,
+        args: {},
+        botId: rotationBotId,
+        actorId: rotationUserId,
+      });
+      expect(result.isError).toBe(false);
+      // The refresh went out as the platform's client, with no secret, and to the platform.
+      expect(presented).toEqual([
+        {
+          client: { clientId: "platform-notion", clientSecret: "" },
+          proxy: PROXY,
+        },
+      ]);
+
+      // Every reader of a client answers the platform's, marked as such and holding no secret.
+      const expected = {
+        clientId: "platform-notion",
+        clientSecret: "",
+        source: "env",
+      };
+      expect(await platformStore.oauthClientFor(rotationServerId)).toEqual(
+        expected,
+      );
+      expect(
+        await platformStore.ensureOAuthClient(
+          rotationServerId,
+          "someone@openbot.test",
+        ),
+      ).toEqual(expected);
+      const listed = (await platformStore.listServers()).find(
+        (server) => server.id === rotationServerId,
+      );
+      expect(listed?.oauthClientSource).toBe("env");
+      expect(listed?.hasCredential).toBe(false);
+
+      // The same deployment without the variable holds no client at all.
+      expect(await rotationStore.oauthClientFor(rotationServerId)).toBeNull();
+    } finally {
+      await database
+        .update(mcpServers)
+        .set({ credentialId: before?.credentialId ?? null })
+        .where(eq(mcpServers.id, rotationServerId));
+    }
   });
 
   test("the token the vendor rotated to is the one the next call presents", async () => {
@@ -2684,7 +2890,10 @@ describe("a dynamic client the vendor has evicted", () => {
     ]);
 
     // And kept, so the connect this refusal sends somebody to uses the client that works.
-    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual(FRESH);
+    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual({
+      ...FRESH,
+      source: "stored",
+    });
 
     /*
      * With a row in the trail saying the deployment did it to itself.
@@ -2778,7 +2987,10 @@ describe("a dynamic client the vendor has evicted", () => {
 
     expect(offered).toEqual([EVICTED.clientId]);
     expect(registrations.length).toBe(1);
-    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual(FRESH);
+    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual({
+      ...FRESH,
+      source: "stored",
+    });
   });
 
   /** And the other way round: prose that says the word, over a code that does not. */
@@ -2839,10 +3051,67 @@ describe("a dynamic client the vendor has evicted", () => {
         dynamicServerId,
         "someone@openbot.test",
       ),
-    ).toEqual(EVICTED);
+    ).toEqual({ ...EVICTED, source: "stored" });
     // Nothing was asked of the vendor: this is the path every connect takes once, and it must not
     // mint a client on top of the working one.
     expect(registrations).toEqual([]);
+  });
+
+  /**
+   * Adding a server whose listing can only run on a person's grant.
+   *
+   * Notion lists on the connecting person's token and on nothing else, and the add is now the
+   * first thing Connect does — so at the moment it runs nobody can have a grant, and a refresh
+   * here could only write a refusal into `lastError` on a row seconds old. The listing happens at
+   * the callback instead, as the person who just consented.
+   */
+  test("adding a server that lists on a person's grant records no refusal and asks nothing", async () => {
+    const advertisedBefore = (
+      await database
+        .select({ name: mcpTools.name })
+        .from(mcpTools)
+        .where(eq(mcpTools.serverId, dynamicServerId))
+    )
+      .map((row) => row.name)
+      .sort();
+    // Whatever an earlier test wrote there: this test is about what the add writes, which is nothing.
+    await database
+      .update(mcpServers)
+      .set({ lastError: null })
+      .where(eq(mcpServers.id, dynamicServerId));
+
+    const added = await dynamicStore.addServer({
+      key: dynamicServerId,
+      by: "person@openbot.test",
+      offeredToAllBots: true,
+    });
+    try {
+      expect(added.lastError).toBeNull();
+      expect(added.offeredToAllBots).toBe(true);
+      // Nothing was asked of the vendor, so what it advertised before is untouched.
+      const advertisedAfter = (
+        await database
+          .select({ name: mcpTools.name })
+          .from(mcpTools)
+          .where(eq(mcpTools.serverId, dynamicServerId))
+      )
+        .map((row) => row.name)
+        .sort();
+      expect(advertisedAfter).toEqual(advertisedBefore);
+
+      // An add that says nothing about the flag leaves it exactly as it was.
+      const again = await dynamicStore.addServer({
+        key: dynamicServerId,
+        by: "admin@openbot.test",
+      });
+      expect(again.offeredToAllBots).toBe(true);
+    } finally {
+      await dynamicStore.setOfferedToAllBots(
+        dynamicServerId,
+        false,
+        "admin@openbot.test",
+      );
+    }
   });
 
   test("a dynamic entry with no client gets one, kept and recorded", async () => {
@@ -2856,11 +3125,14 @@ describe("a dynamic client the vendor has evicted", () => {
         dynamicServerId,
         "someone@openbot.test",
       ),
-    ).toEqual(FRESH);
+    ).toEqual({ ...FRESH, source: "stored" });
     expect(registrations).toEqual([
       { registrationUrl: REGISTRATION_URL, redirectUri: REDIRECT_URI },
     ]);
-    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual(FRESH);
+    expect(await dynamicStore.oauthClientFor(dynamicServerId)).toEqual({
+      ...FRESH,
+      source: "stored",
+    });
 
     const registered = await registeredRows();
     expect(registered.length).toBe(registeredBefore.length + 1);
@@ -3499,7 +3771,7 @@ describe("a dynamic client the vendor has evicted", () => {
           dynamicServerId,
           "admin@openbot.test",
         ),
-      ).toEqual(FRESH);
+      ).toEqual({ ...FRESH, source: "stored" });
     });
   });
 
@@ -3881,6 +4153,88 @@ describe("advertised tools a write list does not name", () => {
  */
 describe("a vendor reply that is not a token", () => {
   const replyClient: OAuthClient = { clientId: "c-1", clientSecret: "" };
+
+  /**
+   * The refresh for a platform-provided client, as the real HTTP exchange sends it.
+   *
+   * The form is the vendor's — grant, refresh token, client id — with no `client_secret`, posted
+   * to the platform's endpoint under the usage bearer instead of to the vendor; the answer is read
+   * exactly as the vendor's would be. Asserted against the real function, because every store suite
+   * injects a stub in its place and the stub cannot prove where the bytes go.
+   */
+  test("a platform client's refresh goes to the platform's proxy, with the bearer and no secret", async () => {
+    const seen: {
+      url: string;
+      authorization: string | null;
+      params: URLSearchParams;
+    }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get("authorization"),
+        params: new URLSearchParams(String(init?.body)),
+      });
+      return new Response(
+        JSON.stringify({ access_token: "at-1", expires_in: 3600 }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      const minted = await exchangeRefreshTokenOverHttp({
+        tokenUrl: "https://vendor.example/token",
+        client: { clientId: "platform-1", clientSecret: "" },
+        refreshToken: "rt-1",
+        proxy: {
+          url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
+          bearer: "usage-token",
+        },
+      });
+      expect(minted).toEqual({
+        accessToken: "at-1",
+        expiresInSeconds: 3600,
+        refreshToken: undefined,
+      });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.url).toBe(
+        "https://www.hypernoesis.ai/api/plugins/oauth/token",
+      );
+      expect(seen[0]?.authorization).toBe("Bearer usage-token");
+      expect(seen[0]?.params.get("grant_type")).toBe("refresh_token");
+      expect(seen[0]?.params.get("refresh_token")).toBe("rt-1");
+      expect(seen[0]?.params.get("client_id")).toBe("platform-1");
+      expect(seen[0]?.params.has("client_secret")).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  test("a client of this deployment's own refreshes at the vendor, with no bearer", async () => {
+    const seen: { url: string; authorization: string | null }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      seen.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get("authorization"),
+      });
+      return new Response(JSON.stringify({ access_token: "at-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    try {
+      await exchangeRefreshTokenOverHttp({
+        tokenUrl: "https://vendor.example/token",
+        client: replyClient,
+        refreshToken: "rt-1",
+      });
+      expect(seen).toEqual([
+        { url: "https://vendor.example/token", authorization: null },
+      ]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 
   test("a 200 that is not JSON is a refusal, not a thrown parse error", async () => {
     const realFetch = globalThis.fetch;

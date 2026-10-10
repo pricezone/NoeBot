@@ -379,6 +379,13 @@
       "when": 1791653182267,
       "tag": "0053_sidebar_sections",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791663525950,
+      "tag": "0054_offered_to_all_bots",
+      "breakpoints": true
     }
   ]
 }

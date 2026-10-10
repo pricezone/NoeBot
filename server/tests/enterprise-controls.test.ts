@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  CAPABILITY_LABELS,
   type CapabilityRow,
   DEFAULT_CAPABILITIES,
   resolveCapability,
 } from "../src/admin/capabilities";
 import { decideFromSnapshot } from "../src/admin/controls";
+import { GATED_ROUTES } from "../src/admin/gate";
 import { DEFAULT_ENTERPRISE_SETTINGS } from "../src/admin/settings-store";
 import { decideSignInMethod } from "../src/auth";
 import {
@@ -25,6 +27,64 @@ const row = (
   capability: string,
   allowed: boolean,
 ): CapabilityRow => ({ scopeKind, scopeId, capability, allowed });
+
+/**
+ * Connecting an app from the Marketplace is its own switch.
+ *
+ * On by default, because the product already let anybody connect their own account; what is new
+ * is that the press also adds the app for every Bot, and a deployment that wants that to be an
+ * administrator's again turns this off. The gate covers exactly the two Marketplace presses, and
+ * not the administrator's own routes beside them.
+ */
+describe("the Connect apps capability", () => {
+  test("is on by default, and has words for the admin screen", () => {
+    expect(DEFAULT_CAPABILITIES.connectApps).toBe(true);
+    expect(CAPABILITY_LABELS.connectApps).toEqual({
+      title: "Connect apps",
+      description:
+        "People may connect apps from the Marketplace, for every Bot.",
+    });
+    expect(
+      resolveCapability(
+        [row("organization", "", "connectApps", false)],
+        { role: "user", groups: [] },
+        "connectApps",
+      ).allowed,
+    ).toBe(false);
+  });
+
+  test("gates connect and enable, and nothing an administrator presses", async () => {
+    const ruleFor = (method: string, path: string) =>
+      GATED_ROUTES.find(
+        (rule) =>
+          (Array.isArray(rule.method) ? rule.method : [rule.method]).includes(
+            method,
+          ) && rule.path.test(path),
+      );
+    const context = {} as never;
+
+    for (const path of [
+      "/api/plugins/servers/google-drive/connect",
+      "/api/plugins/servers/parallel/enable",
+    ]) {
+      const rule = ruleFor("POST", path);
+      expect(rule).toBeDefined();
+      expect(await rule?.needs(context)).toEqual(["connectApps"]);
+    }
+    for (const path of [
+      "/api/plugins/servers/google-drive/refresh",
+      "/api/plugins/servers/google-drive/oauth-client",
+      "/api/plugins/servers/google-drive/offer-to-all",
+      "/api/plugins/servers",
+      "/api/plugins/servers/a/b/connect",
+    ]) {
+      expect(ruleFor("POST", path)).toBeUndefined();
+    }
+    expect(
+      ruleFor("GET", "/api/plugins/servers/parallel/enable"),
+    ).toBeUndefined();
+  });
+});
 
 describe("capability resolution", () => {
   const user = { role: "user" as const, groups: [] };

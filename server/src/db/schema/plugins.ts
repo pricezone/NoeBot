@@ -114,6 +114,20 @@ export const mcpServers = pgTable("mcp_servers", {
    * over evidence nobody had.
    */
   authScheme: text("auth_scheme"),
+  /**
+   * Whether every Bot may use this server's tools without a {@link pluginGrants} row of its own.
+   *
+   * Set by the Marketplace: a person who connects or enables an app there is not choosing a Bot,
+   * they are saying "my Bots can use this", and a flag on the server is what makes that true of a
+   * Bot created next week as well as of the ones that exist today. A grant row is still the
+   * explicit, per-Bot answer an administrator writes, and `listForAgent` and `decide` read the two
+   * as a union — so turning this off restores grant-only behaviour and takes nothing an
+   * administrator granted away.
+   *
+   * False by default, so every server an administrator added before this column existed keeps
+   * being offered to exactly the Bots it was granted to.
+   */
+  offeredToAllBots: boolean("offered_to_all_bots").notNull().default(false),
   /** What the deployment last heard back from it. `null` until the first successful listing. */
   toolsRefreshedAt: timestamp("tools_refreshed_at", { withTimezone: true }),
   /** The last failure, kept so the Plugins page can say why a server has no tools. */
