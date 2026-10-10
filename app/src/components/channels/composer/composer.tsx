@@ -1597,8 +1597,9 @@ export function Composer({
              * the editor, because the editor scrolls internally at COMPACT_MAX_HEIGHT_PX and
              * padding inside that box would scroll away with the text.
              *
-             * No border and no ring at rest, as Grok draws it; a soft ring while focused keeps a
-             * keyboard user able to see which box has the caret.
+             * A hairline and a soft shadow at rest, as Grok draws it: on the light theme's white
+             * page the box is otherwise the same colour as everything around it. A soft ring
+             * while focused keeps a keyboard user able to see which box has the caret.
              */
             /*
              * A COLUMN, SO THE ATTACHMENT STRIP CAN HAVE THE FULL WIDTH. It used to be one row —
@@ -1606,7 +1607,7 @@ export function Composer({
              * started it 42px in from the frame's left edge with nothing under it. The strip is
              * its own row across the top now, and the three controls keep their row below it.
              */
-            "flex min-h-12 flex-col rounded-[26px] border-0 bg-card px-2 py-1.5 focus-within:ring-1 focus-within:ring-ring/40",
+            "flex min-h-12 flex-col rounded-[26px] border border-border bg-card px-2 py-1.5 shadow-float focus-within:ring-1 focus-within:ring-ring/40",
             className,
           )}
           onSubmit={handleFormSubmit}
@@ -1694,7 +1695,7 @@ export function Composer({
       {tooManyStagedNotice}
       <form
         aria-busy={isBusy}
-        className="overflow-hidden rounded-2xl border border-border bg-card"
+        className="overflow-hidden rounded-2xl border border-border bg-card shadow-float"
         onSubmit={handleFormSubmit}
       >
         <DictationSurface

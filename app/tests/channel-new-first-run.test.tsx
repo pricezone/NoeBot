@@ -215,12 +215,13 @@ test("somebody with no conversations is greeted by the Bot", async () => {
   expect(greeting.textContent).toBe(
     "Hi, I'm Noë Bot. Type a message below to get started — I'll start my computer, and you can watch it work in the panel on the right.",
   );
-  // Drawn as the Bot's message, on the Bot's side of the transcript, not as the person's bubble.
+  // Drawn as the Bot's message, on the Bot's side of the transcript, in the Bot's grey bubble —
+  // not as the person's, which takes the Bot's colour (`custom`).
   const row = greeting.closest('[data-slot="message"]');
   expect(row?.getAttribute("data-align")).toBe("start");
   expect(
     greeting.closest('[data-slot="bubble"]')?.getAttribute("data-variant"),
-  ).toBe("ghost");
+  ).toBe("muted");
 });
 
 test("somebody with a conversation already is never greeted", async () => {

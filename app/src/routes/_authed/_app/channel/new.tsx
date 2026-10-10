@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ChannelAvatar } from "@/components/channels/avatar";
+import { personBubbleScheme } from "@/components/channels/bubbles";
 import { canSend, type Recipient } from "@/components/channels/compose-state";
 import { ConversationView } from "@/components/channels/conversation-view";
 import {
@@ -231,6 +232,12 @@ function RouteComponent() {
         }
         // The greeting is local: drawn here, never sent to the model and never stored.
         messages={sent ? [sent] : firstRun ? [firstRunGreeting()] : []}
+        // The first message is already in the colour of the Bot it is going to.
+        personScheme={personBubbleScheme(
+          chosen
+            ? [{ seed: chosen.avatarSeed, color: chosen.avatarColor }]
+            : [],
+        )}
         notice={
           loadError || error ? (
             <p className="pb-2 text-sm text-destructive" role="alert">

@@ -59,7 +59,12 @@ export function ChatHeader({
   );
 }
 
-/** Who you are talking to, as a button: the avatar and the name on a card-coloured pill. */
+/**
+ * Who you are talking to, as a button: the avatar and the name on a card-coloured pill.
+ *
+ * Floating, the way Grok draws it: a hairline and a soft shadow lift it off the transcript that
+ * scrolls under it, which on the light theme's white is the only thing that says it is a control.
+ */
 function BotPill({
   agentIds,
   name,
@@ -72,7 +77,7 @@ function BotPill({
   return (
     <button
       aria-label={`Open ${name}`}
-      className="flex h-9 max-w-[60%] shrink-0 items-center gap-2 rounded-full bg-card pl-1 pr-3 text-sm font-medium outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="flex h-9 max-w-[60%] shrink-0 items-center gap-2 rounded-full border border-border bg-card pl-1 pr-3 text-sm font-medium shadow-float outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
       onClick={onClick}
       type="button"
     >

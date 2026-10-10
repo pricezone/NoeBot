@@ -22,6 +22,7 @@ import {
 import { markdownComponents } from "@/lib/markdown";
 import { newId } from "@/lib/new-id";
 import { ChannelAvatar } from "./avatar";
+import { BotBubble, GROUP_PERSON_SCHEME, PersonBubble } from "./bubbles";
 import { Composer, toAgentOptions } from "./composer";
 import { TeamBotConsentCard } from "./team-bot-consent";
 
@@ -126,7 +127,13 @@ export function GroupChat({ channelId }: { channelId: string }) {
   );
 }
 
-/** One attributed line: a person's bubble, and a Bot's named reply on the left. */
+/**
+ * One attributed line: a person's bubble, and a Bot's named reply on the left.
+ *
+ * Your own words in the group colour — a conversation with several Bots has no one Bot's colour to
+ * borrow — and a teammate's in the muted grey under their name, the way a messages app draws
+ * everyone who is not you.
+ */
 function GroupLine({
   message,
   name,
@@ -147,11 +154,17 @@ function GroupLine({
               {name}
             </MessageHeader>
           )}
-          <Bubble align={mine ? "end" : "start"} variant="muted">
-            <BubbleContent>
+          {mine ? (
+            <PersonBubble scheme={GROUP_PERSON_SCHEME}>
               <span className="whitespace-pre-wrap">{message.text}</span>
-            </BubbleContent>
-          </Bubble>
+            </PersonBubble>
+          ) : (
+            <Bubble align="start" variant="muted">
+              <BubbleContent>
+                <span className="whitespace-pre-wrap">{message.text}</span>
+              </BubbleContent>
+            </Bubble>
+          )}
         </MessageContent>
       </MessageRow>
     );
@@ -199,18 +212,11 @@ function GroupLine({
             {message.text || "This Bot could not answer."}
           </p>
         ) : (
-          <Bubble
-            align="start"
-            aria-busy={message.status === "running"}
-            variant="ghost"
-            className="w-full"
-          >
-            <BubbleContent className="w-full">
-              <Streamdown components={markdownComponents}>
-                {message.text}
-              </Streamdown>
-            </BubbleContent>
-          </Bubble>
+          <BotBubble aria-busy={message.status === "running"}>
+            <Streamdown components={markdownComponents}>
+              {message.text}
+            </Streamdown>
+          </BotBubble>
         )}
       </MessageContent>
     </MessageRow>
