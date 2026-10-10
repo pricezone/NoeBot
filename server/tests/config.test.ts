@@ -1116,6 +1116,125 @@ test("a Composio key is read when set and absent when not", () => {
   ).toBe("ak_example");
 });
 
+/**
+ * OAuth clients the platform configured for plugins, and the relay they send people back through.
+ *
+ * Deliberately a different pair from `GOOGLE_OAUTH_*`, which `baseEnvironment` carries and which
+ * turns on Google SIGN-IN. The two are different clients at Google with different consent screens,
+ * and a deployment that sets one must not have silently set the other.
+ */
+describe("platform-provided plugin OAuth clients", () => {
+  const drive = {
+    OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+    OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_SECRET: "drive-secret",
+  };
+
+  test("none configured is an empty map and no relay, and sign-in's client is not one", () => {
+    const config = loadConfig(baseEnvironment);
+    expect(config.pluginOauthClients).toEqual({});
+    expect(config.pluginOauthRedirectUrl).toBeUndefined();
+  });
+
+  test("a pair is read under the catalogue key it spells", () => {
+    const config = loadConfig({ ...baseEnvironment, ...drive });
+    expect(config.pluginOauthClients).toEqual({
+      "google-drive": {
+        clientId: "drive-client",
+        clientSecret: "drive-secret",
+      },
+    });
+    // Still the sign-in client, untouched by the plugin one.
+    expect(config.oauth.google?.clientId).toBe("google-client-id");
+  });
+
+  test("half a pair refuses to start", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+      }),
+    ).toThrow("must be set together");
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET: "s",
+      }),
+    ).toThrow(
+      "OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_ID and OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET must be set together",
+    );
+  });
+
+  test("a key that is not a user-oauth entry refuses, naming the ones that are", () => {
+    // Parallel's anonymous entry takes no client; a secret sitting under its name would be presented
+    // to nobody and read as configured.
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_PARALLEL_ID: "x",
+        OPENBOT_PLUGIN_OAUTH_CLIENT_PARALLEL_SECRET: "y",
+      }),
+    ).toThrow("GOOGLE_DRIVE");
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID: "x",
+        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_SECRET: "y",
+      }),
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID");
+    // A blank value is unset, as everywhere else in this file.
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID: "  ",
+      }).pluginOauthClients,
+    ).toEqual({});
+  });
+
+  test("the relay is read, and has to be https", () => {
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_REDIRECT_URL:
+          "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+      }).pluginOauthRedirectUrl,
+    ).toBe("https://www.hypernoesis.ai/api/plugins/oauth/relay");
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_REDIRECT_URL: "http://relay.example/callback",
+      }),
+    ).toThrow("https");
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_PLUGIN_OAUTH_REDIRECT_URL: "not a url",
+      }),
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_REDIRECT_URL");
+  });
+
+  test("a relay routes on DEPLOYMENT_ID, so one it cannot route on refuses", () => {
+    const relay = {
+      OPENBOT_PLUGIN_OAUTH_REDIRECT_URL:
+        "https://www.hypernoesis.ai/api/plugins/oauth/relay",
+    };
+    expect(
+      loadConfig({ ...baseEnvironment, ...relay, DEPLOYMENT_ID: "inst1" })
+        .deploymentId,
+    ).toBe("inst1");
+    // No id at all is left alone: the state goes out bare and the relay may know another way.
+    expect(loadConfig({ ...baseEnvironment, ...relay }).deploymentId).toBe(
+      undefined,
+    );
+    expect(() =>
+      loadConfig({ ...baseEnvironment, ...relay, DEPLOYMENT_ID: "Inst-1" }),
+    ).toThrow("DEPLOYMENT_ID");
+    // Without a relay the id is whatever it always was: it names a tenant, not a route.
+    expect(
+      loadConfig({ ...baseEnvironment, DEPLOYMENT_ID: "Inst-1" }).deploymentId,
+    ).toBe("Inst-1");
+  });
+});
+
 describe("sign-in handoff", () => {
   const handoff = {
     OPENBOT_SIGNIN_HANDOFF_SECRET:

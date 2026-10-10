@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_servers" ADD COLUMN "offered_to_all_bots" boolean DEFAULT false NOT NULL;

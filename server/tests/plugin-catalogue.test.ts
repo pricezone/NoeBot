@@ -132,7 +132,10 @@ describe("whose credential a server uses", () => {
       // person's authorization code and receives their refresh token at.
       expect(entry.auth.authorizationUrl.startsWith("https://")).toBe(true);
       expect(entry.auth.tokenUrl.startsWith("https://")).toBe(true);
-      expect(entry.auth.revokeUrl.startsWith("https://")).toBe(true);
+      // Optional: a vendor that publishes no revocation endpoint (Parallel) has none to pin.
+      if (entry.auth.revokeUrl !== undefined) {
+        expect(entry.auth.revokeUrl.startsWith("https://")).toBe(true);
+      }
       // No scopes means consent to nothing, which would fail at the vendor with a message that
       // does not name us — except for a vendor whose consent screen itself is the scoping
       // (Notion, with dynamic client registration), where a scope string would assert a control
@@ -249,6 +252,50 @@ describe("Notion", () => {
     }
     expect(classifyTool(entry, "notion-search", true)).toBe("read");
     expect(classifyTool(entry, "brand-new-tool", false)).toBe("write");
+  });
+});
+
+/**
+ * Parallel on a person's own account.
+ *
+ * The third Parallel entry, beside the anonymous one and the deployment-key one: the same vendor,
+ * reached on the asker's own grant through dynamic client registration like Notion. Every address
+ * is pinned here exactly as the vendor's authorization-server metadata publishes it, so a dropped or
+ * edited one fails in review rather than at somebody's consent screen.
+ */
+describe("Parallel (your account)", () => {
+  const entry = catalogueEntry("parallel-oauth");
+
+  test("is in the catalogue at the vendor's OAuth path, on the MCP transport", () => {
+    expect(entry).not.toBeNull();
+    expect(entry?.title).toBe("Parallel Search (your account)");
+    expect(entry?.vendor).toBe("Parallel");
+    expect(entry?.transport).toBeUndefined();
+    expect(resolveServerUrl("parallel-oauth")?.url).toBe(
+      "https://search.parallel.ai/mcp-oauth",
+    );
+  });
+
+  test("registers its client dynamically, with every endpoint pinned as published", () => {
+    if (entry?.auth.kind !== "user-oauth") throw new Error("wrong auth kind");
+    expect(entry.auth.clientRegistration).toBe("dynamic");
+    expect(entry.auth.authorizationUrl).toBe(
+      "https://platform.parallel.ai/getKeys/authorize",
+    );
+    expect(entry.auth.tokenUrl).toBe(
+      "https://platform.parallel.ai/getKeys/token",
+    );
+    expect(entry.auth.registrationUrl).toBe(
+      "https://platform.parallel.ai/getKeys/register",
+    );
+    expect(entry.auth.scopes).toEqual(["key:read"]);
+    // The published metadata has no revocation endpoint, and none is invented here.
+    expect(entry.auth.revokeUrl).toBeUndefined();
+  });
+
+  test("names no writes, because searching the public web changes nothing", () => {
+    expect(entry?.writeTools).toEqual([]);
+    expect(classifyTool(entry, "web_search", true)).toBe("read");
   });
 });
 

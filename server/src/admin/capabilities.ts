@@ -25,6 +25,7 @@ export const CAPABILITIES = [
   "passwordManager",
   "slackTeams",
   "teamBots",
+  "connectApps",
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -80,6 +81,10 @@ export const CAPABILITY_LABELS: Record<
     title: "Team Bots",
     description: "People may publish a Bot for the whole team to use.",
   },
+  connectApps: {
+    title: "Connect apps",
+    description: "People may connect apps from the Marketplace, for every Bot.",
+  },
 };
 
 /**
@@ -97,6 +102,7 @@ export const DEFAULT_CAPABILITIES: Record<Capability, boolean> = {
   passwordManager: true,
   slackTeams: true,
   teamBots: true,
+  connectApps: true,
 };
 
 export type CapabilityRow = {

@@ -741,6 +741,12 @@ const pluginStore = createPluginStore({
    */
   redirectUri: config.publicUrl ? redirectUriFor(config.publicUrl) : undefined,
   /*
+   * OAuth clients the platform running this deployment configured, one per catalogue key. Each
+   * wins over anything the vault holds for that server; see the option's own comment. Empty on a
+   * deployment that registers or pastes its own.
+   */
+  envOAuthClients: config.pluginOauthClients,
+  /*
    * The same client the transport seam above was installed with, never a second one. Enabling an
    * app writes the row here and creates the auth config at the vendor, and a store holding a
    * different client from the one the call goes out through is two deployments' worth of state

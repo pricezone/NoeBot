@@ -16,6 +16,7 @@ import {
   type TranscriptionConfig,
   transcriptionConfig,
 } from "./dictation/config";
+import { CATALOGUE } from "./plugins/catalogue";
 import { type VoiceConfig, voiceConfig } from "./voice/config";
 
 export type RuntimeCapabilities = {
@@ -277,6 +278,28 @@ export type DeploymentConfig = {
    * deployment serving both from one origin.
    */
   appUrl: string | undefined;
+  /**
+   * The redirect URI a platform-provided plugin OAuth client was registered with, at the platform.
+   *
+   * A platform that runs many deployments registers one Google client, once, and Google will only
+   * send people back to the addresses that client names — so it names a relay the platform runs,
+   * and the relay forwards each callback to the deployment whose id is in front of the state. This
+   * is that relay's address, and it is used for a platform client and for nothing else: a client
+   * this deployment registered or an administrator pasted keeps naming `publicUrl`'s own callback.
+   * `OPENBOT_PLUGIN_OAUTH_REDIRECT_URL`, https only, because an authorization code travels on it.
+   */
+  pluginOauthRedirectUrl: string | undefined;
+  /**
+   * Plugin OAuth clients the platform configured for this deployment, keyed by catalogue key.
+   *
+   * `OPENBOT_PLUGIN_OAUTH_CLIENT_<KEY>_ID` and `_SECRET`, where `<KEY>` is the catalogue key
+   * upper-cased with `-` as `_` (`GOOGLE_DRIVE`). One wins over whatever the vault holds for that
+   * server, needs no administrator step and is never re-registered. Deliberately NOT
+   * `GOOGLE_OAUTH_*`: that pair turns on Google sign-in, which is a different client with a
+   * different consent screen, and reusing it would make configuring one silently configure the
+   * other. Empty on every deployment that holds its own clients.
+   */
+  pluginOauthClients: Readonly<Record<string, OAuthClient>>;
   tenantPackageDirectory: string;
   runtime: RuntimeCapabilities;
   /**
@@ -703,6 +726,82 @@ function commaSeparated(environment: Environment, name: string): string[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+const PLUGIN_OAUTH_CLIENT_PREFIX = "OPENBOT_PLUGIN_OAUTH_CLIENT_";
+
+/** `google-drive` → `GOOGLE_DRIVE`: how a catalogue key is spelled in an environment variable. */
+function pluginOauthEnvironmentKey(catalogueKey: string): string {
+  return catalogueKey.toUpperCase().replaceAll("-", "_");
+}
+
+/**
+ * The relay a platform-provided plugin OAuth client sends people back through.
+ *
+ * https and nothing else, where `url` would admit any scheme: an authorization code travels on this
+ * address, and a platform relay is reached across the public internet by definition. Refused rather
+ * than warned, because a wrong value here fails at the vendor, after somebody has consented, with a
+ * message that names neither this variable nor us.
+ */
+function pluginOauthRedirectUrl(environment: Environment): string | undefined {
+  const value = url(environment, "OPENBOT_PLUGIN_OAUTH_REDIRECT_URL");
+  if (value && new URL(value).protocol !== "https:") {
+    throw new Error("OPENBOT_PLUGIN_OAUTH_REDIRECT_URL must be an https URL");
+  }
+  return value;
+}
+
+/**
+ * The plugin OAuth clients the platform configured, one per `user-oauth` catalogue entry.
+ *
+ * READ OFF THE CATALOGUE, NOT OFF THE ENVIRONMENT. Each entry that is connected on a person's own
+ * grant is asked for its pair, both-or-neither like every other client here; then whatever ELSE in
+ * the environment wears the prefix is refused by name. A variable spelled for an entry that takes
+ * no OAuth client, or for a vendor this build has never heard of, is a secret sitting in the
+ * environment that nothing will ever present — which reads as configured and is not, and is worth
+ * failing the boot over rather than discovering at the first Connect.
+ */
+function pluginOauthClients(
+  environment: Environment,
+): Readonly<Record<string, OAuthClient>> {
+  const clients: Record<string, OAuthClient> = {};
+  const claimed = new Set<string>();
+
+  for (const entry of CATALOGUE) {
+    if (entry.auth.kind !== "user-oauth") continue;
+    const prefix = `${PLUGIN_OAUTH_CLIENT_PREFIX}${pluginOauthEnvironmentKey(entry.key)}`;
+    claimed.add(`${prefix}_ID`);
+    claimed.add(`${prefix}_SECRET`);
+    const clientId = optional(environment, `${prefix}_ID`);
+    const clientSecret = optional(environment, `${prefix}_SECRET`);
+    if (Boolean(clientId) !== Boolean(clientSecret)) {
+      throw new Error(`${prefix}_ID and ${prefix}_SECRET must be set together`);
+    }
+    if (clientId && clientSecret) {
+      clients[entry.key] = { clientId, clientSecret };
+    }
+  }
+
+  const unclaimed = Object.keys(environment)
+    .filter(
+      (name) =>
+        name.startsWith(PLUGIN_OAUTH_CLIENT_PREFIX) &&
+        !claimed.has(name) &&
+        optional(environment, name) !== undefined,
+    )
+    .sort();
+  if (unclaimed.length > 0) {
+    const offered = CATALOGUE.filter(
+      (entry) => entry.auth.kind === "user-oauth",
+    )
+      .map((entry) => pluginOauthEnvironmentKey(entry.key))
+      .join(", ");
+    throw new Error(
+      `${unclaimed.join(", ")}: not a plugin this deployment connects with an OAuth client. ${PLUGIN_OAUTH_CLIENT_PREFIX}<KEY>_ID and _SECRET take one of: ${offered}.`,
+    );
+  }
+
+  return clients;
 }
 
 /**
@@ -1350,6 +1449,23 @@ export function loadConfig(
   const workerSharedSecret = optional(environment, "WORKER_SHARED_SECRET");
   const usage = usageConfig(environment);
   const billingUrl = url(environment, "OPENBOT_BILLING_URL");
+  const deploymentId = optional(environment, "DEPLOYMENT_ID");
+  const pluginOauthRedirect = pluginOauthRedirectUrl(environment);
+  /*
+   * A relay routes on the id in front of the state, and it can only route on one of this shape.
+   * Checked here, at boot, rather than at the first consent — where the failure is the relay
+   * dropping a callback somebody has just consented on. No id at all is left alone: the relay may
+   * have another way of knowing, and the state then goes out bare.
+   */
+  if (
+    pluginOauthRedirect &&
+    deploymentId !== undefined &&
+    !/^[a-z0-9]{1,32}$/.test(deploymentId)
+  ) {
+    throw new Error(
+      "OPENBOT_PLUGIN_OAUTH_REDIRECT_URL routes the vendor's callback by DEPLOYMENT_ID, which must then be 1-32 lowercase letters and digits",
+    );
+  }
 
   return {
     port: serverPort(environment),
@@ -1361,7 +1477,7 @@ export function loadConfig(
     keyEncryptionKey: keyEncryptionKey(environment),
     ...(managedAgent ? { managedAgent } : {}),
     agentEndpointAllowedHosts: agentEndpointAllowedHosts(environment),
-    deploymentId: optional(environment, "DEPLOYMENT_ID"),
+    deploymentId,
     composioApiKey: optional(environment, "COMPOSIO_API_KEY"),
     publicUrl: (
       optional(environment, "OPENBOT_PUBLIC_URL") ?? auth?.baseUrl
@@ -1372,6 +1488,8 @@ export function loadConfig(
       optional(environment, "OPENBOT_PUBLIC_URL") ??
       auth?.baseUrl
     )?.replace(/\/+$/, ""),
+    pluginOauthRedirectUrl: pluginOauthRedirect,
+    pluginOauthClients: pluginOauthClients(environment),
     tenantPackageDirectory:
       optional(environment, "TENANT_PACKAGE_DIR") ?? "../examples/noebot",
     runtime: runtimeCapabilities(environment),

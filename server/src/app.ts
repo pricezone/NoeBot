@@ -1661,6 +1661,15 @@ export function createApp(
           botsMayCallBack: Boolean(config.agentToolToken),
           publicUrl: config.publicUrl,
           appUrl: config.appUrl,
+          /*
+           * How a platform-provided OAuth client finds its way back here: the relay the client was
+           * registered with, and the id that relay routes on. Both undefined on a deployment that
+           * holds its own clients, where the vendor sends people straight to `publicUrl`.
+           */
+          ...(config.deploymentId ? { deploymentId: config.deploymentId } : {}),
+          ...(config.pluginOauthRedirectUrl
+            ? { externalRedirectUri: config.pluginOauthRedirectUrl }
+            : {}),
         },
         composio,
       ),

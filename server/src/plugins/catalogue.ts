@@ -50,8 +50,15 @@ export type CatalogueAuth =
       kind: "user-oauth";
       authorizationUrl: string;
       tokenUrl: string;
-      /** Where a disconnect is sent, so revocation happens at the vendor and not just here. */
-      revokeUrl: string;
+      /**
+       * Where a disconnect is sent, so revocation happens at the vendor and not just here.
+       *
+       * Optional, because not every vendor publishes one: Parallel's authorization server
+       * advertises no `revocation_endpoint` at all. Absent means a disconnect retires the grant
+       * here and the vendor is told nothing, which is the honest limit rather than a URL guessed
+       * from the token endpoint.
+       */
+      revokeUrl?: string;
       /**
        * What to ask a person to consent to. Narrow on purpose: a scope granted by everybody who
        * connects and used by nothing is a permission nobody remembers agreeing to. Empty for a
@@ -181,6 +188,33 @@ export const CATALOGUE: readonly CatalogueEntry[] = Object.freeze([
     host: "https://search.parallel.ai",
     path: "/mcp",
     auth: { kind: "deployment-bearer" },
+    writeTools: Object.freeze([]),
+    docsUrl: "https://docs.parallel.ai/integrations/mcp/search-mcp",
+  },
+  {
+    key: "parallel-oauth",
+    title: "Parallel Search (your account)",
+    vendor: "Parallel",
+    summary: "Public-web search and extraction on your own Parallel account.",
+    /*
+     * The same vendor as the two entries above, reached on the person's own account rather than
+     * anonymously or on a key the deployment holds. Parallel serves it at its own path, with its own
+     * authorization server: every address here is from
+     * `https://search.parallel.ai/.well-known/oauth-authorization-server/mcp-oauth`, verified live.
+     * PKCE S256 is what it asks for and what `authorizationUrlFor` sends.
+     */
+    host: "https://search.parallel.ai",
+    path: "/mcp-oauth",
+    auth: {
+      kind: "user-oauth",
+      authorizationUrl: "https://platform.parallel.ai/getKeys/authorize",
+      tokenUrl: "https://platform.parallel.ai/getKeys/token",
+      // No `revokeUrl`: the published metadata has no revocation endpoint.
+      scopes: Object.freeze(["key:read"]),
+      clientRegistration: "dynamic",
+      registrationUrl: "https://platform.parallel.ai/getKeys/register",
+    },
+    // Search and extraction only read the public web; nothing here changes anybody's account.
     writeTools: Object.freeze([]),
     docsUrl: "https://docs.parallel.ai/integrations/mcp/search-mcp",
   },

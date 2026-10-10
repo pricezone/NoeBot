@@ -74,7 +74,7 @@ import {
 } from "./composio";
 import { inspectToolArguments } from "./content-governance";
 import { type ListedTool, McpServerError } from "./mcp";
-import { registerDynamicClient } from "./oauth";
+import { type OAuthClientSource, registerDynamicClient } from "./oauth";
 import { shareTargetOf } from "./share-target";
 import { transportFor } from "./transport";
 
@@ -175,6 +175,21 @@ export type ServerRecord = {
    * there is nothing for it to collect.
    */
   dynamicClient: boolean;
+  /**
+   * Where this server's OAuth client comes from, for a `user-oauth` entry: `env` when the platform
+   * running this deployment configured one, `stored` when the vault holds one — pasted in by an
+   * administrator or registered by the deployment itself — and null when there is none yet. Null
+   * for every entry that is not reached on a person's own grant, because those have no client.
+   *
+   * The screen needs this to stop asking for what is already answered: an `env` client has no
+   * paste-a-client form and no redirect URI to register, because the platform did both.
+   */
+  oauthClientSource: OAuthClientSource | null;
+  /**
+   * Whether every Bot may use this server without a grant row of its own. See the column's own
+   * comment in the schema. `tools[].grantedTo` stays the explicit rows and is not widened by this.
+   */
+  offeredToAllBots: boolean;
   /**
    * How this server's authorization config was created, for the brokered rows that have one.
    *
@@ -897,7 +912,7 @@ function effectiveUrl(
  */
 export async function exchangeRefreshTokenOverHttp(input: {
   tokenUrl: string;
-  client: OAuthClient;
+  client: OAuthClientCredentials;
   refreshToken: string;
 }): Promise<AccessToken> {
   const params = new URLSearchParams({
@@ -1002,7 +1017,21 @@ const TOKEN_TIMEOUT_MS = 10_000;
  * show — a deliberate duplication of something that is not a secret, so that a screen listing what
  * the deployment holds does not have to decrypt anything to name it.
  */
-export type OAuthClient = { clientId: string; clientSecret: string };
+export type OAuthClientCredentials = { clientId: string; clientSecret: string };
+
+/**
+ * A client as the store ANSWERS it: the credentials, and where the deployment got them.
+ *
+ * The source rides with the client rather than being asked of the configuration separately, because
+ * the two readers that act on it — the consent URL and the token redemption — must agree with each
+ * other about which redirect URI the vendor expects, and the only thing they have in common is the
+ * client they were handed. See {@link OAuthClientSource}. What is handed IN — a client an
+ * administrator pastes, one a vendor issues, one presented at a token endpoint — is the credentials
+ * alone: nothing on that side has a source yet, or needs one.
+ */
+export type OAuthClient = OAuthClientCredentials & {
+  source: OAuthClientSource;
+};
 
 /**
  * Whether a value read back out of the vault is a client this deployment can actually present.
@@ -1028,9 +1057,9 @@ export type OAuthClient = { clientId: string; clientSecret: string };
  * `registerDynamicClient` checks the id exactly this way and defaults the secret to `""` — so
  * demanding a non-empty secret here would refuse every self-registering entry in the catalogue.
  */
-function isUsableClient(value: unknown): value is OAuthClient {
+function isUsableClient(value: unknown): value is OAuthClientCredentials {
   if (typeof value !== "object" || value === null) return false;
-  const { clientId, clientSecret } = value as Partial<OAuthClient>;
+  const { clientId, clientSecret } = value as Partial<OAuthClientCredentials>;
   return (
     typeof clientId === "string" &&
     clientId !== "" &&
@@ -1045,7 +1074,10 @@ function isUsableClient(value: unknown): value is OAuthClient {
  * is the one thing that distinguishes a client the vendor has evicted from one a re-registration
  * minted moments ago. Null only for a row that has since disappeared, which the read refuses first.
  */
-type StoredClient = { client: OAuthClient; registeredAt: Date | null };
+type StoredClient = {
+  client: OAuthClientCredentials;
+  registeredAt: Date | null;
+};
 
 /**
  * How long a freshly stored OAuth client is left alone after `invalid_client`.
@@ -1133,14 +1165,30 @@ export type PluginStoreOptions = {
   /** Trading a refresh token for a short-lived access token. Defaults to a real HTTP exchange. */
   exchangeRefreshToken?: (input: {
     tokenUrl: string;
-    client: OAuthClient;
+    client: OAuthClientCredentials;
     refreshToken: string;
   }) => Promise<AccessToken>;
   /** RFC 7591 self-registration, for entries whose clientRegistration is dynamic. */
   registerClient?: (input: {
     registrationUrl: string;
     redirectUri: string;
-  }) => Promise<OAuthClient | null>;
+  }) => Promise<OAuthClientCredentials | null>;
+  /**
+   * OAuth clients the platform running this deployment configured for it, keyed by catalogue key.
+   *
+   * ONE WINS OVER THE VAULT, EVERYWHERE A CLIENT IS READ. A platform that runs many deployments
+   * registers one Google client, once, with one redirect URI, and hands every instance the same
+   * id and secret through the environment; no administrator pastes anything and no instance
+   * registers itself. So where an entry has one of these, the vault is never consulted for it:
+   * not for the consent URL, not for the redemption, not for the refresh. A vault row that
+   * happens to exist beside it is left alone and unread, so removing the variable restores it.
+   *
+   * It also needs no `credential_id` on the server row — which is what used to say "this
+   * deployment holds a client" — and it is never re-registered: `invalid_client` from a vendor
+   * about a client the platform owns is the platform's to fix, not something an instance can
+   * register its way out of.
+   */
+  envOAuthClients?: Readonly<Record<string, OAuthClientCredentials>>;
   /**
    * Composio the broker, absent on a deployment that has not configured one.
    *
@@ -1194,6 +1242,19 @@ export function createPluginStore(options: PluginStoreOptions) {
   // No default, unlike the seams above: there is no real implementation in this tree to fall back
   // to, and a deployment with no Composio key is supposed to have no broker. See `./broker`.
   const broker = options.broker;
+  const envOAuthClients = options.envOAuthClients ?? {};
+
+  /**
+   * The platform-configured client for a server, or null where the platform configured none.
+   *
+   * Asked before the vault by every reader of a client — see {@link PluginStoreOptions.envOAuthClients}
+   * for why it wins — and marked with its source so the redirect URI follows the client rather than
+   * the deployment. Looked up by the server's id, which for a curated row is its catalogue key.
+   */
+  function envClientFor(serverId: string): OAuthClient | null {
+    const client = envOAuthClients[serverId];
+    return client ? { ...client, source: "env" } : null;
+  }
 
   /*
    * One exchange at a time per (server, person). A rotating vendor invalidates the refresh
@@ -1605,12 +1666,20 @@ export function createPluginStore(options: PluginStoreOptions) {
     const { tokenUrl } = entry.auth;
     const { title } = entry;
     /*
+     * The platform's client, when it configured one for this vendor. It needs no vault row and no
+     * pointer on the server row, and it is never replaced from here: see
+     * {@link PluginStoreOptions.envOAuthClients}.
+     */
+    const envClient = envClientFor(row.id);
+    /*
      * Where to register again, for a vendor that issues its own clients — and undefined for one an
      * administrator registered with by hand, where there is nothing this deployment could do about a
-     * client the vendor no longer honours.
+     * client the vendor no longer honours. Undefined for a platform client too: re-registering
+     * would mint a client the platform's own one keeps winning over, and the vendor's refusal is
+     * the platform's to act on.
      */
     const registrationUrl =
-      entry.auth.clientRegistration === "dynamic"
+      !envClient && entry.auth.clientRegistration === "dynamic"
         ? entry.auth.registrationUrl
         : undefined;
 
@@ -1645,7 +1714,7 @@ export function createPluginStore(options: PluginStoreOptions) {
      */
     const clientReplaced = `${title} no longer recognises this deployment's OAuth client, so this cannot be called. The deployment has registered itself again — connect ${title} again in Settings.`;
 
-    if (!row.credentialId) {
+    if (!row.credentialId && !envClient) {
       // The person did their part; the deployment has not. Refused before anything queues, because
       // a deployment holding no client has the same answer for everybody asking.
       throw new PluginRefusedError(noClient, null);
@@ -1657,8 +1726,12 @@ export function createPluginStore(options: PluginStoreOptions) {
      * Read from the server row each time rather than from the row this call came in with: a retry
      * that registered again — this connection's own, a moment ago — replaced it, and the pointer
      * carried in from before the queue names the evicted one.
+     *
+     * A platform client is answered without the vault at all. Nothing can replace it from here, so
+     * there is nothing to re-read, and its age is not a thing the backoff below could measure.
      */
     async function currentClient(): Promise<StoredClient> {
+      if (envClient) return { client: envClient, registeredAt: null };
       /*
        * When the client was stored comes back with it, from the vault row itself rather than from a
        * column of our own. It is what the retry below measures its backoff against, and a left join
@@ -2103,7 +2176,7 @@ export function createPluginStore(options: PluginStoreOptions) {
   async function heldOAuthClient(
     transaction: Transaction,
     serverId: string,
-  ): Promise<OAuthClient | null> {
+  ): Promise<OAuthClientCredentials | null> {
     const [server] = await transaction
       .select({ credentialId: mcpServers.credentialId })
       .from(mcpServers)
@@ -2146,16 +2219,19 @@ export function createPluginStore(options: PluginStoreOptions) {
    * safe to act on.
    */
   async function writeOAuthClient(
-    input: { serverId: string; client: OAuthClient },
+    input: { serverId: string; client: OAuthClientCredentials },
     transaction: Transaction,
   ): Promise<{ replaced: boolean }> {
     const key = oauthClientKey(input.serverId);
+    // The two fields by name, so nothing a caller carried alongside them — a source, say — is
+    // written into the vault as if it were part of the client.
+    const { clientId, clientSecret } = input.client;
     const value = {
       ...key,
-      metadata: { server: input.serverId, clientId: input.client.clientId },
+      metadata: { server: input.serverId, clientId },
       encryptedValue: await encryptSecret(
         encryptionKey,
-        JSON.stringify(input.client),
+        JSON.stringify({ clientId, clientSecret }),
       ),
     };
 
@@ -2185,7 +2261,7 @@ export function createPluginStore(options: PluginStoreOptions) {
    * deadlock, but only just, and this way round the client is at least the thing that is certain.
    */
   async function recordClientRegistered(
-    input: { serverId: string; client: OAuthClient; by: string },
+    input: { serverId: string; client: OAuthClientCredentials; by: string },
     replaced: boolean,
   ): Promise<void> {
     await recordAuditEvent(auditStore, {
@@ -2221,7 +2297,7 @@ export function createPluginStore(options: PluginStoreOptions) {
    */
   async function persistOAuthClient(input: {
     serverId: string;
-    client: OAuthClient;
+    client: OAuthClientCredentials;
     by: string;
   }): Promise<void> {
     const { entry } = await requireServer(input.serverId);
@@ -2253,6 +2329,10 @@ export function createPluginStore(options: PluginStoreOptions) {
   async function storedOAuthClient(
     serverId: string,
   ): Promise<OAuthClient | null> {
+    // The platform's, before the vault is so much as read. See `envOAuthClients`.
+    const fromEnvironment = envClientFor(serverId);
+    if (fromEnvironment) return fromEnvironment;
+
     const [row] = await database
       .select({ credentialId: mcpServers.credentialId })
       .from(mcpServers)
@@ -2270,7 +2350,7 @@ export function createPluginStore(options: PluginStoreOptions) {
       );
       // A client that parsed and is not one is as unusable as the revoked or missing row the catch
       // below answers for, and is the same none to every caller — see {@link isUsableClient}.
-      return isUsableClient(parsed) ? parsed : null;
+      return isUsableClient(parsed) ? { ...parsed, source: "stored" } : null;
     } catch {
       // A revoked, missing or unreadable client is the same as none for every caller: there is
       // nothing to send anybody to consent with, and the answer is to obtain one again.
@@ -2545,6 +2625,13 @@ export function createPluginStore(options: PluginStoreOptions) {
       instanceHost?: string;
       credentialId?: string;
       by: string;
+      /**
+       * Whether every Bot may use it from now on, which is what the Marketplace means by adding
+       * something. Absent or false leaves the flag as it is — an administrator's add is not a
+       * statement about who may use the server, and re-adding one to change its host must not
+       * switch off what somebody enabled for everybody.
+       */
+      offeredToAllBots?: boolean;
     }): Promise<ServerRecord> {
       const resolved = resolveServerUrl(input.key, input.instanceHost);
       if (!resolved) throw new CatalogueEntryUnknownError(input.key);
@@ -2600,12 +2687,16 @@ export function createPluginStore(options: PluginStoreOptions) {
           vendor: resolved.entry.vendor,
           url: resolved.url,
           credentialId: credentialId ?? null,
+          offeredToAllBots: input.offeredToAllBots === true,
           addedBy: input.by,
         })
         .onConflictDoUpdate({
           target: mcpServers.id,
           set: {
             url: resolved.url,
+            // Only ever switched ON here. Off is its own act, `setOfferedToAllBots`, with its own
+            // trail row, and an add that said nothing about it leaves the answer alone.
+            ...(input.offeredToAllBots ? { offeredToAllBots: true } : {}),
             /*
              * THE WHOLE IDENTITY THE CATALOGUE DECIDES, not the url alone.
              *
@@ -2650,12 +2741,27 @@ export function createPluginStore(options: PluginStoreOptions) {
           change: "mcp_server_added",
           server: resolved.entry.key,
           url: resolved.url,
+          offeredToAllBots: input.offeredToAllBots === true,
         },
       });
 
-      // Refreshed immediately so the page that added it can show what it offers, and so a bad
-      // credential is reported now rather than the first time a Bot tries to use it.
-      await this.refreshTools(resolved.entry.key);
+      /*
+       * Refreshed immediately so the page that added it can show what it offers, and so a bad
+       * credential is reported now rather than the first time a Bot tries to use it.
+       *
+       * EXCEPT WHERE THE LISTING CAN ONLY RUN ON A PERSON'S GRANT AND NOBODY HAS ONE YET. A
+       * `user-oauth` MCP server (Notion) lists on the connecting person's token, and at the moment
+       * it is added nobody can have connected — the add is now the first thing Connect does — so a
+       * refresh here can only refuse, and the refusal would be written into `lastError` on a row
+       * that is seconds old and perfectly healthy. The callback refreshes as the person who just
+       * consented instead, which is the first moment a listing can succeed. Drive lists from this
+       * deployment's own code and Routines from this process, so both are still refreshed here.
+       */
+      const { access } = await requireServer(resolved.entry.key);
+      const listsOnAPersonsGrant =
+        access.credential === "person-oauth" &&
+        transportFor(access.transport).listNeedsCredential;
+      if (!listsOnAPersonsGrant) await this.refreshTools(resolved.entry.key);
       const servers = await this.listServers();
       const added = servers.find((server) => server.id === resolved.entry.key);
       if (!added) throw new CatalogueEntryUnknownError(input.key);
@@ -4061,6 +4167,20 @@ export function createPluginStore(options: PluginStoreOptions) {
           dynamicClient:
             entry?.auth.kind === "user-oauth" &&
             entry.auth.clientRegistration === "dynamic",
+          /*
+           * Only a `user-oauth` entry has a client at all. A bearer server's `credential_id` is its
+           * token, and reporting that as a stored client would tell the screen to draw a client
+           * where there is none to show.
+           */
+          oauthClientSource:
+            entry?.auth.kind === "user-oauth"
+              ? envOAuthClients[row.id]
+                ? "env"
+                : row.credentialId !== null
+                  ? "stored"
+                  : null
+              : null,
+          offeredToAllBots: row.offeredToAllBots,
           // The app's, for a row whose url names one; this row's own column for everything else,
           // which is a null on every server that is not brokered. See the read above.
           authScheme: toolkitOf(row.url)
@@ -4496,13 +4616,70 @@ export function createPluginStore(options: PluginStoreOptions) {
       });
     },
 
-    /** Everything one Bot may use. The runtime asks this and offers exactly what comes back. */
+    /**
+     * Offer a server to every Bot, or go back to offering it only to the Bots it is granted to.
+     *
+     * The Marketplace switches this on by adding; this is the administrator's switch, both ways.
+     * Off takes nothing away that a grant row gave: the explicit rows stay and go on deciding, which
+     * is what "restrict per Bot" means on the admin screen. Recorded as a configuration change like
+     * a grant is, because it is one — the widest one there is.
+     */
+    async setOfferedToAllBots(
+      serverId: string,
+      on: boolean,
+      by: string,
+    ): Promise<ServerRecord> {
+      // Resolved first, so an id naming no server refuses the way every other server act does.
+      await requireServer(serverId);
+
+      await database
+        .update(mcpServers)
+        .set({ offeredToAllBots: on, updatedAt: new Date() })
+        .where(eq(mcpServers.id, serverId));
+
+      await recordAuditEvent(auditStore, {
+        eventType: "configuration.changed",
+        targetType: "mcp_server",
+        targetId: serverId,
+        payload: {
+          actor: by,
+          change: on
+            ? "mcp_server_offered_to_all_bots"
+            : "mcp_server_restricted_to_granted_bots",
+          server: serverId,
+          offeredToAllBots: on,
+        },
+      });
+
+      const servers = await this.listServers();
+      const server = servers.find((candidate) => candidate.id === serverId);
+      if (!server) throw new CatalogueEntryUnknownError(serverId);
+      return server;
+    },
+
+    /**
+     * Everything one Bot may use. The runtime asks this and offers exactly what comes back.
+     *
+     * TWO SOURCES, ONE ANSWER, AND {@link decide} READS THE SAME TWO. A grant row is the explicit,
+     * per-Bot permission an administrator writes. A server offered to every Bot is the Marketplace's
+     * permission, written once on the server rather than once per Bot, so a Bot made after the app
+     * was connected holds it too. The tools come from `mcp_tools` either way: being offered a
+     * server is being offered what it advertises, never a name nothing listed.
+     */
     async listForAgent(agentId: string): Promise<GrantedPlugins> {
-      const held = await database
-        .select()
-        .from(pluginGrants)
-        .where(eq(pluginGrants.agentId, agentId));
-      if (held.length === 0) return { tools: [], skills: [] };
+      const [held, offered] = await Promise.all([
+        database
+          .select()
+          .from(pluginGrants)
+          .where(eq(pluginGrants.agentId, agentId)),
+        database
+          .select({ id: mcpServers.id })
+          .from(mcpServers)
+          .where(eq(mcpServers.offeredToAllBots, true)),
+      ]);
+      const offeredServers = new Set(offered.map((row) => row.id));
+      if (held.length === 0 && offeredServers.size === 0)
+        return { tools: [], skills: [] };
 
       const toolRefs = held
         .filter((row) => row.kind === "mcp")
@@ -4525,7 +4702,10 @@ export function createPluginStore(options: PluginStoreOptions) {
        * comes back.
        */
       const grantedServers = [
-        ...new Set(toolRefs.map((ref) => ref.split("/")[0] ?? "")),
+        ...new Set([
+          ...toolRefs.map((ref) => ref.split("/")[0] ?? ""),
+          ...offeredServers,
+        ]),
       ];
       const toolRows =
         grantedServers.length === 0
@@ -4538,7 +4718,12 @@ export function createPluginStore(options: PluginStoreOptions) {
       // A set, so this is a lookup per row rather than a walk of the grants per row.
       const granted = new Set(toolRefs);
       const grantedTools = toolRows
-        .filter((row) => granted.has(`${row.serverId}/${row.name}`))
+        .filter(
+          (row) =>
+            // Every advertised tool of a server offered to all; the exact ref otherwise.
+            offeredServers.has(row.serverId) ||
+            granted.has(`${row.serverId}/${row.name}`),
+        )
         .map((row) => {
           const ref = `${row.serverId}/${row.name}`;
           return {
@@ -4664,7 +4849,7 @@ export function createPluginStore(options: PluginStoreOptions) {
           outcome.replaced,
         );
       }
-      return outcome.client;
+      return { ...outcome.client, source: "stored" };
     },
 
     /**
@@ -6842,16 +7027,36 @@ export function createPluginStore(options: PluginStoreOptions) {
         )
         .limit(1);
 
-      if (!row) {
-        return {
-          allowed: false,
-          reason:
-            kind === "mcp"
-              ? `This Bot has not been given the tool ${ref}.`
-              : `This Bot has not been given the skill ${ref}.`,
-        };
+      if (row) return { allowed: true };
+
+      /*
+       * No row of its own: a tool is still allowed when its server is offered to every Bot.
+       *
+       * THE SAME TWO SOURCES {@link listForAgent} OFFERS FROM, in the same order, so what a Bot is
+       * handed and what it is let through on cannot disagree. Asked by the server half of the ref,
+       * which is how the flag is written; whether the server advertises the tool is not asked
+       * here, for the reason a grant row is not asked it either — what reaches the vendor is
+       * decided by the call, and a name nothing listed is classified as a write there.
+       */
+      if (kind === "mcp") {
+        const [serverId] = ref.split("/");
+        const [server] = serverId
+          ? await database
+              .select({ offeredToAllBots: mcpServers.offeredToAllBots })
+              .from(mcpServers)
+              .where(eq(mcpServers.id, serverId))
+              .limit(1)
+          : [];
+        if (server?.offeredToAllBots) return { allowed: true };
       }
-      return { allowed: true };
+
+      return {
+        allowed: false,
+        reason:
+          kind === "mcp"
+            ? `This Bot has not been given the tool ${ref}.`
+            : `This Bot has not been given the skill ${ref}.`,
+      };
     },
 
     /**
