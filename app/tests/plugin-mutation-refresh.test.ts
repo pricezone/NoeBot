@@ -16,6 +16,8 @@ import {
   connectBrokeredWithFieldsMutationOptions,
   disconnectBrokeredMutationOptions,
   enableComposioAppMutationOptions,
+  enablePluginMutationOptions,
+  offerToAllBotsMutationOptions,
   recheckBrokeredConnectionMutationOptions,
   refreshPluginServerMutationOptions,
   registerOAuthClientMutationOptions,
@@ -206,6 +208,26 @@ const REFUSALS: {
     message: "That server's tools could not be recorded.",
     factory: refreshPluginServerMutationOptions,
     variables: "linear",
+  },
+  {
+    /*
+     * The Marketplace's one-press enable. The same shape as adding a curated server — the row is
+     * inserted and then its tools are read — so the same 409 stands over a row that is now there.
+     */
+    name: "enabling an app for everybody",
+    route: "POST /api/plugins/servers/:id/enable",
+    status: 409,
+    message: "That app was enabled but its tools could not be read.",
+    factory: enablePluginMutationOptions,
+    variables: "parallel",
+  },
+  {
+    name: "offering an app to every Bot",
+    route: "POST /api/plugins/servers/:id/offer-to-all",
+    status: 500,
+    message: "That did not work.",
+    factory: offerToAllBotsMutationOptions,
+    variables: { serverId: "linear", on: true },
   },
   {
     name: "removing a server",
@@ -483,6 +505,18 @@ const ENCODED_REQUESTS: {
     url: `/api/plugins/servers/${ENCODED_ID}`,
     build: removePluginServerMutationOptions,
     variables: HOSTILE_ID,
+  },
+  {
+    name: "enabling an app for everybody",
+    url: `/api/plugins/servers/${ENCODED_ID}/enable`,
+    build: enablePluginMutationOptions,
+    variables: HOSTILE_ID,
+  },
+  {
+    name: "offering an app to every Bot",
+    url: `/api/plugins/servers/${ENCODED_ID}/offer-to-all`,
+    build: offerToAllBotsMutationOptions,
+    variables: { serverId: HOSTILE_ID, on: true },
   },
   {
     name: "registering an OAuth client",

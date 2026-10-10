@@ -177,6 +177,8 @@ function brokeredServer(authScheme: string): PluginServer {
     lastError: null,
     addedBy: null,
     dynamicClient: false,
+    offeredToAllBots: false,
+    oauthClientSource: null,
     tools: [],
     withdrawn: [],
   };

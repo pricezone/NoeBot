@@ -78,6 +78,23 @@ export type PluginServer = {
    * Null is not an older brokered row. It is a row that is not brokered at all.
    */
   authScheme: string | null;
+  /**
+   * Whether every Bot is offered this server's tools, with no grant per Bot.
+   *
+   * What connecting or enabling an app from the Marketplace sets: the app reaches every Bot, and
+   * the per-Bot switches on the Plugins screens are how an administrator narrows that afterwards.
+   * False is the older arrangement, where nothing is offered until it is granted.
+   */
+  offeredToAllBots: boolean;
+  /**
+   * Where a `user-oauth` server's OAuth client came from, for the screens that would otherwise
+   * ask for one.
+   *
+   * `env` is a client the platform configured for every deployment, which nobody here pastes or
+   * rotates; `stored` is one an administrator registered on the admin page; null is a server that
+   * has none yet, or one that is not reached as a person at all.
+   */
+  oauthClientSource: "env" | "stored" | null;
   tools: PluginTool[];
   /** Empty for a healthy connector. See {@link WithdrawnGrant}. */
   withdrawn: WithdrawnGrant[];

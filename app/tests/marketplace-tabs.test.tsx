@@ -23,9 +23,9 @@ import { Route as MarketplaceRoute } from "@/routes/_authed/_app/marketplace/ind
 
 /**
  * The Marketplace modal: which tab is open comes from `?tab`, the search field is `?q`, Connect
- * leads to the account's own settings page, and Composio's directory is drawn for an
- * administrator only — the server refuses that read to anybody else, so the section is not
- * offered to them rather than offered and failing.
+ * leads to the account's own settings page, Enable works in place, and Composio's directory is
+ * drawn for an administrator only — the server refuses that read to anybody else, so the section
+ * is not offered to them rather than offered and failing.
  *
  * The route is rendered through its real, exported `Route`, attached to decoy pathless
  * `_authed`/`_app` parents so `Route.useSearch()` resolves at the id the file declares. The
@@ -33,6 +33,11 @@ import { Route as MarketplaceRoute } from "@/routes/_authed/_app/marketplace/ind
  * `agent-roster-error.test.tsx` recorded before it stopped needing to: `.update()` merges into the
  * live object and `createRouter()` derives state off it, so a render here would otherwise leave
  * the real router pointed at a decoy parent.
+ *
+ * THE DEPLOYMENT IS A SMALL IN-MEMORY ONE rather than canned responses, because what Enable is
+ * for is a sequence: pressed, written, and read back as a green row. `enabled` is the set of
+ * catalogue apps the deployment has switched on for everybody, and `POST /servers/:id/enable`
+ * adds to it, so the refetch the mutation triggers draws the row the press earned.
  */
 
 beforeAll(() => GlobalRegistrator.register({ url: "http://localhost/" }));
@@ -49,16 +54,110 @@ afterEach(() => {
 
 /** Whose Marketplace this is. Set per test before rendering. */
 let role: "admin" | "user" = "user";
+/** The account-less apps the deployment has enabled for everybody. Routines, to begin with. */
+let enabled: Set<string>;
+/** What the deployment refuses an Enable with, or null to accept it. */
+let refuseEnable: { status: number; error: string } | null = null;
+/** Every POST the deployment received, as `method path`. */
+let writes: string[];
+
+/** The catalogue as the server publishes it: one entry of each auth kind. */
+const CATALOGUE = [
+  {
+    key: "parallel",
+    title: "Parallel Search",
+    vendor: "Parallel",
+    summary: "Public-web search and source extraction.",
+    docsUrl: "https://example.com",
+    auth: "none",
+    perInstance: false,
+  },
+  {
+    key: "parallel-authenticated",
+    title: "Parallel Search (API key)",
+    vendor: "Parallel",
+    summary: "Public-web search using this deployment's key.",
+    docsUrl: "https://example.com",
+    auth: "deployment-bearer",
+    perInstance: false,
+  },
+  {
+    key: "google-drive",
+    title: "Google Drive",
+    vendor: "Google",
+    summary: "Files and folders.",
+    docsUrl: "https://example.com",
+    auth: "user-oauth",
+    perInstance: false,
+  },
+  {
+    key: "notion",
+    title: "Notion",
+    vendor: "Notion",
+    summary: "Pages and databases.",
+    docsUrl: "https://example.com",
+    auth: "user-oauth",
+    perInstance: false,
+  },
+  {
+    key: "parallel-oauth",
+    title: "Parallel Search (your account)",
+    vendor: "Parallel",
+    summary: "Public-web search as your own Parallel account.",
+    docsUrl: "https://example.com",
+    auth: "user-oauth",
+    perInstance: false,
+  },
+  {
+    key: "routines",
+    title: "Routines",
+    vendor: "OpenBot",
+    summary: "Standing instructions a Bot runs on a schedule.",
+    docsUrl: "https://example.com",
+    auth: "builtin",
+    perInstance: false,
+  },
+];
+
+/** A server row for a catalogue app the deployment has switched on for everybody. */
+function enabledRow(key: string) {
+  const entry = CATALOGUE.find((item) => item.key === key);
+  return {
+    id: key,
+    title: entry?.title ?? key,
+    vendor: entry?.vendor ?? key,
+    url: `https://${key}.example`,
+    summary: entry?.summary ?? "",
+    docsUrl: "https://example.com",
+    provenance: "first-party",
+    hasCredential: false,
+    toolsRefreshedAt: null,
+    lastError: null,
+    addedBy: null,
+    dynamicClient: false,
+    authScheme: null,
+    offeredToAllBots: true,
+    oauthClientSource: null,
+    tools: [],
+    withdrawn: [],
+  };
+}
 
 beforeEach(() => {
   role = "user";
+  enabled = new Set(["routines"]);
+  refuseEnable = null;
+  writes = [];
   global.fetch = Object.assign(
-    async (input: RequestInfo | URL) => {
-      const path = String(input).split("?")[0];
-      const json = (body: unknown) =>
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split("?")[0] ?? "";
+      const method = init?.method ?? "GET";
+      const json = (body: unknown, status = 200) =>
         new Response(JSON.stringify(body), {
+          status,
           headers: { "content-type": "application/json" },
         });
+      if (method === "POST") writes.push(`${method} ${path}`);
       if (path === "/api/me") {
         return json({
           user: {
@@ -69,32 +168,25 @@ beforeEach(() => {
           },
         });
       }
+      const enableMatch = path.match(
+        /^\/api\/plugins\/servers\/([^/]+)\/enable$/,
+      );
+      if (method === "POST" && enableMatch) {
+        if (refuseEnable) {
+          return json({ error: refuseEnable.error }, refuseEnable.status);
+        }
+        const key = decodeURIComponent(enableMatch[1] ?? "");
+        enabled.add(key);
+        return json({ server: enabledRow(key) });
+      }
       if (path === "/api/plugins") {
         return json({
-          catalogue: [
-            {
-              key: "google-drive",
-              title: "Google Drive",
-              vendor: "Google",
-              summary: "Files and folders.",
-              docsUrl: "https://example.com",
-              auth: "user-oauth",
-              perInstance: false,
-            },
-          ],
+          catalogue: CATALOGUE,
           servers: [
             {
-              id: "google-drive",
-              title: "Google Drive",
-              vendor: "Google",
-              url: "https://drive.example",
-              summary: "Files and folders.",
-              docsUrl: "https://example.com",
-              provenance: "first-party",
-              hasCredential: false,
-              toolsRefreshedAt: null,
-              authScheme: null,
-              tools: [],
+              // Added already, and the platform holds its OAuth client. Still yours to connect.
+              ...enabledRow("google-drive"),
+              oauthClientSource: "env",
             },
             {
               id: "composio-gmail",
@@ -107,9 +199,16 @@ beforeEach(() => {
               provenance: "composio",
               hasCredential: false,
               toolsRefreshedAt: null,
+              lastError: null,
+              addedBy: null,
+              dynamicClient: false,
               authScheme: "OAUTH2",
+              offeredToAllBots: true,
+              oauthClientSource: null,
               tools: [],
+              withdrawn: [],
             },
+            ...[...enabled].map(enabledRow),
           ],
           skills: [],
           botsMayCallBack: true,
@@ -228,7 +327,13 @@ test("the Apps tab is the default, with Connect leading to the account's setting
   const { view } = renderMarketplace("/marketplace");
 
   await view.findByRole("dialog", { name: "Marketplace" });
-  const apps = await view.findByRole("tab", { name: "Apps" });
+  // The body is a lazy chunk, and the first test in the file pays for its compile: a longer
+  // wait than the default second, rather than a test that is green or red by the machine.
+  const apps = await view.findByRole(
+    "tab",
+    { name: "Apps" },
+    { timeout: 5000 },
+  );
   expect(apps.getAttribute("aria-selected")).toBe("true");
 
   // The connected account under Connected, the rest under Available. Each action is a link
@@ -245,10 +350,126 @@ test("the Apps tab is the default, with Connect leading to the account's setting
   expect(view.getByRole("region", { name: "Connected" })).toBeTruthy();
   expect(view.getByRole("region", { name: "Available" })).toBeTruthy();
 
-  // The installed cluster counts the connections and opens the settings page.
+  // The installed cluster counts the connections and the enabled apps, and opens the settings page.
   const cluster = await view.findByTestId("installed-cluster");
-  expect(cluster.textContent).toContain("1 installed");
+  expect(cluster.textContent).toContain("2 installed");
   expect(cluster.getAttribute("href")).toBe("/settings/connected-accounts");
+});
+
+/*
+ * No administrator step stands before Connect. A vendor reached as you is offered whether or not
+ * anybody has added a row for it — the connect route adds the row itself — so Notion, which has
+ * no row here, has the same live link Drive has. The one kind a person cannot press is the token
+ * an administrator holds, and it is not listed at all.
+ */
+test("Connect is offered for a vendor nobody has added yet, and never disabled; a shared-token vendor is not listed", async () => {
+  const { view } = renderMarketplace("/marketplace");
+
+  const notion = await view.findByTestId("account-notion");
+  const connect = within(notion).getByRole("link", { name: "Connect Notion" });
+  expect(connect.getAttribute("href")).toBe(
+    "/settings/connected-accounts/notion",
+  );
+  expect(connect.hasAttribute("aria-disabled")).toBe(false);
+  const parallelOAuth = await view.findByTestId("account-parallel-oauth");
+  expect(
+    within(parallelOAuth).getByRole("link", {
+      name: "Connect Parallel Search (your account)",
+    }),
+  ).toBeTruthy();
+  expect(view.queryByTestId("account-parallel-authenticated")).toBeNull();
+});
+
+test("Google Drive carries a Beta tag, and nothing else does", async () => {
+  const { view } = renderMarketplace("/marketplace");
+
+  const drive = await view.findByTestId("account-google-drive");
+  expect(within(drive).getByText("Beta")).toBeTruthy();
+  const notion = await view.findByTestId("account-notion");
+  expect(within(notion).queryByText("Beta")).toBeNull();
+});
+
+/*
+ * An app with no account to hold is enabled in place, for everybody. Routines is already on, so
+ * it is under Connected and says Enabled rather than offering a button; Parallel is not, so its
+ * row carries Enable, and pressing it writes once and reads back as the green row.
+ */
+test("an account-less app is enabled with one press and moves under Connected; the counter follows", async () => {
+  const { view } = renderMarketplace("/marketplace");
+
+  const routines = await view.findByTestId("account-routines");
+  expect(
+    within(routines).getByRole("status", { name: "Routines enabled" }),
+  ).toBeTruthy();
+  expect(within(routines).queryByRole("button")).toBeNull();
+  expect(
+    within(view.getByRole("region", { name: "Connected" })).getByTestId(
+      "account-routines",
+    ),
+  ).toBeTruthy();
+
+  const parallel = await view.findByTestId("account-parallel");
+  expect(
+    within(view.getByRole("region", { name: "Available" })).getByTestId(
+      "account-parallel",
+    ),
+  ).toBeTruthy();
+  const enable = within(parallel).getByRole("button", {
+    name: "Enable Parallel Search",
+  });
+  expect((enable as HTMLButtonElement).disabled).toBe(false);
+
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(enable);
+
+  await waitFor(() => {
+    expect(
+      within(view.getByRole("region", { name: "Connected" })).getByTestId(
+        "account-parallel",
+      ),
+    ).toBeTruthy();
+  });
+  expect(writes).toEqual(["POST /api/plugins/servers/parallel/enable"]);
+  expect(
+    within(view.getByTestId("account-parallel")).getByRole("status", {
+      name: "Parallel Search enabled",
+    }),
+  ).toBeTruthy();
+  expect(view.queryByRole("alert")).toBeNull();
+  await waitFor(() => {
+    expect(view.getByTestId("installed-cluster").textContent).toContain(
+      "3 installed",
+    );
+  });
+});
+
+test("a refused Enable is said in the server's words, and the row keeps its button", async () => {
+  refuseEnable = {
+    status: 403,
+    error: "Connecting apps is switched off for this deployment.",
+  };
+  const { view } = renderMarketplace("/marketplace");
+
+  const parallel = await view.findByTestId("account-parallel");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(
+    within(parallel).getByRole("button", { name: "Enable Parallel Search" }),
+  );
+
+  const alert = await view.findByRole("alert");
+  expect(alert.textContent).toBe(
+    "Connecting apps is switched off for this deployment.",
+  );
+  const button = within(view.getByTestId("account-parallel")).getByRole(
+    "button",
+    { name: "Enable Parallel Search" },
+  );
+  expect((button as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    within(view.getByRole("region", { name: "Available" })).getByTestId(
+      "account-parallel",
+    ),
+  ).toBeTruthy();
 });
 
 test("?tab picks the tab, and clicking another writes it back to the URL", async () => {
@@ -276,6 +497,7 @@ test("?q fills the search and narrows the apps; typing writes ?q back", async ()
   expect((search as HTMLInputElement).value).toBe("mail");
   await view.findByTestId("account-composio-gmail");
   expect(view.queryByTestId("account-google-drive")).toBeNull();
+  expect(view.queryByTestId("account-parallel")).toBeNull();
 
   const user = userEvent.setup({ document: view.baseElement.ownerDocument });
   await user.clear(search);

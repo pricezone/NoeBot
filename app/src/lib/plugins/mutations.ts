@@ -213,6 +213,57 @@ export function refreshPluginServerMutationOptions(queryClient: QueryClient) {
   });
 }
 
+/**
+ * Enable a catalogue app that needs no account, for everybody, from the Marketplace.
+ *
+ * The one-click half of "Connect apps": a vendor reached with no credential, or a capability built
+ * into this deployment, has nothing for anybody to consent to or type, so one press adds the row
+ * and offers its tools to every Bot. The server refuses it for any other auth kind — a vendor
+ * reached as a person is connected through {@link connectAccountMutationOptions} instead — and
+ * when the deployment has switched connecting apps off for people.
+ *
+ * Any signed-in person may press it, which is the point: there is no administrator step between a
+ * person and an app that holds nothing of theirs.
+ */
+export function enablePluginMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (serverId: string) => {
+      await client(
+        `/api/plugins/servers/${encodeURIComponent(serverId)}/enable`,
+        {
+          method: "POST",
+          body: {},
+          fallback: "That app could not be enabled.",
+        },
+      );
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
+/**
+ * Whether one server's tools are offered to every Bot, or only to the Bots granted them.
+ *
+ * An administrator's switch. On is what the Marketplace sets when somebody connects or enables an
+ * app; off hands the decision back to the per-Bot switches on the Plugins screens, which is how a
+ * deployment narrows an app to the Bots that should hold it.
+ */
+export function offerToAllBotsMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (variables: { serverId: string; on: boolean }) => {
+      await client(
+        `/api/plugins/servers/${encodeURIComponent(variables.serverId)}/offer-to-all`,
+        {
+          method: "POST",
+          body: { on: variables.on },
+          fallback: FALLBACK,
+        },
+      );
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
 export function removePluginServerMutationOptions(queryClient: QueryClient) {
   return mutationOptions({
     mutationFn: async (serverId: string) => {
