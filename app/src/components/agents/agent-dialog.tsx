@@ -148,9 +148,21 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
   return (
     <>
       <DialogTitle className="sr-only">{profile.name}</DialogTitle>
-      {/* min-h-full overrides the provider's own min-h-svh, which is sized for a page. */}
-      <SidebarProvider className="min-h-full items-start">
-        <Sidebar className="hidden md:flex" collapsible="none">
+      {/*
+       * min-h-full overrides the provider's own min-h-svh, which is sized for a page.
+       *
+       * THE SIDEBAR IS STRETCHED, NOT SIZED. A non-collapsing sidebar draws itself `h-full`, and
+       * nothing above it has a height a percentage can resolve against: the popup is as tall as
+       * its content, and the content's height is the main pane's 640px. So `h-full` computed to
+       * auto, `items-start` kept it there, and the sidebar's background stopped under its last
+       * item: on the dark theme a black block ending halfway down a grey dialog. `h-auto` with
+       * `self-stretch` makes it the height of the row, which is the main pane's.
+       */}
+      <SidebarProvider className="min-h-full">
+        <Sidebar
+          className="hidden h-auto self-stretch md:flex"
+          collapsible="none"
+        >
           {/* Who this dialog is about, said once here rather than repeated per section. */}
           <SidebarHeader className="flex-row items-center gap-3 p-4">
             <AbstractAvatar
