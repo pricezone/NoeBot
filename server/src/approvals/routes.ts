@@ -164,6 +164,23 @@ export function createApprovalRoutes(
     await service.revokeTeamRule(context.var.actor.id, context.req.param("id"));
     return context.json({ revoked: true });
   });
+  /*
+   * Answered in the conversation, not here: an option picked on the question's card, or words
+   * typed in reply. The screen knows the thread and the question's words, not the saved question's
+   * id, so the questions are found by those, among the caller's own.
+   */
+  routes.post("/questions/answered", async (context) => {
+    const input = z
+      .strictObject({
+        threadId: z.string().trim().min(1).max(200),
+        questions: z.array(z.string().trim().min(1).max(6000)).min(1).max(20),
+        response: z.string().trim().min(1).max(6000),
+      })
+      .parse(await context.req.json());
+    return context.json(
+      await service.answerQuestionsInConversation(context.var.actor.id, input),
+    );
+  });
   routes.post("/questions/:id/respond", async (context) => {
     const input = z
       .strictObject({ response: z.string().trim().min(1).max(6000) })

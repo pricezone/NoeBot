@@ -26,6 +26,11 @@ import {
   transcriptMessages,
 } from "@/components/channels/transcript-messages";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import {
+  answerQuestionsInConversation,
+  approvalInboxOptions,
+} from "@/lib/approvals";
+import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import {
   recordChannelActivityMutationOptions,
@@ -41,6 +46,7 @@ import { ConversationProvider } from "@/lib/copilot/conversation";
 import { afterMs, joinWithin } from "@/lib/copilot/join-thread";
 import {
   answersSignature,
+  openQuestions,
   questionAnswers,
 } from "@/lib/copilot/question-answers";
 import { repairUnansweredToolCalls } from "@/lib/copilot/repair-history";
@@ -661,6 +667,37 @@ export function ChannelChat({
   reportRef.current = report;
 
   /**
+   * A question the Bot asked is answered by this message, so it must stop waiting in Approvals and
+   * in the Bot's Activity: the server closes it with the answer recorded, and does not resume the
+   * conversation with it, since this message is already doing that. Fire-and-forget like `report`:
+   * a question left listed is untidy, not a lost answer, and the inbox can still close it.
+   */
+  const settleQuestions = (
+    answering: readonly { question: string }[],
+    response: string,
+  ) => {
+    void answerQuestionsInConversation({
+      threadId: channel.threadId,
+      questions: answering.map((open) => open.question),
+      response,
+    })
+      .then(() =>
+        Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: approvalInboxOptions().queryKey,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: botLifecycleKeys.attention,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: botLifecycleKeys.activity(runtimeAgentId),
+          }),
+        ]),
+      )
+      .catch(() => undefined);
+  };
+
+  /**
    * Everything `say` does once it has something worth sending, split out so the counter it is
    * wrapped in covers every way out of here, a throw included.
    */
@@ -754,12 +791,15 @@ export function ChannelChat({
         ),
       );
 
+    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers.
+    const answering = trimmed ? openQuestions(target.messages) : [];
     target.addMessage({
       content: toMessageContent(trimmed, attachments),
       id: newId(),
       role: "user",
     });
     report(trimmed || describeAttachments(attachments), null);
+    if (answering.length > 0) settleQuestions(answering, trimmed);
 
     // Providers reject later turns if prior tool calls have no result; repair before sending.
     const repaired = repairUnansweredToolCalls(target.messages);

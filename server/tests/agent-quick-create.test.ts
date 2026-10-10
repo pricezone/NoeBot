@@ -57,6 +57,9 @@ function profile(overrides: Partial<AgentProfile> = {}): AgentProfile {
     hidden: false,
     pinned: false,
     deletedAt: null,
+    endpoint: null,
+    hasAuth: false,
+    hasCallbackToken: false,
     ...overrides,
   };
 }
@@ -87,10 +90,13 @@ function fakeStore(created: unknown[]): AgentProfileStore {
     setHidden: unused,
     setPinned: unused,
     softDelete: unused,
+    issueCallbackToken: unused,
+    revokeCallbackToken: unused,
+    agentForCallbackToken: unused,
   };
 }
 
-function appWith(quick?: Parameters<typeof createAgentRoutes>[9]) {
+function appWith(quick?: Parameters<typeof createAgentRoutes>[8]) {
   const created: unknown[] = [];
   const app = new Hono<{ Variables: AppVariables }>();
   app.route(
@@ -138,7 +144,7 @@ describe("POST /api/agents with quick", () => {
     expect(response.status).toBe(201);
     const body = (await response.json()) as {
       agent: { id: string; name: string };
-      channel: { id: string; threadId: string; lastMessageAt: string | null };
+      channel: Record<string, unknown>;
     };
     expect(body.agent).toMatchObject({ id: "agent_new", name: "New Bot" });
     expect(body.channel).toEqual({

@@ -53,6 +53,47 @@ export function questionAnswers(
   return answers;
 }
 
+/** The question an `ask_person` call asked, from its arguments, or nothing when they say none. */
+function questionOf(args: unknown): string {
+  if (typeof args !== "string") return "";
+  try {
+    const parsed: unknown = JSON.parse(args || "{}");
+    return parsed &&
+      typeof parsed === "object" &&
+      "question" in parsed &&
+      typeof parsed.question === "string"
+      ? parsed.question.trim()
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The questions still waiting on the person at the end of these messages: `ask_person` calls with
+ * no message from them after. Whatever they send next answers these, which is what lets the
+ * conversation tell the server they are answered.
+ */
+export function openQuestions(
+  messages: readonly Message[],
+): { toolCallId: string; question: string }[] {
+  let open: { toolCallId: string; question: string }[] = [];
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const call of Array.isArray(message.toolCalls)
+        ? message.toolCalls
+        : []) {
+        if (call?.function?.name !== ASK_PERSON) continue;
+        const question = questionOf(call.function.arguments);
+        if (question) open.push({ toolCallId: call.id, question });
+      }
+      continue;
+    }
+    if (message.role === "user" && textOf(message.content)) open = [];
+  }
+  return open;
+}
+
 /** One string per distinct set of answers, so a caller can keep a map's identity while it holds. */
 export function answersSignature(answers: ReadonlyMap<string, string>): string {
   return JSON.stringify([...answers]);

@@ -92,9 +92,15 @@ export function AskWithOptions({
 }) {
   const conversation = useConversation();
   const [dismissed, setDismissed] = useState(false);
-  // A refused question was never put to anybody, so there is nothing to answer.
+  const answer = conversation?.answers?.get(toolCallId);
+  /*
+   * A refused question was never put to anybody, so there is nothing to answer — unless the person
+   * answered it anyway. Answered wins: read back after a reload, a call can come paired with the
+   * stand-in result `repair-history.ts` writes for a result that had not arrived when they replied,
+   * and the card must still show what they said.
+   */
   const refused = result !== undefined && !reached(result);
-  if (!conversation || dismissed || refused) {
+  if (!conversation || (answer === undefined && (dismissed || refused))) {
     return (
       <AskedLine
         question={question}
@@ -111,8 +117,6 @@ export function AskWithOptions({
     // The label is what the person says when they pick it, so it is the id too.
     options: options.map((label) => ({ id: label, label })),
   };
-  const answer = conversation.answers?.get(toolCallId);
-
   if (!question) {
     // Still being written: the card's own "waiting" title until the question arrives.
     return (

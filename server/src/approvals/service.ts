@@ -9,7 +9,7 @@ import {
   type ReviewModel,
   ruleMatches,
 } from "./policy";
-import type { ApprovalQuestions } from "./questions";
+import type { ApprovalQuestions, ConversationAnswer } from "./questions";
 import {
   type ApprovalAction,
   type ApprovalCandidate,
@@ -387,6 +387,18 @@ export function createApprovalService(
           "Questions are unavailable in this deployment.",
         );
       return questions.respond(ownerUserId, id, response);
+    },
+    /**
+     * Questions the person answered in the conversation they were asked in. Closed with the answer
+     * recorded and not resumed: their message there was the answer, and already started its turn.
+     * Nothing to close where questions are not kept.
+     */
+    async answerQuestionsInConversation(
+      ownerUserId: string,
+      input: ConversationAnswer,
+    ) {
+      if (!questions) return { resolved: [] as string[] };
+      return questions.answerInConversation(ownerUserId, input);
     },
     async inbox(ownerUserId: string) {
       const requests = await store.list(ownerUserId);

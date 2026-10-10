@@ -14,7 +14,9 @@ import { cleanup, render } from "@testing-library/react";
  * kept, captured at first render, with no inbox loaded at all.
  */
 
-const real = await import("@copilotkit/react-core/v2");
+// A copy, not the namespace: Bun patches a mocked module's namespace in place, so the namespace
+// itself would hold the mocks by the time `afterAll` puts the real SDK back.
+const real = { ...(await import("@copilotkit/react-core/v2")) };
 type Registered = Parameters<typeof real.useFrontendTool>[0];
 const registered: Registered[] = [];
 const stopped: unknown[] = [];
@@ -33,7 +35,12 @@ const { observeApprovalAgent } = await import("@/lib/copilot/approval-context");
 
 beforeAll(() => GlobalRegistrator.register());
 afterEach(cleanup);
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(() => {
+  GlobalRegistrator.unregister();
+  // The mock above is process-wide: put the real SDK back, or every file bun runs after this one
+  // gets a `useCopilotKit` with nothing but `stopAgent`, and a mounted conversation throws.
+  mock.module("@copilotkit/react-core/v2", () => real);
+});
 
 const direct: unknown[] = [];
 function Tools() {

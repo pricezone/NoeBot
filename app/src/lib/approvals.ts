@@ -133,6 +133,22 @@ export const answerPersonQuestion = (id: string, response: string) =>
     body: { response },
     fallback: "Your answer could not be saved.",
   });
+/**
+ * Questions a Bot asked in a conversation, answered there: an option picked on the card, or words
+ * typed in reply. The server closes them with that answer recorded and without resuming anything —
+ * the message that answered them already started its own turn — so Approvals and the Bot's Activity
+ * stop listing them as waiting.
+ */
+export const answerQuestionsInConversation = (input: {
+  threadId: string;
+  questions: string[];
+  response: string;
+}) =>
+  client("/api/approvals/questions/answered", {
+    method: "POST",
+    body: input,
+    fallback: "Your answer could not be recorded.",
+  });
 export const updateApprovalRule = (
   id: string,
   input: Partial<ApprovalRuleInput>,
