@@ -3087,7 +3087,17 @@ describe("a dynamic client the vendor has evicted", () => {
     });
     try {
       expect(added.lastError).toBeNull();
-      expect(added.offeredToAllBots).toBe(true);
+      /*
+       * The row was here before this add, so the offer it asked for is not written: on a row that
+       * exists, only an administrator's `setOfferedToAllBots` moves the flag. The add is what a
+       * member's Enable does, and Enable on an app already here changes nothing about its Bots.
+       */
+      expect(added.offeredToAllBots).toBe(false);
+      await dynamicStore.setOfferedToAllBots(
+        dynamicServerId,
+        true,
+        "admin@openbot.test",
+      );
       // Nothing was asked of the vendor, so what it advertised before is untouched.
       const advertisedAfter = (
         await database
@@ -3105,6 +3115,20 @@ describe("a dynamic client the vendor has evicted", () => {
         by: "admin@openbot.test",
       });
       expect(again.offeredToAllBots).toBe(true);
+
+      // An administrator narrows it to chosen Bots; a member pressing Enable again (an add that
+      // asks for every Bot) must not undo that. The flag moves only through `setOfferedToAllBots`.
+      await dynamicStore.setOfferedToAllBots(
+        dynamicServerId,
+        false,
+        "admin@openbot.test",
+      );
+      const afterMemberEnable = await dynamicStore.addServer({
+        key: dynamicServerId,
+        by: "person@openbot.test",
+        offeredToAllBots: true,
+      });
+      expect(afterMemberEnable.offeredToAllBots).toBe(false);
     } finally {
       await dynamicStore.setOfferedToAllBots(
         dynamicServerId,

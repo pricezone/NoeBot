@@ -2745,9 +2745,14 @@ export function createPluginStore(options: PluginStoreOptions) {
           target: mcpServers.id,
           set: {
             url: resolved.url,
-            // Only ever switched ON here. Off is its own act, `setOfferedToAllBots`, with its own
-            // trail row, and an add that said nothing about it leaves the answer alone.
-            ...(input.offeredToAllBots ? { offeredToAllBots: true } : {}),
+            /*
+             * NEVER TOUCHED ON A ROW THAT EXISTS. The offer is decided when the row is born: an add
+             * from the Marketplace offers the app to every Bot, an administrator's add does not.
+             * After that, `setOfferedToAllBots` (an administrator's act, with its own trail row) is
+             * the only thing that moves it. A second add saying `offeredToAllBots: true` is a member
+             * pressing Enable on an app an administrator has since narrowed to chosen Bots, and that
+             * press must not undo the narrowing.
+             */
             /*
              * THE WHOLE IDENTITY THE CATALOGUE DECIDES, not the url alone.
              *

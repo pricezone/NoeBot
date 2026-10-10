@@ -1789,6 +1789,26 @@ export function createPluginRoutes(
     }
 
     try {
+      /*
+       * An app already here is not added again. Offered to every Bot, pressing Enable twice is a
+       * no-op that answers with the row as it stands. Narrowed by an administrator to chosen Bots,
+       * it stays narrowed: the add below never moves the flag on a row that exists, and saying so
+       * beats answering with a row the person will read as "still not enabled".
+       */
+      if (await store.serverExists(key)) {
+        const existing = (await store.listServers()).find(
+          (server) => server.id === key,
+        );
+        if (existing && !existing.offeredToAllBots) {
+          return context.json(
+            {
+              error: `An administrator has limited ${entry.title} to chosen Bots. Ask them to offer it to every Bot from the Plugins screen.`,
+            },
+            409,
+          );
+        }
+        if (existing) return context.json({ server: existing });
+      }
       const server = await store.addServer({
         key,
         by: actorEmail(context),

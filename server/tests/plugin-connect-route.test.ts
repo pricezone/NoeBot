@@ -77,6 +77,8 @@ function app(
     ) => Promise<OAuthClient | null>;
     /** Whether the vendor already has a row. Added by default, so the old tests read as before. */
     serverExists?: (serverId: string) => Promise<boolean>;
+    /** The rows as the Marketplace lists them; empty by default. */
+    listServers?: () => Promise<ServerRecord[]>;
     addServer?: (input: AddCall) => Promise<ServerRecord>;
     setOfferedToAllBots?: (
       serverId: string,
@@ -100,6 +102,7 @@ function app(
        */
       serverAddress: async () => undefined,
       serverExists: async () => true,
+      listServers: async () => [],
       ensureOAuthClient: async () => null,
       ...store,
     } as never,
@@ -407,6 +410,7 @@ describe("enabling a catalogue app that needs no account", () => {
     const added: AddCall[] = [];
     const hono = app({
       oauthClientFor: async () => null,
+      serverExists: async () => false,
       addServer: async (input) => {
         added.push(input);
         return serverRecord(input.key, input.offeredToAllBots === true);
@@ -428,6 +432,7 @@ describe("enabling a catalogue app that needs no account", () => {
     const added: AddCall[] = [];
     const hono = app({
       oauthClientFor: async () => null,
+      serverExists: async () => false,
       addServer: async (input) => {
         added.push(input);
         return serverRecord(input.key, true);
@@ -436,6 +441,49 @@ describe("enabling a catalogue app that needs no account", () => {
 
     expect((await post(hono, "/servers/routines/enable")).status).toBe(200);
     expect(added.map((call) => call.key)).toEqual(["routines"]);
+  });
+
+  test("pressed again on an app already offered to every Bot, it answers with the row and adds nothing", async () => {
+    const added: AddCall[] = [];
+    const hono = app({
+      oauthClientFor: async () => null,
+      serverExists: async () => true,
+      listServers: async () => [serverRecord("parallel", true)],
+      addServer: async (input) => {
+        added.push(input);
+        return serverRecord(input.key, true);
+      },
+    });
+
+    const response = await post(hono, "/servers/parallel/enable");
+
+    expect(response.status).toBe(200);
+    expect(
+      ((await response.json()) as { server: ServerRecord }).server
+        .offeredToAllBots,
+    ).toBe(true);
+    expect(added).toEqual([]);
+  });
+
+  test("cannot undo an administrator's narrowing: an app limited to chosen Bots is refused, and not re-added", async () => {
+    const added: AddCall[] = [];
+    const hono = app({
+      oauthClientFor: async () => null,
+      serverExists: async () => true,
+      listServers: async () => [serverRecord("parallel", false)],
+      addServer: async (input) => {
+        added.push(input);
+        return serverRecord(input.key, true);
+      },
+    });
+
+    const response = await post(hono, "/servers/parallel/enable");
+
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: string }).error).toContain(
+      "limited Parallel Search to chosen Bots",
+    );
+    expect(added).toEqual([]);
   });
 
   test("an entry connected on a person's own account is refused, naming Connect", async () => {
