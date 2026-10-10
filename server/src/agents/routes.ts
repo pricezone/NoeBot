@@ -3,8 +3,10 @@ import { Hono } from "hono";
 import type { AuditEventType, AuditStore } from "../audit";
 import { recordAuditEvent } from "../audit";
 import type { AppVariables } from "../auth/guards";
+import { type AgentChannel, channelDto } from "../channels/routes";
 import { testAgentConnection } from "./connection-test";
 import { checkAgentEndpoint } from "./endpoint";
+import { type FirstTurnStarter, NEW_BOT } from "./first-turn";
 import { canManageAgent } from "./profile-policy";
 import {
   AgentNotFoundError,
@@ -287,6 +289,18 @@ export function createAgentRoutes(
    * dialog nagged built-in coworkers about a credential they never needed.
    */
   managedEndpoint?: string,
+  /**
+   * "Create new Bot" in one click: `POST /` with `{ quick: true }`. See `first-turn.ts`.
+   *
+   * Absent in a deployment with no channels, where a Bot made this way would have nowhere to speak;
+   * a quick create is then refused rather than half-done. `startFirstTurn` absent leaves the
+   * conversation for the person to open, which is what a test of the create alone wants.
+   */
+  quick?: {
+    /** The person's own conversation with the new Bot. */
+    openChannel: (actor: AgentActor, agentId: string) => Promise<AgentChannel>;
+    startFirstTurn?: FirstTurnStarter;
+  },
 ) {
   /** The dto with the one fact only this closure knows: whether the coworker runs on our own Bot. */
   const dto = (actor: AgentActor, agent: AgentProfile) => ({
@@ -469,13 +483,57 @@ export function createAgentRoutes(
     }
   };
 
+  /**
+   * A Bot with the defaults in `NEW_BOT`, its conversation with this person, and its first turn.
+   *
+   * Answered as soon as the Bot and the conversation exist, so the screen can open the conversation
+   * while the Bot is still thinking about its first sentence. The turn is started and not awaited:
+   * it takes as long as a model takes, and the person is better off watching it arrive than
+   * watching a button spin. The starter never throws, and a rejection is caught anyway, because an
+   * unhandled one here would outlive the request that started it.
+   */
+  const quickCreate = async (context: Context<{ Variables: AppVariables }>) => {
+    if (!quick) {
+      return context.json(
+        { error: "Bots cannot be created in one step here." },
+        400,
+      );
+    }
+    const actor = context.var.actor;
+    try {
+      // Built in, like a Bot from the form with no endpoint, so the role is what it runs on.
+      const agent = await store.create(actor, {
+        ...NEW_BOT,
+        systemPrompt: NEW_BOT.roleDescription,
+      });
+      await record(context, "bot.created", agent.id, {
+        name: NEW_BOT.name,
+        visibility: NEW_BOT.visibility,
+        hasKey: false,
+        quick: true,
+      });
+      const channel = await quick.openChannel(actor, agent.id);
+      if (quick.startFirstTurn) {
+        void quick
+          .startFirstTurn({ actor, agentId: agent.id, channel })
+          .catch(() => undefined);
+      }
+      return context.json(
+        { agent: dto(actor, agent), channel: channelDto(channel) },
+        201,
+      );
+    } catch (error) {
+      return mapStoreError(context, error);
+    }
+  };
+
   routes.post("/", requireUser, async (context) => {
     // Malformed JSON is a recoverable client-input error and is validated by the same parser.
-    const parsed = parseAgentInput(
-      await context.req.json().catch(() => null),
-      allowPrivateHosts,
-      allowedHosts,
-    );
+    const body: unknown = await context.req.json().catch(() => null);
+    if (isAgentInputObject(body) && "quick" in body && body.quick === true) {
+      return quickCreate(context);
+    }
+    const parsed = parseAgentInput(body, allowPrivateHosts, allowedHosts);
     if (!parsed.ok) return context.json({ error: parsed.error }, 400);
 
     try {
