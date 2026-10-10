@@ -40,6 +40,12 @@ import {
  * fixed. Drive needs one consent and nothing else; a vendor that scopes access per workspace, or per
  * folder, or asks which of several accounts to use, needs somewhere to ask. This is that somewhere,
  * before there is anything to put in it.
+ *
+ * NO ADMINISTRATOR STEP STANDS BEFORE CONNECT. The page used to withhold the button until an
+ * administrator had added the server row, because that row was where the OAuth client lived. The
+ * platform provides the client now and `/servers/:id/connect` adds the row itself, so a vendor the
+ * catalogue lists is a vendor you can connect — and a vendor the platform has no client for yet
+ * says so in the server's own words when pressed, rather than in a button that cannot be pressed.
  */
 export const Route = createFileRoute(
   "/_authed/_app/settings/connected-accounts/$key",
@@ -80,7 +86,6 @@ function RouteComponent() {
 
   const entry = plugins.data?.catalogue.find((item) => item.key === key);
   const server = (plugins.data?.servers ?? []).find((s) => s.id === key);
-  const enabled = server !== undefined;
   const connection = (connections.data?.connections ?? []).find(
     (row) => row.serverId === key,
   );
@@ -235,9 +240,10 @@ function RouteComponent() {
   }
 
   /*
-   * A vendor that is not reached as a person has nothing here for anybody to decide, and one an
-   * administrator has not enabled cannot be consented to — there is no OAuth client behind it. Both
-   * say which it is rather than drawing a switch that cannot work.
+   * A vendor that is not reached as a person has nothing here for anybody to decide. It says which
+   * kind it is rather than drawing a button that cannot work: an app with no account to hold is
+   * enabled from the Marketplace, for everybody, and a vendor with a shared token is the
+   * administrator's.
    */
   if (entry?.auth !== "user-oauth") {
     return (
@@ -247,9 +253,11 @@ function RouteComponent() {
         title={entry?.title ?? key}
       >
         <PageEmpty>
-          {entry
-            ? "A Bot reaches this one with a credential the deployment holds, the same for everybody."
-            : "This deployment has no connector by that name."}
+          {entry?.auth === "none" || entry?.auth === "builtin"
+            ? "There is no account to connect. Enable it from the Marketplace and every Bot can use it."
+            : entry
+              ? "A Bot reaches this one with a credential the deployment holds, the same for everybody."
+              : "This deployment has no connector by that name."}
         </PageEmpty>
       </SettingsPage>
     );
@@ -276,11 +284,9 @@ function RouteComponent() {
                   read for both. */}
               <ItemTitle>Your account</ItemTitle>
               <ItemDescription>
-                {!enabled
-                  ? "An administrator has not enabled this connector, so there is nothing to connect to yet."
-                  : connection
-                    ? "A Bot granted its tools reads this as you, and sees only what you can see."
-                    : "No Bot can read this as you. Connecting takes you to the vendor to consent."}
+                {connection
+                  ? "Every Bot can use this as you. It sees only what you can see."
+                  : "No Bot can read this as you. Connecting takes you to the vendor to consent."}
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -336,9 +342,14 @@ function RouteComponent() {
                 /*
                  * The arrow says this leaves OpenBot. It does: the next thing on screen is the
                  * vendor's own consent page, and a control that navigates away should look like one.
+                 *
+                 * Disabled only while its own request is in flight. A vendor the platform has no
+                 * client for is refused by the server with a sentence saying so, which lands in the
+                 * notice above — a refusal somebody can read, where a button that would not press
+                 * told them nothing.
                  */
                 <Button
-                  disabled={!enabled || connect.isPending}
+                  disabled={connect.isPending}
                   onClick={() => {
                     setNotice(null);
                     connect.mutate(key);

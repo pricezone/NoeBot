@@ -220,7 +220,15 @@ function RouteComponent() {
 
   // From the row itself where there is one: the id-to-name lookup is built from the visible roster.
   const botName = bot?.name ?? nameFor(agentId);
-  const held = (tool: PluginTool) => tool.grantedTo.includes(agentId);
+  /*
+   * Offered to every Bot from the Marketplace, so every switch below is on and none of them is
+   * the decision: the grants underneath are kept, and come back into force when an administrator
+   * switches the offer off on the app's own page. The bulk button disappears with it, because
+   * there is nothing left for it to turn on.
+   */
+  const offeredToAll = server.offeredToAllBots;
+  const held = (tool: PluginTool) =>
+    offeredToAll || tool.grantedTo.includes(agentId);
 
   /*
    * What the search is over: the action's own name, which is what somebody arriving here already
@@ -275,16 +283,23 @@ function RouteComponent() {
                   destroys things
                 </span>
               ) : null}
+              {/* The reason the switch is on and will not move, said beside it. */}
+              {offeredToAll ? (
+                <span className="text-muted-foreground text-xs">Every Bot</span>
+              ) : null}
               {/*
                * Binary and immediate, which is what a Switch is for: it takes effect when switched
                * and there is no save. It is on for a grant that exists and off otherwise — nothing
                * here is switched on by default, and nothing is proposed pre-switched. Disabled only
-               * while its own write is in flight, so switching one action does not freeze the list.
+               * while its own write is in flight, so switching one action does not freeze the list
+               * — and for every action while the app is offered to every Bot, when the decision is
+               * not here.
                */}
               <Switch
                 aria-label={`Let ${botName} call ${tool.name}`}
                 checked={held(tool)}
                 disabled={
+                  offeredToAll ||
                   granting !== null ||
                   (setGrant.isPending && setGrant.variables?.ref === tool.ref)
                 }
@@ -309,7 +324,11 @@ function RouteComponent() {
   return (
     <PageShell
       backButton={back}
-      description={`Which of ${appTitle}'s actions ${botName} may call. Every call is decided again when it happens, so switching one off takes effect on the next one.`}
+      description={
+        offeredToAll
+          ? `${appTitle} is offered to every Bot from the Marketplace, so ${botName} may call every action. Switch “Offered to every Bot” off on the app's page to decide per action here.`
+          : `Which of ${appTitle}'s actions ${botName} may call. Every call is decided again when it happens, so switching one off takes effect on the next one.`
+      }
       title={`${botName} and ${appTitle}`}
     >
       {error ? (

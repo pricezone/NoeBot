@@ -576,8 +576,9 @@ function connectorName(key: string): string {
  * What this coworker may reach when it works: its granted connectors, one row each, and its skills.
  *
  * Read from the same snapshot the runtime offers the Bot, so this shows what a run would actually
- * hold rather than a second opinion. Read-only on purpose — granting is an administrator's, made on
- * the Plugins screens, and a row of switches here would be a second place for the same decision.
+ * hold rather than a second opinion. Read-only on purpose — an app connected from the Marketplace
+ * is offered to every Bot, narrowing that is an administrator's, made on the Plugins screens, and
+ * a row of switches here would be a second place for the same decision.
  *
  * Exported for the bot panel's Library tab, which shows the same list beside the conversation.
  */
@@ -622,8 +623,9 @@ export function AccessSection({ agentId }: { agentId: string }) {
             Nothing granted yet
           </EmptyTitle>
           <EmptyDescription>
-            An administrator grants connectors and skills from the Plugins
-            screens. Until then this coworker can converse, and nothing more.
+            Apps connected from the Marketplace are offered to every Bot. An
+            administrator can narrow that on the Plugins screens. Until then
+            this coworker can converse, and nothing more.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -633,7 +635,8 @@ export function AccessSection({ agentId }: { agentId: string }) {
   return (
     <>
       <p className="text-sm text-muted-foreground">
-        What this coworker may reach when it works. Granted by an administrator
+        What this coworker may reach when it works. Apps connected from the
+        Marketplace are offered to every Bot. An administrator can narrow that
         on the Plugins screens; anything not listed is refused when called.
       </p>
       <div className="flex flex-col gap-2">

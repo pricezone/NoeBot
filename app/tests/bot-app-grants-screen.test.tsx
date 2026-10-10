@@ -131,6 +131,9 @@ function server(overrides: Partial<PluginServer> & { id: string }) {
     dynamicClient: false,
     // Not brokered unless a case says otherwise, which is what a null means here.
     authScheme: null,
+    // Granted per Bot, which is the arrangement every case in this file is about.
+    offeredToAllBots: false,
+    oauthClientSource: null,
     tools: [],
     withdrawn: [],
     ...overrides,

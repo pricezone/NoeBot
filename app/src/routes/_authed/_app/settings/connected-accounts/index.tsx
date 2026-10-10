@@ -1,16 +1,12 @@
-import {
-  IconBrandGoogleDrive,
-  IconBrandNotion,
-  IconCheck,
-  IconPlug,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconCheck, IconSearch } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
 import { PageEmpty, PageSection } from "@/components/layout/page-shell";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { RowMark } from "@/components/layout/row-mark";
+import { catalogueMarkFor } from "@/components/plugins/catalogue-marks";
+import { connectableAccounts } from "@/components/plugins/connectable-apps";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
 import {
   InputGroup,
@@ -26,17 +22,17 @@ import {
 } from "@/components/ui/item";
 import {
   connectionsQueryOptions,
-  type PluginServer,
   pluginsPageQueryOptions,
 } from "@/lib/plugins/queries";
 
 /**
  * The services a Bot reads as you.
  *
- * Yours, not the deployment's. An administrator decides which vendors this deployment may reach at
- * all; this is the other half of that decision, and it is one nobody can make for you — there is no
- * endpoint for an administrator to connect an account on somebody's behalf. A Bot calling one of
- * these runs on your own grant, so it sees exactly what you can see and nothing else.
+ * Yours, not the deployment's. Connecting an account is a decision nobody can make for you —
+ * there is no endpoint for an administrator to connect one on somebody's behalf — and once you
+ * have, every Bot can use it as you; an administrator narrows which Bots hold it on the Plugins
+ * screens. A Bot calling one of these runs on your own grant, so it sees exactly what you can see
+ * and nothing else.
  */
 export const Route = createFileRoute(
   "/_authed/_app/settings/connected-accounts/",
@@ -54,30 +50,6 @@ export const Route = createFileRoute(
     typeof search.connected === "string" ? { connected: search.connected } : {},
 });
 
-/** The same marks the admin connector list uses: these are the same vendors seen from your side. */
-const MARKS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "google-drive": IconBrandGoogleDrive,
-  notion: IconBrandNotion,
-};
-
-const markFor = (key: string) => MARKS[key] ?? IconPlug;
-
-/**
- * The brokered apps this page lists, which is not every brokered row.
- *
- * Exported as a function rather than left inline in the render, for the reason `matchingApps` on the
- * Composio picker is: the rule is the thing worth pinning and pinning it needs no DOM, no router and
- * no query client. See its one clause below.
- */
-export function brokeredAccountsListedOn(
-  servers: PluginServer[],
-): PluginServer[] {
-  return servers.filter(
-    (server) =>
-      server.provenance === "composio" && server.authScheme !== "NO_AUTH",
-  );
-}
-
 function RouteComponent() {
   const { connected: outcome } = Route.useSearch();
   const [search, setSearch] = React.useState("");
@@ -87,58 +59,29 @@ function RouteComponent() {
   const connected = new Set(
     (connections.data?.connections ?? []).map((row) => row.serverId),
   );
-  const added = new Set((plugins.data?.servers ?? []).map((s) => s.id));
 
   /*
-   * Only vendors reached as a person, and only ones an administrator has enabled.
-   *
-   * A vendor with a shared token has nothing for you to decide: it answers the same for everybody,
-   * so listing it here would offer a choice you do not have. And a vendor nobody has enabled cannot
-   * be connected at all, because there is no OAuth client to consent against.
+   * Only the apps you connect as yourself: the catalogue's `user-oauth` vendors, whether or not
+   * anybody has touched them yet, and the brokered apps that take an account. The rule is
+   * `connectableAccounts`'s, shared with the Marketplace, so the two lists cannot disagree about
+   * which apps are yours to connect — and an app enabled for everybody, which has no account of
+   * yours behind it, is on the Marketplace and not here.
    */
-  const yours = (plugins.data?.catalogue ?? []).filter(
-    (entry) => entry.auth === "user-oauth" && added.has(entry.key),
-  );
-
-  /*
-   * Brokered apps belong here for the same reason the OAuth ones do: they answer as you.
-   *
-   * The filter above names the catalogue's `user-oauth` kind, which a brokered row cannot have
-   * because it has no catalogue entry at all — so the one connector that is nothing but per-person
-   * accounts was the one this page never listed.
-   *
-   * EXCEPT THE ONES THAT NEED NO ACCOUNT, WHICH IS THE SAME RULE THE `user-oauth` FILTER ABOVE IS.
-   * That one keeps out a vendor with a shared token because it "has nothing for you to decide"; a
-   * Composio `NO_AUTH` app has exactly as little, one layer further in. There is no account to make:
-   * `/servers/:id/connect` refuses to create one and the call gate lets it through with no row, so
-   * a row for it here can never turn green. What an admin enabling Hacker News put on every
-   * person's page was a permanently grey "Not connected" that reads as an unfinished task, opening
-   * a page that says the app needs no account and draws no button — the list and the page it opens
-   * contradicting each other, with the list the more believable of the two.
-   *
-   * ASKED OF THE RECORDED SCHEME, which this read already carries and the detail route already
-   * consumes. Anything that is not the vendor's `NO_AUTH` is an app somebody connects, an
-   * unrecorded scheme included: a row whose column was never written is far likelier to be a key or
-   * consent app, and dropping it here would hide a connection somebody does have.
-   */
-  const brokered = brokeredAccountsListedOn(plugins.data?.servers ?? []);
-  const accounts = [
-    ...yours.map((entry) => {
-      const Mark = markFor(entry.key);
-      return {
-        key: entry.key,
-        title: entry.title,
-        summary: entry.summary,
-        mark: <Mark className="size-4" />,
-      };
-    }),
-    ...brokered.map((server) => ({
-      key: server.id,
-      title: server.title,
-      summary: server.summary || `Connect your ${server.title} account.`,
-      mark: <PluginLogo logo={server.logo} />,
-    })),
-  ];
+  const accounts = connectableAccounts(
+    plugins.data ?? { catalogue: [], servers: [] },
+  ).map((account) => {
+    const Mark = catalogueMarkFor(account.key);
+    return {
+      key: account.key,
+      title: account.title,
+      summary: account.summary,
+      mark: account.logo ? (
+        <PluginLogo logo={account.logo} />
+      ) : (
+        <Mark className="size-4" />
+      ),
+    };
+  });
   const query = search.trim().toLocaleLowerCase();
   const matching = accounts.filter((account) =>
     `${account.title} ${account.summary}`.toLocaleLowerCase().includes(query),
@@ -195,8 +138,8 @@ function RouteComponent() {
       ) : accounts.length === 0 ? (
         <PageSection>
           <PageEmpty>
-            Nothing to connect yet. These appear once an administrator enables a
-            connector that reads as the person asking.
+            Nothing to connect yet. These appear as soon as this deployment's
+            catalogue lists a service that reads as the person asking.
           </PageEmpty>
         </PageSection>
       ) : (

@@ -45,8 +45,8 @@ export const SETTINGS_NAV: ModalNavItem[] = [
     to: "/settings/notifications",
   },
   /*
-   * The same subject as Admin's Plugins, from the other side: there an administrator decides what
-   * this deployment may reach at all, here you decide what it may reach as you.
+   * The same subject as Admin's Plugins, from the other side: here you decide what this
+   * deployment may reach as you, there an administrator narrows which Bots hold it.
    */
   {
     id: "apps",

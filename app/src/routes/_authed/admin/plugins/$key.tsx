@@ -48,6 +48,7 @@ import {
   connectAccountMutationOptions,
   grantPlugin,
   invalidatePlugins,
+  offerToAllBotsMutationOptions,
   refreshPluginServerMutationOptions,
   registerOAuthClientMutationOptions,
   removePluginServerMutationOptions,
@@ -90,8 +91,17 @@ function toggled(
  * "0/3" needs decoding and reads as a score. The two ends are the ones worth recognising without
  * reading — nothing holds this, or everything does — so they are named, and the middle is the only
  * case that gets a number.
+ *
+ * "Every Bot" is a third thing, and it comes first: an app offered to every Bot from the
+ * Marketplace is held without a grant, so the count of grants says nothing about who may call it.
+ * Exported so the rule is pinnable without a DOM.
  */
-function grantSummary(held: number, total: number): string {
+export function grantSummary(
+  held: number,
+  total: number,
+  offeredToAll = false,
+): string {
+  if (offeredToAll) return "Every Bot";
   if (held === 0) return "No Bots";
   if (held === total) return total === 1 ? "1 Bot" : "All Bots";
   return `${held} of ${total} Bots`;
@@ -103,8 +113,14 @@ function grantSummary(held: number, total: number): string {
  * The same decision counted the other way round, for the rows that open a Bot's own page against
  * this app. Named ends rather than a fraction, for the reason recorded above: "0/167" reads as a
  * score, and the two answers worth recognising without reading are none of it and all of it.
+ * An app offered to every Bot is every tool, whatever the grants say, for the reason given there.
  */
-function heldSummary(held: number, total: number): string {
+function heldSummary(
+  held: number,
+  total: number,
+  offeredToAll = false,
+): string {
+  if (offeredToAll) return "Every tool";
   if (held === 0) return "No tools";
   if (held === total) return total === 1 ? "1 tool" : "Every tool";
   return `${held} of ${total} tools`;
@@ -253,6 +269,10 @@ function RouteComponent() {
   });
   const remove = useMutation({
     ...removePluginServerMutationOptions(queryClient),
+    ...report,
+  });
+  const offerToAll = useMutation({
+    ...offerToAllBotsMutationOptions(queryClient),
     ...report,
   });
   const connectSelf = useMutation({
@@ -507,6 +527,40 @@ function RouteComponent() {
               />
             </ItemActions>
           </Item>
+
+          {server ? (
+            <>
+              <Separator />
+              {/*
+               * The Marketplace's arrangement, as a switch an administrator can undo. Somebody
+               * connecting or enabling an app there sets this on, so every Bot is offered its
+               * tools without a grant; switching it off hands the decision back to the per-Bot
+               * switches below, which keep whatever they held. Binary and immediate, like the
+               * one above it, and for the same reason.
+               */}
+              <Item size="sm">
+                <ItemContent>
+                  <ItemTitle>Offered to every Bot</ItemTitle>
+                  <ItemDescription>
+                    {server.offeredToAllBots
+                      ? "Every Bot may call its tools, without a grant. Switch this off to decide per Bot and per tool below."
+                      : "Only the Bots granted its tools below may call them. Switch this on to offer every tool to every Bot."}
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Switch
+                    aria-label={`Offer ${title} to every Bot`}
+                    checked={server.offeredToAllBots}
+                    disabled={offerToAll.isPending}
+                    onCheckedChange={(next) => {
+                      setError(null);
+                      offerToAll.mutate({ serverId: key, on: next });
+                    }}
+                  />
+                </ItemActions>
+              </Item>
+            </>
+          ) : null}
         </PageRows>
       </PageSection>
 
@@ -638,7 +692,34 @@ function RouteComponent() {
               </Item>
             ) : null}
 
-            {auth === "user-oauth" && !server?.dynamicClient ? (
+            {auth === "user-oauth" &&
+            !server?.dynamicClient &&
+            server?.oauthClientSource === "env" ? (
+              /*
+               * Nothing to click. The platform configured this vendor's OAuth client for every
+               * deployment, so there is no id or secret for an administrator to hold, and the
+               * paste form is not drawn: a form over a client nobody here can rotate would only
+               * invite a value that nothing reads.
+               */
+              <Item size="sm">
+                <ItemContent>
+                  <ItemTitle>OAuth client</ItemTitle>
+                  <ItemDescription>
+                    Configured by HyperNoesis for every deployment. There is
+                    nothing to paste.
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <span className="text-muted-foreground text-xs">
+                    Provided by HyperNoesis
+                  </span>
+                </ItemActions>
+              </Item>
+            ) : null}
+
+            {auth === "user-oauth" &&
+            !server?.dynamicClient &&
+            server?.oauthClientSource !== "env" ? (
               <Item
                 render={
                   <button onClick={() => setDialog("client")} type="button" />
@@ -715,7 +796,9 @@ function RouteComponent() {
             ) : null}
 
             {auth === "user-oauth" &&
-            (server?.hasCredential || server?.dynamicClient) ? (
+            (server?.hasCredential ||
+              server?.dynamicClient ||
+              server?.oauthClientSource === "env") ? (
               <>
                 <Separator />
                 {connectionsUnreadable ? (
@@ -829,6 +912,11 @@ function RouteComponent() {
                   The deployment registers its redirect URI itself, so there is
                   nothing to add at the vendor.
                 </p>
+              ) : server?.oauthClientSource === "env" ? (
+                <p className="text-muted-foreground text-sm">
+                  The redirect URI is registered on the platform's client
+                  already, so there is nothing to add at the vendor.
+                </p>
               ) : (
                 <p className="text-muted-foreground text-sm">
                   Add this to the client's authorised redirect URIs at the
@@ -842,7 +930,8 @@ function RouteComponent() {
                   This deployment has no public URL, so nobody can complete a
                   consent flow. Set OPENBOT_PUBLIC_URL.
                 </p>
-              ) : server?.dynamicClient ? null : (
+              ) : server?.dynamicClient ||
+                server?.oauthClientSource === "env" ? null : (
                 /* Selectable and monospaced: it is copied by hand into somebody else's console. */
                 <code className="mt-3 block select-all break-all rounded bg-muted px-2 py-1 font-mono text-xs">
                   {plugins.data.redirectUri}
@@ -930,7 +1019,11 @@ function RouteComponent() {
                        * one at a time.
                        */}
                       <span className="text-muted-foreground text-xs">
-                        {grantSummary(tool.grantedTo.length, bots.length)}
+                        {grantSummary(
+                          tool.grantedTo.length,
+                          bots.length,
+                          server.offeredToAllBots,
+                        )}
                       </span>
                       {/*
                        * The effect, not a description. It is what a boundary written about writes
@@ -994,6 +1087,7 @@ function RouteComponent() {
                               tool.grantedTo.includes(bot.id),
                             ).length,
                             server.tools.length,
+                            server.offeredToAllBots,
                           )}
                         </span>
                         <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -1037,7 +1131,11 @@ function RouteComponent() {
                   </ItemContent>
                   <ItemActions>
                     <span className="text-muted-foreground text-xs">
-                      {grantSummary(held.grantedTo.length, bots.length)}
+                      {grantSummary(
+                        held.grantedTo.length,
+                        bots.length,
+                        server.offeredToAllBots,
+                      )}
                     </span>
                   </ItemActions>
                 </Item>
