@@ -305,10 +305,14 @@ export type DeploymentConfig = {
    * The platform's token endpoint, which holds the secret for those clients, and the bearer it
    * admits this deployment on.
    *
-   * `OPENBOT_PLUGIN_OAUTH_TOKEN_URL` (https) with `OPENBOT_USAGE_TOKEN` as the bearer. Every token
-   * exchange for a platform client — the code redemption and the refresh — sends the vendor's own
-   * form there, with no `client_secret`, and reads the vendor's answer back through it. Required
-   * whenever a platform client is configured; undefined otherwise.
+   * `OPENBOT_PLUGIN_OAUTH_TOKEN_URL` (https) with `OPENBOT_PLUGIN_OAUTH_TOKEN` as the bearer, or
+   * `OPENBOT_USAGE_TOKEN` where that is unset. The fallback is for deployments handed a client
+   * before the dedicated variable existed, when the usage token was the only bearer the platform
+   * knew them by; a deployment that brings its own model key has no usage token, and sets the
+   * dedicated one. Every token exchange for a platform client — the code redemption and the
+   * refresh — sends the vendor's own form there, with no `client_secret`, and reads the vendor's
+   * answer back through it. Required whenever a platform client is configured; undefined
+   * otherwise.
    */
   pluginOauthTokenProxy: { url: string; bearer: string } | undefined;
   tenantPackageDirectory: string;
@@ -780,8 +784,16 @@ function pluginOauthRedirectUrl(environment: Environment): string | undefined {
  *
  * AN ID NEEDS THE PROXY AND THE BEARER, both-or-neither in the same spirit as every other client
  * here. Without `OPENBOT_PLUGIN_OAUTH_TOKEN_URL` there is nowhere to redeem a code the vendor sends
- * back; without `OPENBOT_USAGE_TOKEN` the platform admits no request there. Either half missing is
- * a connector that fails after somebody has consented, so both are demanded at boot.
+ * back; without a bearer the platform admits no request there. Either half missing is a connector
+ * that fails after somebody has consented, so both are demanded at boot.
+ *
+ * THE BEARER HAS TWO SPELLINGS, AND THE DEDICATED ONE WINS. `OPENBOT_PLUGIN_OAUTH_TOKEN` is the
+ * variable for it; `OPENBOT_USAGE_TOKEN` stands in where it is unset, because the first platform
+ * clients were handed out when the usage token was the only bearer a deployment had, and those
+ * deployments must keep working unchanged. The fallback is what let a BYOK deployment — which has
+ * no usage meter and so no usage token — be unable to use a platform client at all, which is why
+ * the dedicated variable exists. The refusal names both, so whichever one an operator knows of is
+ * the one they find.
  */
 function pluginOauth(environment: Environment): {
   clients: Readonly<Record<string, { clientId: string }>>;
@@ -827,11 +839,13 @@ function pluginOauth(environment: Environment): {
   if (tokenUrl && new URL(tokenUrl).protocol !== "https:") {
     throw new Error("OPENBOT_PLUGIN_OAUTH_TOKEN_URL must be an https URL");
   }
-  const bearer = optional(environment, "OPENBOT_USAGE_TOKEN");
+  const bearer =
+    optional(environment, "OPENBOT_PLUGIN_OAUTH_TOKEN") ??
+    optional(environment, "OPENBOT_USAGE_TOKEN");
   const configured = Object.keys(clients).sort();
   if (configured.length > 0 && (!tokenUrl || !bearer)) {
     throw new Error(
-      `${configured.map((key) => `${PLUGIN_OAUTH_CLIENT_PREFIX}${pluginOauthEnvironmentKey(key)}_ID`).join(", ")} needs OPENBOT_PLUGIN_OAUTH_TOKEN_URL and OPENBOT_USAGE_TOKEN: the platform redeems and renews tokens for that client, and admits this deployment on its usage token`,
+      `${configured.map((key) => `${PLUGIN_OAUTH_CLIENT_PREFIX}${pluginOauthEnvironmentKey(key)}_ID`).join(", ")} needs OPENBOT_PLUGIN_OAUTH_TOKEN_URL and a bearer, OPENBOT_PLUGIN_OAUTH_TOKEN or OPENBOT_USAGE_TOKEN: the platform redeems and renews tokens for that client, and admits this deployment on that bearer`,
     );
   }
 

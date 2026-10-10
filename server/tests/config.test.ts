@@ -1124,11 +1124,11 @@ test("a Composio key is read when set and absent when not", () => {
  * and a deployment that sets one must not have silently set the other.
  */
 describe("platform-provided plugin OAuth clients", () => {
-  /** The platform's token endpoint and the usage token it admits this deployment on. */
+  /** The platform's token endpoint and the bearer it admits this deployment on. */
   const proxy = {
     OPENBOT_PLUGIN_OAUTH_TOKEN_URL:
       "https://www.hypernoesis.ai/api/plugins/oauth/token",
-    OPENBOT_USAGE_TOKEN: "usage-token",
+    OPENBOT_PLUGIN_OAUTH_TOKEN: "plugin-token",
   };
   const drive = {
     OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
@@ -1149,10 +1149,58 @@ describe("platform-provided plugin OAuth clients", () => {
     });
     expect(config.pluginOauthTokenProxy).toEqual({
       url: "https://www.hypernoesis.ai/api/plugins/oauth/token",
-      bearer: "usage-token",
+      bearer: "plugin-token",
     });
     // Still the sign-in client, untouched by the plugin one.
     expect(config.oauth.google?.clientId).toBe("google-client-id");
+  });
+
+  /**
+   * The bearer has a variable of its own, with the usage token behind it.
+   *
+   * The first platform clients were handed out when `OPENBOT_USAGE_TOKEN` was the only bearer a
+   * deployment had, so it still serves; but only a metered deployment has one, and a deployment
+   * that brings its own model key was left unable to use a platform client at all. The dedicated
+   * variable is the fix, and it wins where both are set, so a platform rotating one bearer onto
+   * the other cannot be overruled by the old value.
+   */
+  test("the bearer is OPENBOT_PLUGIN_OAUTH_TOKEN, or OPENBOT_USAGE_TOKEN where that is unset", () => {
+    const tokenUrl = "https://www.hypernoesis.ai/api/plugins/oauth/token";
+    const client = {
+      OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
+      OPENBOT_PLUGIN_OAUTH_TOKEN_URL: tokenUrl,
+    };
+    // The dedicated variable alone satisfies the rule.
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        ...client,
+        OPENBOT_PLUGIN_OAUTH_TOKEN: "plugin-token",
+      }).pluginOauthTokenProxy,
+    ).toEqual({ url: tokenUrl, bearer: "plugin-token" });
+    // The usage token alone still does, for the deployments from before.
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        ...client,
+        OPENBOT_USAGE_TOKEN: "usage-token",
+      }).pluginOauthTokenProxy,
+    ).toEqual({ url: tokenUrl, bearer: "usage-token" });
+    // Both set: the dedicated one wins.
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        ...client,
+        OPENBOT_PLUGIN_OAUTH_TOKEN: "plugin-token",
+        OPENBOT_USAGE_TOKEN: "usage-token",
+      }).pluginOauthTokenProxy,
+    ).toEqual({ url: tokenUrl, bearer: "plugin-token" });
+    // Neither refuses, and the refusal names both. The whole phrase, because the dedicated name
+    // is a prefix of the URL's and a bare `toThrow("OPENBOT_PLUGIN_OAUTH_TOKEN")` would pass on
+    // the URL alone.
+    expect(() => loadConfig({ ...baseEnvironment, ...client })).toThrow(
+      "a bearer, OPENBOT_PLUGIN_OAUTH_TOKEN or OPENBOT_USAGE_TOKEN",
+    );
   });
 
   /**
@@ -1178,14 +1226,14 @@ describe("platform-provided plugin OAuth clients", () => {
     ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_NOTION_SECRET must not be set");
   });
 
-  test("an id without the proxy or the usage token refuses to start", () => {
+  test("an id without the proxy or a bearer refuses to start", () => {
     expect(() =>
       loadConfig({
         ...baseEnvironment,
         OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
       }),
     ).toThrow(
-      "OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID needs OPENBOT_PLUGIN_OAUTH_TOKEN_URL and OPENBOT_USAGE_TOKEN",
+      "OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID needs OPENBOT_PLUGIN_OAUTH_TOKEN_URL and a bearer, OPENBOT_PLUGIN_OAUTH_TOKEN or OPENBOT_USAGE_TOKEN",
     );
     expect(() =>
       loadConfig({
@@ -1198,7 +1246,7 @@ describe("platform-provided plugin OAuth clients", () => {
       loadConfig({
         ...baseEnvironment,
         OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID: "drive-client",
-        OPENBOT_USAGE_TOKEN: "usage-token",
+        OPENBOT_PLUGIN_OAUTH_TOKEN: "plugin-token",
       }),
     ).toThrow("OPENBOT_PLUGIN_OAUTH_TOKEN_URL");
     // The proxy on its own applies to nothing and refuses nothing: a platform may set it ahead of
