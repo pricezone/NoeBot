@@ -88,6 +88,15 @@ export type WorkspaceEntry = {
   path: string;
   kind: "file" | "folder";
   bytes?: number;
+  /**
+   * When a file was last written, as ISO 8601 from its mtime. Files only, like `bytes`, and from
+   * the same `stat`.
+   *
+   * The app's Library lists a Bot's files newest first, and a workspace file's last write is the
+   * only date it has: a file has no "made at" the filesystem keeps reliably, and a Bot that rewrote
+   * a report this morning has a report from this morning.
+   */
+  modifiedAt?: string;
 };
 
 export const DEFAULT_WORKSPACE_LIMITS: WorkspaceLimits = {
@@ -244,11 +253,13 @@ export function createWorkspace(
             continue;
           }
           if (!item.isFile()) continue;
-          const size = await stat(full).catch(() => null);
+          const info = await stat(full).catch(() => null);
           entries.push({
             path: shown,
             kind: "file",
-            ...(size ? { bytes: size.size } : {}),
+            ...(info
+              ? { bytes: info.size, modifiedAt: info.mtime.toISOString() }
+              : {}),
           });
         }
       };

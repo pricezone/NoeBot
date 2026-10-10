@@ -110,6 +110,12 @@ function wideWithComputer(recordings: ReturnType<typeof recording>[] = []) {
       const url = String(input);
       if (url === `/api/demonstrations?botId=${BOT.id}`)
         return Response.json({ demonstrations: recordings });
+      if (url === `/api/agents/${BOT.id}/files`)
+        return Response.json({
+          files: [],
+          nextCursor: null,
+          workspace: "listed",
+        });
       if (url.endsWith("/control"))
         return Response.json({
           holder: "bot",
@@ -288,6 +294,36 @@ test("the panel is open by default on the Computer, and a tab switch is a naviga
   expect(
     view.getByRole("region", { name: "Computer sidebar", hidden: true }),
   ).toBeTruthy();
+});
+
+test("Details carries the routines between For you and Manage; Library opens with Files", async () => {
+  wideWithComputer();
+  const { view } = draw("/channel/c1?panel=details");
+  const routines = await view.findByRole("heading", { name: "Routines" });
+  const forYou = view.getByRole("heading", { name: "For you" });
+  const manage = view.getByRole("button", { name: "Manage…" });
+  expect(
+    forYou.compareDocumentPosition(routines) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    routines.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    await view.findByText("Nothing scheduled for this coworker"),
+  ).toBeTruthy();
+
+  fireEvent.click(view.getByRole("tab", { name: "Library" }));
+  await view.findByRole("heading", { name: "Files" });
+  // Moved, not copied: the Library no longer lists them.
+  expect(view.queryByRole("heading", { name: "Routines" })).toBeNull();
+  const library = view
+    .getAllByRole("heading", { level: 2 })
+    .map((heading) => heading.textContent)
+    .filter((text) =>
+      ["Files", "Recorded workflows", "Access"].includes(text ?? ""),
+    );
+  expect(library).toEqual(["Files", "Recorded workflows", "Access"]);
+  expect(await view.findByText(/^No files yet\./)).toBeTruthy();
 });
 
 test("Library lists the workflows recorded on the Bot's screen, and an unnamed one is named first", async () => {

@@ -5,6 +5,7 @@ import {
   readFile,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -141,6 +142,18 @@ describe("listing the workspace", () => {
     const byPath = new Map((await ws.list()).entries.map((e) => [e.path, e]));
     expect(byPath.get("a")).toMatchObject({ kind: "folder" });
     expect(byPath.get("a/b.txt")).toMatchObject({ kind: "file", bytes: 5 });
+  });
+
+  test("says when each file was last written, from its mtime, and no date for a folder", async () => {
+    const ws = workspace();
+    await ws.write("reports/old.csv", "1");
+    const written = new Date("2026-09-20T08:30:00.000Z");
+    await utimes(join(root, "reports/old.csv"), written, written);
+    const byPath = new Map((await ws.list()).entries.map((e) => [e.path, e]));
+    expect(byPath.get("reports/old.csv")?.modifiedAt).toBe(
+      "2026-09-20T08:30:00.000Z",
+    );
+    expect(byPath.get("reports")?.modifiedAt).toBeUndefined();
   });
 
   test("an empty workspace lists nothing, rather than failing", async () => {

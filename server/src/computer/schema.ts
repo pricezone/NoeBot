@@ -203,6 +203,8 @@ export type WorkspaceEntry = {
   path: string;
   kind: "file" | "folder";
   bytes?: number;
+  /** When a file was last written, ISO 8601 from its mtime. Files only, like `bytes`. */
+  modifiedAt?: string;
 };
 
 export type ListFilesResult = {

@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CHROME_ICON_PATH,
+  DESKTOP_GTK_CSS,
   desktopConfigFiles,
   desktopConfigXml,
   desktopEnvironment,
   dockLaunchers,
+  launcherDesktopEntry,
   panelConfigXml,
   prepareDesktopHome,
   WALLPAPER_PATH,
@@ -52,11 +54,11 @@ describe("the dock", () => {
     expect(rgba?.[3]).toBe('value="0"');
   });
 
-  test("holds exactly Chrome, Terminal and File Manager, as launchers", () => {
+  test("holds exactly Google Chrome, Xfce Terminal and Thunar File Manager, as launchers", () => {
     expect(launchers.map((launcher) => launcher.name)).toEqual([
-      "Chrome",
-      "Terminal",
-      "File Manager",
+      "Google Chrome",
+      "Xfce Terminal",
+      "Thunar File Manager",
     ]);
     expect(launchers.map((launcher) => launcher.exec)).toEqual([
       "openbot-browser",
@@ -75,6 +77,14 @@ describe("the dock", () => {
       expect(panel).toContain(
         `<value type="string" value="${launcher.file}"/>`,
       );
+    }
+  });
+
+  test("tooltips are the launcher's name alone: no comment for the panel to add a second line from", () => {
+    for (const launcher of launchers) {
+      const entry = launcherDesktopEntry(launcher);
+      expect(entry).toContain(`\nName=${launcher.name}\n`);
+      expect(entry).not.toMatch(/^Comment=/m);
     }
   });
 
@@ -106,6 +116,74 @@ describe("the desktop and the window manager", () => {
   });
 });
 
+/**
+ * The stylesheet's rules as selector → declarations, one map per rule, so a test can ask what a
+ * selector sets without depending on the file's whitespace or the order of its rules.
+ */
+function cssRules(css: string): Map<string, Map<string, string>> {
+  const rules = new Map<string, Map<string, string>>();
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const [, selectors = "", body = ""] of withoutComments.matchAll(
+    /([^{}]+)\{([^{}]*)\}/g,
+  )) {
+    const declarations = new Map<string, string>();
+    for (const declaration of body.split(";")) {
+      const colon = declaration.indexOf(":");
+      if (colon < 0) continue;
+      declarations.set(
+        declaration.slice(0, colon).trim(),
+        declaration.slice(colon + 1).trim(),
+      );
+    }
+    for (const selector of selectors.split(",")) {
+      rules.set(selector.trim().replace(/\s+/g, " "), declarations);
+    }
+  }
+  return rules;
+}
+
+describe("the dock's hover and tooltips", () => {
+  const rules = cssRules(DESKTOP_GTK_CSS);
+  const rule = (selector: string) => rules.get(selector) ?? new Map();
+
+  test("a launcher under the pointer sits on a light rounded square, with no frame at rest", () => {
+    const button = rule(".xfce4-panel button");
+    expect(button.get("border")).toBe("none");
+    expect(button.get("border-radius")).toBe("10px");
+    expect(button.get("background-color")).toBe("transparent");
+    // The theme draws its hover with these, not with a colour; left unset, the theme still decides.
+    expect(button.get("background-image")).toBe("none");
+    expect(button.get("box-shadow")).toBe("none");
+    for (const state of [":hover", ":active", ":checked"]) {
+      expect(rule(`.xfce4-panel button${state}`).get("background-color")).toBe(
+        "rgba(255, 255, 255, 0.18)",
+      );
+    }
+  });
+
+  test("a tooltip is a dark rounded label in white, with no border or shadow", () => {
+    for (const selector of ["tooltip", "tooltip.background"]) {
+      const tooltip = rule(selector);
+      expect(tooltip.get("background-color")).toBe("#1f1f1f");
+      expect(tooltip.get("border-radius")).toBe("8px");
+      expect(tooltip.get("border")).toBe("none");
+      expect(tooltip.get("box-shadow")).toBe("none");
+    }
+    expect(rule("tooltip decoration").get("box-shadow")).toBe("none");
+    expect(rule("tooltip decoration").get("border-radius")).toBe("8px");
+    expect(rule("tooltip *").get("color")).toBe("#ffffff");
+    expect(rule("tooltip *").get("padding")).toBe("0");
+    // With the tooltip box's own fixed 6px margin: 6px above and below, 10px either side.
+    expect(rule("tooltip label").get("padding")).toBe("0 4px");
+  });
+
+  test("the launcher's icon is kept out of its tooltip, and the label takes back the gap", () => {
+    expect(rule("tooltip image").get("margin")).toBe("-32px");
+    expect(rule("tooltip image").get("opacity")).toBe("0");
+    expect(rule("tooltip image + label").get("margin-left")).toBe("-6px");
+  });
+});
+
 describe("preparing the desktop's home", () => {
   test("writes every file, over whatever an older image left", async () => {
     const home = await mkdtemp(join(tmpdir(), "openbot-desktop-"));
@@ -130,13 +208,18 @@ describe("preparing the desktop's home", () => {
         "/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml",
         "/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
         "/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml",
+        "/.config/gtk-3.0/gtk.css",
         "/.config/xfce4/panel/launcher-1/noebot-chrome.desktop",
         "/.config/xfce4/panel/launcher-2/noebot-terminal.desktop",
         "/.config/xfce4/panel/launcher-3/noebot-files.desktop",
       ]);
-      const chrome = await readFile(files[4]?.path ?? "", "utf8");
+      const chrome = await readFile(files[5]?.path ?? "", "utf8");
       expect(chrome).toContain("Exec=openbot-browser\n");
       expect(chrome).toContain(`Icon=${CHROME_ICON_PATH}\n`);
+      expect(chrome).toContain("Name=Google Chrome\n");
+      expect(
+        await readFile(join(home, ".config", "gtk-3.0", "gtk.css"), "utf8"),
+      ).toBe(DESKTOP_GTK_CSS);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

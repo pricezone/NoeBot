@@ -49,14 +49,17 @@ export type DockLauncher = {
   /** The panel plugin id, which also names the directory the launcher reads its file from. */
   id: number;
   file: string;
+  /** What the button's tooltip says, and all it says. See `launcherDesktopEntry`. */
   name: string;
-  comment: string;
   exec: string;
   icon: string;
 };
 
 /**
  * The dock: the browser, a terminal and a file manager, and nothing else.
+ *
+ * Named the way the applications name themselves, because the name is what a person hovering the
+ * dock reads: the tooltip is the launcher's name.
  *
  * Icons are PNG files or theme names that resolve to PNG: the image has no SVG loader for GTK, and a
  * launcher whose icon cannot be loaded draws as a blank square.
@@ -66,37 +69,39 @@ export function dockLaunchers(workspace: string): DockLauncher[] {
     {
       id: 1,
       file: "noebot-chrome.desktop",
-      name: "Chrome",
-      comment: "Open the Bot's browser",
+      name: "Google Chrome",
       exec: "openbot-browser",
       icon: CHROME_ICON_PATH,
     },
     {
       id: 2,
       file: "noebot-terminal.desktop",
-      name: "Terminal",
-      comment: "Open a terminal in the workspace",
+      name: "Xfce Terminal",
       exec: `xfce4-terminal --working-directory=${workspace}`,
       icon: "org.xfce.terminal",
     },
     {
       id: 3,
       file: "noebot-files.desktop",
-      name: "File Manager",
-      comment: "Browse the workspace",
+      name: "Thunar File Manager",
       exec: `thunar ${workspace}`,
       icon: "org.xfce.filemanager",
     },
   ];
 }
 
-/** The `.desktop` entry a launcher plugin reads. */
+/**
+ * The `.desktop` entry a launcher plugin reads.
+ *
+ * NO `Comment`, on purpose. xfce4-panel's launcher (4.18, `launcher_plugin_item_query_tooltip`)
+ * draws a comment as a second line under the name, and the name then in bold; with no comment the
+ * tooltip is the name alone, in the regular weight, which is the one-line label the dock wants.
+ */
 export function launcherDesktopEntry(launcher: DockLauncher): string {
   return `[Desktop Entry]
 Version=1.0
 Type=Application
 Name=${launcher.name}
-Comment=${launcher.comment}
 Exec=${launcher.exec}
 Icon=${launcher.icon}
 Terminal=false
@@ -242,6 +247,97 @@ const SESSION_CONFIG_XML = `<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 `;
 
+/**
+ * The dock's hover and its tooltips, as a GTK 3 user stylesheet (`$XDG_CONFIG_HOME/gtk-3.0/gtk.css`).
+ *
+ * Grok's look: a launcher under the pointer sits on a soft, light rounded square, and its tooltip is
+ * a dark rounded label with the name in white. The image has no GTK theme of its own, so without
+ * this the panel draws Adwaita's: a bevelled button on hover and a translucent, bordered tooltip
+ * with the launcher's icon beside a bold name.
+ *
+ * WHY THESE RULES WIN. GTK reads this file at the USER priority, above the theme and above the
+ * APPLICATION-priority provider xfce4-panel adds for its own background and button padding, and it
+ * asks providers in priority order and takes each property from the first that sets it — so a rule
+ * here beats a theme rule however specific the theme's selector is (`gtkstylecascade.c`). Every
+ * property the theme sets on these nodes and the look must not have is therefore named and cleared,
+ * because one left out is one the theme still decides: Adwaita draws a hovered flat button with a
+ * gradient `background-image`, a border and an inset `box-shadow`, not with a colour.
+ *
+ * THE SELECTORS, checked against xfce4-panel 4.18.4 and GTK 3.24.41, which Ubuntu 24.04 ships:
+ * - `.xfce4-panel` is the class the panel puts on its window (`panel-base-window.c`), and every
+ *   launcher is a `GtkButton` inside it. Scoped by the window's class rather than by widget name,
+ *   because the name lies: 4.18's launcher names its button `launcher-button` and then, three lines
+ *   later, renames that same button `launcher-arrow` (the call meant for the arrow), so
+ *   `#launcher-button` matches nothing.
+ * - A tooltip is its own window whose CSS name is `tooltip`, holding a box with a fixed 6px margin
+ *   and 6px spacing, an `image` and a `label` (`gtktooltipwindow.ui`). The 6px margin is the
+ *   vertical padding as it stands; the label's 4px on each side makes the horizontal 10px.
+ * - The launcher always sets its icon on the tooltip (`gtk_tooltip_set_icon_from_gicon`), and GTK 3
+ *   has no `display: none`. So the image is shrunk to nothing — negative margins are allowed, and a
+ *   size below zero is clamped to zero (`gtkcssgadget.c`) — and made transparent, and the label
+ *   takes back the box's 6px spacing. `image + label` only matches while the image is shown: GTK's
+ *   sibling matching skips hidden nodes (`gtkcssmatcher.c`), so a text-only tooltip elsewhere on the
+ *   desktop keeps its label where it was.
+ * - `decoration` is the frame a composited tooltip draws itself in; Adwaita rounds it at 5px. The
+ *   rounded corners need the compositor `xfwm4ConfigXml` turns on; without it they are square.
+ */
+export const DESKTOP_GTK_CSS = `/* Written by the Bot's computer on every start (agent-computer/src/desktop.ts). */
+
+.xfce4-panel button {
+  border: none;
+  border-radius: 10px;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  text-shadow: none;
+  -gtk-icon-shadow: none;
+  transition: background-color 120ms ease-out;
+}
+
+.xfce4-panel button:hover,
+.xfce4-panel button:active,
+.xfce4-panel button:checked {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+tooltip,
+tooltip.background {
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background-color: #1f1f1f;
+  background-image: none;
+  box-shadow: none;
+  text-shadow: none;
+}
+
+tooltip decoration {
+  border-radius: 8px;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+tooltip * {
+  padding: 0;
+  background-color: transparent;
+  color: #ffffff;
+  text-shadow: none;
+}
+
+tooltip label {
+  padding: 0 4px;
+}
+
+tooltip image {
+  margin: -32px;
+  opacity: 0;
+}
+
+tooltip image + label {
+  margin-left: -6px;
+}
+`;
+
 /** Every file the session reads its look from, as paths under `configHome` and their contents. */
 export function desktopConfigFiles({
   configHome,
@@ -270,6 +366,7 @@ export function desktopConfigFiles({
       content: xfwm4ConfigXml({ compositing }),
     },
     { path: join(channels, "xfce4-session.xml"), content: SESSION_CONFIG_XML },
+    { path: join(configHome, "gtk-3.0", "gtk.css"), content: DESKTOP_GTK_CSS },
     ...launchers.map((launcher) => ({
       path: join(
         configHome,
