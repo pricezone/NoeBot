@@ -288,7 +288,7 @@ function drawnRoster(container: HTMLElement) {
         // The heading's fold button, not its options menu, which is a button with a popup.
         '[data-testid="sidebar-section"] button[aria-expanded]:not([aria-haspopup])',
         // Conversations, not the header's new-chat button.
-        'a[href^="/channel/"]:not([href="/channel/new"])',
+        'a[href^="/channel/"]:not([href^="/channel/new"])',
         ".bg-border.h-px",
       ].join(", "),
     ),

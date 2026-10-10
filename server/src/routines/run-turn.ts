@@ -58,6 +58,8 @@ import { EventType } from "@ag-ui/client";
 import { NOT_SHOWN } from "../../../shared/component-markers";
 import { frameFiring } from "../../../shared/routine-firing";
 import { headlessTurnRefusal } from "../admin/controls";
+import { PUT_TO } from "../../../shared/handoff-markers";
+import { ESCALATE_TOOL } from "../agents/escalation";
 import { sanitizeSeededHistory } from "../agents/history-sanitize";
 import { guardBotTurn } from "../agents/lifecycle";
 import { OPENBOT_WAITING_METADATA } from "../approvals/native-context";
@@ -260,6 +262,40 @@ export function drawnComponents(messages: Message[]): DrawnComponent[] {
     }
   }
   return drawn;
+}
+
+/**
+ * The question this turn put to the person through `ask_person`, if it put one: the last call whose
+ * result says it reached somebody. A refused question was never asked, whatever its arguments say.
+ *
+ * For a caller that tells the roster what the turn left the person with. A turn that ended on a
+ * question is waiting on that question, and its reply text is only what led up to it.
+ */
+export function askedQuestion(messages: Message[]): string | undefined {
+  const results = new Map<string, string>();
+  for (const message of messages)
+    if (message.role === "tool" && typeof message.content === "string")
+      results.set(message.toolCallId, message.content);
+  let asked: string | undefined;
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.toolCalls ?? []) {
+      if (call.function.name !== ESCALATE_TOOL) continue;
+      // `includes`, not `startsWith`: a server tool's result can arrive JSON-encoded, quotes and all.
+      if (!results.get(call.id)?.includes(PUT_TO)) continue;
+      try {
+        const args = JSON.parse(call.function.arguments || "{}");
+        const question =
+          args && typeof args === "object" && typeof args.question === "string"
+            ? args.question.trim()
+            : "";
+        if (question) asked = question;
+      } catch {
+        // Arguments that are not JSON were refused by the schema check, so nothing was asked.
+      }
+    }
+  }
+  return asked;
 }
 
 /*
@@ -761,6 +797,11 @@ export function createTurnRunner(options: {
     }
 
     const drawn = drawnComponents(added);
-    return drawn.length > 0 ? { replyText, components: drawn } : { replyText };
+    const asked = askedQuestion(added);
+    return {
+      replyText,
+      ...(drawn.length > 0 ? { components: drawn } : {}),
+      ...(asked ? { asked } : {}),
+    };
   };
 }

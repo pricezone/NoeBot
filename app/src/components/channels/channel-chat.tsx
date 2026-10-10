@@ -8,7 +8,13 @@ import {
 } from "@copilotkit/react-core/v2";
 import { observeApprovalAgent } from "@/lib/copilot/approval-context";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { personBubbleScheme } from "@/components/channels/bubbles";
 import { attachmentModality } from "@/components/channels/chat-messages";
@@ -21,6 +27,11 @@ import {
   transcriptMessages,
 } from "@/components/channels/transcript-messages";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import {
+  answerQuestionsInConversation,
+  approvalInboxOptions,
+} from "@/lib/approvals";
+import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import {
   recordChannelActivityMutationOptions,
@@ -34,6 +45,11 @@ import {
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { ConversationProvider } from "@/lib/copilot/conversation";
 import { afterMs, joinWithin } from "@/lib/copilot/join-thread";
+import {
+  answersSignature,
+  openQuestions,
+  questionAnswers,
+} from "@/lib/copilot/question-answers";
 import { repairUnansweredToolCalls } from "@/lib/copilot/repair-history";
 import { stoppedReason } from "@/lib/copilot/stopped-turn";
 import { readThreadMessages } from "@/lib/copilot/thread-messages";
@@ -84,6 +100,33 @@ function sameActivity(
     left.agentId === right.agentId &&
     left.at === right.at &&
     left.text === right.text
+  );
+}
+
+/** This channel's row in the roster cache, if the roster is loaded and holds it. */
+function rosterRow(channelId: string): ChannelSummary | undefined {
+  return queryClient
+    .getQueryData<{ pages: { channels: ChannelSummary[] }[] }>(
+      channelKeys.list(),
+    )
+    ?.pages.flatMap((page) => page.channels)
+    .find((row) => row.id === channelId);
+}
+
+const subscribeToQueries = (notify: () => void) =>
+  queryClient.getQueryCache().subscribe(notify);
+
+/**
+ * Whether the roster says a turn is running in this channel: the server's own word, over the
+ * socket, for a turn no browser streams — a Bot made in one click speaking first, a relayed answer.
+ * Read from the cache the sidebar already holds rather than through a query of its own, so this
+ * screen never fetches the roster just to ask.
+ */
+function useRosterBusy(channelId: string): boolean {
+  return useSyncExternalStore(
+    subscribeToQueries,
+    () => rosterRow(channelId)?.busy === true,
+    () => false,
   );
 }
 
@@ -526,6 +569,21 @@ export function ChannelChat({
   // Tool calls from this conversation act on this coworker's own computer.
   useActiveBot(runtimeAgentId);
 
+  const rosterBusy = useRosterBusy(channel.id);
+  /*
+   * What the person answered to each question the Bot asked, for the choice cards drawn from them.
+   * Recomputed every render, kept as one map for as long as its contents hold: the conversation
+   * context carries it, and a fresh map per streamed token would redraw every card in the transcript.
+   */
+  const currentAnswers: ReadonlyMap<string, string> = questionAnswers(
+    agent.messages,
+  );
+  const signature = answersSignature(currentAnswers);
+  const answersRef = useRef({ signature, answers: currentAnswers });
+  if (answersRef.current.signature !== signature) {
+    answersRef.current = { signature, answers: currentAnswers };
+  }
+
   const skillCommands = useSkillCommands(runtimeAgentId);
   const historyNotice = channelHistoryNotice({
     restoring,
@@ -624,6 +682,37 @@ export function ChannelChat({
   reportRef.current = report;
 
   /**
+   * A question the Bot asked is answered by this message, so it must stop waiting in Approvals and
+   * in the Bot's Activity: the server closes it with the answer recorded, and does not resume the
+   * conversation with it, since this message is already doing that. Fire-and-forget like `report`:
+   * a question left listed is untidy, not a lost answer, and the inbox can still close it.
+   */
+  const settleQuestions = (
+    answering: readonly { question: string }[],
+    response: string,
+  ) => {
+    void answerQuestionsInConversation({
+      threadId: channel.threadId,
+      questions: answering.map((open) => open.question),
+      response,
+    })
+      .then(() =>
+        Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: approvalInboxOptions().queryKey,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: botLifecycleKeys.attention,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: botLifecycleKeys.activity(runtimeAgentId),
+          }),
+        ]),
+      )
+      .catch(() => undefined);
+  };
+
+  /**
    * Everything `say` does once it has something worth sending, split out so the counter it is
    * wrapped in covers every way out of here, a throw included.
    */
@@ -717,12 +806,15 @@ export function ChannelChat({
         ),
       );
 
+    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers.
+    const answering = trimmed ? openQuestions(target.messages) : [];
     target.addMessage({
       content: toMessageContent(trimmed, attachments),
       id: newId(),
       role: "user",
     });
     report(trimmed || describeAttachments(attachments), null);
+    if (answering.length > 0) settleQuestions(answering, trimmed);
 
     // Providers reject later turns if prior tool calls have no result; repair before sending.
     const repaired = repairUnansweredToolCalls(target.messages);
@@ -888,13 +980,19 @@ export function ChannelChat({
    * The rejection is swallowed HERE rather than left to the void, and that is not a style choice:
    * `say` throws on a failed turn now (see `turnFailure`), and a voided promise with nothing on the
    * end of it is an unhandled rejection — in this repository's test runner, a failure attributed to
-   * whichever test happened to be running when it surfaced. There is nothing to restore for this
-   * caller either way: the words came from a button inside a rendered card, not from a box somebody
-   * is still holding, and the failed turn is already reported by `runError` under the transcript.
+   * whichever test happened to be running when it surfaced. There is no draft to restore for this
+   * caller: the words came from a button inside a rendered card, not from a box somebody is still
+   * holding, and the failed turn is already reported by `runError` under the transcript. What the
+   * card is told is whether the turn went, so one whose answer never left can take it again.
    */
-  const askFromComponent = useCallback((text: string) => {
-    void sayRef.current(text).catch(() => undefined);
-  }, []);
+  const askFromComponent = useCallback(
+    (text: string) =>
+      sayRef.current(text).then(
+        () => true,
+        () => false,
+      ),
+    [],
+  );
 
   /**
    * Send the create-channel seed once. No waiting of its own: `say` owns that for every turn, and a
@@ -922,7 +1020,10 @@ export function ChannelChat({
       agentId={channelAgentId}
       threadId={channel.threadId}
     >
-      <ConversationProvider ask={askFromComponent}>
+      <ConversationProvider
+        answers={answersRef.current.answers}
+        ask={askFromComponent}
+      >
         <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
           <VoiceCallWidget
             call={call}
@@ -948,9 +1049,10 @@ export function ChannelChat({
             /*
              * THE TURN, not the run. `say` waits for the runtime agent and the join before a run starts,
              * and `agent.isRunning` alone leaves that gap unmarked — which is the one moment the
-             * "Thinking" line exists for. Same value as `pending`, deliberately.
+             * "Thinking" line exists for. Same value as `pending`, deliberately — plus a turn the
+             * server is running here with no browser streaming it, which only the roster knows of.
              */
-            busy={agent.isRunning || turnsInFlight > 0}
+            busy={agent.isRunning || turnsInFlight > 0 || rosterBusy}
             // The `/` menu exposes only skills granted to this Bot.
             commands={skillCommands}
             // Readiness is handled by `say`; deletion is the only disabled-chat state.

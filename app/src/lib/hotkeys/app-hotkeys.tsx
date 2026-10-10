@@ -18,9 +18,9 @@ const MARKETPLACE_PATH: string = "/marketplace";
 export function AppHotkeys() {
   const navigate = useNavigate();
 
-  // Same destination as the sidebar's + button: the new-channel composer.
+  // Same destination as the sidebar's + button: the new-channel composer, asking who it is with.
   useHotkey("new-chat", () => {
-    navigate({ to: "/channel/new" });
+    navigate({ to: "/channel/new", search: { compose: 1 } });
   });
 
   // The two modals, which the account menu and the Connect apps pill also open. Settings and the

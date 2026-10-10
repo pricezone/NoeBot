@@ -104,15 +104,13 @@ const GENERAL_ASSISTANT = agent({
 });
 
 /**
- * The two rows are the only way left into group creation (the sidebar's group button is gone),
- * so the To: menu must carry links to both destinations, with the Marketplace one opening the
- * new-Bot form directly.
+ * The two rows are the only way into making a Bot or a group from here, so the To: menu must carry
+ * both. They act in place now — one makes a Bot in one click, the other turns the field into a list
+ * of Bots — so they are buttons rather than links away.
  */
 async function expectActionLinks(view: ReturnType<typeof render>) {
-  const newBot = await view.findByRole("link", { name: "Create new Bot" });
-  expect(newBot.getAttribute("href")).toBe("/marketplace?tab=agents&new=true");
-  const newGroup = await view.findByRole("link", { name: "Create group chat" });
-  expect(newGroup.getAttribute("href")).toBe("/group/new");
+  await view.findByRole("button", { name: "Create new Bot" });
+  await view.findByRole("button", { name: "Create group chat" });
 }
 
 test("/channel/new offers Create new Bot and Create group chat while no Bot is picked", async () => {
@@ -128,7 +126,7 @@ test("/channel/new keeps the rows in the opened menu until a name is typed", asy
 
   // The default Bot answers the field, so the menu waits to be opened.
   const input = await view.findByRole("combobox");
-  expect(view.queryByRole("link", { name: "Create group chat" })).toBeNull();
+  expect(view.queryByRole("button", { name: "Create group chat" })).toBeNull();
 
   await user.click(input);
   await expectActionLinks(view);
@@ -138,7 +136,9 @@ test("/channel/new keeps the rows in the opened menu until a name is typed", asy
   await user.clear(input);
   await user.type(input, "Gen");
   await waitFor(() =>
-    expect(view.queryByRole("link", { name: "Create group chat" })).toBeNull(),
+    expect(
+      view.queryByRole("button", { name: "Create group chat" }),
+    ).toBeNull(),
   );
 
   // Clearing the search brings them back. Deleted a key at a time, the way a person clears it:

@@ -75,6 +75,18 @@ const parameters = z.object({
     .describe(
       "Why this needs a person rather than you: what you cannot settle on your own",
     ),
+  /*
+   * Offered answers, drawn as a list the person picks from in the conversation. Optional, and only
+   * presentation: the person can always type their own, and whatever they pick arrives as their
+   * next message, exactly as a typed answer would. Short labels, because a row is one line.
+   */
+  options: z
+    .array(z.string().min(1).max(120))
+    .max(8)
+    .optional()
+    .describe(
+      "Up to eight short answers the person can pick from, when the answer is likely one of a few. They can always type their own instead",
+    ),
 });
 
 /**
@@ -210,9 +222,15 @@ export function escalationTool(options: {
         });
       }
 
-      return "reached" in outcome
-        ? `${PUT_TO}${outcome.reached}. Ask it in your own words now, plainly, and stop there: do not answer it yourself and do not hand it to another Bot.`
-        : outcome.refusal;
+      if (!("reached" in outcome)) return outcome.refusal;
+      /*
+       * With options, the conversation already shows the question and its answers as a card, so
+       * asking it again in prose would put it on the screen twice, the second time without the
+       * answers to pick from. Without them, the Bot's own sentence is the question.
+       */
+      return parsed.data.options?.length
+        ? `${PUT_TO}${outcome.reached}. They can see the question with its options and can also answer in their own words, so do not repeat it: stop there, do not answer it yourself and do not hand it to another Bot.`
+        : `${PUT_TO}${outcome.reached}. Ask it in your own words now, plainly, and stop there: do not answer it yourself and do not hand it to another Bot.`;
     },
   };
 }

@@ -1,5 +1,6 @@
 import type { ActivityMessage, Message, ToolCall } from "@ag-ui/core";
 import { classifyAttachment } from "@/lib/channels/attachments";
+import { isFirstTurn } from "@/lib/channels/first-turn";
 
 /**
  * Transcript projection that pairs assistant tool calls with later tool-result messages.
@@ -451,6 +452,11 @@ export function toVisibleChatItems(
 
     if (typeof message.content === "string") {
       const text = message.content;
+      /*
+       * A Bot made in one click was sent this to open its conversation with, and nobody typed it:
+       * it is addressed to the model, so a person reading back sees the Bot speak first.
+       */
+      if (isFirstTurn(text)) return [];
       return text ? [{ kind: "text", id: message.id, role: "user", text }] : [];
     }
 

@@ -1564,7 +1564,8 @@ type ChannelWire = Omit<AgentChannel, "lastMessageAt"> & {
   lastMessageAt: string | null;
 };
 
-function channelDto(channel: AgentChannel): ChannelWire {
+/** Exported for `POST /api/agents` in one click, which answers with the conversation it opened. */
+export function channelDto(channel: AgentChannel): ChannelWire {
   return {
     id: channel.id,
     name: channel.name,

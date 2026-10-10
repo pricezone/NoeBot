@@ -13,6 +13,7 @@ import {
   sameToken,
 } from "./agents/callback-token";
 import { computerAccessCheck } from "./agents/computer-access";
+import type { FirstTurnStarter } from "./agents/first-turn";
 import {
   channelAttachmentFiles,
   createAgentFileRoutes,
@@ -419,6 +420,8 @@ export function createApp(
     teamBots?: TeamBots;
     /** Pause, reset, Activity and attention for a person's own Bots. See agents/lifecycle.ts. */
     lifecycle?: BotLifecycleServices;
+    /** A Bot made in one click speaking first in its new conversation. See agents/first-turn.ts. */
+    firstTurn?: FirstTurnStarter;
   },
   /**
    * Whether to offer help self-hosting, which also hides it from a deployment that pays for
@@ -1365,6 +1368,16 @@ export function createApp(
         // The managed Bot's address, so a coworker created without an endpoint — which creation
         // stores as running at this address — can be told apart from one a person hosts.
         config.managedAgent?.endpoint?.toString(),
+        // "Create new Bot" in one click needs somewhere for the Bot to speak first.
+        channelStore
+          ? {
+              openChannel: (actor, agentId) =>
+                channelStore.create(actor, [agentId]),
+              ...(coworker?.firstTurn
+                ? { startFirstTurn: coworker.firstTurn }
+                : {}),
+            }
+          : undefined,
       ),
     );
     /*

@@ -52,7 +52,12 @@ export type TurnRunner = (input: {
   depth?: number;
   /** The reply so far, each time more of it arrives, for a surface that shows a turn in progress. */
   onText?: (text: string) => void;
-}) => Promise<{ replyText: string; components?: DrawnComponent[] }>;
+}) => Promise<{
+  replyText: string;
+  components?: DrawnComponent[];
+  /** The question the turn ended on, when it asked the person one through `ask_person`. */
+  asked?: string;
+}>;
 
 /** A display component the Bot drew in a turn and the server allowed, with the props it drew. */
 export type DrawnComponent = { name: string; args: Record<string, unknown> };

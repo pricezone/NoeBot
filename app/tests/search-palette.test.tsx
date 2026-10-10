@@ -67,6 +67,9 @@ function agent(
   return {
     id,
     name,
+    avatarColor: null,
+    avatarExpression: null,
+    canEditAvatar: true,
     title: "",
     roleDescription: "",
     avatarSeed: id,

@@ -28,6 +28,7 @@ import {
 } from "./agents/callback-token";
 import { canUseComputer, computerAccessCheck } from "./agents/computer-access";
 import { createAgentFetch } from "./agents/endpoint";
+import { createFirstTurnStarter } from "./agents/first-turn";
 import { createHandoffDesk, HANDOFF_KIND } from "./agents/handoff";
 import { createHandoffDelivery } from "./agents/handoff-delivery";
 import { createHandoffRunner } from "./agents/handoff-runner";
@@ -2046,6 +2047,15 @@ const approvalContinuationRunner = createTurnRunner({
     copilotRuntime.learning?.containerForThread(input) ??
     Promise.resolve(undefined),
 });
+/*
+ * A Bot made in one click opens its own conversation. The same runner as an approved action resuming
+ * or a Slack message arriving, because it is the same thing: one of the person's own turns, run here
+ * because no browser is sending it, with the Bot's computer tools if it may use the computer.
+ */
+const firstTurn = createFirstTurnStarter({
+  runTurn: approvalContinuationRunner,
+  channels: channelStore,
+});
 const approvalSweep = repeatAfterEach(async () => {
   try {
     const [item] = await approvalQueue.claim({
@@ -3086,6 +3096,7 @@ const app = createApp(
     },
     groups: groupConversations,
     teamBots,
+    firstTurn,
     lifecycle: {
       lifecycle: createBotLifecycleStore(database),
       reset: createBotReset({

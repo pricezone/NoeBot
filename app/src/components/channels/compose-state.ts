@@ -16,15 +16,24 @@ export type Recipient = {
  */
 export const MAX_RECIPIENTS = 1;
 
-/** Add a coworker, replacing the oldest once the channel recipient cap is reached. */
+/**
+ * How many Bots a group conversation may hold: the most `POST /api/groups` accepts.
+ *
+ * The compose screen in group mode takes up to this many. Two or more start a group; one is a
+ * direct conversation, the same as picking that Bot outside group mode.
+ */
+export const MAX_GROUP_RECIPIENTS = 20;
+
+/** Add a coworker, replacing the oldest once the recipient cap is reached. */
 export function addRecipient(
   current: readonly Recipient[],
   next: Recipient,
+  max: number = MAX_RECIPIENTS,
 ): Recipient[] {
   if (current.some((recipient) => recipient.id === next.id)) {
     return [...current];
   }
-  return [...current, next].slice(-MAX_RECIPIENTS);
+  return [...current, next].slice(-max);
 }
 
 export function removeRecipient(
@@ -34,10 +43,17 @@ export function removeRecipient(
   return current.filter((recipient) => recipient.id !== id);
 }
 
-/** Whether this draft can start a channel. */
+/**
+ * Whether this draft can start a channel: exactly one Bot outside group mode, and in it anywhere
+ * from one (a direct conversation) up to the group cap.
+ */
 export function canSend(
   recipients: readonly Recipient[],
   text: string,
+  group = false,
 ): boolean {
-  return recipients.length === MAX_RECIPIENTS && text.trim().length > 0;
+  const fits = group
+    ? recipients.length >= 1 && recipients.length <= MAX_GROUP_RECIPIENTS
+    : recipients.length === MAX_RECIPIENTS;
+  return fits && text.trim().length > 0;
 }

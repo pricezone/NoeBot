@@ -8,6 +8,7 @@
  * event, so a missed sweep costs two seconds where a missed event would cost the name entirely.
  */
 import { and, asc, eq, isNull, notExists, sql } from "drizzle-orm";
+import { isFirstTurn } from "../../../shared/first-turn";
 import { readFiring } from "../../../shared/routine-firing";
 import type { Database } from "../db/client";
 import {
@@ -292,11 +293,20 @@ async function openingOf(
     threadId: owner.threadId,
     userId: owner.userId,
   });
-  const question = history.messages.find((message) => message.role === "user");
-  if (!question) return null;
-  const answer = history.messages.find(
-    (message) => message.role === "assistant",
+  /*
+   * A Bot made in one click opened its own conversation with a message nobody typed (see
+   * `shared/first-turn.ts`), so the opening exchange is the person's first answer and what came
+   * back to it, not the frame and the Bot's greeting.
+   */
+  const opening = history.messages.findIndex(
+    (message) =>
+      message.role === "user" && !isFirstTurn(textOf(message.content)),
   );
+  const question = history.messages[opening];
+  if (!question) return null;
+  const answer = history.messages
+    .slice(opening + 1)
+    .find((message) => message.role === "assistant");
 
   const rawAsked = textOf(question.content);
   if (!rawAsked) return null;
