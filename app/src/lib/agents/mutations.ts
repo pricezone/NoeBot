@@ -1,4 +1,14 @@
-import { mutationOptions, type QueryClient } from "@tanstack/react-query";
+import {
+  type InfiniteData,
+  mutationOptions,
+  type QueryClient,
+} from "@tanstack/react-query";
+import {
+  type AgentChannel,
+  type ChannelPage,
+  type ChannelSummary,
+  channelKeys,
+} from "@/lib/channels/queries";
 import { client } from "@/lib/client";
 import {
   type AgentProfile,
@@ -35,6 +45,56 @@ export function createAgentMutationOptions(queryClient: QueryClient) {
         fallback: FALLBACK,
       }),
     onSuccess: () => invalidateAgents(queryClient),
+  });
+}
+
+/** What a one-click create answers with: the Bot, and the conversation it is about to speak in. */
+export type QuickCreatedAgent = { agent: AgentProfile; channel: AgentChannel };
+
+/**
+ * "Create new Bot" in one click: the server makes New Bot and its conversation with this person,
+ * answers at once, and starts the Bot's first turn on its own. See `server/src/agents/first-turn.ts`.
+ *
+ * THE CONVERSATION IS PUT INTO THE ROSTER BY HAND rather than by refetching it. The server announces
+ * the Bot's turn as a transient busy flag on the roster row, and a refetch drops that flag; patching
+ * the row in keeps the sidebar's working dot for a turn that may already have started. A roster
+ * that is not loaded yet has nothing to patch and will fetch the row with everything else.
+ */
+export function quickCreateAgentMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (): Promise<QuickCreatedAgent> => {
+      const response = await client("/api/agents", {
+        method: "POST",
+        body: { quick: true },
+        fallback: "The new Bot could not be created.",
+      });
+      return (await response.json()) as QuickCreatedAgent;
+    },
+    onSuccess: ({ channel }) => {
+      queryClient.setQueryData(channelKeys.detail(channel.id), channel);
+      queryClient.setQueryData<InfiniteData<ChannelPage>>(
+        channelKeys.list(),
+        (data) => {
+          const [first, ...rest] = data?.pages ?? [];
+          if (!data || !first) return data;
+          if (first.channels.some((row) => row.id === channel.id)) return data;
+          const row: ChannelSummary = {
+            ...channel,
+            summary: null,
+            lastMessage: null,
+            lastMessageAgentId: null,
+            createdAt: new Date().toISOString(),
+            pinned: false,
+            lastReadAt: null,
+          };
+          return {
+            ...data,
+            pages: [{ ...first, channels: [row, ...first.channels] }, ...rest],
+          };
+        },
+      );
+      return invalidateAgents(queryClient);
+    },
   });
 }
 

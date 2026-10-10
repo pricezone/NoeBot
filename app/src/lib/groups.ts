@@ -78,22 +78,36 @@ function awaitingFirstReply(data: GroupConversation | undefined) {
   );
 }
 
+/** One line from the person into a group; `agentId` addresses one Bot, null addresses them all. */
+export type GroupMessageInput = {
+  id: string;
+  text: string;
+  agentId: string | null;
+};
+
+/**
+ * Post a line into a group. A plain function as well as the mutation below, for the compose screen,
+ * which posts the first line of a group it has only just created and has no mounted group to own a
+ * mutation for.
+ */
+export async function postGroupMessage(
+  channelId: string,
+  input: GroupMessageInput,
+): Promise<void> {
+  await client(`/api/groups/${encodeURIComponent(channelId)}`, {
+    method: "POST",
+    body: input,
+    fallback: "Your message could not be sent to the group.",
+  });
+}
+
 export function sendGroupMessageMutationOptions(
   queryClient: QueryClient,
   channelId: string,
 ) {
   return mutationOptions({
-    mutationFn: async (input: {
-      id: string;
-      text: string;
-      agentId: string | null;
-    }) => {
-      await client(`/api/groups/${encodeURIComponent(channelId)}`, {
-        method: "POST",
-        body: input,
-        fallback: "Your message could not be sent to the group.",
-      });
-    },
+    mutationFn: (input: GroupMessageInput) =>
+      postGroupMessage(channelId, input),
     onSettled: () =>
       queryClient.invalidateQueries({ queryKey: groupKeys.detail(channelId) }),
   });

@@ -162,10 +162,11 @@ test("the sidebar opens the channel events socket exactly once", async () => {
 test("the header and footer carry the redesign's controls and nothing of the old nav", async () => {
   const view = renderSidebar();
   await view.findByText("You don't have channels yet");
-  // Base UI's Button gives a Link drawn through it `role="button"`; the href is what matters.
+  // Base UI's Button gives a Link drawn through it `role="button"`; the href is what matters, and
+  // `compose` is how the + asks who the conversation is with rather than preselecting a Bot.
   expect(
     view.getByRole("button", { name: "New chat" }).getAttribute("href"),
-  ).toBe("/channel/new");
+  ).toBe("/channel/new?compose=1");
   expect(view.getByRole("button", { name: "Account menu" })).toBeTruthy();
   // A real link, announced as one: it opens a page.
   expect(

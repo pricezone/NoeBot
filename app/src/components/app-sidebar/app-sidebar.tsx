@@ -184,6 +184,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           render={(buttonProps) => (
             <Link
               {...buttonProps}
+              // `compose`: nobody preselected, and the To: menu opens on who to talk to.
+              search={{ compose: 1 }}
               to="/channel/new"
               activeProps={{ className: "bg-muted" }}
             />

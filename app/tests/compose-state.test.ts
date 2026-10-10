@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   addRecipient,
   canSend,
+  MAX_GROUP_RECIPIENTS,
   MAX_RECIPIENTS,
   removeRecipient,
 } from "../src/components/channels/compose-state";
@@ -49,5 +50,37 @@ describe("canSend", () => {
 
   test("cap is one", () => {
     expect(MAX_RECIPIENTS).toBe(1);
+  });
+});
+
+describe("group mode", () => {
+  const bots = Array.from({ length: MAX_GROUP_RECIPIENTS + 1 }, (_, index) => ({
+    id: `bot-${index}`,
+    name: `Bot ${index}`,
+  }));
+
+  test("holds up to twenty, the most a group takes", () => {
+    expect(MAX_GROUP_RECIPIENTS).toBe(20);
+    expect(addRecipient([KNOWLEDGE], RISK, MAX_GROUP_RECIPIENTS)).toEqual([
+      KNOWLEDGE,
+      RISK,
+    ]);
+  });
+
+  test("sends with one Bot, as a direct conversation, and with up to twenty", () => {
+    expect(canSend([KNOWLEDGE], "hello", true)).toBe(true);
+    expect(canSend([KNOWLEDGE, RISK], "hello", true)).toBe(true);
+    expect(canSend(bots.slice(0, MAX_GROUP_RECIPIENTS), "hello", true)).toBe(
+      true,
+    );
+  });
+
+  test("refuses none, and more than twenty", () => {
+    expect(canSend([], "hello", true)).toBe(false);
+    expect(canSend(bots, "hello", true)).toBe(false);
+  });
+
+  test("outside it, two Bots still cannot send", () => {
+    expect(canSend([KNOWLEDGE, RISK], "hello")).toBe(false);
   });
 });
