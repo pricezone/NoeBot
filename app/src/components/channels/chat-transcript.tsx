@@ -1155,13 +1155,18 @@ export function LightboxPicture({
  * THE CLOSE BUTTON IS FIXED TO THE VIEWPORT, not to the popup, which is why `showCloseButton` is
  * off and this draws its own. Pinned to the popup it would sit on the picture — invisible over a
  * pale one, and moving with every image's shape.
+ *
+ * Exported for the Bot panel's Library, which opens an image attachment the same way from a row;
+ * `className` reshapes the trigger around that row instead of a square tile.
  */
-function AttachmentLightbox({
+export function AttachmentLightbox({
   children,
+  className,
   filename,
   url,
 }: {
   children: React.ReactNode;
+  className?: string;
   filename?: string;
   url: string;
 }) {
@@ -1179,7 +1184,10 @@ function AttachmentLightbox({
         // A button, not a link: it opens something on this page, and a middle-click offering a new
         // tab to a raw image file is not the promise this makes. `block` so the tile is not sitting
         // on a text baseline with a stray gap under it.
-        className="block cursor-zoom-in overflow-hidden rounded-xl"
+        className={cn(
+          "block cursor-zoom-in overflow-hidden rounded-xl",
+          className,
+        )}
         render={<button aria-label={`Open ${label}`} type="button" />}
       >
         {children}

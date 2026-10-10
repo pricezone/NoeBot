@@ -69,6 +69,7 @@ export const agentKeys = {
   botRouteDetail: (agentId: string) =>
     ["agents", "bot-route-detail", agentId] as const,
   handoff: (agentId: string) => ["agents", "handoff", agentId] as const,
+  files: (agentId: string) => ["agents", "files", agentId] as const,
   capabilities: () => ["agents", "capabilities"] as const,
 };
 

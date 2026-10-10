@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { AgentDialog } from "@/components/agents/agent-dialog";
 import { ForYouSection } from "@/components/bot-profile/for-you-section";
 import { ChannelAvatar } from "@/components/channels/avatar";
+import { RoutinesList } from "@/components/routines/routines-list";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentQueryOptions } from "@/lib/agents/queries";
@@ -37,9 +38,13 @@ function DetailsSkeleton() {
  * Who this Bot is and what it does for you.
  *
  * The role and visibility that the old coworker card showed, then the lifecycle rows from the
- * Bot's own page — Paused, Notifications, Reset — and one button into the full dialog for
- * everything that changes the Bot. A card beside a conversation, not a control panel: what
- * changes the Bot lives in the dialog, opened from the one button here.
+ * Bot's own page — Paused, Notifications, Reset — then its routines, and one button into the full
+ * dialog for everything that changes the Bot. A card beside a conversation, not a control panel:
+ * what changes the Bot lives in the dialog, opened from the one button here.
+ *
+ * The routines are what the Bot does for you on a schedule, so they sit under "For you" rather than
+ * in the Library, which is what it has to work with. `embedded` drops the list's own page-section
+ * top margin, which is somebody else's spacing here.
  */
 export function DetailsTab({ agentId }: { agentId: string }) {
   /** The full dialog, opened over the chat rather than navigating away from it. */
@@ -80,6 +85,13 @@ export function DetailsTab({ agentId }: { agentId: string }) {
         <div className="[&>div]:mt-0">
           <ForYouSection agent={profile} includeMessage={false} />
         </div>
+      </section>
+
+      <section className="grid gap-2">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Routines
+        </h2>
+        <RoutinesList agentId={agentId} embedded />
       </section>
 
       <Button
