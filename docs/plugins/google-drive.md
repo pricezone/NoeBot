@@ -1,7 +1,7 @@
 # Google Drive
 
-A Bot with this connector granted reads Drive **as the person asking**. Two people asking the same
-question get the answers their own accounts can see, and neither sees anything they could not open
+A Bot with this connector reads Drive **as the person asking**. Two people asking the same question
+get the answers their own accounts can see, and neither sees anything they could not open
 themselves. Read-only: the scope requested is `drive.readonly`, so Google refuses a write before
 this deployment has to.
 
@@ -11,18 +11,58 @@ Program; the REST API underneath has been generally available since 2015, so thi
 "no dependency on a preview", which for a connector people rely on is the better side of the trade.
 The tool names match Google's MCP server exactly, so a later swap back to it would keep every grant.
 
-Setting it up takes two people, and neither can do the other's half:
+## Connecting
 
-| Who               | Does                                                    | Where                                    |
-| ----------------- | ------------------------------------------------------- | ---------------------------------------- |
-| An administrator  | Registers the OAuth client and enables the connector    | Google Cloud console, then `/admin/plugins/google-drive` |
-| Each person       | Consents with their own Google account                  | `/settings/connected-accounts/google-drive`              |
+Any signed-in person connects Google Drive themselves, from **Connect apps → Marketplace → Apps**.
+**Connect** on the Google Drive row opens its page under `/settings/connected-accounts/google-drive`,
+and **Connect** there leaves OpenBot for Google's own consent screen — the arrow on the button says
+so — and returns to the same page, which then reads **Connected** with the scope Google actually
+granted.
+
+The first connection adds the app to the deployment and offers it to every Bot, existing and
+future. There is no administrator step before it and no tool to grant after it; the tool list is
+OpenBot's own code rather than an answer from a remote server, so it is recorded when the app is
+added and needs no account to read. An administrator can narrow the offer on
+`/admin/plugins/google-drive`: switch **Offered to every Bot** off, and the per-Bot grants on that
+page decide instead. A member connecting again cannot switch it back on. The **Connect apps**
+capability, on by default, is the switch that turns self-service off for a role or the whole
+organization; with it off, Connect from the Marketplace is refused.
 
 There is deliberately no endpoint for an administrator to connect an account on somebody's behalf.
 
-## What an administrator does
+Nothing is cached. OpenBot stores the refresh token and mints a short-lived access token for each
+call, so revoking access at Google takes effect on the next call rather than whenever a cache
+expires.
 
-### 1. Enable the Drive API
+### Disconnecting
+
+**Not built yet.** Until it is, revoke it in Google's own third-party access settings
+([myaccount.google.com/connections](https://myaccount.google.com/connections)), which stops this
+deployment reading anything immediately. The page says the same thing rather than offering a control
+that would report access withdrawn when it had not been.
+
+## The OAuth client
+
+Google issues no token an administrator can paste: access is a grant belonging to a person, and the
+deployment needs an OAuth client to ask for one. The client comes from one of two places, and the
+first wins:
+
+- **A platform-provided client.** A platform running many deployments registers one Google client
+  and hands each deployment its id as `OPENBOT_PLUGIN_OAUTH_CLIENT_GOOGLE_DRIVE_ID`, together with
+  `OPENBOT_PLUGIN_OAUTH_REDIRECT_URL` (the relay that client was registered to send people back
+  through), `OPENBOT_PLUGIN_OAUTH_TOKEN_URL` (the platform's token endpoint, which holds the secret
+  and redeems codes and renews tokens) and `OPENBOT_PLUGIN_OAUTH_TOKEN` (the bearer the platform
+  admits the deployment on; `OPENBOT_USAGE_TOKEN` serves where that is unset). The deployment never
+  holds the secret. Nothing is done on the Plugins page, which reports the client as provided by
+  the platform. [Configuration](../configuration.md) describes the settings in full.
+- **A client an administrator pastes**, for a self-hosted deployment with no platform behind it.
+  Register one at Google as below and paste it under **OAuth client** on
+  `/admin/plugins/google-drive`. Until a client exists from either place, Connect adds the app and
+  then refuses, saying an administrator has to add one first.
+
+### Self-hosted: registering a client
+
+#### 1. Enable the Drive API
 
 In a Google Cloud project, enable `drive.googleapis.com` — the Drive API. That is the only API this
 connector calls; it reaches Drive over the REST API rather than a Workspace MCP server, so there is
@@ -30,14 +70,14 @@ no second API to turn on and no preview program to enrol in. A connector that re
 credential is otherwise good is most often this API not being enabled on the project; see
 [Troubleshooting](#troubleshooting).
 
-### 2. Configure the OAuth consent screen
+#### 2. Configure the OAuth consent screen
 
 - Scope: `https://www.googleapis.com/auth/drive.readonly`.
 - While the app is in **Testing**, only accounts listed as test users can consent. Everyone who will
   connect needs to be on that list, or their consent fails with an access-denied error that says
   nothing about test users.
 
-### 3. Create an OAuth client
+#### 3. Create an OAuth client
 
 Type **Web application**. Under **Authorised redirect URIs**, add this deployment's callback:
 
@@ -55,47 +95,17 @@ header is one an attacker has a say in. Copy it from there rather than typing it
 
 Keep the client ID and client secret for the next step.
 
-### 4. Enable the connector in OpenBot
+#### 4. Paste it into OpenBot
 
-At `/admin/plugins/google-drive`:
-
-1. Turn on **Enable for this deployment**.
-2. Open **OAuth client** and paste the client ID and secret. The secret is encrypted with
-   `KEY_ENCRYPTION_KEY` and never read back out to the browser.
-3. Press **Refresh tools**, which records the four read tools this connector implements.
-
-That completes setup. No personal account is needed to get this far — the tool list for this
-connector is OpenBot's own code rather than an answer from a remote server, so there is nothing to
-authenticate in order to read it.
+At `/admin/plugins/google-drive`, open **OAuth client** and paste the client ID and secret. The
+secret is encrypted with `KEY_ENCRYPTION_KEY` and never read back out to the browser. If nobody has
+connected yet, **Enable for this deployment** on the same page adds the app first; an app added
+there rather than from the Marketplace is not offered to every Bot until the switch below it says
+so.
 
 To check it actually works, use **Your account** on the same page: it connects *your* Google account
 and returns you here. That is a personal grant like anybody else's, reaching your documents only, and
-it is not part of configuring the connector — a deployment is correctly set up whether or not the
-administrator ever connects.
-
-### 5. Grant tools to a Bot
-
-Enabling the connector does not give any Bot access to it. Each tool is granted per Bot, the same as
-every other plugin tool. Every call then checks the grant, evaluates the action policy, and writes an
-audit row.
-
-## What each person does
-
-At `/settings/connected-accounts`, Google Drive appears once an administrator has enabled it. Open it
-and press **Connect**. That leaves OpenBot for Google's own consent screen — the arrow on the button
-says so — and returns to the same page, which then reads **Connected** with the scope Google actually
-granted.
-
-Nothing is cached. OpenBot stores the refresh token and mints a short-lived access token for each
-call, so revoking access at Google takes effect on the next call rather than whenever a cache
-expires.
-
-### Disconnecting
-
-**Not built yet.** Until it is, revoke it in Google's own third-party access settings
-([myaccount.google.com/connections](https://myaccount.google.com/connections)), which stops this
-deployment reading anything immediately. The page says the same thing rather than offering a control
-that would report access withdrawn when it had not been.
+it is not part of configuring the connector.
 
 ## Troubleshooting
 
@@ -113,9 +123,9 @@ event type is the answer to "whose problem is this":
 | `mcp.call_succeeded` | The vendor answered.                                                    |
 
 A Bot that appears to have no access and leaves **no rows at all** never called the tool, which is a
-grant problem rather than a connection problem: check that the tool is granted to *that* Bot at
-`/admin/plugins/google-drive`. Enabling the connector and connecting your account both being done
-still leaves each tool ungranted.
+grant problem rather than a connection problem. On `/admin/plugins/google-drive`, check that the app
+is still **Offered to every Bot**, or, where an administrator switched that off, that the tool is
+granted to *that* Bot. Connecting your account grants nothing by itself.
 
 ### `redirect_uri_mismatch` on the consent screen
 
@@ -125,7 +135,9 @@ character for character. Common mismatches: `127.0.0.1` against `localhost`, the
 of the API's, `https` against `http`, a trailing slash.
 
 The client the error is about is the one whose ID is in the URL. A deployment with more than one
-Google client can have the URI registered on the wrong one.
+Google client can have the URI registered on the wrong one. With a platform-provided client the URI
+Google sees is the platform's relay, `OPENBOT_PLUGIN_OAUTH_REDIRECT_URL`, and the registration is
+the platform's to fix.
 
 ### "Google Drive refused this request (401)."
 
@@ -175,6 +187,6 @@ rather than handed an empty string it would fill in from memory.
 
 - [Architecture](../architecture.md) — where plugins, grants, policy and audit sit.
 - [Configuration](../configuration.md) — `OPENBOT_PUBLIC_URL`, `OPENBOT_APP_URL`,
-  `KEY_ENCRYPTION_KEY`.
+  `KEY_ENCRYPTION_KEY`, and the `OPENBOT_PLUGIN_OAUTH_*` settings for a platform-provided client.
 - [Google Drive API](https://developers.google.com/workspace/drive/api/reference/rest/v3) — the REST
   API this connector calls.

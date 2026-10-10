@@ -4,11 +4,16 @@ Parallel provides public-web search and extraction for OpenBot. When both its `w
 
 ## Enable research
 
-1. As an administrator, open Plugins and add **Parallel Search** from the catalogue. This pins `https://search.parallel.ai/mcp` and discovers its tools. No API key is needed for anonymous light use.
-2. Grant **web_search** and **web_fetch** to the Bots that should research the public web. For the shipped fintech package, select **Research Desk**. Its `research-public-web` skill already declares these tools; the declaration alone grants no access.
-3. Ask the Bot to research a topic. It should search, read selected sources, and cite their URLs. Run `/research-public-web` to explicitly select the example skill if your deployment has many tools.
+Any signed-in person turns it on from **Connect apps → Marketplace → Apps**, with no administrator step:
 
-For production or higher limits, instead add **Parallel Search (API key)**, with your Parallel API key stored through the existing deployment credential flow. Grant its two tools and remove the anonymous grants. Both use the official endpoint; the authenticated entry sends the key as a Bearer token. If both are granted, the guidance selects the authenticated connector. Keys remain in the server-side credential vault.
+- **Parallel Search** — press **Enable**. No account and no key: anonymous access for light use, at `https://search.parallel.ai/mcp`, with its tools discovered when it is added.
+- **Parallel Search (your account)** — press **Connect**, which opens the app's page under Settings and then Parallel's own consent screen. The deployment registers itself with Parallel over dynamic client registration, so there is no client to paste, and the tools are listed on the first person's connection. Each call then runs on the asker's own Parallel account.
+
+Either way the app is offered to every Bot, existing and future, so the shipped **Research Desk** holds **web_search** and **web_fetch** at once; its `research-public-web` skill declares those tools, and the declaration alone grants nothing. An administrator can narrow the offer on the app's Plugins page — **Offered to every Bot** off, then grant the two tools per Bot — and a member's Enable or Connect cannot undo that. The **Connect apps** capability turns self-service off for a role or the whole organization.
+
+Then ask the Bot to research a topic. It should search, read selected sources, and cite their URLs. Run `/research-public-web` to explicitly select the example skill if your deployment has many tools.
+
+For production or higher limits on a key the deployment holds, an administrator instead adds **Parallel Search (API key)** from the Plugins page — it runs on a deployment key, so the Marketplace refuses to enable it — with the Parallel API key stored through the existing deployment credential flow, and grants its two tools per Bot. Both use the official endpoint; the authenticated entry sends the key as a Bearer token. If both are granted, the guidance selects the authenticated connector. Keys remain in the server-side credential vault.
 
 ## Choice and controls
 

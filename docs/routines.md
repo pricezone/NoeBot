@@ -12,11 +12,13 @@ here." Turning a sentence into a five-field cron expression and a channel is con
 that is what the conversation is for. The same Bot can list what is standing, change one, or delete
 one, all by being asked.
 
-**The prerequisite:** a Bot can only do this once an administrator has granted it to. Routines is a
-catalogue entry like any other — `create_routine`, `update_routine` and `delete_routine` are its write
-tools — and enabling the entry does not hand any Bot access to it. Each tool is granted per Bot at
-`/admin/plugins/routines`, exactly as a Google Drive or Notion tool would be. An administrator decides
-which Bots may schedule future work at all, before deciding what that work is; a Bot with none of the
+**The prerequisite:** Routines is a catalogue entry like any other — `create_routine`,
+`update_routine` and `delete_routine` are its write tools — and a Bot can only schedule once it holds
+them. Any signed-in person enables it from **Connect apps → Marketplace → Apps** (**Enable**: it runs
+in this process and needs no account), which offers every tool to every Bot, existing and future. An
+administrator decides which Bots may schedule future work at all by narrowing that on
+`/admin/plugins/routines` — **Offered to every Bot** off, then a grant per Bot and per tool, exactly
+as for a Google Drive or Notion tool — and a member's Enable cannot undo it. A Bot with none of the
 three tools can still be asked and will say it cannot.
 
 The routine belongs to whoever asked for it and runs as them. See

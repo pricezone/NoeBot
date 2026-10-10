@@ -295,7 +295,7 @@ MCP servers and skills share the plugin grant table, but they have different own
 
 The curated MCP catalogue contains Parallel Search (anonymous, or with this deployment's API key; see [parallel-research.md](parallel-research.md)), Google Drive, Notion, and the built-in Routines server. Custom MCP servers must pass URL checks; unknown tools and custom-server tools are treated as writes unless positively classified as reads.
 
-A catalogue entry says whose credential a Bot reaches it with, which is a different question from whether it is reachable at all. A deployment-wide token answers the same for everybody; Google Drive and Notion are both `user-oauth`, so a Bot reaches them as the person asking and sees only what that person can see. An administrator enabling the connector and a person connecting their own account are two decisions, and neither can be made for the other. See [Google Drive](plugins/google-drive.md) and [Notion](plugins/notion.md).
+A catalogue entry says whose credential a Bot reaches it with, which is a different question from whether it is reachable at all. A deployment-wide token answers the same for everybody; Google Drive and Notion are both `user-oauth`, so a Bot reaches them as the person asking and sees only what that person can see. Any signed-in person connects such an app from the Marketplace, which adds it and offers it to every Bot; an administrator narrows which Bots hold it afterwards, and nobody can connect an account on somebody else's behalf. See [Google Drive](plugins/google-drive.md) and [Notion](plugins/notion.md).
 
 Every MCP call checks the grant first, then evaluates the same action policy engine with MCP context, then audits the result.
 

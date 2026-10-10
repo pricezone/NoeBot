@@ -111,7 +111,7 @@ A coworker's role does not grant capabilities. Capabilities are governed separat
 
 - browser and file actions go through the computer gateway policy;
 - components are published deployment-wide and can be withheld per Bot;
-- MCP tools are granted per Bot by administrators;
+- apps connected from the Marketplace are offered to every Bot, and administrators narrow them per Bot with tool grants;
 - personal skills can be attached only to Bots the author owns;
 - deployment skills are managed by administrators.
 

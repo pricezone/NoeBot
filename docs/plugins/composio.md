@@ -509,4 +509,5 @@ is why an app's action count is worth reading before it is enabled rather than a
 - [Architecture](../architecture.md) — where plugins, grants, policy and audit sit.
 - [Configuration](../configuration.md) — `COMPOSIO_API_KEY`, and that it is optional.
 - [Notion](notion.md) and [Google Drive](google-drive.md) — the same per-person shape, with the
-  OAuth client registered here instead of held by a broker.
+  OAuth client registered by this deployment, or handed to it by a platform, instead of held by a
+  broker.
