@@ -37,6 +37,13 @@ export const HOTKEYS = [
     combo: { key: "n", shift: true },
   },
   {
+    id: "search",
+    label: "Search Bots and Settings",
+    description:
+      "Open the sidebar's search, to jump to a Bot or a Settings section.",
+    combo: { key: "k", mod: true },
+  },
+  {
     id: "dictate",
     label: "Dictate a message",
     description:

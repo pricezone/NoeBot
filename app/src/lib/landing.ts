@@ -1,3 +1,4 @@
+import { isHiddenFromSidebar } from "@/components/app-sidebar/roster";
 import { defaultAgentProfile } from "./agents/default-agent";
 import type { AgentProfile } from "./agents/queries";
 import type { ChannelSummary } from "./channels/queries";
@@ -32,13 +33,18 @@ export type LandingTarget =
  * channel — a stale value, an id from another workspace — falls through to the next rule instead
  * of opening a conversation that does not exist.
  *
- * Two kinds of channel are skipped at every step. Group conversations hold several Bots and live
+ * Three kinds of channel are skipped at every step. Group conversations hold several Bots and live
  * under `/group/$channelId`; a landing that opened one would just bounce through the channel
  * route's own redirect. And a channel whose Bot has since been deleted (`active` false) stays in
  * the roster because its transcript is still readable, but nothing more can be said in it —
  * deleting a Bot is a soft delete that leaves its channels behind, and the remembered id is not
  * cleared when that happens, so without this rule home would reopen a conversation the person
  * cannot continue every time, rather than a fresh one with the default coworker.
+ *
+ * And a channel the person hid from their sidebar is skipped too, until something is said in it
+ * again. Hiding is "out of my way": landing on it, or opening it from the featured Bot or a Bot in
+ * the search, would put back on screen the very conversation they just tidied away. The search
+ * lists it separately for whoever does want it (`app-sidebar/palette-items.ts`).
  */
 export function landingTarget(input: {
   lastBotId: string | null;
@@ -66,5 +72,9 @@ export function landingTarget(input: {
 }
 
 function isOpenWithOneBot(channel: ChannelSummary): boolean {
-  return channel.active && channel.agentIds.length === 1;
+  return (
+    channel.active &&
+    channel.agentIds.length === 1 &&
+    !isHiddenFromSidebar(channel)
+  );
 }

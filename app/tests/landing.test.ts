@@ -169,6 +169,20 @@ describe("landing target", () => {
     ).toEqual({ to: "/channel/new", search: { agent: ASSISTANT_AGENT_ID } });
   });
 
+  test("a conversation hidden from the sidebar is not landed on", () => {
+    // Hidden, and nothing said since: tidied away, so home goes past it to the next one.
+    const hidden = channel("hidden", ["researcher"], {
+      hiddenAt: "2026-10-07T00:00:00.000Z",
+    });
+    expect(
+      landingTarget({
+        lastBotId: "researcher",
+        channels: [hidden, channel("older", ["researcher"])],
+        agents: [agent(ASSISTANT_AGENT_ID), agent("researcher")],
+      }),
+    ).toEqual({ to: "/channel/$channelId", params: { channelId: "older" } });
+  });
+
   test("nothing to land on gives null", () => {
     // No roster loaded: "cannot say" rather than a guess.
     expect(

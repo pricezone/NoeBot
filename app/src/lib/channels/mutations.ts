@@ -4,7 +4,12 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { client, tryClient } from "@/lib/client";
-import { type AgentChannel, type ChannelPage, channelKeys } from "./queries";
+import {
+  type AgentChannel,
+  type ChannelPage,
+  type ChannelSummary,
+  channelKeys,
+} from "./queries";
 
 /**
  * Start a new channel with one or more coworkers.
@@ -152,6 +157,106 @@ export function deleteChannelMutationOptions(queryClient: QueryClient) {
     // flash an error before the navigate-home lands; left alone, it keeps its cache and the
     // navigation happens with nothing to complain about.
     onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: channelKeys.list() }),
+  });
+}
+
+/**
+ * Rewrite one roster row in the cached pages, in place, and leave every other row's identity alone.
+ *
+ * `patch` sees the row as it is and returns the fields to change, so a caller can derive the new
+ * value from the old one (the unread marker from the row's own last message, say) without reading
+ * the cache twice. Shared by the per-person markers below and by the section moves in ./sections.ts.
+ */
+export function patchRosterRow(
+  queryClient: QueryClient,
+  channelId: string,
+  patch: (row: ChannelSummary) => Partial<ChannelSummary>,
+) {
+  queryClient.setQueryData(
+    channelKeys.list(),
+    (data: InfiniteData<ChannelPage> | undefined) =>
+      data && {
+        ...data,
+        pages: data.pages.map((page) =>
+          page.channels.some((row) => row.id === channelId)
+            ? {
+                ...page,
+                channels: page.channels.map((row) =>
+                  row.id === channelId ? { ...row, ...patch(row) } : row,
+                ),
+              }
+            : page,
+        ),
+      },
+  );
+}
+
+/** A millisecond before an ISO-8601 stamp, as an ISO-8601 stamp: the server's unread marker. */
+function justBefore(stamp: string): string {
+  return new Date(new Date(stamp).getTime() - 1).toISOString();
+}
+
+/**
+ * Bring a channel's unread dot back for this member.
+ *
+ * The server moves the read marker to a millisecond before the Bot's last message, and this does
+ * the same to the cached row first, so the dot is there the moment the menu closes. Only offered
+ * for a row whose last message is a Bot's (the server answers 409 otherwise, and says so). A
+ * failure refetches the roster, which puts the marker back where the server still has it.
+ */
+export function markChannelUnreadMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (channelId: string) => {
+      await client(`/api/channels/${channelId}/unread`, {
+        method: "PUT",
+        fallback: "Could not mark this chat unread",
+      });
+    },
+    onMutate: (channelId) =>
+      patchRosterRow(queryClient, channelId, (row) =>
+        row.lastMessageAt ? { lastReadAt: justBefore(row.lastMessageAt) } : {},
+      ),
+    onError: () =>
+      queryClient.invalidateQueries({ queryKey: channelKeys.list() }),
+  });
+}
+
+/**
+ * Hide a channel from this member's sidebar, or show it again.
+ *
+ * Patched before the wire answers, with the same "no earlier than the last message" stamp the
+ * server writes, and then corrected to the server's own stamp: the row only stays hidden while that
+ * stamp is not older than the last thing said in it. A failure refetches, like marking unread.
+ */
+export function setChannelHiddenMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (variables: { channelId: string; hidden: boolean }) => {
+      const response = await client(
+        `/api/channels/${variables.channelId}/hidden`,
+        {
+          method: "PUT",
+          body: { hidden: variables.hidden },
+          fallback: variables.hidden
+            ? "Could not hide this chat"
+            : "Could not show this chat again",
+        },
+      );
+      return ((await response.json()) as { hiddenAt: string | null }).hiddenAt;
+    },
+    onMutate: ({ channelId, hidden }) => {
+      const now = new Date().toISOString();
+      patchRosterRow(queryClient, channelId, (row) => ({
+        hiddenAt: hidden
+          ? row.lastMessageAt && row.lastMessageAt > now
+            ? row.lastMessageAt
+            : now
+          : null,
+      }));
+    },
+    onSuccess: (hiddenAt, { channelId }) =>
+      patchRosterRow(queryClient, channelId, () => ({ hiddenAt })),
+    onError: () =>
       queryClient.invalidateQueries({ queryKey: channelKeys.list() }),
   });
 }
