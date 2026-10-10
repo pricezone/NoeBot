@@ -10,6 +10,9 @@ import { landingTarget } from "@/lib/landing";
 function agent(id: string): AgentProfile {
   return {
     avatarSeed: id,
+    avatarColor: null,
+    avatarExpression: null,
+    canEditAvatar: false,
     builtIn: id === ASSISTANT_AGENT_ID,
     canManage: true,
     endpoint: null,

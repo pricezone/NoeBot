@@ -1,3 +1,12 @@
+import {
+  AVATAR_COLORS,
+  AVATAR_EXPRESSIONS,
+  type AvatarColor,
+  type AvatarExpression,
+  type AvatarScheme,
+  avatarSchemeOf,
+  isAvatarExpression,
+} from "../../../../shared/avatar";
 import { GRID_16, type HalfBlockDrawing } from "./drawings";
 
 /**
@@ -8,13 +17,20 @@ import { GRID_16, type HalfBlockDrawing } from "./drawings";
  * here knows about React, which is what lets the data be checked in a test without a DOM.
  */
 
-/** One of the guide's eye-only expressions. */
-export type Expression = keyof typeof GRID_16.expressions;
+/**
+ * One of the guide's eye-only expressions.
+ *
+ * The shared list's type, so the names the server accepts and the names drawn here are one type:
+ * `facePath` indexes the drawings with it, which fails to compile if a drawing is missing, and a
+ * test holds the drawings to the list in the other direction.
+ */
+export type Expression = AvatarExpression;
 
 /** What can be on the face: the mascot's own capsule eyes, an expression, or the offline eyes. */
 export type Face = Expression | "body" | "offline";
 
-export const EXPRESSIONS = Object.keys(GRID_16.expressions) as Expression[];
+/** In the guide's order, which `expressionFor` indexes into; see `AVATAR_EXPRESSIONS`. */
+export const EXPRESSIONS: readonly Expression[] = AVATAR_EXPRESSIONS;
 
 export type PixelGrid = {
   width: number;
@@ -116,22 +132,73 @@ export function expressionFor(seed: string): Expression {
   return EXPRESSIONS[index] ?? "neutral";
 }
 
+export type { AvatarScheme };
+
 /**
- * The guide's approved backgrounds, each with the ink it allows on it.
+ * The guide's approved backgrounds, each with the ink it allows on it: the ones a seed picks from.
  *
  * Rose takes white artwork only; the near-black of the wordmark takes white; the light grey takes
- * black. Three, so a roster is not a wall of one colour, and no colour the guide does not list.
+ * black. Three, so a roster is not a wall of one colour, and no colour the guide does not list. A
+ * person choosing has the whole of `AVATAR_COLORS`; a Bot nobody chose for keeps to these.
  */
-export const AVATAR_SCHEMES = [
-  { background: "#ff2056", ink: "#ffffff" },
-  { background: "#18181b", ink: "#ffffff" },
-  { background: "#f4f4f5", ink: "#09090b" },
-] as const;
-
-export type AvatarScheme = (typeof AVATAR_SCHEMES)[number];
+export const AVATAR_SCHEMES: readonly AvatarScheme[] = AVATAR_COLORS.filter(
+  (scheme) => scheme.brand,
+);
 
 /** Salted differently from the expression, so the two choices are not locked to each other. */
 export function schemeFor(seed: string): AvatarScheme {
   const index = hash(seed, 0x9e3779b9) % AVATAR_SCHEMES.length;
-  return AVATAR_SCHEMES[index] ?? AVATAR_SCHEMES[0];
+  return AVATAR_SCHEMES[index] ?? AVATAR_COLORS[0];
+}
+
+/** What a profile carries about its avatar: the seed, and whatever a person chose. */
+export type AvatarChoice = {
+  seed: string;
+  color?: AvatarColor | null;
+  expression?: AvatarExpression | null;
+};
+
+/**
+ * What a Bot's avatar wears: the colour and the expression a person chose, each where one was
+ * chosen, and the seed's pick for whichever half was not.
+ *
+ * Every surface that draws a Bot asks this rather than `schemeFor` and `expressionFor` directly, so
+ * a choice shows the same everywhere — on the avatar, and as the colour of the person's own bubbles
+ * in a conversation with that Bot. A value outside the palette is ignored rather than drawn, which
+ * the type already rules out and a stale cache entry could still deliver.
+ */
+export function avatarLook({ seed, color, expression }: AvatarChoice): {
+  scheme: AvatarScheme;
+  expression: Expression;
+} {
+  return {
+    scheme: avatarSchemeOf(color) ?? schemeFor(seed),
+    expression: isAvatarExpression(expression)
+      ? expression
+      : expressionFor(seed),
+  };
+}
+
+/** WCAG relative luminance of a `#rrggbb` colour, 0 for black to 1 for white. */
+function relativeLuminance(hex: string): number {
+  const channel = (offset: number) => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+/**
+ * Which theme's page this background nearly disappears into, if either.
+ *
+ * The palette is the same in both themes, so the light grey sits on the light theme's white, and
+ * the near-black on the dark theme's black, with almost nothing between them. Those get a hairline
+ * in that theme only (`hairlineClassName`); every other colour is drawn as it is. Judged from the
+ * colour's luminance rather than by name, so a colour added to the palette later is judged too.
+ */
+export function edgeFor(background: string): "light" | "dark" | null {
+  const luminance = relativeLuminance(background);
+  if (luminance > 0.8) return "light";
+  if (luminance < 0.03) return "dark";
+  return null;
 }

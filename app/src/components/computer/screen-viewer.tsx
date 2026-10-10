@@ -233,7 +233,12 @@ export function ScreenViewer({
     >
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2.5">
-          <brand.Avatar seed={agent.data?.avatarSeed ?? computerId} size={28} />
+          <brand.Avatar
+            color={agent.data?.avatarColor}
+            expression={agent.data?.avatarExpression}
+            seed={agent.data?.avatarSeed ?? computerId}
+            size={28}
+          />
           {shownName ? (
             <span className="truncate text-[15px] font-semibold">
               {shownName}

@@ -20,7 +20,15 @@ html {
 
 :root {
   color-scheme: light;
-  --background: oklch(0.985 0 0);
+  /*
+   * As Grok draws its light theme: the conversation on white, the sidebar a step of grey beside it,
+   * and one lighter grey for the surfaces on white (the Bot's bubble, the selected tab, muted rows).
+   * Borders are a step lighter than shadcn's, because on white a hairline only has to be there,
+   * and the controls that float over the transcript — the Bot's pill, the composer — get their
+   * edge from `--shadow-float` as much as from the line. Avatar colours are not tokens at all: they
+   * are the same in both themes (`shared/avatar.ts`).
+   */
+  --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -36,7 +44,7 @@ html {
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --success: oklch(0.6 0.118 184.704);
-  --border: oklch(0.922 0 0);
+  --border: oklch(0.94 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
@@ -45,13 +53,13 @@ html {
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.75rem;
-  --sidebar: oklch(0.97 0 0);
+  --sidebar: oklch(0.98 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.5 0 0);
-  --sidebar-accent: oklch(0.95 0 0);
+  --sidebar-accent: oklch(0.935 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-border: oklch(0.94 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 }
 
@@ -167,6 +175,14 @@ body {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  /*
+   * The lift under a control that floats over the transcript: the Bot's pill in the header and the
+   * composer. A close, faint shadow for the edge and a wider, softer one under it, as Grok draws
+   * them. The same in both themes; on the dark theme's black it is all but invisible, which is
+   * right, since the hairline border carries the edge there.
+   */
+  --shadow-float:
+    0 1px 2px 0 rgb(0 0 0 / 0.04), 0 4px 14px -2px rgb(0 0 0 / 0.08);
 }
 
 @layer base {

@@ -10,6 +10,7 @@ import { observeApprovalAgent } from "@/lib/copilot/approval-context";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
+import { personBubbleScheme } from "@/components/channels/bubbles";
 import { attachmentModality } from "@/components/channels/chat-messages";
 import { toAgentOptions } from "@/components/channels/composer";
 import { ConversationView } from "@/components/channels/conversation-view";
@@ -253,6 +254,20 @@ export function ChannelChat({
   const { copilotkit } = useCopilotKit();
   // Mentions are scoped to the channel's permitted agents.
   const { data: agentProfiles } = useQuery(agentListQueryOptions());
+  /*
+   * The Bot this conversation is with, for its name, its face and the colour of the person's own
+   * bubbles. Until the roster arrives its id stands in as the seed, the way `ChannelAvatar` does, so
+   * the bubbles and the avatars agree from the first paint.
+   */
+  const conversationBot = agentProfiles?.find(
+    (profile) => profile.id === runtimeAgentId,
+  );
+  const personScheme = personBubbleScheme([
+    {
+      seed: conversationBot?.avatarSeed ?? runtimeAgentId,
+      color: conversationBot?.avatarColor,
+    },
+  ]);
   const channelAgentId = `channel:${channel.id}`;
   const { agent, isReady } = useAgent({
     agentId: channelAgentId,
@@ -911,14 +926,10 @@ export function ChannelChat({
         <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
           <VoiceCallWidget
             call={call}
-            name={
-              agentProfiles?.find((profile) => profile.id === runtimeAgentId)
-                ?.name ?? channel.name
-            }
-            avatarSeed={
-              agentProfiles?.find((profile) => profile.id === runtimeAgentId)
-                ?.avatarSeed ?? runtimeAgentId
-            }
+            name={conversationBot?.name ?? channel.name}
+            avatarSeed={conversationBot?.avatarSeed ?? runtimeAgentId}
+            avatarColor={conversationBot?.avatarColor}
+            avatarExpression={conversationBot?.avatarExpression}
             taskRunning={agent.isRunning || runsInFlight > 0}
           />
           <ConversationView
@@ -933,6 +944,7 @@ export function ChannelChat({
             }
             agents={toAgentOptions(agentProfiles, channel.agentIds)}
             channelId={channel.id}
+            personScheme={personScheme}
             /*
              * THE TURN, not the run. `say` waits for the runtime agent and the join before a run starts,
              * and `agent.isRunning` alone leaves that gap unmarked — which is the one moment the

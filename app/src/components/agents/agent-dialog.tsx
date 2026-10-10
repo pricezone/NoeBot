@@ -2,6 +2,7 @@ import {
   IconAdjustments,
   IconArrowsExchange,
   IconClock,
+  IconMoodSmile,
   IconPencil,
   IconPlugConnected,
   IconPuzzle,
@@ -12,6 +13,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { ZodType } from "zod";
 import { AbstractAvatar } from "@/components/agents/abstract-avatar";
+import { AvatarEditor } from "@/components/agents/avatar-editor";
 import { CallbackTokenPanel } from "@/components/agents/callback-token-panel";
 import { HandoffPanel } from "@/components/agents/handoff-panel";
 import { RoutinesList } from "@/components/routines/routines-list";
@@ -109,6 +111,8 @@ export function AgentDialog({
 
 const SECTIONS = [
   { id: "general", name: "General", icon: IconUser },
+  // How it looks: the avatar's colour and expression, next to who it is.
+  { id: "profile", name: "Profile", icon: IconMoodSmile },
   { id: "access", name: "Access", icon: IconPuzzle },
   { id: "connection", name: "Connection", icon: IconPlugConnected },
   { id: "handoff", name: "Handoff", icon: IconArrowsExchange },
@@ -144,12 +148,26 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
   return (
     <>
       <DialogTitle className="sr-only">{profile.name}</DialogTitle>
-      {/* min-h-full overrides the provider's own min-h-svh, which is sized for a page. */}
-      <SidebarProvider className="min-h-full items-start">
-        <Sidebar className="hidden md:flex" collapsible="none">
+      {/*
+       * min-h-full overrides the provider's own min-h-svh, which is sized for a page.
+       *
+       * THE SIDEBAR IS STRETCHED, NOT SIZED. A non-collapsing sidebar draws itself `h-full`, and
+       * nothing above it has a height a percentage can resolve against: the popup is as tall as
+       * its content, and the content's height is the main pane's 640px. So `h-full` computed to
+       * auto, `items-start` kept it there, and the sidebar's background stopped under its last
+       * item: on the dark theme a black block ending halfway down a grey dialog. `h-auto` with
+       * `self-stretch` makes it the height of the row, which is the main pane's.
+       */}
+      <SidebarProvider className="min-h-full">
+        <Sidebar
+          className="hidden h-auto self-stretch md:flex"
+          collapsible="none"
+        >
           {/* Who this dialog is about, said once here rather than repeated per section. */}
           <SidebarHeader className="flex-row items-center gap-3 p-4">
             <AbstractAvatar
+              color={profile.avatarColor}
+              expression={profile.avatarExpression}
               name={profile.name}
               seed={profile.avatarSeed}
               size={36}
@@ -193,6 +211,8 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
           <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3 pr-12 md:hidden">
             <div className="flex items-center gap-2">
               <AbstractAvatar
+                color={profile.avatarColor}
+                expression={profile.avatarExpression}
                 name={profile.name}
                 seed={profile.avatarSeed}
                 size={28}
@@ -222,6 +242,8 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
             {section === "general" ? (
               <GeneralSection agentId={agentId} profile={profile} />
+            ) : section === "profile" ? (
+              <AvatarEditor agentId={agentId} profile={profile} />
             ) : section === "access" ? (
               <AccessSection agentId={agentId} />
             ) : section === "connection" ? (

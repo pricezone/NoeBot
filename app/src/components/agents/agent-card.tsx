@@ -19,7 +19,12 @@ export function AgentCard({
           aria-hidden="true"
           className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
-          <NoeBotAvatar seed={agent.avatarSeed} size={112} />
+          <NoeBotAvatar
+            color={agent.avatarColor}
+            expression={agent.avatarExpression}
+            seed={agent.avatarSeed}
+            size={112}
+          />
         </div>
         <div className="absolute top-0 left-0 h-full w-full bg-background/40 dark:bg-background/50" />
         <div className="absolute top-0 left-0 flex h-full w-full flex-col justify-end gap-2 p-3">
@@ -35,7 +40,13 @@ export function AgentCard({
   return (
     <div className="relative flex h-[160px] w-full min-w-0 flex-col gap-2 overflow-hidden rounded-2xl border border-border bg-card p-3 dark:border-transparent">
       <div aria-hidden="true" className="mb-1 flex shrink-0">
-        <AbstractAvatar name={agent.name} seed={agent.avatarSeed} size={28} />
+        <AbstractAvatar
+          color={agent.avatarColor}
+          expression={agent.avatarExpression}
+          name={agent.name}
+          seed={agent.avatarSeed}
+          size={28}
+        />
       </div>
       <div className="flex min-w-0 flex-col gap-2">
         <span

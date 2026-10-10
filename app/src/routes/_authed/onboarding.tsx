@@ -78,8 +78,12 @@ function ComputerUseStep() {
   );
 }
 
-/** What a roster card needs — placeholders carry these three fields and nothing more. */
-type RosterCard = Pick<AgentProfile, "id" | "name" | "avatarSeed">;
+/**
+ * What a roster card needs — placeholders carry the first three fields and nothing more; a real
+ * agent brings the avatar its owner chose, so its card shows the face it has everywhere else.
+ */
+type RosterCard = Pick<AgentProfile, "id" | "name" | "avatarSeed"> &
+  Partial<Pick<AgentProfile, "avatarColor" | "avatarExpression">>;
 
 /**
  * Stand-ins for a deployment that has fewer than three public agents to show. Invented names on
@@ -127,7 +131,12 @@ function RosterStep() {
               // Dimmed and labelled, so an invented name never reads as a Bot this deployment has.
               className={`bg-card p-4 rounded-lg flex flex-row gap-4 items-center ${a.example ? "opacity-70" : ""}`}
             >
-              <NoeBotAvatar seed={a.avatarSeed} size={40} />
+              <NoeBotAvatar
+                color={a.avatarColor}
+                expression={a.avatarExpression}
+                seed={a.avatarSeed}
+                size={40}
+              />
               <div className="flex min-w-0 flex-col">
                 <h3 className="line-clamp-1 text-base font-medium tracking-tight">
                   {a.name}

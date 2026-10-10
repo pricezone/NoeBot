@@ -1,24 +1,27 @@
 import { hashKey, QueryClientContext } from "@tanstack/react-query";
 import { memo, useCallback, useContext, useSyncExternalStore } from "react";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
+import type { AvatarChoice } from "@/components/noe-bot/pixel-art";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 import { cn } from "@/lib/utils";
 
 /**
- * The seed a participant's face is drawn from: the Bot's avatar seed when the roster is in the
- * cache, its id otherwise.
+ * What a participant's face is drawn from: the Bot's avatar seed and the colour and expression a
+ * person chose for it when the roster is in the cache, its id as the seed otherwise.
  *
  * A tenant package picks a coworker's face through `avatar_seed`, and the cards and the bot panel
  * draw from it. The roster, the chat pill and the featured bot used to draw from the id instead,
- * so one Bot wore two faces. Read from the cache rather than through a query per row, but
- * subscribed to it: this component is memoized, and a face that only caught up when something
- * else re-rendered the row was the roster showing the wrong face until the next message. Optional
- * context, because the avatar is also drawn where no client exists.
+ * so one Bot wore two faces; the chosen colour and expression would be a third if this read the
+ * seed alone. Read from the cache rather than through a query per row, but subscribed to it: this
+ * component is memoized, and a face that only caught up when something else re-rendered the row
+ * was the roster showing the wrong face until the next message — or, after a choice in the avatar
+ * editor, the old face until then. Optional context, because the avatar is also drawn where no
+ * client exists.
  */
 const AGENT_LIST_KEY = agentKeys.list(false);
 const AGENT_LIST_HASH = hashKey(AGENT_LIST_KEY);
 
-function useAvatarSeeds(): (id: string) => string {
+function useAvatarLooks(): (id: string) => AvatarChoice {
   const client = useContext(QueryClientContext);
   const subscribe = useCallback(
     (notify: () => void) =>
@@ -34,7 +37,16 @@ function useAvatarSeeds(): (id: string) => string {
     () => client?.getQueryData<AgentProfile[]>(AGENT_LIST_KEY),
     () => undefined,
   );
-  return (id) => agents?.find((agent) => agent.id === id)?.avatarSeed ?? id;
+  return (id) => {
+    const agent = agents?.find((candidate) => candidate.id === id);
+    return agent
+      ? {
+          seed: agent.avatarSeed,
+          color: agent.avatarColor,
+          expression: agent.avatarExpression,
+        }
+      : { seed: id };
+  };
 }
 
 export const ChannelAvatar = memo(function ChannelAvatar({
@@ -47,11 +59,11 @@ export const ChannelAvatar = memo(function ChannelAvatar({
   typing?: boolean;
 }) {
   const channelSize = participantIds?.length;
-  const seedOf = useAvatarSeeds();
+  const lookOf = useAvatarLooks();
 
   const avatar =
     channelSize === 1 ? (
-      <NoeBotAvatar seed={seedOf(participantIds[0] ?? "")} size={size} />
+      <NoeBotAvatar {...lookOf(participantIds[0] ?? "")} size={size} />
     ) : (
       <div className="flex flex-row items-center size-full">
         {participantIds.slice(0, 3).map((c, i, shown) => (
@@ -64,7 +76,7 @@ export const ChannelAvatar = memo(function ChannelAvatar({
               transform: `translateX(${i * -75}%)`,
             }}
           >
-            <NoeBotAvatar seed={seedOf(c)} size={size / (shown.length / 2)} />
+            <NoeBotAvatar {...lookOf(c)} size={size / (shown.length / 2)} />
           </div>
         ))}
       </div>

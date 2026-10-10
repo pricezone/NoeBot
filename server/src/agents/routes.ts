@@ -3,9 +3,14 @@ import { Hono } from "hono";
 import type { AuditEventType, AuditStore } from "../audit";
 import { recordAuditEvent } from "../audit";
 import type { AppVariables } from "../auth/guards";
+import {
+  AVATAR_COLORS,
+  isAvatarColor,
+  isAvatarExpression,
+} from "../../../shared/avatar";
 import { testAgentConnection } from "./connection-test";
 import { checkAgentEndpoint } from "./endpoint";
-import { canManageAgent } from "./profile-policy";
+import { canEditAgentAvatar, canManageAgent } from "./profile-policy";
 import {
   AgentNotFoundError,
   AgentAssignedError,
@@ -17,6 +22,7 @@ import {
 import type {
   AgentActor,
   AgentProfile,
+  AvatarChoice,
   CreateAgentInput,
 } from "./profile-types";
 
@@ -129,6 +135,74 @@ export function parseAgentInput(
 
 function isAgentInputObject(input: unknown): input is AgentInputObject {
   return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+const AVATAR_KEYS = ["avatarColor", "avatarExpression"] as const;
+
+/**
+ * Whether a `PATCH` body is an avatar choice and nothing else.
+ *
+ * The profile form sends every field every time, and the avatar editor sends only the half that was
+ * clicked. Telling them apart by what is in the body, rather than by a second endpoint, keeps one
+ * address for "change this Bot"; a body with any profile field in it is a profile edit, which may
+ * carry an avatar choice along, and is checked as one.
+ */
+export function isAvatarOnlyInput(input: unknown): boolean {
+  if (!isAgentInputObject(input)) return false;
+  const keys = Object.keys(input);
+  return (
+    keys.length > 0 &&
+    keys.every((key) => (AVATAR_KEYS as readonly string[]).includes(key))
+  );
+}
+
+/**
+ * Read the avatar half of a `PATCH` body: a colour from the shared palette, an expression from the
+ * shared list, or null to give that half back to the seed.
+ *
+ * Refused rather than ignored, anything else. A colour the app cannot draw would be stored, read
+ * back as "not chosen", and look to the person who picked it like a save that silently undid
+ * itself. Case is forgiven because a hex colour is the same colour in either case; nothing else is.
+ */
+export function parseAvatarChoice(
+  input: unknown,
+): { ok: true; value: AvatarChoice } | { ok: false; error: string } {
+  if (!isAgentInputObject(input)) {
+    return { ok: false, error: "Agent input must be a JSON object." };
+  }
+  const supplied = input as {
+    avatarColor?: unknown;
+    avatarExpression?: unknown;
+  };
+  const value: AvatarChoice = {};
+
+  if (supplied.avatarColor !== undefined) {
+    const color =
+      typeof supplied.avatarColor === "string"
+        ? supplied.avatarColor.trim().toLowerCase()
+        : supplied.avatarColor;
+    if (color !== null && !isAvatarColor(color)) {
+      return {
+        ok: false,
+        error: `Avatar color must be one of ${AVATAR_COLORS.map((scheme) => scheme.background).join(", ")}, or null.`,
+      };
+    }
+    value.avatarColor = color;
+  }
+
+  if (supplied.avatarExpression !== undefined) {
+    const expression = supplied.avatarExpression;
+    if (expression !== null && !isAvatarExpression(expression)) {
+      return {
+        ok: false,
+        error:
+          "Avatar expression must be one of the offered expressions, or null.",
+      };
+    }
+    value.avatarExpression = expression;
+  }
+
+  return { ok: true, value };
 }
 
 /**
@@ -518,18 +592,39 @@ export function createAgentRoutes(
 
   routes.patch("/:agentId", requireUser, async (context) => {
     // Malformed JSON is a recoverable client-input error and is validated by the same parser.
-    const parsed = parseAgentInput(
-      await context.req.json().catch(() => null),
-      allowPrivateHosts,
-      allowedHosts,
-    );
+    const body = await context.req.json().catch(() => null);
+
+    if (isAvatarOnlyInput(body)) {
+      const choice = parseAvatarChoice(body);
+      if (!choice.ok) return context.json({ error: choice.error }, 400);
+      try {
+        const agent = await store.setAvatar(
+          context.var.actor,
+          context.req.param("agentId"),
+          choice.value,
+        );
+        // Who it is and who can reach it, the way every `bot.updated` row says, then what changed.
+        await record(context, "bot.updated", agent.id, {
+          name: agent.name,
+          visibility: agent.visibility,
+          avatar: choice.value,
+        });
+        return context.json({ agent: dto(context.var.actor, agent) });
+      } catch (error) {
+        return mapStoreError(context, error);
+      }
+    }
+
+    const parsed = parseAgentInput(body, allowPrivateHosts, allowedHosts);
     if (!parsed.ok) return context.json({ error: parsed.error }, 400);
+    const avatar = parseAvatarChoice(body);
+    if (!avatar.ok) return context.json({ error: avatar.error }, 400);
 
     try {
       const agent = await store.update(
         context.var.actor,
         context.req.param("agentId"),
-        parsed.value,
+        { ...parsed.value, ...avatar.value },
       );
       /*
        * What changed, not the new values. Repointing the endpoint is the dangerous edit and is worth
@@ -751,6 +846,9 @@ function agentDto(actor: AgentActor, agent: AgentProfile) {
     title: agent.title,
     roleDescription: agent.roleDescription,
     avatarSeed: agent.avatarSeed,
+    // The chosen avatar, or null for each half the seed decides. The app draws from all three.
+    avatarColor: agent.avatarColor,
+    avatarExpression: agent.avatarExpression,
     visibility: agent.visibility,
     hidden: agent.hidden,
     pinned: agent.pinned,
@@ -762,6 +860,9 @@ function agentDto(actor: AgentActor, agent: AgentProfile) {
     // Whether one exists, never what it is.
     hasCallbackToken: agent.hasCallbackToken,
     canManage: canManageAgent(actor, agent),
+    // Separate from `canManage`: an administrator may restyle a Bot the package ships, which nobody
+    // may otherwise edit. The editor renders from this rather than working the rule out again.
+    canEditAvatar: canEditAgentAvatar(actor, agent),
     // Ownership, kept separate from permission. `canManage` is also true for an administrator on
     // another user's coworker, so a roster that split "mine" on it would file other people's work
     // under yours, and only for administrators, who are the least likely to notice.

@@ -78,10 +78,11 @@ test("both variants render and stamp their classes", () => {
   const segmentedList = segmented.getByRole("tablist");
   expect(segmentedList.getAttribute("data-variant")).toBe("segmented");
   expect(segmentedList.className).toContain("rounded-full");
-  expect(segmentedList.className).toContain("bg-muted");
+  // No track: the selected tab is the only grey thing, a pill on whatever is behind the list.
+  expect(segmentedList.className).not.toContain("bg-");
   const segmentedTab = segmented.getByRole("tab", { name: "Details" });
   expect(segmentedTab.getAttribute("data-active")).not.toBeNull();
-  expect(segmentedTab.className).toContain("data-active:bg-card");
+  expect(segmentedTab.className).toContain("data-active:bg-muted");
   cleanup();
 
   const underline = draw("underline");

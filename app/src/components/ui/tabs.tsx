@@ -6,12 +6,15 @@ import { cn } from "@/lib/utils";
 /**
  * Tabs on Base UI, in the two shapes this app draws.
  *
- * `segmented` is the pill: a rounded track in the muted surface with the selected tab lifted onto
- * the card colour (the bot panel's Details | Library | Computer). `underline` is the row of labels
- * with a hairline under the selected one (the Marketplace's Apps | Skills | Agents). Base UI owns
- * the behaviour, roving focus with the arrow keys, `aria-selected`, `aria-controls` and the panel
- * wiring, so the two variants differ only in class names, carried from the list to its triggers
- * through context rather than repeated at every call site.
+ * `segmented` is the pill, as Grok draws it: no track, the labels in the muted text colour at
+ * their own width and centred, and the selected one on a grey pill of the muted surface (the bot
+ * panel's Details | Library | Computer). It used to lift a white pill off a grey track, which on
+ * the light theme's white page is a white pill on nothing; a grey one reads the same in both
+ * themes. `underline` is the row of labels with a hairline under the selected one (the
+ * Marketplace's Apps | Skills | Agents). Base UI owns the behaviour, roving focus with the arrow
+ * keys, `aria-selected`, `aria-controls` and the panel wiring, so the two variants differ only in
+ * class names, carried from the list to its triggers through context rather than repeated at every
+ * call site.
  */
 type TabsVariant = "segmented" | "underline";
 
@@ -40,7 +43,7 @@ function TabsList({
         className={cn(
           "flex items-center",
           variant === "segmented"
-            ? "h-9 w-fit rounded-full bg-muted p-1"
+            ? "h-9 w-fit justify-center gap-1 rounded-full"
             : "gap-6 border-b border-border",
           className,
         )}
@@ -59,7 +62,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
       className={cn(
         "inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium outline-none transition-[color,background-color,border-color] duration-150 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         variant === "segmented"
-          ? "h-full flex-1 rounded-full px-3 text-sm text-muted-foreground data-active:bg-card data-active:text-foreground"
+          ? "h-full rounded-full px-3 text-sm text-muted-foreground hover:text-foreground data-active:bg-muted data-active:text-foreground"
           : "-mb-px h-10 border-b-2 border-transparent px-1 text-[15px] text-muted-foreground hover:text-foreground data-active:border-foreground data-active:text-foreground",
         className,
       )}

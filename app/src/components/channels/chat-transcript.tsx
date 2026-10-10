@@ -22,7 +22,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import type { AvatarScheme } from "@/components/noe-bot/pixel-art";
 import {
   Dialog,
   DialogClose,
@@ -62,6 +62,7 @@ import {
   groupBrowserSteps,
   type TranscriptItem,
 } from "./browser-activity";
+import { BotBubble, GROUP_PERSON_SCHEME, PersonBubble } from "./bubbles";
 import {
   attachmentModality,
   type SentAttachment,
@@ -87,6 +88,12 @@ type ChatTranscriptProps = {
   onRemoveQueued?: (id: string) => void;
   /** History has been asked for and has not arrived. Drawn only when there is nothing else to draw. */
   restoring?: boolean;
+  /**
+   * The colour the person's own bubbles are drawn in: the conversation Bot's avatar colour, from
+   * `personBubbleScheme`. Left out, the group colour. One of the palette's own objects, so it is
+   * the same reference render after render and the memoised rows below still compare equal.
+   */
+  personScheme?: AvatarScheme;
   /**
    * Why the last turn ended without an answer, if it did.
    *
@@ -299,10 +306,12 @@ function describeParked(
  */
 function Queued({
   attachments,
+  personScheme,
   text,
   onRemove,
 }: {
   attachments: readonly Attachment[];
+  personScheme: AvatarScheme;
   text: string;
   onRemove?: (() => void) | undefined;
 }) {
@@ -327,12 +336,10 @@ function Queued({
          * message sent by mistake rather than as a file waiting its turn.
          */}
         {text ? (
-          <Bubble align="end" className="opacity-60" variant="muted">
-            <BubbleContent>
-              {/* Shown exactly as typed, for the same reason a sent message is. */}
-              <span className="whitespace-pre-wrap">{text}</span>
-            </BubbleContent>
-          </Bubble>
+          <PersonBubble className="opacity-60" scheme={personScheme}>
+            {/* Shown exactly as typed, for the same reason a sent message is. */}
+            <span className="whitespace-pre-wrap">{text}</span>
+          </PersonBubble>
         ) : null}
         <MessageFooter>
           {/*
@@ -616,11 +623,14 @@ function ResponsibilityFiring({
 const TranscriptMessage = memo(function TranscriptMessage({
   commandNames = "",
   delay,
+  personScheme,
   role,
   text,
 }: {
   commandNames?: string;
   delay: number;
+  /** A palette object, so a stable reference: the memo still skips an untouched message. */
+  personScheme: AvatarScheme;
   role: "user" | "assistant";
   text: string;
 }) {
@@ -653,59 +663,59 @@ const TranscriptMessage = memo(function TranscriptMessage({
       <MessageContent>
         <Arriving delay={delay}>
           {/*
-            A Bot's message takes the whole column, not the width of its words: block content
-            inside it — a fenced code block, a table — should span the transcript rather than
-            shrink to its own text. A person's bubble keeps fitting what they said.
+            The person's words in the conversation Bot's colour, the Bot's in grey — see
+            `bubbles.tsx`, which is also where block content in a Bot's bubble gets its width.
           */}
-          <Bubble
-            align={align}
-            variant={isUser ? "muted" : "ghost"}
-            className={isUser ? undefined : "w-full"}
-          >
-            <BubbleContent className={isUser ? undefined : "w-full"}>
-              {isUser ? (
-                // A person's own message is shown exactly as they typed it. Rendering it as markdown
-                // would silently reformat what they said, and an asterisk in a sentence is not
-                // emphasis. The chip is the one exception, and it is not reformatting: it is drawing
-                // the thing that was already a chip in the composer as a chip here too, so the
-                // transcript shows a skill was used rather than a slash that was typed.
-                <span className="whitespace-pre-wrap">
-                  {origin && (
-                    <span className="mr-1.5 inline-flex items-center rounded bg-foreground/10 px-1.5 py-0.5 align-middle text-foreground/70 text-xs">
-                      via {origin.via}
+          {isUser ? (
+            <PersonBubble scheme={personScheme}>
+              {/*
+               * A person's own message is shown exactly as they typed it. Rendering it as markdown
+               * would silently reformat what they said, and an asterisk in a sentence is not
+               * emphasis. The chip is the one exception, and it is not reformatting: it is drawing
+               * the thing that was already a chip in the composer as a chip here too, so the
+               * transcript shows a skill was used rather than a slash that was typed.
+               *
+               * The chips draw in `currentColor`, not the foreground: the bubble is the Bot's
+               * colour with its own ink, white on most of the palette and black on the rest.
+               */}
+              <span className="whitespace-pre-wrap">
+                {origin && (
+                  <span className="mr-1.5 inline-flex items-center rounded bg-current/15 px-1.5 py-0.5 align-middle text-current/75 text-xs">
+                    via {origin.via}
+                  </span>
+                )}
+                {invoked ? (
+                  <>
+                    {/*
+                     * The same icon the sidebar uses for Skills, so the badge says WHAT KIND of
+                     * thing was invoked before it says which one. `inline-flex` with
+                     * `align-middle` rather than a block: this sits mid-sentence, and a badge that
+                     * breaks the line it is in reads as a separate message.
+                     */}
+                    <span className="mr-1 inline-flex items-center gap-1 rounded bg-current/15 px-1.5 py-0.5 align-middle font-mono text-current/85 text-xs">
+                      <IconBox className="size-3 shrink-0" />/{invoked.chip}
                     </span>
-                  )}
-                  {invoked ? (
-                    <>
-                      {/*
-                       * The same icon the sidebar uses for Skills, so the badge says WHAT KIND of
-                       * thing was invoked before it says which one. `inline-flex` with
-                       * `align-middle` rather than a block: this sits mid-sentence, and a badge that
-                       * breaks the line it is in reads as a separate message.
-                       */}
-                      <span className="mr-1 inline-flex items-center gap-1 rounded bg-foreground/10 px-1.5 py-0.5 align-middle font-mono text-foreground/80 text-xs">
-                        <IconBox className="size-3 shrink-0" />/{invoked.chip}
-                      </span>
-                      {invoked.rest}
-                    </>
-                  ) : (
-                    said
-                  )}
-                </span>
-              ) : (
-                /*
-                 * A Bot's prose is markdown, and it arrives in pieces.
-                 *
-                 * Rendered with a streaming-aware renderer rather than an ordinary one: half a fenced
-                 * code block or an unclosed bold marker is the NORMAL state for most of a run, and a
-                 * plain markdown parser draws that as literal asterisks and backticks until the
-                 * closing token arrives, so the answer visibly rewrites itself as it lands. This
-                 * closes them for the duration.
-                 */
-                <Streamdown components={markdownComponents}>{text}</Streamdown>
-              )}
-            </BubbleContent>
-          </Bubble>
+                    {invoked.rest}
+                  </>
+                ) : (
+                  said
+                )}
+              </span>
+            </PersonBubble>
+          ) : (
+            <BotBubble>
+              {/*
+               * A Bot's prose is markdown, and it arrives in pieces.
+               *
+               * Rendered with a streaming-aware renderer rather than an ordinary one: half a fenced
+               * code block or an unclosed bold marker is the NORMAL state for most of a run, and a
+               * plain markdown parser draws that as literal asterisks and backticks until the
+               * closing token arrives, so the answer visibly rewrites itself as it lands. This
+               * closes them for the duration.
+               */}
+              <Streamdown components={markdownComponents}>{text}</Streamdown>
+            </BotBubble>
+          )}
         </Arriving>
       </MessageContent>
     </MessageRow>
@@ -1513,6 +1523,7 @@ export function ChatTranscript({
   commandNames = "",
   messages,
   onRemoveQueued,
+  personScheme = GROUP_PERSON_SCHEME,
   queued = EMPTY_QUEUE,
   restoring = false,
   stopped,
@@ -1683,6 +1694,7 @@ export function ChatTranscript({
                 <Queued
                   attachments={message.attachments}
                   key={message.id}
+                  personScheme={personScheme}
                   onRemove={
                     onRemoveQueued
                       ? () => onRemoveQueued(message.id)
@@ -1741,6 +1753,7 @@ export function ChatTranscript({
                   <TranscriptMessage
                     commandNames={commandNames}
                     delay={delays.delayFor(item.id, index, items.length)}
+                    personScheme={personScheme}
                     role={item.role}
                     text={item.text}
                   />

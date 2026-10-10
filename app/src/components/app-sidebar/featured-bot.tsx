@@ -70,7 +70,12 @@ export function FeaturedBot() {
       data-testid="featured-bot"
     >
       <span className="relative">
-        <brand.Avatar seed={bot.avatarSeed ?? bot.id} size={54} />
+        <brand.Avatar
+          color={bot.avatarColor}
+          expression={bot.avatarExpression}
+          seed={bot.avatarSeed ?? bot.id}
+          size={54}
+        />
         <span
           aria-hidden="true"
           data-active={active ? "true" : "false"}

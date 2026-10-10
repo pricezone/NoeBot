@@ -365,6 +365,13 @@
       "when": 1790939356628,
       "tag": "0051_routine_enabled_at",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791650231189,
+      "tag": "0052_avatar_choice",
+      "breakpoints": true
     }
   ]
 }
