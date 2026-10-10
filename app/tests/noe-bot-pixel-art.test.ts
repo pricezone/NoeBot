@@ -2,13 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { GRID_16 } from "@/components/noe-bot/drawings";
 import {
   AVATAR_SCHEMES,
+  avatarLook,
   decodeHalfBlocks,
   EXPRESSIONS,
+  edgeFor,
   expressionFor,
   facePath,
   pathFor,
   schemeFor,
 } from "@/components/noe-bot/pixel-art";
+import {
+  AVATAR_COLORS,
+  AVATAR_EXPRESSIONS,
+  isAvatarColor,
+  isAvatarExpression,
+} from "../../shared/avatar";
 
 describe("the brand guide's half-block drawings", () => {
   test("every face is 14 by 12 pixels: the 16 grid, and only the 16 grid", () => {
@@ -95,6 +103,83 @@ describe("what a seed chooses", () => {
     for (const scheme of AVATAR_SCHEMES) {
       expect(["#ff2056", "#18181b", "#f4f4f5"]).toContain(scheme.background);
       if (scheme.background === "#ff2056") expect(scheme.ink).toBe("#ffffff");
+    }
+  });
+});
+
+describe("what a person may choose", () => {
+  test("the expressions the server accepts are exactly the ones drawn, in the guide's order", () => {
+    // The order matters as much as the set: a Bot nobody chose for wears the face its seed hashes
+    // to by index, so a reordered list would quietly change every such Bot's face.
+    expect(Object.keys(GRID_16.expressions)).toEqual([...AVATAR_EXPRESSIONS]);
+    expect(EXPRESSIONS).toEqual([...AVATAR_EXPRESSIONS]);
+    expect(AVATAR_EXPRESSIONS).toHaveLength(15);
+  });
+
+  test("the palette is the guide's three plus five, each with white or black ink", () => {
+    expect(AVATAR_COLORS.map((scheme) => scheme.background)).toEqual([
+      "#ff2056",
+      "#18181b",
+      "#f4f4f5",
+      "#2563eb",
+      "#16a34a",
+      "#7c3aed",
+      "#0d9488",
+      "#f59e0b",
+    ]);
+    for (const scheme of AVATAR_COLORS) {
+      expect(["#ffffff", "#09090b"]).toContain(scheme.ink);
+    }
+    // A seed still only ever picks from the guide's own three, so no existing Bot changes colour.
+    expect(AVATAR_SCHEMES.map((scheme) => scheme.background)).toEqual([
+      "#ff2056",
+      "#18181b",
+      "#f4f4f5",
+    ]);
+  });
+
+  test("a chosen colour and expression win; whichever half is not chosen comes from the seed", () => {
+    const seed = "research-desk";
+    const chosen = avatarLook({ seed, color: "#0d9488", expression: "shy" });
+    expect(chosen.scheme.background).toBe("#0d9488");
+    expect(chosen.expression).toBe("shy");
+
+    expect(avatarLook({ seed })).toEqual({
+      scheme: schemeFor(seed),
+      expression: expressionFor(seed),
+    });
+    expect(avatarLook({ seed, color: null, expression: "proud" })).toEqual({
+      scheme: schemeFor(seed),
+      expression: "proud",
+    });
+  });
+
+  test("a stored value outside the palette is drawn as the seed's, not as itself", () => {
+    const seed = "noe-assistant";
+    // As a stale cache entry could deliver it, past the types.
+    const look = avatarLook({
+      seed,
+      color: "#123456" as never,
+      expression: "winking" as never,
+    });
+    expect(look.scheme).toBe(schemeFor(seed));
+    expect(look.expression).toBe(expressionFor(seed));
+    expect(isAvatarColor("#123456")).toBe(false);
+    expect(isAvatarExpression("body")).toBe(false);
+  });
+
+  test("only the light grey and the near-black are edged, each in the theme it disappears into", () => {
+    expect(edgeFor("#f4f4f5")).toBe("light");
+    expect(edgeFor("#18181b")).toBe("dark");
+    for (const background of [
+      "#ff2056",
+      "#2563eb",
+      "#16a34a",
+      "#7c3aed",
+      "#0d9488",
+      "#f59e0b",
+    ]) {
+      expect(edgeFor(background)).toBeNull();
     }
   });
 });

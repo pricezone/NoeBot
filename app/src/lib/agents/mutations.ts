@@ -1,4 +1,5 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { client } from "@/lib/client";
 import {
   type AgentProfile,
@@ -49,6 +50,40 @@ export function updateAgentMutationOptions(queryClient: QueryClient) {
         body: variables.input,
         fallback: FALLBACK,
       }),
+    onSuccess: () => invalidateAgents(queryClient),
+  });
+}
+
+/**
+ * A change to a Bot's avatar: whichever half was picked, or null to hand it back to the seed.
+ *
+ * Only the half that changed is sent. The server reads a body with nothing but these keys as an
+ * avatar choice, so a click on a swatch does not have to carry the whole profile with it.
+ */
+export type AvatarChoiceInput = {
+  avatarColor?: AvatarColor | null;
+  avatarExpression?: AvatarExpression | null;
+};
+
+export function setAgentAvatarMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    /*
+     * One at a time. Each click is its own write, and two clicks in quick succession sent side by
+     * side could land in either order, leaving the server on the first while the screen shows the
+     * second. A shared scope queues them in the order they were made.
+     */
+    scope: { id: "agent-avatar" },
+    mutationFn: (variables: {
+      agentId: string;
+      choice: AvatarChoiceInput;
+    }): Promise<AgentProfile> =>
+      client(agentApiPath(variables.agentId), "agent", {
+        method: "PATCH",
+        body: variables.choice,
+        fallback: FALLBACK,
+      }),
+    // The whole entity, because a face is drawn from the roster, the detail and the cache the
+    // sidebar subscribes to alike, and every one of them has to show the new choice.
     onSuccess: () => invalidateAgents(queryClient),
   });
 }

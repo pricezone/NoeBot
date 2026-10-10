@@ -1,4 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { client, tryClient } from "@/lib/client";
 
 export type AgentVisibility = "public" | "private";
@@ -15,6 +16,10 @@ export type AgentProfile = {
   title: string;
   roleDescription: string;
   avatarSeed: string;
+  /** The colour a person chose for its avatar. Null draws the one its seed picks. */
+  avatarColor: AvatarColor | null;
+  /** The expression a person chose for its avatar. Null draws the one its seed picks. */
+  avatarExpression: AvatarExpression | null;
   visibility: AgentVisibility;
   /** Where this coworker runs. Null for the Bot in the box. */
   endpoint: string | null;
@@ -43,6 +48,13 @@ export type AgentProfile = {
   assignedToMe?: boolean;
   systemOwned: boolean;
   canManage: boolean;
+  /**
+   * Whether the signed-in person may change its avatar's colour and expression.
+   *
+   * Not `canManage`: an administrator may restyle a Bot the deployment ships, which nobody may
+   * otherwise edit. The server decides; the avatar editor only renders the answer.
+   */
+  canEditAvatar: boolean;
   /**
    * Whether the signed-in person created this coworker.
    *

@@ -9,6 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { AbstractAvatar } from "@/components/agents/abstract-avatar";
 import { IconWaveform } from "@/components/icons/waveform";
 import { Button } from "@/components/ui/button";
@@ -29,11 +30,16 @@ export function VoiceCallWidget({
   call,
   name,
   avatarSeed,
+  avatarColor,
+  avatarExpression,
   taskRunning,
 }: {
   call: ReturnType<typeof useVoiceCall>;
   name: string;
   avatarSeed: string;
+  /** The avatar its owner chose, when the profile is in hand; the seed's otherwise. */
+  avatarColor?: AvatarColor | null;
+  avatarExpression?: AvatarExpression | null;
   taskRunning: boolean;
 }) {
   const { state, session, minimized, setMinimized } = call;
@@ -98,7 +104,13 @@ export function VoiceCallWidget({
       </div>
       {minimized ? (
         <div className="flex items-center gap-3">
-          <AbstractAvatar name={name} seed={avatarSeed} size={32} />
+          <AbstractAvatar
+            color={avatarColor}
+            expression={avatarExpression}
+            name={name}
+            seed={avatarSeed}
+            size={32}
+          />
           <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
           <Button
             aria-label="Expand voice call"
@@ -130,7 +142,13 @@ export function VoiceCallWidget({
                 state.speaking && "ring-primary/40",
               )}
             >
-              <AbstractAvatar name={name} seed={avatarSeed} size={40} />
+              <AbstractAvatar
+                color={avatarColor}
+                expression={avatarExpression}
+                name={name}
+                seed={avatarSeed}
+                size={40}
+              />
             </div>
             <div className="min-w-0 flex-1">
               {connecting ? (

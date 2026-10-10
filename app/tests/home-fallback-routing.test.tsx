@@ -30,6 +30,9 @@ function agent(
 ): AgentProfile {
   return {
     avatarSeed: "seed",
+    avatarColor: null,
+    avatarExpression: null,
+    canEditAvatar: false,
     builtIn: false,
     canManage: true,
     endpoint: null,

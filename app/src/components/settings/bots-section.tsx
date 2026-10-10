@@ -88,6 +88,8 @@ export function BotsSection() {
           >
             <ItemMedia>
               <brand.Avatar
+                color={agent.avatarColor}
+                expression={agent.avatarExpression}
                 name={agent.name}
                 seed={agent.avatarSeed}
                 size={34}

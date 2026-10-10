@@ -121,6 +121,8 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
     <header className="flex flex-col items-center gap-1 text-center">
       <brand.Avatar
         className="mb-2"
+        color={agent.data?.avatarColor}
+        expression={agent.data?.avatarExpression}
         name={name}
         seed={agent.data?.avatarSeed ?? agentId}
         size={60}

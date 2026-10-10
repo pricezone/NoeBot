@@ -61,6 +61,9 @@ afterAll(async () => {
 
 const BOT: AgentProfile = {
   avatarSeed: "seed",
+  avatarColor: null,
+  avatarExpression: null,
+  canEditAvatar: false,
   builtIn: true,
   canManage: true,
   endpoint: null,

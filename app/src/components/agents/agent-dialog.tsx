@@ -2,6 +2,7 @@ import {
   IconAdjustments,
   IconArrowsExchange,
   IconClock,
+  IconMoodSmile,
   IconPencil,
   IconPlugConnected,
   IconPuzzle,
@@ -12,6 +13,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { ZodType } from "zod";
 import { AbstractAvatar } from "@/components/agents/abstract-avatar";
+import { AvatarEditor } from "@/components/agents/avatar-editor";
 import { CallbackTokenPanel } from "@/components/agents/callback-token-panel";
 import { HandoffPanel } from "@/components/agents/handoff-panel";
 import { RoutinesList } from "@/components/routines/routines-list";
@@ -109,6 +111,8 @@ export function AgentDialog({
 
 const SECTIONS = [
   { id: "general", name: "General", icon: IconUser },
+  // How it looks: the avatar's colour and expression, next to who it is.
+  { id: "profile", name: "Profile", icon: IconMoodSmile },
   { id: "access", name: "Access", icon: IconPuzzle },
   { id: "connection", name: "Connection", icon: IconPlugConnected },
   { id: "handoff", name: "Handoff", icon: IconArrowsExchange },
@@ -150,6 +154,8 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
           {/* Who this dialog is about, said once here rather than repeated per section. */}
           <SidebarHeader className="flex-row items-center gap-3 p-4">
             <AbstractAvatar
+              color={profile.avatarColor}
+              expression={profile.avatarExpression}
               name={profile.name}
               seed={profile.avatarSeed}
               size={36}
@@ -193,6 +199,8 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
           <div className="flex shrink-0 flex-col gap-2 border-b border-border p-3 pr-12 md:hidden">
             <div className="flex items-center gap-2">
               <AbstractAvatar
+                color={profile.avatarColor}
+                expression={profile.avatarExpression}
                 name={profile.name}
                 seed={profile.avatarSeed}
                 size={28}
@@ -222,6 +230,8 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
             {section === "general" ? (
               <GeneralSection agentId={agentId} profile={profile} />
+            ) : section === "profile" ? (
+              <AvatarEditor agentId={agentId} profile={profile} />
             ) : section === "access" ? (
               <AccessSection agentId={agentId} />
             ) : section === "connection" ? (

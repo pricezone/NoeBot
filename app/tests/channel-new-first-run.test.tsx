@@ -47,6 +47,9 @@ const GREETING = /Type a message below to get started/;
 
 const NOE: AgentProfile = {
   avatarSeed: "seed",
+  avatarColor: null,
+  avatarExpression: null,
+  canEditAvatar: false,
   builtIn: true,
   canManage: true,
   endpoint: null,
