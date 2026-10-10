@@ -38,6 +38,20 @@ export const agentProfiles = pgTable(
     title: text("title").notNull(),
     roleDescription: text("role_description").notNull(),
     avatarSeed: text("avatar_seed").notNull(),
+    /*
+     * The avatar a person chose, when they chose one: a background from `AVATAR_COLORS` and an
+     * expression from `AVATAR_EXPRESSIONS` (`shared/avatar.ts`).
+     *
+     * Null means "not chosen", and the app then derives that half from `avatar_seed` as it always
+     * has, so every Bot that existed before the choice did keeps its face. Two columns rather than
+     * one, because they are chosen separately and reset separately. Plain text with no CHECK: the
+     * route is what refuses a value outside the palette, and the read path treats one it does not
+     * recognise as null, so a colour retired from the palette later degrades to the seed's instead
+     * of failing a migration. The tenant package never writes these, so a package sync that rewrites
+     * a system Bot's profile leaves an administrator's choice where it was.
+     */
+    avatarColor: text("avatar_color"),
+    avatarExpression: text("avatar_expression"),
     visibility: agentVisibility("visibility").notNull(),
     /*
      * The credential this Bot's agent presents when it calls a tool back.

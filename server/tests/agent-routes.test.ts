@@ -12,6 +12,7 @@ import type {
   CreateAgentInput,
 } from "../src/agents/profile-types";
 import { createAgentRoutes, parseAgentInput } from "../src/agents/routes";
+import { AVATAR_COLORS } from "../../shared/avatar";
 import { createApp } from "../src/app";
 import type { AppVariables, AuthenticatedActor } from "../src/auth/guards";
 import { loadConfig } from "../src/config";
@@ -38,6 +39,8 @@ function profile(overrides: Partial<AgentProfile> = {}): AgentProfile {
     title: validInput.title,
     roleDescription: validInput.roleDescription,
     avatarSeed: "expense-manager",
+    avatarColor: null,
+    avatarExpression: null,
     visibility: validInput.visibility,
     ownerUserId: actor.id,
     systemOwned: false,
@@ -366,12 +369,15 @@ describe("agent lifecycle routes", () => {
           title: validInput.title,
           roleDescription: validInput.roleDescription,
           avatarSeed: "expense-manager",
+          avatarColor: null,
+          avatarExpression: null,
           assignedToMe: false,
           visibility: "private",
           hidden: false,
           pinned: false,
           systemOwned: false,
           canManage: true,
+          canEditAvatar: true,
           mine: true,
           builtIn: false,
         },
@@ -381,12 +387,15 @@ describe("agent lifecycle routes", () => {
           title: validInput.title,
           roleDescription: validInput.roleDescription,
           avatarSeed: "expense-manager",
+          avatarColor: null,
+          avatarExpression: null,
           assignedToMe: false,
           visibility: "private",
           hidden: false,
           pinned: false,
           systemOwned: false,
           canManage: false,
+          canEditAvatar: false,
           mine: false,
           builtIn: false,
         },
@@ -396,12 +405,15 @@ describe("agent lifecycle routes", () => {
           title: validInput.title,
           roleDescription: validInput.roleDescription,
           avatarSeed: "expense-manager",
+          avatarColor: null,
+          avatarExpression: null,
           assignedToMe: false,
           visibility: "public",
           hidden: false,
           pinned: false,
           systemOwned: true,
           canManage: false,
+          canEditAvatar: false,
           mine: false,
           builtIn: false,
         },
@@ -571,6 +583,131 @@ describe("agent lifecycle routes", () => {
 
     expect(response.status).toBe(599);
     expect(await json(response)).toEqual({ sentinel: "database disconnected" });
+  });
+});
+
+describe("choosing a Bot's avatar", () => {
+  async function patch(store: AgentProfileStore, body: unknown) {
+    return appFor(store).request("http://openbot.test/agent-1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** What `setAvatar` was asked to store, kept apart from the base store's own calls. */
+  let avatarStoreCalls: unknown[][] = [];
+  function avatarStore() {
+    return fakeStore({
+      async setAvatar(receivedActor, id, choice) {
+        avatarStoreCalls.push([receivedActor, id, choice]);
+        return profile({ id, ...choice });
+      },
+    });
+  }
+
+  test("a colour from the palette and an expression from the list are stored, and come back", async () => {
+    avatarStoreCalls = [];
+    const store = avatarStore();
+    const response = await patch(store, {
+      // Case is forgiven: it is the same colour either way.
+      avatarColor: "#2563EB",
+      avatarExpression: "happy",
+    });
+
+    expect(response.status).toBe(200);
+    const { agent } = (await json(response)) as {
+      agent: { avatarColor: string; avatarExpression: string };
+    };
+    expect(agent.avatarColor).toBe("#2563eb");
+    expect(agent.avatarExpression).toBe("happy");
+    // An avatar choice is its own write, never a profile edit with the other fields made up.
+    expect(store.calls).toEqual([]);
+    expect(avatarStoreCalls).toEqual([
+      [actor, "agent-1", { avatarColor: "#2563eb", avatarExpression: "happy" }],
+    ]);
+  });
+
+  test("every colour the app offers is accepted", async () => {
+    for (const { background } of AVATAR_COLORS) {
+      avatarStoreCalls = [];
+      const response = await patch(avatarStore(), { avatarColor: background });
+      expect(response.status).toBe(200);
+      expect(avatarStoreCalls).toEqual([
+        [actor, "agent-1", { avatarColor: background }],
+      ]);
+    }
+  });
+
+  test("null gives one half back to the seed and leaves the other alone", async () => {
+    avatarStoreCalls = [];
+    const response = await patch(avatarStore(), { avatarColor: null });
+
+    expect(response.status).toBe(200);
+    expect(avatarStoreCalls).toEqual([
+      [actor, "agent-1", { avatarColor: null }],
+    ]);
+  });
+
+  test.each([
+    [{ avatarColor: "#123456" }, "Avatar color must be one of"],
+    [{ avatarColor: "red" }, "Avatar color must be one of"],
+    [{ avatarColor: "" }, "Avatar color must be one of"],
+    [{ avatarColor: 42 }, "Avatar color must be one of"],
+    [{ avatarColor: ["#2563eb"] }, "Avatar color must be one of"],
+    [{ avatarExpression: "winking" }, "Avatar expression must be one of"],
+    [{ avatarExpression: "Happy" }, "Avatar expression must be one of"],
+    [{ avatarExpression: 3 }, "Avatar expression must be one of"],
+    [
+      { avatarColor: "#2563eb", avatarExpression: "body" },
+      "Avatar expression must be one of",
+    ],
+  ])("refuses anything outside the palette: %p", async (body, error) => {
+    avatarStoreCalls = [];
+    const store = avatarStore();
+    const response = await patch(store, body);
+
+    expect(response.status).toBe(400);
+    expect(((await json(response)) as { error: string }).error).toStartWith(
+      error,
+    );
+    expect(avatarStoreCalls).toEqual([]);
+    expect(store.calls).toEqual([]);
+  });
+
+  test("a profile edit may carry a choice along, checked the same way", async () => {
+    const store = fakeStore();
+    const accepted = await patch(store, {
+      ...validInput,
+      avatarExpression: "proud",
+    });
+    expect(accepted.status).toBe(200);
+    expect(store.calls).toEqual([
+      [
+        "update",
+        actor,
+        "agent-1",
+        { ...validInput, avatarExpression: "proud" },
+      ],
+    ]);
+
+    const refused = await patch(store, { ...validInput, avatarColor: "#000" });
+    expect(refused.status).toBe(400);
+    expect(store.calls).toHaveLength(1);
+  });
+
+  test("a Bot whose look this person may not change is refused, not restyled", async () => {
+    const store = fakeStore({
+      async setAvatar(_actor, id) {
+        throw new ProtectedAgentError(id);
+      },
+    });
+    const response = await patch(store, { avatarExpression: "shy" });
+
+    expect(response.status).toBe(403);
+    expect(await json(response)).toEqual({
+      error: "System-owned agents are protected.",
+    });
   });
 });
 

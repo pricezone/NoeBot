@@ -1,3 +1,5 @@
+import type { AvatarColor, AvatarExpression } from "../../../shared/avatar";
+
 export type AgentVisibility = "public" | "private";
 
 export type AgentActor = {
@@ -11,6 +13,10 @@ export type AgentProfile = {
   title: string;
   roleDescription: string;
   avatarSeed: string;
+  /** The colour a person chose for its avatar, or null for the one its seed picks. */
+  avatarColor: AvatarColor | null;
+  /** The expression a person chose for its avatar, or null for the one its seed picks. */
+  avatarExpression: AvatarExpression | null;
   visibility: AgentVisibility;
   ownerUserId: string | null;
   systemOwned: boolean;
@@ -51,4 +57,16 @@ export type CreateAgentInput = Pick<
    * why it is optional rather than defaulting to empty; a blank field must not drop a key.
    */
   auth?: { header: string; value: string };
+};
+
+/**
+ * A change to a Bot's avatar, as `PATCH /api/agents/:id` accepts it.
+ *
+ * The two halves are independent. Absent leaves that half as it is, null hands it back to the seed,
+ * and a value from the shared palette sets it. Nothing else reaches the store: the route refuses a
+ * colour or an expression the app could not draw.
+ */
+export type AvatarChoice = {
+  avatarColor?: AvatarColor | null;
+  avatarExpression?: AvatarExpression | null;
 };

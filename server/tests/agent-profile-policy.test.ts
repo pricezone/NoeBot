@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   canAccessAgent,
+  canEditAgentAvatar,
   canManageAgent,
   canRunAgent,
 } from "../src/agents/profile-policy";
@@ -82,6 +83,29 @@ describe("agent profile permissions", () => {
       expect(canManageAgent(actor, agent)).toBe(false);
       expect(canRunAgent(actor, agent)).toBe(false);
     }
+  });
+
+  test("lets whoever may manage a Bot change its avatar, and an administrator a system Bot's too", () => {
+    const mine = profile();
+    expect(canEditAgentAvatar(creator, mine)).toBe(true);
+    expect(canEditAgentAvatar(otherUser, mine)).toBe(false);
+    expect(canEditAgentAvatar(admin, mine)).toBe(true);
+
+    // Nobody may manage a Bot the package ships; its look is the one thing an administrator may change.
+    const system = profile({
+      visibility: "public",
+      ownerUserId: null,
+      systemOwned: true,
+    });
+    expect(canEditAgentAvatar(admin, system)).toBe(true);
+    expect(canEditAgentAvatar(creator, system)).toBe(false);
+    expect(canEditAgentAvatar(otherUser, system)).toBe(false);
+
+    const deleted = profile({
+      systemOwned: true,
+      deletedAt: new Date("2026-08-14T00:00:00.000Z"),
+    });
+    expect(canEditAgentAvatar(admin, deleted)).toBe(false);
   });
 
   test("exports canRunAgent as the canAccessAgent alias", () => {

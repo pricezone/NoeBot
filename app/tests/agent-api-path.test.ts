@@ -45,6 +45,8 @@ function boundary(id: string, refusal?: "unauthenticated" | "forbidden") {
     ...input,
     id,
     avatarSeed: id,
+    avatarColor: null,
+    avatarExpression: null,
     ownerUserId: actor.id,
     systemOwned: false,
     hidden: false,
@@ -84,6 +86,10 @@ function boundary(id: string, refusal?: "unauthenticated" | "forbidden") {
     async duplicate(_actor, receivedId) {
       record("duplicate", receivedId);
       return { ...profile, id: "synthetic-copy" };
+    },
+    async setAvatar(_actor, receivedId, value) {
+      record("setAvatar", receivedId, value);
+      return { ...profile, ...value };
     },
     async setHidden(_actor, receivedId, value) {
       record("setHidden", receivedId, value);

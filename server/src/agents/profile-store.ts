@@ -23,10 +23,12 @@ import {
   teamBotAccess,
 } from "../team-bots/access";
 import { teamBotPublications } from "../db/schema/team-bots";
-import { canManageAgent } from "./profile-policy";
+import { isAvatarColor, isAvatarExpression } from "../../../shared/avatar";
+import { canEditAgentAvatar, canManageAgent } from "./profile-policy";
 import type {
   AgentActor,
   AgentProfile,
+  AvatarChoice,
   CreateAgentInput,
 } from "./profile-types";
 
@@ -73,7 +75,19 @@ export type AgentProfileStore = {
   update(
     actor: AgentActor,
     id: string,
-    input: CreateAgentInput,
+    input: CreateAgentInput & AvatarChoice,
+  ): Promise<AgentProfile>;
+  /**
+   * Change how a Bot looks and nothing else.
+   *
+   * Its own write rather than `update` with the rest of the profile riding along, because the two
+   * are allowed to different people: an administrator may restyle a Bot the tenant package ships,
+   * which `update` refuses for everyone (see `canEditAgentAvatar`).
+   */
+  setAvatar(
+    actor: AgentActor,
+    id: string,
+    choice: AvatarChoice,
   ): Promise<AgentProfile>;
   duplicate(actor: AgentActor, id: string): Promise<AgentProfile>;
   setHidden(actor: AgentActor, id: string, hidden: boolean): Promise<void>;
@@ -134,6 +148,8 @@ const joinedProjection = {
   title: agentProfiles.title,
   roleDescription: agentProfiles.roleDescription,
   avatarSeed: agentProfiles.avatarSeed,
+  avatarColor: agentProfiles.avatarColor,
+  avatarExpression: agentProfiles.avatarExpression,
   visibility: agentProfiles.visibility,
   ownerUserId: agentProfiles.ownerUserId,
   packageId: deploymentPackages.id,
@@ -186,6 +202,12 @@ function mapProfile(
     title: row.title,
     roleDescription: row.roleDescription,
     avatarSeed: row.avatarSeed,
+    // A stored value the palette no longer offers reads as "not chosen", so the app falls back to
+    // the seed's colour or face instead of being handed something it cannot draw.
+    avatarColor: isAvatarColor(row.avatarColor) ? row.avatarColor : null,
+    avatarExpression: isAvatarExpression(row.avatarExpression)
+      ? row.avatarExpression
+      : null,
     visibility: row.visibility,
     ownerUserId: row.ownerUserId,
     systemOwned: row.packageId !== null,
@@ -357,6 +379,21 @@ function requireManageable(actor: AgentActor, profile: AgentProfile) {
   if (!canManageAgent(actor, profile)) {
     throw new AgentNotManageableError(profile.id);
   }
+}
+
+/**
+ * The columns an avatar choice writes: only the halves it names, so choosing a colour leaves a
+ * chosen expression alone and the other way round. Null is kept, because null is the reset.
+ */
+function avatarColumns(choice: AvatarChoice) {
+  return {
+    ...(choice.avatarColor !== undefined
+      ? { avatarColor: choice.avatarColor }
+      : {}),
+    ...(choice.avatarExpression !== undefined
+      ? { avatarExpression: choice.avatarExpression }
+      : {}),
+  };
 }
 
 function newAgentId() {
@@ -603,6 +640,7 @@ export function createAgentProfileStore(
               title: input.title,
               roleDescription: input.roleDescription,
               visibility: input.visibility,
+              ...avatarColumns(input),
               updatedAt,
             })
             .where(eq(agentProfiles.agentId, id));
@@ -613,6 +651,31 @@ export function createAgentProfileStore(
         },
         { isolationLevel: "read committed" },
       );
+    },
+
+    setAvatar(actor, id, choice) {
+      return database.transaction(async (transaction) => {
+        await lockProfileMutationRows(transaction, id);
+        const profile = await findAccessibleProfile(transaction, actor, id);
+        if (!profile) throw new AgentNotFoundError(id);
+        if (!canEditAgentAvatar(actor, profile)) {
+          throw profile.systemOwned
+            ? new ProtectedAgentError(id)
+            : new AgentNotManageableError(id);
+        }
+
+        const columns = avatarColumns(choice);
+        if (Object.keys(columns).length > 0) {
+          await transaction
+            .update(agentProfiles)
+            .set({ ...columns, updatedAt: new Date() })
+            .where(eq(agentProfiles.agentId, id));
+        }
+
+        const updated = await findAccessibleProfile(transaction, actor, id);
+        if (!updated) throw new AgentNotFoundError(id);
+        return updated;
+      });
     },
 
     duplicate(actor, id) {
@@ -656,6 +719,9 @@ export function createAgentProfileStore(
           title: source.title,
           roleDescription: source.roleDescription,
           avatarSeed: source.avatarSeed,
+          // The copy looks like what it was copied from, chosen colour and face included.
+          avatarColor: source.avatarColor,
+          avatarExpression: source.avatarExpression,
           visibility: "private",
         });
 

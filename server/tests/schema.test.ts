@@ -259,6 +259,19 @@ describe("OpenBot database schema", () => {
         hasDefault: false,
         primary: false,
       },
+      // Nullable: null is "not chosen", and the avatar is then drawn from the seed as before.
+      {
+        name: "avatar_color",
+        notNull: false,
+        hasDefault: false,
+        primary: false,
+      },
+      {
+        name: "avatar_expression",
+        notNull: false,
+        hasDefault: false,
+        primary: false,
+      },
       {
         name: "visibility",
         notNull: true,

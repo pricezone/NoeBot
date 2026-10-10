@@ -22,6 +22,26 @@ export function canManageAgent(
   return agent.ownerUserId === actor.id || actor.role === "admin";
 }
 
+/**
+ * Whether this person may change how this Bot looks: its avatar's colour and expression.
+ *
+ * Everybody who may manage the Bot, and ALSO an administrator on a Bot the tenant package ships,
+ * which nobody may manage. The package's protection exists so a deployment's own Bots keep the
+ * name, role and instructions the package gave them; the avatar choice is none of those — the
+ * package never writes it, so a sync cannot fight over it — and without this the Bot a deployment
+ * is built around would be the one Bot whose face nobody could change. Administrators only,
+ * because a package Bot is public: one member's choice would be everybody's.
+ */
+export function canEditAgentAvatar(
+  actor: AgentActor,
+  agent: AgentProfile,
+): boolean {
+  if (canManageAgent(actor, agent)) return true;
+  return (
+    agent.systemOwned && agent.deletedAt === null && actor.role === "admin"
+  );
+}
+
 export const canRunAgent = canAccessAgent;
 
 /**
