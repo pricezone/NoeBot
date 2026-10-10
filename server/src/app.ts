@@ -14,6 +14,11 @@ import {
 } from "./agents/callback-token";
 import { computerAccessCheck } from "./agents/computer-access";
 import {
+  channelAttachmentFiles,
+  createAgentFileRoutes,
+  workspaceFiles,
+} from "./agents/files";
+import {
   type BotLifecycleServices,
   createBotLifecycleRoutes,
 } from "./agents/lifecycle-routes";
@@ -1361,6 +1366,26 @@ export function createApp(
         // stores as running at this address — can be told apart from one a person hosts.
         config.managedAgent?.endpoint?.toString(),
       ),
+    );
+    /*
+     * The Library's file list: attachments from the Bot's conversations and the files on its
+     * computer, merged newest first. Either half is left out when this deployment has no store for
+     * it; the workspace only with a governed computer, the same condition the computer routes are
+     * mounted on, because the download urls it hands out point at those routes.
+     */
+    app.route(
+      "/api/agents",
+      createAgentFileRoutes({
+        store: agentProfileStore,
+        requireUser,
+        attachmentFiles: attachmentDatabase
+          ? channelAttachmentFiles(attachmentDatabase)
+          : undefined,
+        workspace:
+          computerGateway && computerPolicy
+            ? workspaceFiles(computerGateway)
+            : undefined,
+      }),
     );
     // Choosing a coworker for an untagged message needs the same permission-filtered roster the
     // agents routes read, so it is mounted here where that store is in scope. Only when a router was
