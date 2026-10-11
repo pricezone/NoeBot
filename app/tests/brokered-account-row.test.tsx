@@ -165,6 +165,11 @@ function asDay(iso: string): string {
 function brokeredServer(authScheme: string): PluginServer {
   return {
     authScheme,
+    pluginId: null,
+    authKind: null,
+    transport: null,
+    connectVariables: null,
+    oauthDiscovered: false,
     id: APP_KEY,
     title: "Gmail",
     vendor: "Google",

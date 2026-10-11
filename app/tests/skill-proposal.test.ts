@@ -27,6 +27,8 @@ const skill = (over: Partial<PluginSkill> = {}): PluginSkill => ({
   instructions: "You are checking a claim, not answering a question.",
   origin: "package",
   installedBy: null,
+  pluginId: null,
+  offeredToAllBots: false,
   grantedTo: [],
   tools: [],
   ...over,

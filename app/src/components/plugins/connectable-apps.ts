@@ -123,15 +123,49 @@ export function connectableApps(
 }
 
 /**
+ * The servers of installed Marketplace plugins that hold something of the person's: an OAuth
+ * grant or a header token. An open plugin server has no account to connect and is not listed.
+ *
+ * Per server rather than per plugin, because each is connected on its own and the account page
+ * is keyed by server id. The Marketplace's Apps tab lists plugins instead, from the index.
+ */
+export function pluginAccountsOn(servers: PluginServer[]): ConnectableApp[] {
+  return servers
+    .filter(
+      (server) =>
+        server.provenance === "plugin" &&
+        (server.authKind === "oauth-discover" ||
+          server.authKind === "static-client" ||
+          server.authKind === "header"),
+    )
+    .map((server) => ({
+      key: server.id,
+      title: server.title,
+      summary:
+        server.summary ||
+        (server.authKind === "header"
+          ? `Add your ${server.title} key.`
+          : `Connect your ${server.title} account.`),
+      logo: server.logo ?? null,
+      kind: "account" as const,
+      enabled: server.offeredToAllBots,
+    }));
+}
+
+/**
  * The apps a person connects as themselves, which is what the Connected accounts page lists.
  *
- * The account half of {@link connectableApps} and nothing else: an app enabled for everybody has
- * no account of yours behind it, so it has no place on a page about your accounts.
+ * The account half of {@link connectableApps} plus the installed plugins' servers that take an
+ * account or a key: an app enabled for everybody has no account of yours behind it, so it has no
+ * place on a page about your accounts.
  */
 export function connectableAccounts(
   page: Pick<PluginsPage, "catalogue" | "servers">,
 ): ConnectableApp[] {
-  return connectableApps(page).filter((app) => app.kind === "account");
+  return [
+    ...connectableApps(page).filter((app) => app.kind === "account"),
+    ...pluginAccountsOn(page.servers),
+  ];
 }
 
 /** The rows whose title or summary contains the query, case-folded. An empty query keeps them all. */
@@ -157,9 +191,15 @@ export type InstalledApp = {
  * What "installed" means, for the counter over the Marketplace and the faces on the sidebar pill.
  *
  * The person's own connections first, in the server's order, then every app enabled for
- * everybody that has no account to connect. The second half is what the one-press Enable adds:
- * an app that reaches every Bot is installed in every sense a person cares about, and a count
- * that left it out would say "0 installed" over a Marketplace with a green row on it.
+ * everybody that has no account to connect, then every Marketplace plugin installed here. The
+ * middle is what the one-press Enable adds: an app that reaches every Bot is installed in every
+ * sense a person cares about, and a count that left it out would say "0 installed" over a
+ * Marketplace with a green row on it.
+ *
+ * A plugin is one app however many servers it installed: a connection to one of its servers
+ * counts it, and the plugin is not counted again under its own id. Read off the server rows,
+ * which carry the plugin they came from, so the pill and the counter need no third read — a
+ * plugin that installed only skills has no row and is not counted, which is the honest limit.
  *
  * A connection whose server the catalogue no longer lists still counts and draws as a plug.
  * Nothing is counted twice: a connection and the row it belongs to are one app.
@@ -168,13 +208,25 @@ export function installedApps(
   page: Pick<PluginsPage, "catalogue" | "servers"> | undefined,
   connections: readonly PluginConnection[] | undefined,
 ): InstalledApp[] {
+  const servers = page?.servers ?? [];
   const logos = new Map(
-    (page?.servers ?? []).map((server) => [server.id, server.logo ?? null]),
+    servers.map((server) => [server.id, server.logo ?? null]),
+  );
+  const pluginOfServer = new Map(
+    servers.flatMap((server) =>
+      server.pluginId ? [[server.id, server.pluginId] as const] : [],
+    ),
   );
   const seen = new Set<string>();
+  const seenPlugins = new Set<string>();
   const apps: InstalledApp[] = [];
   for (const connection of connections ?? []) {
     if (seen.has(connection.serverId)) continue;
+    const plugin = pluginOfServer.get(connection.serverId);
+    if (plugin !== undefined) {
+      if (seenPlugins.has(plugin)) continue;
+      seenPlugins.add(plugin);
+    }
     seen.add(connection.serverId);
     apps.push({
       key: connection.serverId,
@@ -187,6 +239,11 @@ export function installedApps(
       seen.add(app.key);
       apps.push({ key: app.key, logo: null });
     }
+  }
+  for (const server of servers) {
+    if (!server.pluginId || seenPlugins.has(server.pluginId)) continue;
+    seenPlugins.add(server.pluginId);
+    apps.push({ key: `plugin:${server.pluginId}`, logo: server.logo ?? null });
   }
   return apps;
 }

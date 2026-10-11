@@ -60,6 +60,116 @@ let enabled: Set<string>;
 let refuseEnable: { status: number; error: string } | null = null;
 /** Every POST the deployment received, as `method path`. */
 let writes: string[];
+/** The Marketplace plugins this person has pressed Add on. */
+let installedPlugins: Set<string>;
+/** The plugin servers this person has handed a key to. */
+let heldConnections: Set<string>;
+/** What the deployment refuses an install with, or null to accept it. */
+let refuseInstall: { status: number; error: string } | null = null;
+
+/** The Marketplace index as the server serves it: one plugin of each shape, across categories. */
+const MARKETPLACE = [
+  {
+    id: "55647425",
+    slug: "treg",
+    name: "Treg",
+    description: "OpenRouter for tools.",
+    publisher: "Superdesign",
+    verified: false,
+    logoUrl: "https://logo.example/treg.png",
+    categories: ["RESEARCH"],
+    availability: "installable",
+    catalogueKey: null,
+    servers: [
+      {
+        serverId: "treg",
+        name: "treg",
+        authKind: "header",
+        variables: ["TREG_TOKEN"],
+      },
+    ],
+    skills: [{ name: "treg", slug: "treg-treg" }],
+  },
+  {
+    id: "56809965",
+    slug: "ahrefs",
+    name: "Ahrefs",
+    description: "SEO data.",
+    publisher: "Ahrefs",
+    verified: true,
+    logoUrl: null,
+    categories: ["RESEARCH"],
+    availability: "installable",
+    catalogueKey: null,
+    servers: [
+      {
+        serverId: "ahrefs",
+        name: "ahrefs",
+        authKind: "oauth-discover",
+        variables: [],
+      },
+    ],
+    skills: [],
+  },
+  ...["Crustdata", "Context.dev", "Semrush", "Parallel Web"].map(
+    (name, index) => ({
+      id: `9000${index}`,
+      slug: name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-"),
+      name,
+      description: `${name} research tools.`,
+      publisher: name,
+      verified: false,
+      logoUrl: null,
+      categories: ["RESEARCH"],
+      availability: "installable",
+      catalogueKey: null,
+      servers: [
+        {
+          serverId: name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-"),
+          name: "mcp",
+          authKind: "none",
+          variables: [],
+        },
+      ],
+      skills: [],
+    }),
+  ),
+  {
+    id: "49339690",
+    slug: "intercom",
+    name: "Intercom",
+    description: "Conversations and contacts.",
+    publisher: "Intercom",
+    verified: true,
+    logoUrl: null,
+    categories: ["CUSTOMER_SUPPORT"],
+    availability: "installable",
+    catalogueKey: null,
+    servers: [
+      {
+        serverId: "intercom",
+        name: "intercom",
+        authKind: "oauth-discover",
+        variables: [],
+      },
+    ],
+    skills: [],
+  },
+  {
+    id: "404",
+    slug: "notion-workspace",
+    name: "Notion",
+    description: "Pages and databases.",
+    publisher: "Notion",
+    verified: true,
+    logoUrl: null,
+    categories: ["PRODUCTIVITY"],
+    availability: "catalogue",
+    catalogueKey: "notion",
+    servers: [],
+    skills: [],
+  },
+];
 
 /** The catalogue as the server publishes it: one entry of each auth kind. */
 const CATALOGUE = [
@@ -147,6 +257,9 @@ beforeEach(() => {
   role = "user";
   enabled = new Set(["routines"]);
   refuseEnable = null;
+  installedPlugins = new Set();
+  heldConnections = new Set();
+  refuseInstall = null;
   writes = [];
   global.fetch = Object.assign(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -209,6 +322,28 @@ beforeEach(() => {
               withdrawn: [],
             },
             ...[...enabled].map(enabledRow),
+            ...[...installedPlugins].flatMap((id) =>
+              (
+                MARKETPLACE.find((plugin) => plugin.id === id)?.servers ?? []
+              ).map((server) => ({
+                ...enabledRow(server.serverId),
+                title: server.serverId,
+                provenance: "plugin",
+                pluginId: id,
+                authKind: server.authKind,
+                transport: null,
+                connectVariables:
+                  server.authKind === "header"
+                    ? server.variables.map((name) => ({
+                        name,
+                        description: `Your ${name}.`,
+                        writeOnly: true,
+                        required: true,
+                      }))
+                    : null,
+                oauthDiscovered: false,
+              })),
+            ),
           ],
           skills: [],
           botsMayCallBack: true,
@@ -224,6 +359,11 @@ beforeEach(() => {
               scope: "",
               connectedAt: "2026-01-01",
             },
+            ...[...heldConnections].map((serverId) => ({
+              serverId,
+              scope: "",
+              connectedAt: "2026-10-11",
+            })),
           ],
           redirectUri: null,
         });
@@ -242,6 +382,50 @@ beforeEach(() => {
             },
           ],
         });
+      }
+      if (path === "/api/plugins/marketplace") {
+        return json({
+          syncedAt: "2026-10-11T00:00:00.000Z",
+          plugins: MARKETPLACE,
+          installed: Object.fromEntries(
+            [...installedPlugins].map((id) => [
+              id,
+              {
+                id,
+                slug: id,
+                name: id,
+                gitRef: "0".repeat(40),
+                installedBy: "person@example.com",
+                installedByUserId: "user-1",
+                installedAt: "2026-10-11T00:00:00.000Z",
+                serverIds:
+                  MARKETPLACE.find((plugin) => plugin.id === id)?.servers.map(
+                    (server) => server.serverId,
+                  ) ?? [],
+                skillSlugs: [],
+                skipped: [],
+                mine: true,
+              },
+            ]),
+          ),
+        });
+      }
+      const connectMatch = path.match(
+        /^\/api\/plugins\/servers\/([^/]+)\/connect$/,
+      );
+      if (method === "POST" && connectMatch) {
+        heldConnections.add(decodeURIComponent(connectMatch[1] ?? ""));
+        return json({ connected: true });
+      }
+      if (method === "POST" && path === "/api/plugins/install") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          pluginId?: string;
+        };
+        if (refuseInstall) {
+          return json({ error: refuseInstall.error }, refuseInstall.status);
+        }
+        installedPlugins.add(body.pluginId ?? "");
+        return json({ created: true });
       }
       if (path === "/api/agents") return json({ agents: [] });
       return new Response(null, { status: 404 });
@@ -493,7 +677,9 @@ test("?tab picks the tab, and clicking another writes it back to the URL", async
 test("?q fills the search and narrows the apps; typing writes ?q back", async () => {
   const { view, router } = renderMarketplace("/marketplace?q=mail");
 
-  const search = await view.findByRole("textbox", { name: "Search plugins" });
+  const search = await view.findByRole("textbox", {
+    name: "Search across apps and skills",
+  });
   expect((search as HTMLInputElement).value).toBe("mail");
   await view.findByTestId("account-composio-gmail");
   expect(view.queryByTestId("account-google-drive")).toBeNull();
@@ -528,4 +714,111 @@ test("closing the modal leaves for the remembered location, the home route by de
   const user = userEvent.setup({ document: view.baseElement.ownerDocument });
   await user.click(view.getByRole("button", { name: "Close" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+});
+
+test("the Marketplace's plugins are listed by category, four at a time, with View all showing one category whole", async () => {
+  const { view, router } = renderMarketplace("/marketplace");
+
+  const research = await view.findByRole("region", { name: "Research" });
+  // Six research plugins in the index; the preview shows four, and says there are more.
+  expect(within(research).getAllByTestId(/^plugin-/)).toHaveLength(4);
+  expect(view.getByRole("region", { name: "Support" })).toBeTruthy();
+  // Notion is the catalogue's row, not a second plugin row.
+  expect(view.getByTestId("account-notion")).toBeTruthy();
+  expect(view.queryByTestId("plugin-404")).toBeNull();
+
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(within(research).getByRole("button", { name: "View all" }));
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      category: "RESEARCH",
+    });
+  });
+  await waitFor(() => {
+    expect(
+      within(view.getByRole("region", { name: "Research" })).getAllByTestId(
+        /^plugin-/,
+      ),
+    ).toHaveLength(6);
+  });
+  expect(view.queryByRole("region", { name: "Support" })).toBeNull();
+  await user.click(view.getByRole("button", { name: "← All apps" }));
+  await waitFor(() => {
+    expect(router.state.location.search).not.toMatchObject({
+      category: "RESEARCH",
+    });
+  });
+  // And the way to the Bots you can start from.
+  expect(
+    view.getByRole("link", { name: /Bot templates/ }).getAttribute("href"),
+  ).toBe("/marketplace?tab=agents");
+});
+
+test("Add installs a plugin for every Bot, and the row then says what is left: a key to add, an account to connect, or nothing", async () => {
+  const { view } = renderMarketplace("/marketplace");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+
+  // A plugin whose only server is open: Add, and done.
+  const crustdata = await view.findByTestId("plugin-90000");
+  await user.click(
+    within(crustdata).getByRole("button", { name: "Add Crustdata" }),
+  );
+  await waitFor(() => {
+    expect(
+      within(view.getByTestId("plugin-90000")).getByRole("status", {
+        name: "Crustdata added",
+      }),
+    ).toBeTruthy();
+  });
+  expect(writes).toContain("POST /api/plugins/install");
+  expect(
+    within(view.getByRole("region", { name: "Connected" })).getByTestId(
+      "plugin-90000",
+    ),
+  ).toBeTruthy();
+
+  // A plugin whose server signs the person in: Add, then Connect, which is the account's page.
+  const ahrefs = await view.findByTestId("plugin-56809965");
+  await user.click(within(ahrefs).getByRole("button", { name: "Add Ahrefs" }));
+  await waitFor(() => {
+    expect(
+      within(view.getByTestId("plugin-56809965"))
+        .getByRole("link", { name: "Connect Ahrefs" })
+        .getAttribute("href"),
+    ).toBe("/settings/connected-accounts/ahrefs");
+  });
+
+  // A plugin whose server takes a token: Add, then Add key, which is a form here.
+  const treg = await view.findByTestId("plugin-55647425");
+  await user.click(within(treg).getByRole("button", { name: "Add Treg" }));
+  const addKey = await within(
+    await view.findByTestId("plugin-55647425"),
+  ).findByRole("button", { name: "Add key for Treg" });
+  await user.click(addKey);
+  const dialog = await view.findByRole("dialog", { name: "Add your Treg key" });
+  await user.type(within(dialog).getByLabelText("TREG_TOKEN"), "sk-treg-123");
+  await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+  await waitFor(() => {
+    expect(writes).toContain("POST /api/plugins/servers/treg/connect");
+  });
+  expect(view.queryByRole("alert")).toBeNull();
+});
+
+test("a refused Add is said in the server's words, and the row keeps its button", async () => {
+  refuseInstall = {
+    status: 403,
+    error: "Connecting apps is switched off for this deployment.",
+  };
+  const { view } = renderMarketplace("/marketplace");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  const ahrefs = await view.findByTestId("plugin-56809965");
+  await user.click(within(ahrefs).getByRole("button", { name: "Add Ahrefs" }));
+  expect((await view.findByRole("alert")).textContent).toBe(
+    "Connecting apps is switched off for this deployment.",
+  );
+  expect(
+    within(view.getByTestId("plugin-56809965")).getByRole("button", {
+      name: "Add Ahrefs",
+    }),
+  ).toBeTruthy();
 });

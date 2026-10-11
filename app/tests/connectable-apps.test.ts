@@ -228,3 +228,99 @@ test("installed is connections plus enabled account-less apps, nothing twice", (
   // Before either read answers there is nothing to count, and no throw.
   expect(installedApps(undefined, undefined)).toEqual([]);
 });
+
+test("an installed plugin's servers that take an account or a key are yours to connect, per server", () => {
+  const page = {
+    catalogue: [],
+    servers: [
+      server({
+        id: "treg",
+        title: "Treg",
+        url: "https://treg.to/mcp/",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "55647425",
+        authKind: "header",
+        offeredToAllBots: true,
+      }),
+      server({
+        id: "ahrefs",
+        title: "Ahrefs",
+        url: "https://api.ahrefs.com/mcp/mcp",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "56809965",
+        authKind: "oauth-discover",
+      }),
+      // Open: nothing of yours to hold, so not on a page about your accounts.
+      server({
+        id: "convex",
+        title: "Convex",
+        url: "https://mcp.convex.dev/mcp",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "233",
+        authKind: "none",
+      }),
+    ],
+  };
+  const accounts = connectableAccounts(page);
+  expect(accounts.map((row) => [row.key, row.kind, row.enabled])).toEqual([
+    ["treg", "account", true],
+    ["ahrefs", "account", false],
+  ]);
+  expect(accounts[0]?.summary).toBe("Add your Treg key.");
+  // And the Marketplace's own list draws plugins from the index, not from these rows.
+  expect(connectableApps(page)).toEqual([]);
+});
+
+test("an installed plugin counts as one installed app, however many servers it has", () => {
+  const page = {
+    catalogue: [],
+    servers: [
+      server({
+        id: "treg",
+        title: "Treg",
+        logo: "https://logo.example/treg.png",
+        url: "https://treg.to/mcp/",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "55647425",
+        authKind: "header",
+        offeredToAllBots: true,
+      }),
+      server({
+        id: "treg-docs",
+        title: "Treg · docs",
+        logo: "https://logo.example/treg.png",
+        url: "https://treg.to/docs/mcp",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "55647425",
+        authKind: "none",
+        offeredToAllBots: true,
+      }),
+      server({
+        id: "ahrefs",
+        title: "Ahrefs",
+        url: "https://api.ahrefs.com/mcp/mcp",
+        provenance: "plugin",
+        authScheme: null,
+        pluginId: "56809965",
+        authKind: "oauth-discover",
+        offeredToAllBots: true,
+      }),
+    ],
+  };
+  // A connection to one of Treg's servers is Treg, counted once; Ahrefs is counted by its install.
+  expect(
+    installedApps(page, [{ serverId: "treg", scope: "", connectedAt: "" }]).map(
+      (app) => app.key,
+    ),
+  ).toEqual(["treg", "plugin:56809965"]);
+  // Nothing connected: both plugins are counted by their installs, with the plugin's own logo.
+  expect(installedApps(page, [])).toEqual([
+    { key: "plugin:55647425", logo: "https://logo.example/treg.png" },
+    { key: "plugin:56809965", logo: null },
+  ]);
+});

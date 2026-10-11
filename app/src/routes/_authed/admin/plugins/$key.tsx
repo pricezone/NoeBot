@@ -481,7 +481,11 @@ function RouteComponent() {
   return (
     <PageShell
       backButton={{ label: "Plugins", linkProps: { to: "/admin/plugins" } }}
-      description={entry?.summary ?? server?.summary}
+      description={
+        server?.provenance === "plugin"
+          ? `Installed from the Marketplace plugin ${server.pluginId ?? ""}, by ${server.addedBy ?? "somebody"}. It leaves with the plugin, from the person's connected accounts. ${entry?.summary ?? server.summary}`
+          : (entry?.summary ?? server?.summary)
+      }
       title={title}
     >
       {error ? (

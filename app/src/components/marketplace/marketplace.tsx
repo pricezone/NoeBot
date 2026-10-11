@@ -1,4 +1,5 @@
-import { IconSearch } from "@tabler/icons-react";
+import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { AgentsTab } from "@/components/marketplace/agents-tab";
 import { AppsTab } from "@/components/marketplace/apps-tab";
@@ -72,12 +73,21 @@ export default function Marketplace({
             <IconSearch aria-hidden="true" className="size-4.5" />
           </InputGroupAddon>
           <InputGroupInput
-            aria-label="Search plugins"
+            aria-label="Search across apps and skills"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search plugins"
+            placeholder="Search across apps and skills"
             value={draft}
           />
         </InputGroup>
+        {/* Grok Bot's own link out of the apps popup: the Bots you can start from. Ours is a tab. */}
+        <Link
+          className="hidden shrink-0 items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:flex"
+          search={{ tab: "agents" }}
+          to="/marketplace"
+        >
+          Bot templates
+          <IconArrowUpRight aria-hidden="true" className="size-3.5" />
+        </Link>
         <InstalledCluster />
       </div>
 
@@ -95,7 +105,11 @@ export default function Marketplace({
           <TabsTrigger value="agents">Agents</TabsTrigger>
         </TabsList>
         <TabsPanel className="pt-3" value="apps">
-          <AppsTab query={query} />
+          <AppsTab
+            category={search.category}
+            onSearchChange={onSearchChange}
+            query={query}
+          />
         </TabsPanel>
         <TabsPanel className="pt-3" value="skills">
           <SkillsTab onSearchChange={onSearchChange} search={search} />

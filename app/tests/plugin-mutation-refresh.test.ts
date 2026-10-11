@@ -14,9 +14,12 @@ import {
   confirmBrokeredConnectionMutationOptions,
   connectAccountMutationOptions,
   connectBrokeredWithFieldsMutationOptions,
+  connectWithVariablesMutationOptions,
   disconnectBrokeredMutationOptions,
   enableComposioAppMutationOptions,
   enablePluginMutationOptions,
+  installPluginMutationOptions,
+  offerSkillToAllBotsMutationOptions,
   offerToAllBotsMutationOptions,
   recheckBrokeredConnectionMutationOptions,
   refreshPluginServerMutationOptions,
@@ -25,6 +28,7 @@ import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
   setPluginGrantMutationOptions,
+  uninstallPluginMutationOptions,
 } from "../src/lib/plugins/mutations";
 import { pluginKeys } from "../src/lib/plugins/queries";
 
@@ -146,6 +150,39 @@ const REFUSALS: {
   factory: (queryClient: QueryClient) => unknown;
   variables: unknown;
 }[] = [
+  {
+    name: "installing a Marketplace plugin",
+    route: "POST /api/plugins/install",
+    status: 403,
+    message: "Connecting apps is switched off for this deployment.",
+    factory: installPluginMutationOptions,
+    variables: "55647425",
+  },
+  {
+    name: "removing a Marketplace plugin",
+    route: "DELETE /api/plugins/install/55647425",
+    status: 403,
+    message:
+      "Only the person who installed Treg, or an administrator, can remove it.",
+    factory: uninstallPluginMutationOptions,
+    variables: "55647425",
+  },
+  {
+    name: "adding a key to a plugin server",
+    route: "POST /api/plugins/servers/treg/connect",
+    status: 400,
+    message: "Treg needs TREG_TOKEN.",
+    factory: connectWithVariablesMutationOptions,
+    variables: { serverId: "treg", values: { TREG_TOKEN: "" } },
+  },
+  {
+    name: "offering a skill to every Bot",
+    route: "POST /api/plugins/skills/treg-treg/offer-to-all",
+    status: 404,
+    message: "treg-treg is not a skill here.",
+    factory: offerSkillToAllBotsMutationOptions,
+    variables: { slug: "treg-treg", on: true },
+  },
   {
     name: "granting a plugin to a Bot",
     route: "POST /api/plugins/grants",
@@ -494,6 +531,24 @@ const ENCODED_REQUESTS: {
   build: (queryClient: QueryClient) => unknown;
   variables: unknown;
 }[] = [
+  {
+    name: "removing a Marketplace plugin",
+    url: `/api/plugins/install/${ENCODED_ID}`,
+    build: uninstallPluginMutationOptions,
+    variables: HOSTILE_ID,
+  },
+  {
+    name: "adding a key to a plugin server",
+    url: `/api/plugins/servers/${ENCODED_ID}/connect`,
+    build: connectWithVariablesMutationOptions,
+    variables: { serverId: HOSTILE_ID, values: { TOKEN: "x" } },
+  },
+  {
+    name: "offering a skill to every Bot",
+    url: `/api/plugins/skills/${ENCODED_ID}/offer-to-all`,
+    build: offerSkillToAllBotsMutationOptions,
+    variables: { slug: HOSTILE_ID, on: true },
+  },
   {
     name: "refreshing a server's tools",
     url: `/api/plugins/servers/${ENCODED_ID}/refresh`,

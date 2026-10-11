@@ -1,7 +1,12 @@
 import { IconArrowUpRight, IconChevronDown } from "@tabler/icons-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute, useParams } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createFileRoute,
+  useNavigate,
+  useParams,
+} from "@tanstack/react-router";
 import { useState } from "react";
+import { VariablesDialog } from "@/components/marketplace/variables-dialog";
 import {
   PageEmpty,
   PageRows,
@@ -27,9 +32,15 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
-import { connectAccountMutationOptions } from "@/lib/plugins/mutations";
+import { currentUserQueryOptions } from "@/lib/auth/queries";
+import {
+  connectAccountMutationOptions,
+  disconnectBrokeredMutationOptions,
+  uninstallPluginMutationOptions,
+} from "@/lib/plugins/mutations";
 import {
   connectionsQueryOptions,
+  marketplaceQueryOptions,
   pluginsPageQueryOptions,
 } from "@/lib/plugins/queries";
 
@@ -55,9 +66,27 @@ function RouteComponent() {
   const { key } = useParams({
     from: "/_authed/_app/settings/connected-accounts/$key",
   });
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const plugins = useQuery(pluginsPageQueryOptions());
   const connections = useQuery(connectionsQueryOptions());
+  const marketplace = useQuery(marketplaceQueryOptions());
+  const me = useQuery(currentUserQueryOptions());
   const [notice, setNotice] = useState<string | null>(null);
+  const [addingKey, setAddingKey] = useState(false);
+  /*
+   * Ending a held connection: the grant or the token in this deployment's own vault, revoked
+   * here. The vendor is not asked, and the sentence beside the button says so.
+   */
+  const disconnect = useMutation({
+    ...disconnectBrokeredMutationOptions(queryClient),
+    onError: (thrown: Error) => setNotice(thrown.message),
+  });
+  const uninstall = useMutation({
+    ...uninstallPluginMutationOptions(queryClient),
+    onError: (thrown: Error) => setNotice(thrown.message),
+    onSuccess: () => navigate({ to: "/settings/connected-accounts" }),
+  });
 
   const connect = useMutation({
     ...connectAccountMutationOptions(),
@@ -240,6 +269,182 @@ function RouteComponent() {
   }
 
   /*
+   * A MARKETPLACE PLUGIN'S SERVER, reached the way its row says: an OAuth sign-in like a
+   * catalogue vendor's, a token the person pastes, or nothing at all. The plugin it belongs to is
+   * named, with who installed it, and removed whole from here — by that person or an administrator.
+   */
+  if (server?.provenance === "plugin") {
+    const plugin = server.pluginId
+      ? marketplace.data?.installed[server.pluginId]
+      : undefined;
+    const mayRemove =
+      plugin !== undefined && (plugin.mine || me.data?.role === "admin");
+    const removal = plugin ? (
+      <PageSection
+        description={`Removing ${plugin.name} takes every server and skill it installed away from every Bot, and ends every account connected to them.`}
+        title="Plugin"
+      >
+        <PageRows>
+          <Item size="sm">
+            <ItemContent>
+              <ItemTitle>Part of {plugin.name}</ItemTitle>
+              <ItemDescription>
+                Added by {plugin.installedBy ?? "somebody"}
+                {plugin.mine ? " (you)" : ""}.
+              </ItemDescription>
+            </ItemContent>
+            {mayRemove ? (
+              <ItemActions>
+                <Button
+                  disabled={uninstall.isPending}
+                  onClick={() => {
+                    setNotice(null);
+                    uninstall.mutate(plugin.id);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {uninstall.isPending ? "Removing…" : "Remove plugin"}
+                </Button>
+              </ItemActions>
+            ) : null}
+          </Item>
+        </PageRows>
+      </PageSection>
+    ) : null;
+
+    if (server.authKind === "none") {
+      return (
+        <SettingsPage
+          backButton={back}
+          description="This is not a service you connect for yourself."
+          title={server.title}
+        >
+          <PageEmpty>
+            There is no account to connect. It is available to every Bot
+            already.
+          </PageEmpty>
+          {removal}
+        </SettingsPage>
+      );
+    }
+
+    const header = server.authKind === "header";
+    return (
+      <SettingsPage
+        backButton={back}
+        description={
+          server.summary ||
+          `Reached as you, from the ${plugin?.name ?? "plugin"} plugin.`
+        }
+        title={server.title}
+      >
+        {notice ? (
+          <p className="text-destructive text-sm" role="alert">
+            {notice}
+          </p>
+        ) : null}
+        <PageSection>
+          <PageRows className="mt-0">
+            <Item size="sm">
+              <ItemContent>
+                <ItemTitle>{header ? "Your key" : "Your account"}</ItemTitle>
+                <ItemDescription>
+                  {connection
+                    ? header
+                      ? "Every Bot can use this with your key. Nobody else's calls carry it."
+                      : "Every Bot can use this as you. It sees only what you can see."
+                    : header
+                      ? `No Bot can reach ${server.title} as you until you add your key.`
+                      : "No Bot can read this as you. Connecting takes you to the vendor to consent."}
+                </ItemDescription>
+              </ItemContent>
+              <ItemActions>
+                {connection ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button size="sm" type="button" variant="outline">
+                          <span
+                            aria-hidden="true"
+                            className="size-1.5 rounded-full bg-emerald-500"
+                          />
+                          {header ? "Key added" : "Connected"}
+                          <IconChevronDown />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="w-auto">
+                      {header ? (
+                        <DropdownMenuItem
+                          className="whitespace-nowrap"
+                          onClick={() => setAddingKey(true)}
+                        >
+                          Replace your key
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem
+                        className="whitespace-nowrap"
+                        onClick={() => {
+                          setNotice(null);
+                          disconnect.mutate(key);
+                        }}
+                        variant="destructive"
+                      >
+                        {header
+                          ? "Remove your key"
+                          : `Disconnect your ${server.title} account`}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : header ? (
+                  <Button
+                    onClick={() => {
+                      setNotice(null);
+                      setAddingKey(true);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Add key
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={connect.isPending}
+                    onClick={() => {
+                      setNotice(null);
+                      connect.mutate(key);
+                    }}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    Connect
+                    <IconArrowUpRight />
+                  </Button>
+                )}
+              </ItemActions>
+            </Item>
+          </PageRows>
+        </PageSection>
+        {removal}
+        {header ? (
+          <VariablesDialog
+            onClose={() => setAddingKey(false)}
+            onConnected={() => setAddingKey(false)}
+            open={addingKey}
+            serverId={key}
+            title={server.title}
+            variables={server.connectVariables ?? []}
+          />
+        ) : null}
+      </SettingsPage>
+    );
+  }
+
+  /*
    * A vendor that is not reached as a person has nothing here for anybody to decide. It says which
    * kind it is rather than drawing a button that cannot work: an app with no account to hold is
    * enabled from the Marketplace, for everybody, and a vendor with a shared token is the
@@ -318,19 +523,20 @@ function RouteComponent() {
                    */}
                   <DropdownMenuContent align="end" className="w-auto">
                     <DropdownMenuItem
-                      onClick={() =>
+                      onClick={() => {
                         /*
-                         * NOT BUILT YET, and it says so rather than appearing to work.
-                         *
-                         * Withdrawing is three acts — revoke at the vendor, revoke the vault
-                         * credential, delete the row — and none exist. An item that closed the menu
-                         * and changed nothing would report that access had been withdrawn when it
-                         * had not, which is the one outcome worse than not offering it.
+                         * The grant in this deployment's vault is revoked and the row deleted;
+                         * the vendor is not asked, so the grant it holds outlives this until it
+                         * is revoked there too. Said in the notice rather than implied.
                          */
-                        setNotice(
-                          `Disconnecting is not built yet. Until it is, revoke it in your ${entry.vendor} account's third-party access settings — that stops this deployment reading anything immediately.`,
-                        )
-                      }
+                        setNotice(null);
+                        disconnect.mutate(key, {
+                          onSuccess: () =>
+                            setNotice(
+                              `Disconnected here. ${entry.vendor} still lists this deployment under your account's third-party access until you revoke it there.`,
+                            ),
+                        });
+                      }}
                       className="whitespace-nowrap"
                       variant="destructive"
                     >

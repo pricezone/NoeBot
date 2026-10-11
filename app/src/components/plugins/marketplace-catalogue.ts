@@ -47,7 +47,9 @@ export function categoryLabel(key: string): string {
 }
 
 /** A plugin's first category in the fixed order, which is the section it is listed under. */
-export function primaryCategory(plugin: Pick<MarketplacePlugin, "categories">): string {
+export function primaryCategory(
+  plugin: Pick<MarketplacePlugin, "categories">,
+): string {
   for (const category of CATEGORIES) {
     if (plugin.categories.includes(category.key)) return category.key;
   }
@@ -81,7 +83,10 @@ export function pluginRowState(
   const connected = new Set(connections.map((row) => row.serverId));
   for (const server of plugin.servers) {
     if (connected.has(server.serverId)) continue;
-    if (server.authKind === "oauth-discover" || server.authKind === "static-client") {
+    if (
+      server.authKind === "oauth-discover" ||
+      server.authKind === "static-client"
+    ) {
       return { kind: "connect", serverId: server.serverId };
     }
     if (server.authKind === "header") {
@@ -96,7 +101,9 @@ export function pluginRowState(
 }
 
 /** The plugins the tab lists: every installable one. A `catalogue` plugin is drawn as its catalogue row. */
-export function listedPlugins(page: Pick<MarketplacePage, "plugins">): MarketplacePlugin[] {
+export function listedPlugins(
+  page: Pick<MarketplacePage, "plugins">,
+): MarketplacePlugin[] {
   return page.plugins.filter((plugin) => plugin.availability === "installable");
 }
 
@@ -144,7 +151,10 @@ export function pluginSections(
     bucket.push(plugin);
     byCategory.set(key, bucket);
   }
-  const order = [...CATEGORIES.map((category) => category.key), UNCATEGORISED.key];
+  const order = [
+    ...CATEGORIES.map((category) => category.key),
+    UNCATEGORISED.key,
+  ];
   const sections: PluginSection[] = [];
   for (const key of order) {
     const bucket = byCategory.get(key);
@@ -166,5 +176,7 @@ export function installedPlugins(
   page: Pick<MarketplacePage, "plugins" | "installed"> | undefined,
 ): MarketplacePlugin[] {
   if (!page) return [];
-  return page.plugins.filter((plugin) => page.installed[plugin.id] !== undefined);
+  return page.plugins.filter(
+    (plugin) => page.installed[plugin.id] !== undefined,
+  );
 }

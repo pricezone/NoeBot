@@ -134,6 +134,12 @@ function server(overrides: Partial<PluginServer> & { id: string }) {
     // Granted per Bot, which is the arrangement every case in this file is about.
     offeredToAllBots: false,
     oauthClientSource: null,
+    // Not a Marketplace plugin's row unless a case says otherwise.
+    pluginId: null,
+    authKind: null,
+    transport: null,
+    connectVariables: null,
+    oauthDiscovered: false,
     tools: [],
     withdrawn: [],
     ...overrides,
