@@ -155,6 +155,35 @@ const MARKETPLACE = [
     ],
     skills: [],
   },
+  // One plugin each in four more categories, so the pills row has more than fits and folds.
+  ...(
+    [
+      ["Stripe", "PAYMENTS"],
+      ["Figma", "DESIGN"],
+      ["Apollo", "SALES"],
+      ["Calendly", "SCHEDULING"],
+    ] as const
+  ).map(([name, category], index) => ({
+    id: `9100${index}`,
+    slug: name.toLowerCase(),
+    name,
+    description: `${name} tools.`,
+    publisher: name,
+    verified: false,
+    logoUrl: null,
+    categories: [category],
+    availability: "installable",
+    catalogueKey: null,
+    servers: [
+      {
+        serverId: name.toLowerCase(),
+        name: "mcp",
+        authKind: "none",
+        variables: [],
+      },
+    ],
+    skills: [],
+  })),
   {
     id: "404",
     slug: "notion-workspace",
@@ -270,7 +299,57 @@ beforeEach(() => {
           status,
           headers: { "content-type": "application/json" },
         });
-      if (method === "POST") writes.push(`${method} ${path}`);
+      if (method === "POST" || method === "DELETE") {
+        writes.push(`${method} ${path}`);
+      }
+      /** The installed map's entry for a plugin this person pressed Add on. */
+      const installedRecord = (id: string) => ({
+        id,
+        slug: id,
+        name: id,
+        gitRef: "0".repeat(40),
+        installedBy: "person@example.com",
+        installedByUserId: "user-1",
+        installedAt: "2026-10-11T00:00:00.000Z",
+        serverIds:
+          MARKETPLACE.find((plugin) => plugin.id === id)?.servers.map(
+            (server) => server.serverId,
+          ) ?? [],
+        skillSlugs: [],
+        skipped: [],
+        mine: true,
+      });
+      const detailMatch = path.match(/^\/api\/plugins\/marketplace\/([^/]+)$/);
+      if (detailMatch) {
+        const id = decodeURIComponent(detailMatch[1] ?? "");
+        const plugin = MARKETPLACE.find((candidate) => candidate.id === id);
+        if (plugin?.availability !== "installable") {
+          return json({ error: "That plugin is not in the Marketplace." }, 404);
+        }
+        return json({
+          syncedAt: "2026-10-11T00:00:00.000Z",
+          plugin: {
+            ...plugin,
+            gitUrl: `https://github.com/example/${plugin.slug}`,
+            gitRef: "a".repeat(40),
+            gitPath: "",
+            servers: plugin.servers.map((server) => ({
+              ...server,
+              vendor: `api.${server.serverId}.example`,
+            })),
+            skills: plugin.skills.map((skill) => ({
+              ...skill,
+              description: `What ${skill.name} does.`,
+            })),
+          },
+          installed: installedPlugins.has(id) ? installedRecord(id) : null,
+        });
+      }
+      const uninstallMatch = path.match(/^\/api\/plugins\/install\/([^/]+)$/);
+      if (method === "DELETE" && uninstallMatch) {
+        installedPlugins.delete(decodeURIComponent(uninstallMatch[1] ?? ""));
+        return json({ removed: true });
+      }
       if (path === "/api/me") {
         return json({
           user: {
@@ -388,25 +467,7 @@ beforeEach(() => {
           syncedAt: "2026-10-11T00:00:00.000Z",
           plugins: MARKETPLACE,
           installed: Object.fromEntries(
-            [...installedPlugins].map((id) => [
-              id,
-              {
-                id,
-                slug: id,
-                name: id,
-                gitRef: "0".repeat(40),
-                installedBy: "person@example.com",
-                installedByUserId: "user-1",
-                installedAt: "2026-10-11T00:00:00.000Z",
-                serverIds:
-                  MARKETPLACE.find((plugin) => plugin.id === id)?.servers.map(
-                    (server) => server.serverId,
-                  ) ?? [],
-                skillSlugs: [],
-                skipped: [],
-                mine: true,
-              },
-            ]),
+            [...installedPlugins].map((id) => [id, installedRecord(id)]),
           ),
         });
       }
@@ -742,16 +803,141 @@ test("the Marketplace's plugins are listed by category, four at a time, with Vie
     ).toHaveLength(6);
   });
   expect(view.queryByRole("region", { name: "Support" })).toBeNull();
-  await user.click(view.getByRole("button", { name: "← All apps" }));
+  // The Research pill is the one pressed now; All is the way back.
+  expect(
+    view.getByRole("button", { name: "Research" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  await user.click(view.getByRole("button", { name: "All" }));
   await waitFor(() => {
     expect(router.state.location.search).not.toMatchObject({
       category: "RESEARCH",
     });
   });
-  // And the way to the Bots you can start from.
+  expect(view.getByRole("region", { name: "Support" })).toBeTruthy();
+  // Grok Bot's link out to its Bot templates is not drawn: ours are the Agents tab.
+  expect(view.queryByRole("link", { name: /Bot templates/ })).toBeNull();
+});
+
+test("the pills are the categories with plugins, the biggest five then More, and a pill shows one category whole", async () => {
+  const { view, router } = renderMarketplace("/marketplace");
+  await view.findByRole("region", { name: "Research" });
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+
+  // Six research plugins, one each in five other categories: Research first, then Cursor's
+  // order among the ties, five on the row and the last behind More.
+  const pills = [
+    "All",
+    "Research",
+    "Payments",
+    "Scheduling",
+    "Sales",
+    "Support",
+  ];
+  for (const label of pills) {
+    expect(view.getByRole("button", { name: label })).toBeTruthy();
+  }
+  expect(view.queryByRole("button", { name: "Design" })).toBeNull();
   expect(
-    view.getByRole("link", { name: /Bot templates/ }).getAttribute("href"),
-  ).toBe("/marketplace?tab=agents");
+    view.getByRole("button", { name: "All" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+
+  await user.click(view.getByRole("button", { name: "More" }));
+  await user.click(await view.findByRole("menuitem", { name: "Design" }));
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({ category: "DESIGN" });
+  });
+  expect(await view.findByRole("region", { name: "Design" })).toBeTruthy();
+  expect(view.queryByRole("region", { name: "Research" })).toBeNull();
+  // The folded pill wears the active category's name, so the state is never behind the menu.
+  expect(
+    view.getByRole("button", { name: "Design" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(view.queryByRole("button", { name: "More" })).toBeNull();
+});
+
+test("a row opens the plugin's own page, with its source, connectors, skills and facts, and Back keeps the search", async () => {
+  const { view, router } = renderMarketplace("/marketplace?category=RESEARCH");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  const treg = await view.findByTestId("plugin-55647425");
+  await user.click(within(treg).getByRole("button", { name: "About Treg" }));
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      plugin: "55647425",
+      category: "RESEARCH",
+    });
+  });
+
+  expect(await view.findByRole("heading", { name: "Treg" })).toBeTruthy();
+  // The list, its search and its tabs are gone: the page takes the body.
+  expect(view.queryByRole("tab", { name: "Apps" })).toBeNull();
+  expect(
+    view.getByRole("link", { name: "View Source" }).getAttribute("href"),
+  ).toBe(`https://github.com/example/treg/tree/${"a".repeat(40)}`);
+  const apps = view.getByRole("region", { name: "Apps" });
+  expect(within(apps).getByText("treg")).toBeTruthy();
+  expect(
+    within(apps).getByText("Connector · api.treg.example · your API key"),
+  ).toBeTruthy();
+  const skills = view.getByRole("region", { name: "Skills" });
+  expect(within(skills).getByText("What treg does.")).toBeTruthy();
+  const facts = view.getByRole("region", { name: "Information" });
+  expect(within(facts).getByText("1 app, 1 skill")).toBeTruthy();
+  expect(within(facts).getByText("Superdesign")).toBeTruthy();
+  expect(within(facts).getByText("Research")).toBeTruthy();
+  expect(within(facts).getByText("Your API key")).toBeTruthy();
+  expect(within(facts).getByText("example/treg")).toBeTruthy();
+  // Not installed: nothing to remove, and nobody is named as having added it.
+  expect(view.queryByRole("button", { name: "Remove plugin" })).toBeNull();
+  expect(view.queryByText("Added by")).toBeNull();
+
+  await user.click(view.getByRole("button", { name: "Back to apps" }));
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({
+      tab: "apps",
+      category: "RESEARCH",
+    });
+  });
+  expect(await view.findByTestId("plugin-55647425")).toBeTruthy();
+});
+
+test("the page's own Add installs the plugin, Share copies its address, and Remove takes it off again", async () => {
+  const { view, router } = renderMarketplace(
+    "/marketplace?tab=apps&plugin=55647425",
+  );
+  // `userEvent.setup` installs its own clipboard on the window, which is the one read back below.
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await view.findByRole("heading", { name: "Treg" });
+
+  await user.click(view.getByRole("button", { name: "Share" }));
+  await waitFor(() => {
+    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+  expect(await window.navigator.clipboard.readText()).toBe(
+    "http://localhost/marketplace?tab=apps&plugin=55647425",
+  );
+
+  await user.click(view.getByRole("button", { name: "Add Treg" }));
+  // Installed; the one server takes a key, so that is what is left to do.
+  expect(
+    await view.findByRole("button", { name: "Add key for Treg" }),
+  ).toBeTruthy();
+  expect(writes).toContain("POST /api/plugins/install");
+  const facts = view.getByRole("region", { name: "Information" });
+  expect(within(facts).getByText(/^You · /)).toBeTruthy();
+
+  await user.click(view.getByRole("button", { name: "Remove plugin" }));
+  await waitFor(() => {
+    expect(writes).toContain("DELETE /api/plugins/install/55647425");
+  });
+  // Removed, and back on the list, where the row says Add again.
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({ tab: "apps" });
+  });
+  expect(
+    within(await view.findByTestId("plugin-55647425")).getByRole("button", {
+      name: "Add Treg",
+    }),
+  ).toBeTruthy();
 });
 
 test("Add installs a plugin for every Bot, and the row then says what is left: a key to add, an account to connect, or nothing", async () => {

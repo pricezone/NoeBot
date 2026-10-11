@@ -13,9 +13,13 @@ import type {
  * ones for catalogue apps in `connectable-apps.ts`, and are pinned by `marketplace-catalogue.test.ts`.
  */
 
-/** Cursor's categories in the order its own site lists them, with the labels Grok Bot shows. */
+/**
+ * Cursor's categories in the order its own site lists them, with the labels Grok Bot shows.
+ * Cursor's curated "Featured" set is the first section of the tab, under the name Grok Bot gives
+ * its own first section; it is a section only, never a pill (see `categoryPills`).
+ */
 export const CATEGORIES: readonly { key: string; label: string }[] = [
-  { key: "FEATURED", label: "Featured" },
+  { key: "FEATURED", label: "Recommended for you" },
   { key: "INFRASTRUCTURE", label: "Infrastructure" },
   { key: "DATA_ANALYTICS", label: "Data & Analytics" },
   { key: "PRODUCTIVITY", label: "Productivity" },
@@ -179,4 +183,35 @@ export function installedPlugins(
   return page.plugins.filter(
     (plugin) => page.installed[plugin.id] !== undefined,
   );
+}
+
+/** The key the Recommended section is filed under; a section, never a pill. */
+const RECOMMENDED = "FEATURED";
+
+/**
+ * The pills over the Apps tab: every category that holds a listed plugin, the biggest first, so
+ * the few that show before "More" are the ones most worth a press. Ties keep Cursor's order.
+ * Recommended is left out — it is the tab's first section, not a place to narrow to — and the
+ * uncategorised bucket comes last when it has anything.
+ */
+export function categoryPills(
+  plugins: readonly Pick<MarketplacePlugin, "categories">[],
+): { key: string; label: string }[] {
+  const counts = new Map<string, number>();
+  for (const plugin of plugins) {
+    const key = primaryCategory(plugin);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const pills = CATEGORIES.map((category, order) => ({
+    ...category,
+    order,
+    count: counts.get(category.key) ?? 0,
+  }))
+    .filter((pill) => pill.key !== RECOMMENDED && pill.count > 0)
+    .sort((left, right) => right.count - left.count || left.order - right.order)
+    .map(({ key, label }) => ({ key, label }));
+  if ((counts.get(UNCATEGORISED.key) ?? 0) > 0) {
+    pills.push({ key: UNCATEGORISED.key, label: UNCATEGORISED.label });
+  }
+  return pills;
 }

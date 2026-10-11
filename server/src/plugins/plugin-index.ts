@@ -50,6 +50,11 @@ export type IndexedSkill = {
   slug: string;
   /** The `SKILL.md`, relative to the repository root (the plugin's `gitPath` included). */
   path: string;
+  /**
+   * What the skill does, as Cursor's index states it (its frontmatter `description`), for the
+   * plugin's page before anything is installed. Null when the index had none.
+   */
+  description: string | null;
 };
 
 export type IndexedVariable = {
@@ -226,7 +231,16 @@ function parseSkill(value: unknown, where: string): IndexedSkill {
   if (path.startsWith("/") || path.split("/").includes("..")) {
     fail(`${where}.path`, "must be relative and never climb");
   }
-  return { name: asString(skill.name, `${where}.name`), slug, path };
+  const description =
+    skill.description === undefined || skill.description === null
+      ? null
+      : asString(skill.description, `${where}.description`);
+  return {
+    name: asString(skill.name, `${where}.name`),
+    slug,
+    path,
+    description: description?.trim() ? description.trim() : null,
+  };
 }
 
 const AVAILABILITY = new Set(["installable", "unavailable", "catalogue"]);

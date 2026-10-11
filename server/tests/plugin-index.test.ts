@@ -15,9 +15,9 @@ import {
 } from "../src/plugins/plugin-ids";
 import {
   CATALOGUE_PLUGIN_IDS,
+  listablePlugins,
   PLUGIN_INDEX,
   PLUGIN_INDEX_SERVER_IDS,
-  listablePlugins,
   parsePluginIndex,
   pluginIndexEntry,
   pluginIndexServer,
@@ -275,6 +275,46 @@ describe("loading an index", () => {
       parsePluginIndex(index(plugin({ logoUrl: "http://x/logo.png" })))
         .plugins[0]?.logoUrl,
     ).toBeNull();
+  });
+
+  test("a skill's description is kept, trimmed, and null when the index had none", () => {
+    const parsed = parsePluginIndex(
+      index(
+        plugin({
+          skills: [
+            {
+              name: "search",
+              slug: "example-search",
+              path: "skills/search/SKILL.md",
+              description: "  Search the web.  ",
+            },
+            {
+              name: "bare",
+              slug: "example-bare",
+              path: "skills/bare/SKILL.md",
+            },
+            {
+              name: "blank",
+              slug: "example-blank",
+              path: "skills/blank/SKILL.md",
+              description: "   ",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(parsed.plugins[0]?.skills.map((skill) => skill.description)).toEqual(
+      ["Search the web.", null, null],
+    );
+    expect(() =>
+      parsePluginIndex(
+        index(
+          plugin({
+            skills: [{ ...plugin().skills[0], description: 42 }],
+          }),
+        ),
+      ),
+    ).toThrow("plugins[0].skills[0].description");
   });
 
   test("the first malformed field is named", () => {

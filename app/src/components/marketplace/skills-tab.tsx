@@ -51,7 +51,7 @@ export function SkillsTab({
           {showCreate ? (
             <NewSkill />
           ) : search.edit !== undefined ? (
-            <EditSkill key={search.edit} slug={search.edit} />
+            <EditSkill key={search.edit} onClose={close} slug={search.edit} />
           ) : null}
         </aside>
       ) : null}

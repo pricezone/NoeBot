@@ -1,9 +1,9 @@
-import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
-import { Link } from "@tanstack/react-router";
+import { IconSearch } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { AgentsTab } from "@/components/marketplace/agents-tab";
 import { AppsTab } from "@/components/marketplace/apps-tab";
 import { InstalledCluster } from "@/components/marketplace/installed-cluster";
+import { PluginDetail } from "@/components/marketplace/plugin-detail";
 import {
   isMarketplaceTab,
   type MarketplaceSearch,
@@ -65,6 +65,30 @@ export default function Marketplace({
     );
   };
 
+  /*
+   * A plugin's page takes the whole body, search and tabs included, the way Grok Bot's does: the
+   * back chevron is the way out, and it returns to the list with the term and the category kept.
+   * Switching tab clears `plugin` already (the tab change narrows the address to `{ tab, q }`).
+   */
+  if (tab === "apps" && search.plugin !== undefined) {
+    return (
+      <div className="flex flex-1 flex-col px-5 py-5 md:px-10 md:py-6">
+        <PluginDetail
+          id={search.plugin}
+          onBack={() =>
+            onSearchChange({
+              tab: "apps",
+              q: search.q,
+              ...(search.category === undefined
+                ? {}
+                : { category: search.category }),
+            })
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-5 px-5 py-5 md:px-10 md:py-6">
       <div className="flex items-center gap-3">
@@ -79,15 +103,6 @@ export default function Marketplace({
             value={draft}
           />
         </InputGroup>
-        {/* Grok Bot's own link out of the apps popup: the Bots you can start from. Ours is a tab. */}
-        <Link
-          className="hidden shrink-0 items-center gap-1 text-[13px] text-muted-foreground transition-colors hover:text-foreground sm:flex"
-          search={{ tab: "agents" }}
-          to="/marketplace"
-        >
-          Bot templates
-          <IconArrowUpRight aria-hidden="true" className="size-3.5" />
-        </Link>
         <InstalledCluster />
       </div>
 

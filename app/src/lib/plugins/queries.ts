@@ -273,10 +273,33 @@ export type MarketplacePage = {
   installed: Record<string, InstalledPlugin>;
 };
 
+/**
+ * One plugin as its own page draws it: the listing's view plus where its source is pinned, which
+ * host each connector reaches and what each skill does. `GET /api/plugins/marketplace/:id`.
+ */
+export type MarketplacePluginDetail = Omit<
+  MarketplacePlugin,
+  "servers" | "skills"
+> & {
+  gitUrl: string;
+  gitRef: string;
+  gitPath: string;
+  servers: (MarketplacePlugin["servers"][number] & { vendor: string | null })[];
+  skills: { name: string; slug: string; description: string | null }[];
+};
+
+export type MarketplacePluginPage = {
+  syncedAt: string;
+  plugin: MarketplacePluginDetail;
+  installed: InstalledPlugin | null;
+};
+
 export const pluginKeys = {
   all: ["plugins"] as const,
   page: () => ["plugins", "page"] as const,
   marketplace: () => ["plugins", "marketplace"] as const,
+  marketplaceDetail: (pluginId: string) =>
+    ["plugins", "marketplace", pluginId] as const,
   forAgent: (agentId: string) => ["plugins", "for-agent", agentId] as const,
   connections: () => ["plugins", "connections"] as const,
   composioApps: (query: string) =>
@@ -393,6 +416,21 @@ export function marketplaceQueryOptions() {
       const response = await client("/api/plugins/marketplace", {
         fallback: "The Marketplace could not be loaded.",
       });
+      return response.json();
+    },
+  });
+}
+
+/** One plugin's page. Under `pluginKeys.all`, so Add and Remove refetch it with the listing. */
+export function pluginDetailQueryOptions(pluginId: string) {
+  return queryOptions({
+    queryKey: pluginKeys.marketplaceDetail(pluginId),
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<MarketplacePluginPage> => {
+      const response = await client(
+        `/api/plugins/marketplace/${encodeURIComponent(pluginId)}`,
+        { fallback: "This app could not be loaded." },
+      );
       return response.json();
     },
   });

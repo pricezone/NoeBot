@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type * as React from "react";
 import { useState } from "react";
+import { Pills } from "@/components/marketplace/pills";
+import {
+  ACTION_CLASS,
+  PluginAction,
+} from "@/components/marketplace/plugin-action";
 import {
   MarketplaceGrid,
   MarketplaceSection,
@@ -19,6 +24,7 @@ import {
 } from "@/components/plugins/connectable-apps";
 import {
   categoryLabel,
+  categoryPills,
   listedPlugins,
   matchingPlugins,
   type PluginRowState,
@@ -50,7 +56,8 @@ import { cn } from "@/lib/utils";
  */
 const BETA_KEYS = new Set(["google-drive"]);
 
-const ACTION_CLASS = "h-8 rounded-full px-3 text-xs";
+/** How many category pills show before the rest fold into More, as Grok Bot's row does. */
+const PILLS_BEFORE_MORE = 5;
 
 function markFor(app: ConnectableApp): React.ReactNode {
   if (app.logo) return <PluginLogo logo={app.logo} />;
@@ -150,67 +157,40 @@ export function AppsTab({
       q: query === "" ? undefined : query,
       ...(key === undefined ? {} : { category: key }),
     });
+  /* The plugin's page, in place of the list; the term and the category are kept for the way back. */
+  const openPlugin = (plugin: MarketplacePlugin) =>
+    onSearchChange({
+      tab: "apps",
+      q: query === "" ? undefined : query,
+      ...(category === undefined ? {} : { category }),
+      plugin: plugin.id,
+    });
 
-  const pluginRow = (plugin: MarketplacePlugin) => {
-    const state = stateOf(plugin);
-    return (
-      <PluginRow
-        action={
-          state.kind === "add" ? (
-            <Button
-              aria-label={`Add ${plugin.name}`}
-              className={ACTION_CLASS}
-              disabled={install.isPending && install.variables === plugin.id}
-              onClick={() => {
-                setError(null);
-                install.mutate(plugin.id);
-              }}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              {install.isPending && install.variables === plugin.id
-                ? "Adding…"
-                : "Add"}
-            </Button>
-          ) : state.kind === "connect" ? (
-            <Link
-              aria-label={`Connect ${plugin.name}`}
-              className={cn(
-                buttonVariants({ size: "sm", variant: "secondary" }),
-                ACTION_CLASS,
-              )}
-              params={{ key: state.serverId }}
-              to="/settings/connected-accounts/$key"
-            >
-              Connect
-            </Link>
-          ) : state.kind === "add-key" ? (
-            <Button
-              aria-label={`Add key for ${plugin.name}`}
-              className={ACTION_CLASS}
-              onClick={() => {
-                setError(null);
-                setKeyFor({ plugin, serverId: state.serverId });
-              }}
-              size="sm"
-              type="button"
-              variant="secondary"
-            >
-              Add key
-            </Button>
-          ) : (
-            <AddedMark title={plugin.name} />
-          )
-        }
-        data-testid={`plugin-${plugin.id}`}
-        key={plugin.id}
-        mark={<PluginLogo logo={plugin.logoUrl} />}
-        summary={plugin.description}
-        title={plugin.name}
-      />
-    );
-  };
+  /*
+   * Only the Marketplace's plugins open a page here. The catalogue's own apps and the brokered
+   * ones have theirs on `/settings/connected-accounts/$key`, which is where their row's Connect
+   * already goes.
+   */
+  const pluginRow = (plugin: MarketplacePlugin) => (
+    <PluginRow
+      action={
+        <PluginAction
+          install={install}
+          onAddKey={(serverId) => setKeyFor({ plugin, serverId })}
+          onError={setError}
+          plugin={plugin}
+          state={stateOf(plugin)}
+        />
+      }
+      data-testid={`plugin-${plugin.id}`}
+      key={plugin.id}
+      mark={<PluginLogo logo={plugin.logoUrl} />}
+      onOpen={() => openPlugin(plugin)}
+      openLabel={`About ${plugin.name}`}
+      summary={plugin.description}
+      title={plugin.name}
+    />
+  );
 
   const connectedRows = [
     ...matchingApps
@@ -270,6 +250,20 @@ export function AppsTab({
 
   return (
     <div className="flex flex-col">
+      {/*
+       * The category pills, as Grok Bot's row under its search: All, the biggest categories, and
+       * the rest behind More. The active one is `?category`, the same address "View all" sets, so
+       * the pill and the link are two ways to the same place and All is the way back from either.
+       */}
+      {indexed.length > 0 ? (
+        <Pills
+          active={category}
+          className="mb-6"
+          items={categoryPills(indexed)}
+          moreAfter={PILLS_BEFORE_MORE}
+          onSelect={showCategory}
+        />
+      ) : null}
       {/* The one place a refused press is said, above the rows rather than inside the one pressed. */}
       {error ? (
         <p className="mb-3 text-destructive text-sm" role="alert">
@@ -317,15 +311,7 @@ export function AppsTab({
                 </MarketplaceSection>
               ) : null}
             </>
-          ) : (
-            <button
-              className="mb-4 self-start text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              onClick={() => showCategory(undefined)}
-              type="button"
-            >
-              ← All apps
-            </button>
-          )}
+          ) : null}
           {sections.map((section) => (
             <MarketplaceSection
               action={
@@ -464,23 +450,6 @@ function EnabledMark({ app }: { app: ConnectableApp }) {
         className="size-3.5 text-emerald-600 dark:text-emerald-400"
       />
       Enabled
-    </span>
-  );
-}
-
-/** The state of an installed plugin with nothing left to do; removing it is on its account page. */
-function AddedMark({ title }: { title: string }) {
-  return (
-    <span
-      aria-label={`${title} added`}
-      className="flex h-8 items-center gap-1 px-3 text-xs text-muted-foreground"
-      role="status"
-    >
-      <IconCheck
-        aria-hidden="true"
-        className="size-3.5 text-emerald-600 dark:text-emerald-400"
-      />
-      Added
     </span>
   );
 }

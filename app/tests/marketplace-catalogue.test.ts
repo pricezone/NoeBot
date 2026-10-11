@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   CATEGORIES,
   categoryLabel,
+  categoryPills,
   installedPlugins,
   listedPlugins,
   matchingPlugins,
@@ -158,6 +159,31 @@ test("a row says Add, then whatever of the person's its servers still want, then
   });
   expect(pluginRowState(skillsOnly, installed("skills"), [])).toEqual({
     kind: "added",
+  });
+});
+
+test("the pills are the categories with plugins, biggest first, Recommended left out, uncategorised last", () => {
+  const plugins = [
+    ...["a", "b", "c"].map((id) => plugin({ id, categories: ["SALES"] })),
+    ...["d", "e"].map((id) => plugin({ id, categories: ["DESIGN"] })),
+    ...["f", "g"].map((id) => plugin({ id, categories: ["PAYMENTS"] })),
+    plugin({ id: "h", categories: ["FEATURED", "RESEARCH"] }),
+    plugin({ id: "i", categories: ["RESEARCH"] }),
+    plugin({ id: "j" }),
+  ];
+  expect(categoryPills(plugins).map((pill) => pill.label)).toEqual([
+    "Sales",
+    // Two each: Payments before Design, as Cursor orders them.
+    "Payments",
+    "Design",
+    // One listed under Research; the other is filed under Recommended, which is no pill.
+    "Research",
+    "Plugins",
+  ]);
+  expect(categoryPills([])).toEqual([]);
+  expect(CATEGORIES[0]).toEqual({
+    key: "FEATURED",
+    label: "Recommended for you",
   });
 });
 

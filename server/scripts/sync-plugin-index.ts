@@ -38,6 +38,11 @@ import {
   type SkippedPart,
 } from "../src/plugins/mcp-config";
 import {
+  normaliseSlug,
+  serverIdFor,
+  skillSlugFor,
+} from "../src/plugins/plugin-ids";
+import {
   CATALOGUE_PLUGIN_IDS,
   type IndexedPlugin,
   type IndexedServer,
@@ -47,11 +52,6 @@ import {
   type PluginIndex,
   parsePluginIndex,
 } from "../src/plugins/plugin-index";
-import {
-  normaliseSlug,
-  serverIdFor,
-  skillSlugFor,
-} from "../src/plugins/plugin-ids";
 
 const INDEX_URL = "https://cursor.com/api/dashboard/list-marketplace-plugins";
 const OUTPUT = new URL("../src/plugins/cursor-index.json", import.meta.url);
@@ -92,9 +92,12 @@ type Fetched = {
   /** Set when nothing of the plugin can be installed; the sequential pass writes it as is. */
   unavailable: string | null;
   servers: { parsed: ParsedServer; auth: IndexedServerAuth }[];
-  skills: { name: string; path: string }[];
+  skills: { name: string; path: string; description: string | null }[];
   skippedParts: SkippedPart[];
 };
+
+/** How much of a skill's description the index keeps; Cursor's run to about 280 characters. */
+const SKILL_DESCRIPTION_CHARS = 400;
 
 const args = process.argv.slice(2);
 const noProbe = args.includes("--no-probe");
@@ -432,11 +435,17 @@ async function fetchPlugin(
       skippedParts.push({ kind: "skill", name: "skill", reason: "no-id" });
       continue;
     }
+    // Cursor's index carries each skill's frontmatter description; kept so a plugin's page can say
+    // what a skill does before anybody installs it, without a read of GitHub.
+    const description = text(skill.description).trim();
     skills.push({
       name: skillName,
       path:
         text(skill.sourcePath) ||
         joinRepositoryPath(gitPath, "skills", skillName, "SKILL.md"),
+      description: description
+        ? description.slice(0, SKILL_DESCRIPTION_CHARS)
+        : null,
     });
   }
 
@@ -544,7 +553,12 @@ async function main() {
         continue;
       }
       mintedSkillSlugs.add(slug);
-      skills.push({ name: skill.name, slug, path: skill.path });
+      skills.push({
+        name: skill.name,
+        slug,
+        path: skill.path,
+        description: skill.description,
+      });
     }
 
     const availability = base.catalogueKey

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { SkillAgents } from "@/components/skills/skill-agents";
 import { SkillFields } from "@/components/skills/skill-fields";
+import { Button } from "@/components/ui/button";
 import {
   Item,
   ItemActions,
@@ -13,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import {
   offerSkillToAllBotsMutationOptions,
+  removeSkillMutationOptions,
   saveSkillMutationOptions,
 } from "@/lib/plugins/mutations";
 import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
@@ -24,11 +26,30 @@ import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
  * `installSkill` does `onConflictDoUpdate` and deliberately leaves `owner_user_id` alone, so a
  * re-save changes the words and never quietly changes whose skill it is. The route has already
  * refused anyone editing a skill that is not theirs before it gets that far.
+ *
+ * WHOSE SKILL IT IS DECIDES WHAT THE PANEL OFFERS. The form, Save and Delete are the owner's and
+ * an administrator's; anybody else gets the skill to read, with the Bots of theirs it may be
+ * granted to. The server refuses the rest either way, so a form that only ever failed on Save was
+ * a promise the panel could not keep — and a workspace skill opened by a member used to be one.
+ *
+ * `onClose` is the Skills tab's own way of closing the panel, which keeps the search term; a
+ * caller without one (a test drawing the panel alone) lands on the plain Skills tab.
  */
-export function EditSkill({ slug }: { slug: string }) {
+export function EditSkill({
+  slug,
+  onClose,
+}: {
+  slug: string;
+  onClose?: () => void;
+}) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isPending } = useQuery(pluginsPageQueryOptions());
+  const removeSkill = useMutation(removeSkillMutationOptions(queryClient));
+  const close = () =>
+    onClose
+      ? onClose()
+      : navigate({ search: { tab: "skills" }, to: "/marketplace" });
 
   /*
    * Read from the list already on screen rather than fetched again. It is the same request the page
@@ -125,6 +146,32 @@ export function EditSkill({ slug }: { slug: string }) {
     );
   }
 
+  /* Nothing until the person is known: the two panels below must not flash one into the other. */
+  if (me.isPending) return null;
+  const person = me.data ?? null;
+  const mayEdit =
+    person !== null &&
+    (skill.ownerUserId === person.id || person.role === "admin");
+
+  if (!mayEdit) {
+    return (
+      <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
+        <header>
+          <h1 className="text-2xl font-semibold">{skill.title}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            A workspace skill, written for everyone by an administrator. Which
+            Bots carry it is decided in Admin.
+          </p>
+        </header>
+        {skill.summary ? <p className="text-sm">{skill.summary}</p> : null}
+        <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-xs">
+          {skill.instructions}
+        </pre>
+        <SkillAgents grantedTo={skill.grantedTo} slug={skill.slug} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <header>
@@ -154,11 +201,39 @@ export function EditSkill({ slug }: { slug: string }) {
         footer={<SkillAgents grantedTo={skill.grantedTo} slug={skill.slug} />}
         onSubmit={async (values) => {
           await saveSkill.mutateAsync(values);
-          await navigate({ search: { tab: "skills" }, to: "/marketplace" });
+          await close();
         }}
         slugLocked
         submitLabel="Save changes"
       />
+
+      {/*
+       * Deleting is immediate and there is no undo. It sits under the form rather than on the
+       * list's row, and the slug is named in the label so the destructive control says WHICH
+       * skill it destroys.
+       */}
+      <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
+        <p className="text-xs text-muted-foreground">
+          Bots carrying it lose it at once. There is no undo.
+        </p>
+        <Button
+          className="shrink-0 text-destructive hover:text-destructive"
+          disabled={removeSkill.isPending}
+          onClick={() =>
+            removeSkill.mutate(skill.slug, { onSuccess: () => close() })
+          }
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          {removeSkill.isPending ? "Deleting…" : `Delete /${skill.slug}`}
+        </Button>
+      </div>
+      {removeSkill.error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {removeSkill.error.message}
+        </p>
+      ) : null}
     </div>
   );
 }

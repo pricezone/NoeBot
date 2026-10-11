@@ -25,6 +25,17 @@ export const marketplaceSearchSchema = z.object({
   /** The Bot template whose page is open, on the Agents tab. */
   template: z.string().optional(),
   /**
+   * The Marketplace plugin whose page is open, on the Apps tab, in place of the list.
+   *
+   * Cursor's ids are digits, and a typed or shared `?plugin=55647425` reaches the router as a
+   * number (its search parser reads JSON), so a number is accepted and read back as the string
+   * every lookup wants. `Link` writes a string id quoted, so the round trip never changes it.
+   */
+  plugin: z
+    .union([z.string(), z.number()])
+    .transform((value) => String(value))
+    .optional(),
+  /**
    * One category of the tab, shown in full, in place of the preview of every category. The Apps
    * tab reads Cursor's category keys; the Agents tab, a template category. Absent is All.
    */

@@ -1,0 +1,397 @@
+import {
+  IconArrowUpRight,
+  IconBolt,
+  IconChevronLeft,
+  IconLink,
+  IconPlug,
+  IconRosetteDiscountCheck,
+} from "@tabler/icons-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type * as React from "react";
+import { useEffect, useState } from "react";
+import { PluginAction } from "@/components/marketplace/plugin-action";
+import { VariablesDialog } from "@/components/marketplace/variables-dialog";
+import {
+  categoryLabel,
+  pluginRowState,
+  primaryCategory,
+} from "@/components/plugins/marketplace-catalogue";
+import { PluginLogo } from "@/components/plugins/plugin-logo";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { currentUserQueryOptions } from "@/lib/auth/queries";
+import {
+  installPluginMutationOptions,
+  uninstallPluginMutationOptions,
+} from "@/lib/plugins/mutations";
+import {
+  connectionsQueryOptions,
+  type MarketplacePluginDetail,
+  pluginDetailQueryOptions,
+  pluginsPageQueryOptions,
+} from "@/lib/plugins/queries";
+
+/**
+ * A plugin's own page inside the Marketplace, laid out like Grok Bot's: back chevron, the mark at
+ * 92px, the name with a link to the source, Share and Add on the right, the description, then the
+ * connectors it adds, the skills it brings, and a few facts in rows.
+ *
+ * Its own read (`/api/plugins/marketplace/:id`) rather than the listing's, because the page says
+ * things the list has no room for — where the source is pinned, what each skill does — and the
+ * list should stay the size of a list. Add here is the row's own Add: the same state machine, the
+ * same mutation, so the page and the row never disagree about what is left for the person to do.
+ *
+ * Remove lives here, for whoever installed it and for an administrator. A plugin whose servers
+ * take no account has no connected-account page, so until now there was nowhere to take it off.
+ */
+export function PluginDetail({
+  id,
+  onBack,
+}: {
+  id: string;
+  onBack: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const detail = useQuery(pluginDetailQueryOptions(id));
+  const connections = useQuery(connectionsQueryOptions());
+  const plugins = useQuery(pluginsPageQueryOptions());
+  const me = useQuery(currentUserQueryOptions());
+  const [error, setError] = useState<string | null>(null);
+  const [keyFor, setKeyFor] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const install = useMutation({
+    ...installPluginMutationOptions(queryClient),
+    onError: (thrown: Error) => setError(thrown.message),
+  });
+  const uninstall = useMutation({
+    ...uninstallPluginMutationOptions(queryClient),
+    onError: (thrown: Error) => setError(thrown.message),
+    onSuccess: onBack,
+  });
+
+  useEffect(() => {
+    if (!isCopied) return;
+    const timer = setTimeout(() => setIsCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [isCopied]);
+
+  const back = (
+    <Button
+      aria-label="Back to apps"
+      className="-ml-2 mb-4 self-start rounded-full"
+      onClick={onBack}
+      size="icon"
+      type="button"
+      variant="ghost"
+    >
+      <IconChevronLeft />
+    </Button>
+  );
+
+  if (detail.isPending) {
+    return (
+      <div className="flex flex-col">
+        {back}
+        <Skeleton className="h-[92px] w-full max-w-md rounded-2xl" />
+        <Skeleton className="mt-6 h-12 w-full" />
+        <Skeleton className="mt-6 h-40 w-full rounded-2xl" />
+      </div>
+    );
+  }
+  if (!detail.data) {
+    return (
+      <div className="flex flex-col">
+        {back}
+        <p className="text-destructive text-sm" role="alert">
+          This app couldn't be loaded.
+          {detail.error?.message ? ` ${detail.error.message}` : ""}
+        </p>
+      </div>
+    );
+  }
+
+  const { plugin, installed } = detail.data;
+  const state = pluginRowState(
+    plugin,
+    { installed: installed ? { [plugin.id]: installed } : {} },
+    connections.data?.connections ?? [],
+  );
+  const mayRemove =
+    installed !== null && (installed.mine || me.data?.role === "admin");
+  const source = sourceOf(plugin);
+
+  const share = async () => {
+    const address = `${window.location.origin}/marketplace?tab=apps&plugin=${encodeURIComponent(plugin.id)}`;
+    try {
+      await navigator.clipboard.writeText(address);
+      setIsCopied(true);
+    } catch {
+      setError("The link couldn't be copied.");
+    }
+  };
+
+  return (
+    <div className="flex flex-col">
+      {back}
+
+      {error ? (
+        <p className="mb-4 text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <header className="flex flex-wrap items-start gap-4">
+        <div className="flex size-[92px] shrink-0 items-center justify-center rounded-2xl bg-muted/60 [&_img]:size-12 [&_svg:not([class*='size-'])]:size-8">
+          <PluginLogo logo={plugin.logoUrl} />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1 self-stretch">
+          <h1 className="truncate text-2xl font-medium">{plugin.name}</h1>
+          <a
+            className="flex w-fit items-center gap-1 text-[15px] text-muted-foreground transition-colors hover:text-foreground"
+            href={source.url}
+            rel="noreferrer"
+            target="_blank"
+          >
+            View Source
+            <IconArrowUpRight aria-hidden="true" className="size-4" />
+          </a>
+        </div>
+        <div className="flex items-center gap-2 self-center">
+          <Button
+            className="h-10 rounded-full px-4 text-sm"
+            onClick={share}
+            type="button"
+            variant="secondary"
+          >
+            <IconLink aria-hidden="true" className="size-4" />
+            {isCopied ? "Copied" : "Share"}
+          </Button>
+          <PluginAction
+            appearance="page"
+            install={install}
+            onAddKey={setKeyFor}
+            onError={setError}
+            plugin={plugin}
+            state={state}
+          />
+        </div>
+      </header>
+
+      {plugin.description ? (
+        <p className="mt-6 text-[15px] leading-6 text-foreground/90">
+          {plugin.description}
+        </p>
+      ) : null}
+
+      <Group count={plugin.servers.length} title="Apps">
+        {plugin.servers.map((server) => (
+          <Row
+            key={server.serverId}
+            mark={<IconPlug aria-hidden="true" />}
+            summary={`Connector${server.vendor ? ` · ${server.vendor}` : ""} · ${accessSentence(server.authKind)}`}
+            title={server.name}
+          />
+        ))}
+      </Group>
+
+      <Group count={plugin.skills.length} title="Skills">
+        {plugin.skills.map((skill) => (
+          <Row
+            key={skill.slug}
+            mark={<IconBolt aria-hidden="true" />}
+            summary={skill.description ?? `/${skill.slug}`}
+            title={skill.name}
+          />
+        ))}
+      </Group>
+
+      <section aria-label="Information" className="mt-8">
+        <h2 className="mb-3 text-[15px] font-medium text-muted-foreground">
+          Information
+        </h2>
+        <dl className="rounded-2xl bg-muted/40 px-5">
+          <Fact label="Capabilities">
+            {countOf(plugin.servers.length, "app")},{" "}
+            {countOf(plugin.skills.length, "skill")}
+          </Fact>
+          <Fact label="Developer">
+            <span className="inline-flex items-center gap-1">
+              {plugin.publisher}
+              {plugin.verified ? (
+                <IconRosetteDiscountCheck
+                  aria-label="Verified"
+                  className="size-4 text-sky-500"
+                />
+              ) : null}
+            </span>
+          </Fact>
+          <Fact label="Category">{categoryLabel(primaryCategory(plugin))}</Fact>
+          <Fact label="Source">
+            <a
+              className="underline-offset-4 hover:underline"
+              href={source.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {source.label}
+            </a>
+          </Fact>
+          <Fact label="Access">{accessSummary(plugin)}</Fact>
+          {installed ? (
+            <Fact label="Added by">
+              {installed.mine ? "You" : (installed.installedBy ?? "Somebody")}
+              {" · "}
+              {new Date(installed.installedAt).toLocaleDateString()}
+            </Fact>
+          ) : null}
+        </dl>
+        {mayRemove ? (
+          <Button
+            className="mt-3 text-destructive hover:text-destructive"
+            disabled={uninstall.isPending}
+            onClick={() => {
+              setError(null);
+              uninstall.mutate(plugin.id);
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            {uninstall.isPending ? "Removing…" : "Remove plugin"}
+          </Button>
+        ) : null}
+      </section>
+
+      {keyFor !== null ? (
+        <VariablesDialog
+          onClose={() => setKeyFor(null)}
+          onConnected={() => setKeyFor(null)}
+          open
+          serverId={keyFor}
+          title={plugin.name}
+          variables={
+            (plugins.data?.servers ?? []).find((server) => server.id === keyFor)
+              ?.connectVariables ??
+            plugin.servers
+              .find((server) => server.serverId === keyFor)
+              ?.variables.map((name) => ({
+                name,
+                description: null,
+                writeOnly: true,
+                required: true,
+              })) ??
+            []
+          }
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** "Apps 1" over a card of rows; nothing at all when there are none. */
+function Group({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <section aria-label={title} className="mt-8">
+      <h2 className="mb-3 text-[15px] font-medium">
+        {title}{" "}
+        <span className="font-normal text-muted-foreground">{count}</span>
+      </h2>
+      <div className="flex flex-col divide-y divide-border/60 rounded-2xl bg-muted/40 px-5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Row({
+  mark,
+  title,
+  summary,
+}: {
+  mark: React.ReactNode;
+  title: string;
+  summary: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 py-3">
+      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-5">
+        {mark}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-[15px] font-medium">{title}</span>
+        <span className="line-clamp-2 text-sm text-muted-foreground">
+          {summary}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function Fact({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-6 border-b border-border/60 py-3 last:border-b-0">
+      <dt className="text-sm text-muted-foreground">{label}</dt>
+      <dd className="text-right text-sm">{children}</dd>
+    </div>
+  );
+}
+
+function countOf(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function accessSentence(
+  authKind: MarketplacePluginDetail["servers"][number]["authKind"],
+): string {
+  switch (authKind) {
+    case "none":
+      return "no account needed";
+    case "header":
+      return "your API key";
+    default:
+      return "connect your account";
+  }
+}
+
+/** What the plugin as a whole asks of the person, for the Information rows. */
+function accessSummary(plugin: MarketplacePluginDetail): string {
+  const kinds = new Set(plugin.servers.map((server) => server.authKind));
+  if (kinds.has("oauth-discover") || kinds.has("static-client")) {
+    return "Connect your account";
+  }
+  if (kinds.has("header")) return "Your API key";
+  if (kinds.has("none")) return "No account needed";
+  return "Skills only";
+}
+
+/** The repository at the pinned commit: a link, and "owner/repo" to show for it. */
+function sourceOf(plugin: MarketplacePluginDetail): {
+  url: string;
+  label: string;
+} {
+  const repository = plugin.gitUrl.replace(/\.git$/, "");
+  const path = plugin.gitPath.replace(/^\/+|\/+$/g, "");
+  const url = `${repository}/tree/${plugin.gitRef}${path ? `/${path}` : ""}`;
+  let label = repository;
+  try {
+    label = new URL(repository).pathname.replace(/^\/+/, "");
+  } catch {
+    // Not a URL the browser can parse: the whole string is the label.
+  }
+  return { url, label };
+}

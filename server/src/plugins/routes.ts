@@ -360,6 +360,33 @@ export function createPluginRoutes(
   });
 
   /**
+   * One plugin, whole: what its page shows that the row does not — where its source is, which
+   * host each connector reaches, what each skill does — and whether it is installed here. Its own
+   * read rather than more fields on the listing, so the list stays the size of a list.
+   */
+  routes.get("/marketplace/:id", requireUser, async (context) => {
+    const id = context.req.param("id");
+    const plugin = listablePlugins().find((candidate) => candidate.id === id);
+    if (!plugin) {
+      return context.json(
+        { error: "That plugin is not in the Marketplace." },
+        404,
+      );
+    }
+    const record = (await store.listPlugins()).find(
+      (installed) => installed.id === plugin.id,
+    );
+    context.header("Cache-Control", "private, max-age=300");
+    return context.json({
+      syncedAt: PLUGIN_INDEX_SYNCED_AT,
+      plugin: marketplaceDetailView(plugin),
+      installed: record
+        ? { ...record, mine: record.installedByUserId === context.var.actor.id }
+        : null,
+    });
+  });
+
+  /**
    * Install a Marketplace plugin, for every Bot.
    *
    * Any signed-in person, behind the same `connectApps` switch as Connect and Enable: a plugin is
@@ -3309,6 +3336,41 @@ function marketplaceView(plugin: IndexedPlugin) {
     skills: plugin.skills.map((skill) => ({
       name: skill.name,
       slug: skill.slug,
+    })),
+  };
+}
+
+/**
+ * The plugin's page: the listing's view plus where the source is pinned (for a link to the
+ * repository at that commit), which host each connector reaches, and what each skill does. Still
+ * no header templates and no skipped parts — those are the installer's.
+ */
+function marketplaceDetailView(plugin: IndexedPlugin) {
+  const view = marketplaceView(plugin);
+  const byId = new Map(
+    plugin.servers.map((server) => [server.serverId, server]),
+  );
+  const hostOf = (url: string | undefined): string | null => {
+    if (!url) return null;
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    ...view,
+    gitUrl: plugin.gitUrl,
+    gitRef: plugin.gitRef,
+    gitPath: plugin.gitPath,
+    servers: view.servers.map((server) => ({
+      ...server,
+      vendor: hostOf(byId.get(server.serverId)?.url),
+    })),
+    skills: plugin.skills.map((skill) => ({
+      name: skill.name,
+      slug: skill.slug,
+      description: skill.description,
     })),
   };
 }

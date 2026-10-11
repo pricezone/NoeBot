@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import type { AppVariables } from "../src/auth/guards";
 import { readConnectState } from "../src/plugins/oauth";
-import { pluginIndexEntry } from "../src/plugins/plugin-index";
+import { PLUGIN_INDEX, pluginIndexEntry } from "../src/plugins/plugin-index";
 import { createPluginRoutes } from "../src/plugins/routes";
 import {
   CatalogueEntryUnknownError,
@@ -265,6 +265,60 @@ describe("the Marketplace listing", () => {
     ).toBe(true);
     expect(body.installed[TREG.id]?.mine).toBe(true);
     expect(body.installed[AHREFS.id]?.mine).toBe(false);
+  });
+
+  test("one plugin's page says where its source is, what each connector reaches and what each skill does", async () => {
+    const { request } = harness({
+      plugins: [pluginRecord(TREG.id, "user-1")],
+    });
+    const response = await request(`/marketplace/${TREG.id}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, max-age=300");
+    const body = (await response.json()) as {
+      plugin: Record<string, unknown> & {
+        servers: { serverId: string; vendor: string | null }[];
+        skills: { slug: string; description: string | null }[];
+      };
+      installed: { mine: boolean } | null;
+    };
+    expect(body.plugin).toMatchObject({
+      id: TREG.id,
+      name: "Treg",
+      gitUrl: TREG.gitUrl,
+      gitRef: TREG.gitRef,
+      gitPath: TREG.gitPath,
+    });
+    expect(body.plugin.servers[0]?.vendor).toBe(
+      new URL(TREG.servers[0]?.url ?? "https://x.invalid").hostname,
+    );
+    expect(body.plugin.skills.map((skill) => skill.slug)).toEqual(
+      TREG.skills.map((skill) => skill.slug),
+    );
+    for (const skill of body.plugin.skills) {
+      expect(
+        skill.description === null || typeof skill.description === "string",
+      ).toBe(true);
+    }
+    // Still trimmed: no header templates and no skipped parts reach the browser.
+    expect(JSON.stringify(body.plugin)).not.toContain("headers");
+    expect(JSON.stringify(body.plugin)).not.toContain("skippedParts");
+    expect(body.installed?.mine).toBe(true);
+
+    const nobodys = await (
+      await harness({}).request(`/marketplace/${AHREFS.id}`)
+    ).json();
+    expect((nobodys as { installed: unknown }).installed).toBeNull();
+  });
+
+  test("a plugin that is not in the Marketplace, or runs nowhere here, has no page", async () => {
+    const { request } = harness();
+    expect((await request("/marketplace/nope")).status).toBe(404);
+    const unavailable = PLUGIN_INDEX.find(
+      (plugin) => plugin.availability === "unavailable",
+    );
+    if (!unavailable)
+      throw new Error("the committed index lost its unavailable fixtures");
+    expect((await request(`/marketplace/${unavailable.id}`)).status).toBe(404);
   });
 });
 
