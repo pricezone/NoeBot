@@ -340,13 +340,19 @@ export function createPluginRoutes(
    *
    * A trimmed view of the vendored index rather than the file: the tab needs names, logos,
    * categories, which servers want what, and which skills come along — not git refs, header
-   * templates or the parts that were skipped. Private and cached for a few minutes, because the
-   * index changes only with a build and the installed map only with a press of Add.
+   * templates or the parts that were skipped.
+   *
+   * NEVER CACHED BY THE BROWSER. This used to say `max-age=300`, on the thought that the index
+   * changes only with a build and the installed map only with a press of Add — and a press of Add
+   * was exactly what broke: the app's refetch after the install was answered out of the browser's
+   * cache with the map from before it, and the row went on saying Add. How long a read stays
+   * fresh is the app's query cache's decision, which knows when a write happened; the browser's
+   * does not.
    */
   routes.get("/marketplace", requireUser, async (context) => {
     const installed = await store.listPlugins();
     const me = context.var.actor.id;
-    context.header("Cache-Control", "private, max-age=300");
+    context.header("Cache-Control", "private, no-cache");
     return context.json({
       syncedAt: PLUGIN_INDEX_SYNCED_AT,
       plugins: listablePlugins().map((plugin) => marketplaceView(plugin)),
@@ -376,7 +382,7 @@ export function createPluginRoutes(
     const record = (await store.listPlugins()).find(
       (installed) => installed.id === plugin.id,
     );
-    context.header("Cache-Control", "private, max-age=300");
+    context.header("Cache-Control", "private, no-cache");
     return context.json({
       syncedAt: PLUGIN_INDEX_SYNCED_AT,
       plugin: marketplaceDetailView(plugin),

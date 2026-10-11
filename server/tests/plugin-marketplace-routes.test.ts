@@ -244,7 +244,8 @@ describe("the Marketplace listing", () => {
     });
     const response = await request("/marketplace");
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, max-age=300");
+    // Never cached by the browser: the refetch after Add must see the install, not the map before it.
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
     const body = (await response.json()) as {
       plugins: Record<string, unknown>[];
       installed: Record<string, { mine: boolean }>;
@@ -273,7 +274,7 @@ describe("the Marketplace listing", () => {
     });
     const response = await request(`/marketplace/${TREG.id}`);
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("private, max-age=300");
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
     const body = (await response.json()) as {
       plugin: Record<string, unknown> & {
         servers: { serverId: string; vendor: string | null }[];
