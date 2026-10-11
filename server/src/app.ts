@@ -13,12 +13,12 @@ import {
   sameToken,
 } from "./agents/callback-token";
 import { computerAccessCheck } from "./agents/computer-access";
-import type { FirstTurnStarter } from "./agents/first-turn";
 import {
   channelAttachmentFiles,
   createAgentFileRoutes,
   workspaceFiles,
 } from "./agents/files";
+import type { FirstTurnStarter } from "./agents/first-turn";
 import {
   type BotLifecycleServices,
   createBotLifecycleRoutes,
@@ -87,7 +87,6 @@ import { createDictationRoutes } from "./dictation/routes";
 import type { HostAccessBroker } from "./host-access/broker";
 import { createHostAccessRoutes } from "./host-access/routes";
 import { createIntelligenceClient } from "./intelligence-client";
-import type { SelfHostBanner } from "./self-host-banner";
 import {
   createLearningRoutes,
   type LearningAdminDependencies,
@@ -125,9 +124,11 @@ import { createRoutineRoutes, type RoutineStore } from "./routines/routes";
 import type { RoutineRunner } from "./routines/runner";
 import type { IntentRouter } from "./routing/classify";
 import { createRoutingRoutes } from "./routing/routes";
+import type { SelfHostBanner } from "./self-host-banner";
 import { createTeamBotRoutes } from "./team-bots/routes";
 import type { TeamBots } from "./team-bots/team-bots";
 import type { PackageStatusReader } from "./tenant-package";
+import { createUsageRoutes } from "./usage/routes";
 import {
   INSTRUCTIONS_LIMIT,
   InstructionsTooLongError,
@@ -135,7 +136,6 @@ import {
 } from "./user-instructions";
 import type { UserPreferencesStore } from "./user-preferences";
 import { userPreferencesRoutes } from "./user-preferences-routes";
-import { createUsageRoutes } from "./usage/routes";
 import { createVoiceProvider } from "./voice/provider";
 import { createVoiceRoutes } from "./voice/routes";
 import type { VoiceSessionServices } from "./voice/session-routes";
@@ -422,6 +422,12 @@ export function createApp(
     lifecycle?: BotLifecycleServices;
     /** A Bot made in one click speaking first in its new conversation. See agents/first-turn.ts. */
     firstTurn?: FirstTurnStarter;
+    /**
+     * Bot templates (`/api/bot-templates`), built by the caller because they need the tenant
+     * package and the agent profile store; mounted HERE, not onto the returned app, because of the
+     * SPA fallback at the end of this function. See the mount below for why.
+     */
+    botTemplates?: Hono<{ Variables: AppVariables }>;
   },
   /**
    * Whether to offer help self-hosting, which also hides it from a deployment that pays for
@@ -1678,6 +1684,21 @@ export function createApp(
         composio,
       ),
     );
+  }
+
+  /*
+   * Bot templates, under their own base: `/api/agents/:agentId` above would read `templates` as a
+   * Bot's id.
+   *
+   * Mounted inside this function rather than onto the app it returns. The static fallback at the
+   * end answers every `/api` path nothing above claimed with a 404, and Hono runs handlers in the
+   * order they were registered — so a sub-app routed onto the returned app is never reached on a
+   * server that serves the built app. Development (Vite, no `APP_DIST_DIR`) and the routes' own
+   * test (which mount the sub-app alone) never register that fallback, which is how a late mount
+   * passed everywhere except in production.
+   */
+  if (coworker?.botTemplates) {
+    app.route("/api/bot-templates", coworker.botTemplates);
   }
 
   /*

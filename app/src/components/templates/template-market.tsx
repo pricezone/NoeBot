@@ -1,10 +1,9 @@
 import { IconChevronDown, IconPlus } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
 import type * as React from "react";
-import { avatarSchemeOf, type AvatarColor } from "../../../../shared/avatar";
-import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
+import { useState } from "react";
+import { Pills } from "@/components/marketplace/pills";
 import type {
   MarketplaceSearch,
   SetMarketplaceSearch,
@@ -23,6 +22,8 @@ import {
   templateListQueryOptions,
 } from "@/lib/agents/queries";
 import { cn } from "@/lib/utils";
+import { type AvatarColor, avatarSchemeOf } from "../../../../shared/avatar";
+import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
 
 /**
  * The Agents tab, laid out like Grok Bot's Bot marketplace: category pills, a featured strip of
@@ -135,23 +136,6 @@ export function TemplateMarket({
   const showBots = category === undefined || category === YOUR_BOTS;
   const showTemplates = category !== YOUR_BOTS;
 
-  const pill = (key: string | undefined, label: string) => (
-    <button
-      aria-pressed={category === key}
-      className={cn(
-        "rounded-full px-[18px] py-2.5 text-sm font-medium transition-colors",
-        category === key
-          ? "bg-foreground text-background hover:brightness-90"
-          : "bg-foreground/[0.03] hover:bg-foreground/[0.07]",
-      )}
-      key={key ?? "all"}
-      onClick={() => show(key)}
-      type="button"
-    >
-      {label}
-    </button>
-  );
-
   const templateRow = (template: BotTemplate) => (
     <div
       className="flex items-center gap-3 rounded-xl px-3 py-1 transition-colors hover:bg-card"
@@ -239,11 +223,15 @@ export function TemplateMarket({
 
   return (
     <div className="flex w-full flex-col">
-      <div className="mt-1 flex flex-wrap gap-2">
-        {pill(undefined, "All")}
-        {pill(YOUR_BOTS, "Your Bots")}
-        {categories.map((name) => pill(name, name))}
-      </div>
+      <Pills
+        active={category}
+        className="mt-1"
+        items={[
+          { key: YOUR_BOTS, label: "Your Bots" },
+          ...categories.map((name) => ({ key: name, label: name })),
+        ]}
+        onSelect={show}
+      />
 
       {error ? (
         <p className="mt-4 text-destructive text-sm" role="alert">
@@ -255,8 +243,9 @@ export function TemplateMarket({
         templates.isPending ? (
           <Skeleton className="mt-6 h-[180px]" />
         ) : templates.isError && !templates.data ? (
+          /* In the read's own words, so what went wrong can be read off the screen. */
           <p className="mt-6 text-destructive text-sm" role="alert">
-            Bot templates couldn't be loaded.
+            {templates.error?.message || "Bot templates couldn't be loaded."}
           </p>
         ) : (
           <>

@@ -45,10 +45,10 @@ import {
 } from "./agents/lifecycle";
 import { createBotReset } from "./agents/lifecycle-reset";
 import { createAgentProfileStore } from "./agents/profile-store";
-import { agentDto } from "./agents/routes";
-import { createTemplateRoutes } from "./agents/templates";
 import type { AgentActor } from "./agents/profile-types";
+import { agentDto } from "./agents/routes";
 import { createRuntimeAgentLoader } from "./agents/runtime-agents";
+import { createTemplateRoutes } from "./agents/templates";
 import {
   createWakeUpRunner,
   createWakeUpStore,
@@ -77,7 +77,6 @@ import {
   parseApprovalContinuation,
   parseApprovalResult,
 } from "./approvals/types";
-import { streamPathBotId } from "./computer/stream-path";
 import {
   type AuditInitiator,
   createAuditReader,
@@ -141,6 +140,7 @@ import {
   describeComputerIsolation,
 } from "./computer/provider";
 import { createSnapshotStore } from "./computer/snapshot-store";
+import { streamPathBotId } from "./computer/stream-path";
 import { loadConfig } from "./config";
 import {
   type IdentifyActor,
@@ -186,7 +186,6 @@ import {
   observeIntelligenceAuthentication,
 } from "./intelligence-client";
 import { startKeepAwake } from "./keep-awake";
-import { createSelfHostBanner } from "./self-host-banner";
 import { clearLearningRevisionFallback } from "./learning/runtime";
 import { createLearningSettingsStore } from "./learning/settings";
 import { createMemoryIngestion } from "./memory/ingestion";
@@ -250,6 +249,7 @@ import { createRoutineRunner } from "./routines/runner";
 import { createRoutineStore } from "./routines/store";
 import { createIntentRouter } from "./routing/classify";
 import { createModelCompleter } from "./routing/model";
+import { createSelfHostBanner } from "./self-host-banner";
 import { createTeamBots } from "./team-bots/team-bots";
 import {
   createPackageStatusReader,
@@ -2946,6 +2946,36 @@ const selfHostBannerIntelligence = createIntelligenceClient(
   config.runtime.intelligence,
 );
 
+/*
+ * Bot templates: handed to `createApp`, which mounts them under `/api/bot-templates` before its
+ * static fallback (a mount onto the returned app would sit behind that fallback's 404 for every
+ * unclaimed `/api` path). The same `requireUser` the app builds, built the same way, so a
+ * single-user deployment and one with no provider answer as the agent routes do.
+ */
+const botTemplateRoutes = createTemplateRoutes({
+  templates: tenantPackage.templates,
+  store: agentProfileStore,
+  requireUser: config.singleUser
+    ? createDevRequireUser()
+    : auth && roleRepository
+      ? createRequireUser(auth, roleRepository)
+      : async (context) =>
+          context.json({ error: "No identity provider is configured." }, 503),
+  // On the package's authority: it wrote both the skill and the template that names it.
+  grantSkill: (slug, agentId, by) =>
+    pluginStore.grant("skill", slug, agentId, by),
+  appInstalled: async (key) =>
+    (await pluginStore.serverExists(key)) ||
+    (await pluginStore.listPlugins()).some((plugin) => plugin.id === key),
+  dto: (actor, agent) => ({
+    ...agentDto(actor, agent),
+    builtIn:
+      typeof agent.endpoint === "string" &&
+      agent.endpoint === config.managedAgent?.endpoint?.toString(),
+  }),
+  auditStore: createAuditStore(database),
+});
+
 const app = createApp(
   config,
   auth,
@@ -3113,6 +3143,7 @@ const app = createApp(
     groups: groupConversations,
     teamBots,
     firstTurn,
+    botTemplates: botTemplateRoutes,
     lifecycle: {
       lifecycle: createBotLifecycleStore(database),
       reset: createBotReset({
@@ -3143,38 +3174,6 @@ const app = createApp(
  * Not a Hono route because an upgrade is not a request/response: Bun hands it over before Hono sees a
  * body, so it is handled in `fetch` ahead of the app.
  */
-/*
- * Bot templates, under their own base: `/api/agents/:agentId` is registered inside `createApp`
- * and would read `templates` as a Bot's id. The same `requireUser` the app builds, built the same
- * way, so a single-user deployment and one with no provider answer as the agent routes do.
- */
-app.route(
-  "/api/bot-templates",
-  createTemplateRoutes({
-    templates: tenantPackage.templates,
-    store: agentProfileStore,
-    requireUser: config.singleUser
-      ? createDevRequireUser()
-      : auth && roleRepository
-        ? createRequireUser(auth, roleRepository)
-        : async (context) =>
-            context.json({ error: "No identity provider is configured." }, 503),
-    // On the package's authority: it wrote both the skill and the template that names it.
-    grantSkill: (slug, agentId, by) =>
-      pluginStore.grant("skill", slug, agentId, by),
-    appInstalled: async (key) =>
-      (await pluginStore.serverExists(key)) ||
-      (await pluginStore.listPlugins()).some((plugin) => plugin.id === key),
-    dto: (actor, agent) => ({
-      ...agentDto(actor, agent),
-      builtIn:
-        typeof agent.endpoint === "string" &&
-        agent.endpoint === config.managedAgent?.endpoint?.toString(),
-    }),
-    auditStore: createAuditStore(database),
-  }),
-);
-
 const toStreamUrl = (baseUrl: string, botId: string) =>
   // The Bot travels in the query, because a websocket upgrade carries no custom header for the
   // computer to read and every call it serves is per Bot. The secret travels the same way and for the

@@ -190,8 +190,9 @@ test("a failed read reports the failure on each of its lines, not an empty roste
   expect(
     await view.findByText("Shared with you couldn't be loaded."),
   ).toBeTruthy();
+  // The templates line is the read's own sentence, so a server's reason reaches the screen.
   expect(
-    await view.findByText("Bot templates couldn't be loaded."),
+    await view.findByText("Bot templates could not be loaded."),
   ).toBeTruthy();
   // A person with agents must never be told they have none because the request that would have
   // proven otherwise never came back.
