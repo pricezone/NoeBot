@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import type { AppVariables } from "../src/auth/guards";
+import { catalogueEntry } from "../src/plugins/catalogue";
 import { readConnectState } from "../src/plugins/oauth";
 import { createPluginRoutes } from "../src/plugins/routes";
 import {
@@ -104,6 +105,13 @@ function app(
       serverExists: async () => true,
       listServers: async () => [],
       ensureOAuthClient: async () => null,
+      // How a person is signed in, read off the catalogue as the product does for an entry.
+      oauthAuthFor: async (serverId: string) => {
+        const entry = catalogueEntry(serverId);
+        return entry?.auth.kind === "user-oauth"
+          ? { ...entry.auth, title: entry.title }
+          : null;
+      },
       ...store,
     } as never,
     signedIn(options.role),

@@ -7,6 +7,7 @@ import {
   redeemAuthorizationCode,
   sealConnectState,
 } from "../src/plugins/oauth";
+import { catalogueEntry } from "../src/plugins/catalogue";
 import { createPluginRoutes } from "../src/plugins/routes";
 
 /**
@@ -99,6 +100,13 @@ function app(input: {
     serverAddress: async () => undefined,
     // Every vendor here is already added, so connect goes straight to the client.
     serverExists: async () => true,
+    // How a person is signed in, read off the catalogue as the product does for an entry.
+    oauthAuthFor: async (serverId: string) => {
+      const entry = catalogueEntry(serverId);
+      return entry?.auth.kind === "user-oauth"
+        ? { ...entry.auth, title: entry.title }
+        : null;
+    },
     oauthClientFor: input.oauthClientFor ?? (async () => DYNAMIC),
     ensureOAuthClient: async () => DYNAMIC,
     recordConnection:

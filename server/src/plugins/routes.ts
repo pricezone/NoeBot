@@ -18,6 +18,7 @@ import {
 } from "./broker";
 import { CATALOGUE, catalogueEntry } from "./catalogue";
 import { toolkitOf, vendorSentence } from "./composio";
+import { fetchGithubRaw, githubRepositoryOf } from "./github-raw";
 import {
   authorizationUrlFor,
   type ConnectOrigin,
@@ -33,6 +34,14 @@ import {
   unrelayedState,
 } from "./oauth";
 import {
+  type IndexedPlugin,
+  listablePlugins,
+  PLUGIN_INDEX_SYNCED_AT,
+  pluginIndexEntry,
+  pluginIndexServer,
+} from "./plugin-index";
+import { parseSkillMarkdown } from "./skill-md";
+import {
   CatalogueEntryUnknownError,
   CustomServerRefusedError,
   deploymentFaultSentence,
@@ -41,6 +50,7 @@ import {
   type PluginKind,
   PluginRefusedError,
   type PluginStore,
+  type SkippedPluginPart,
 } from "./store";
 
 /**
@@ -251,6 +261,18 @@ export function createPluginRoutes(
     return owner === actor.id ? null : `${slug} is somebody else's skill.`;
   }
 
+  /** The sentence that keeps a plugin's skill with its plugin, for a save or a delete by anybody. */
+  async function pluginSkillRefusal(
+    context: { var: AppVariables },
+    slug: string,
+  ): Promise<string | null> {
+    const existing = (await store.listSkills(skillActor(context))).find(
+      (skill) => skill.slug === slug,
+    );
+    if (!existing?.pluginId) return null;
+    return `${slug} was installed from a Marketplace plugin, so it is replaced or removed with the plugin, not on its own.`;
+  }
+
   /** Everything the Plugins page draws: the catalogue, what is added, and the skills. */
   routes.get("/", requireUser, async (context) =>
     context.json({
@@ -311,6 +333,195 @@ export function createPluginRoutes(
       externalRedirectUri: connect?.externalRedirectUri ?? null,
     }),
   );
+
+  /**
+   * The Marketplace index, as the Apps tab draws it: every plugin something of which runs here,
+   * and which of them are installed.
+   *
+   * A trimmed view of the vendored index rather than the file: the tab needs names, logos,
+   * categories, which servers want what, and which skills come along — not git refs, header
+   * templates or the parts that were skipped. Private and cached for a few minutes, because the
+   * index changes only with a build and the installed map only with a press of Add.
+   */
+  routes.get("/marketplace", requireUser, async (context) => {
+    const installed = await store.listPlugins();
+    const me = context.var.actor.id;
+    context.header("Cache-Control", "private, max-age=300");
+    return context.json({
+      syncedAt: PLUGIN_INDEX_SYNCED_AT,
+      plugins: listablePlugins().map((plugin) => marketplaceView(plugin)),
+      installed: Object.fromEntries(
+        installed.map((plugin) => [
+          plugin.id,
+          { ...plugin, mine: plugin.installedByUserId === me },
+        ]),
+      ),
+    });
+  });
+
+  /**
+   * Install a Marketplace plugin, for every Bot.
+   *
+   * Any signed-in person, behind the same `connectApps` switch as Connect and Enable: a plugin is
+   * a public repository at a reviewed commit, its servers are at addresses the index already held
+   * to an administrator's floor, and nothing it installs reaches anybody's account until that
+   * person connects it themselves. The skills are read out of GitHub here, at the pinned commit,
+   * and a skill that cannot be read is left out with its reason rather than failing the install.
+   */
+  routes.post("/install", requireUser, async (context) => {
+    const body = (await context.req.json().catch(() => null)) as {
+      pluginId?: unknown;
+    } | null;
+    if (typeof body?.pluginId !== "string" || !body.pluginId.trim()) {
+      return context.json({ error: "A plugin id is required." }, 400);
+    }
+    const entry = pluginIndexEntry(body.pluginId.trim());
+    if (!entry) {
+      return context.json(
+        {
+          error: `${body.pluginId.trim()} is not a plugin in this deployment's marketplace.`,
+        },
+        404,
+      );
+    }
+    if (entry.availability === "catalogue") {
+      return context.json(
+        {
+          error: `${entry.displayName} is connected from the Marketplace's own Connect button.`,
+          catalogueKey: entry.catalogueKey,
+        },
+        409,
+      );
+    }
+    if (entry.availability === "unavailable") {
+      return context.json(
+        {
+          error: `${entry.displayName} cannot be installed here: ${unavailableSentence(entry.unavailableReason)}`,
+          unavailableReason: entry.unavailableReason,
+        },
+        400,
+      );
+    }
+
+    const repo = githubRepositoryOf(entry.gitUrl);
+    const skipped: SkippedPluginPart[] = [...entry.skippedParts];
+    const skills: {
+      slug: string;
+      title: string;
+      summary: string;
+      instructions: string;
+    }[] = [];
+    for (const skill of entry.skills) {
+      const fetched = repo
+        ? await fetchGithubRaw({ ...repo, ref: entry.gitRef, path: skill.path })
+        : ({ ok: false, reason: "refused" } as const);
+      if (!fetched.ok) {
+        skipped.push({
+          kind: "skill",
+          name: skill.name,
+          reason: fetched.reason,
+        });
+        continue;
+      }
+      const parsed = parseSkillMarkdown(fetched.text);
+      if (parsed.body.length === 0) {
+        skipped.push({ kind: "skill", name: skill.name, reason: "empty" });
+        continue;
+      }
+      if (parsed.body.length > 65_536) {
+        skipped.push({ kind: "skill", name: skill.name, reason: "too-large" });
+        continue;
+      }
+      const firstLine =
+        parsed.body
+          .split(/\r?\n/)
+          .map((line) => line.replace(/^#+\s*/, "").trim())
+          .find((line) => line.length > 0) ?? skill.name;
+      skills.push({
+        slug: skill.slug,
+        title: (parsed.name ?? skill.name).slice(0, 120),
+        summary: (parsed.description ?? firstLine).slice(0, 400),
+        instructions: parsed.body,
+      });
+    }
+    if (entry.servers.length === 0 && skills.length === 0) {
+      return context.json(
+        {
+          error: `Nothing of ${entry.displayName} could be installed right now. Try again later.`,
+          skipped,
+        },
+        502,
+      );
+    }
+
+    try {
+      const { plugin, created } = await store.installPlugin({
+        entry,
+        skills,
+        skipped,
+        by: actorEmail(context),
+        byUserId: context.var.actor.id,
+      });
+      const servers = (await store.listServers()).filter(
+        (server) => server.pluginId === entry.id,
+      );
+      const installedSkills = (
+        await store.listSkills(skillActor(context))
+      ).filter((skill) => skill.pluginId === entry.id);
+      return context.json({
+        plugin,
+        servers,
+        skills: installedSkills,
+        created,
+      });
+    } catch (error) {
+      if (
+        error instanceof PluginRefusedError ||
+        error instanceof CustomServerRefusedError
+      ) {
+        return context.json({ error: error.message }, 409);
+      }
+      if (isDeploymentFault(error)) {
+        return context.json({ error: deploymentFaultSentence(error) }, 409);
+      }
+      throw error;
+    }
+  });
+
+  /**
+   * Remove a Marketplace plugin: the person who installed it, or an administrator. Taking away is
+   * not gated by the capability switch, as revoking never is.
+   */
+  routes.delete("/install/:pluginId", requireUser, async (context) => {
+    const pluginId = context.req.param("pluginId");
+    const installed = (await store.listPlugins()).find(
+      (plugin) => plugin.id === pluginId,
+    );
+    if (!installed) {
+      return context.json({ error: `${pluginId} is not installed.` }, 404);
+    }
+    const actor = context.var.actor;
+    if (actor.role !== "admin" && installed.installedByUserId !== actor.id) {
+      return context.json(
+        {
+          error: `Only the person who installed ${installed.name}, or an administrator, can remove it.`,
+        },
+        403,
+      );
+    }
+    try {
+      await store.uninstallPlugin(pluginId, actorEmail(context));
+    } catch (error) {
+      if (error instanceof CatalogueEntryUnknownError) {
+        return context.json({ error: error.message }, 404);
+      }
+      if (isDeploymentFault(error)) {
+        return context.json({ error: deploymentFaultSentence(error) }, 409);
+      }
+      throw error;
+    }
+    return context.json({ ok: true });
+  });
 
   /** Add a curated server. The URL comes from the catalogue, never from the request. */
   routes.post("/servers", requireUser, async (context) => {
@@ -557,6 +768,16 @@ export function createPluginRoutes(
     if (forbidden) return forbidden;
 
     const serverId = context.req.param("id");
+    // A plugin's server leaves with its plugin, which takes the skills and the other servers too.
+    const address = await store.serverAddress(serverId);
+    if (address?.provenance === "plugin") {
+      return context.json(
+        {
+          error: `${address.title} was installed from a Marketplace plugin. Remove the plugin instead, from the Marketplace or the person's connected accounts.`,
+        },
+        409,
+      );
+    }
     try {
       await store.removeServer(serverId, actorEmail(context));
     } catch (error) {
@@ -1629,6 +1850,81 @@ export function createPluginRoutes(
       return context.json({ authorizationUrl: redirectUrl });
     }
 
+    /*
+     * A PLUGIN'S SERVER, answered by how its row says it is reached.
+     *
+     * Three of the four kinds end here. One that needs no account is already available, and says
+     * so. One that takes a token in a header is a form rather than a consent screen: asked with
+     * no values it answers what it wants (names and the plugin's descriptions, never a value);
+     * asked with them it stores them under this person and lists the server's tools as them. The
+     * two OAuth kinds fall through to the consent flow below, with the vendor's endpoints
+     * discovered on the way — the one difference from a catalogue vendor being where the
+     * endpoints come from.
+     */
+    if (row?.provenance === "plugin") {
+      if (row.authKind === "none") {
+        return context.json(
+          {
+            error: `${row.title} needs no account. It is already available to your Bots.`,
+          },
+          400,
+        );
+      }
+      if (row.authKind === "header") {
+        const body = (await context.req.json().catch(() => null)) as {
+          variables?: unknown;
+        } | null;
+        const submitted =
+          body?.variables &&
+          typeof body.variables === "object" &&
+          !Array.isArray(body.variables)
+            ? (body.variables as Record<string, unknown>)
+            : null;
+        if (submitted === null) {
+          return context.json({
+            variables: (await store.connectVariablesFor(serverId)) ?? [],
+          });
+        }
+        const values: Record<string, string> = {};
+        for (const [name, value] of Object.entries(submitted)) {
+          if (typeof value !== "string") {
+            return context.json({ error: `${name} has to be text.` }, 400);
+          }
+          values[name] = value;
+        }
+        try {
+          await store.recordHeaderConnection({
+            serverId,
+            userId: context.var.actor.id,
+            values,
+            by: actorEmail(context),
+          });
+        } catch (error) {
+          // Names only, never values: the store's refusals are written that way.
+          if (error instanceof PluginRefusedError) {
+            return context.json({ error: error.message }, 400);
+          }
+          if (isDeploymentFault(error)) {
+            return context.json({ error: deploymentFaultSentence(error) }, 409);
+          }
+          throw error;
+        }
+        // As the callback does for a grant: listed as the person, best effort.
+        try {
+          await store.refreshTools(serverId, context.var.actor.id);
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              type: "plugin-header-tools-not-refreshed",
+              serverId,
+              error: reasonWithoutStatement(error),
+            }),
+          );
+        }
+        return context.json({ connected: true });
+      }
+    }
+
     if (!connect?.publicUrl) {
       return context.json(
         {
@@ -1639,8 +1935,42 @@ export function createPluginRoutes(
       );
     }
 
+    /*
+     * How this person is signed in: a catalogue entry's pinned endpoints, or — for a plugin's
+     * server — the vendor's own, discovered now and cached on the row. The same function the
+     * callback and every exchange read, so the consent URL and the redemption cannot disagree.
+     */
+    if (row?.provenance === "plugin") {
+      if (
+        !(row.authKind === "oauth-discover" || row.authKind === "static-client")
+      ) {
+        return context.json(
+          { error: `${serverId} is not connected as an individual person.` },
+          400,
+        );
+      }
+      try {
+        await store.ensureOAuthDiscovery(serverId, actorEmail(context));
+      } catch (error) {
+        if (error instanceof PluginRefusedError) {
+          return context.json({ error: error.message }, 502);
+        }
+        if (isDeploymentFault(error)) {
+          return context.json({ error: deploymentFaultSentence(error) }, 409);
+        }
+        throw error;
+      }
+    } else if (!row && pluginIndexServer(serverId)) {
+      return context.json(
+        {
+          error: `${serverId} is not installed. Add its plugin from the Marketplace first.`,
+        },
+        404,
+      );
+    }
     const entry = catalogueEntry(serverId);
-    if (entry?.auth.kind !== "user-oauth") {
+    const auth = await store.oauthAuthFor(serverId);
+    if (entry?.auth.kind !== "user-oauth" && !auth) {
       return context.json(
         { error: `${serverId} is not connected as an individual person.` },
         400,
@@ -1663,7 +1993,7 @@ export function createPluginRoutes(
      * as the person who just consented. A fault on the `isDeploymentFault` shelf is answered the
      * way `POST /servers` answers it, since this is the same call on a route anybody may press.
      */
-    if (!(await store.serverExists(serverId))) {
+    if (entry && !(await store.serverExists(serverId))) {
       try {
         await store.addServer({
           key: serverId,
@@ -1677,6 +2007,14 @@ export function createPluginRoutes(
         throw error;
       }
     }
+    // Read after the add, which is what writes the row a catalogue entry's auth is resolved off.
+    const resolvedAuth = auth ?? (await store.oauthAuthFor(serverId));
+    if (!resolvedAuth) {
+      return context.json(
+        { error: `${serverId} is not connected as an individual person.` },
+        400,
+      );
+    }
 
     /*
      * The client to send them to the vendor with: the platform's where it configured one, the
@@ -1687,21 +2025,30 @@ export function createPluginRoutes(
      */
     const client: OAuthClient | null =
       (await store.oauthClientFor(serverId)) ??
-      (entry.auth.clientRegistration === "dynamic"
+      (resolvedAuth.clientRegistration === "dynamic"
         ? await store.ensureOAuthClient(serverId, actorEmail(context))
         : null);
     if (!client) {
-      if (entry.auth.clientRegistration === "dynamic") {
+      if (resolvedAuth.clientRegistration === "dynamic") {
         return context.json(
           {
-            error: `${entry.title} would not register this deployment, or could not be reached. Try again, and check the vendor's status if it persists.`,
+            error: `${resolvedAuth.title} would not register this deployment, or could not be reached. Try again, and check the vendor's status if it persists.`,
           },
           502,
         );
       }
+      if (row?.provenance === "plugin") {
+        // The plugin names a client of another product's, and the vendor registers none itself.
+        return context.json(
+          {
+            error: `${resolvedAuth.title} needs an OAuth client of this platform's (OPENBOT_PLUGIN_OAUTH_CLIENT_${serverId.toUpperCase().replaceAll("-", "_")}_ID), or a vendor that registers clients, and this deployment has neither.`,
+          },
+          409,
+        );
+      }
       return context.json(
         {
-          error: `${entry.title} has no OAuth client registered yet. An administrator has to add one first.`,
+          error: `${resolvedAuth.title} has no OAuth client registered yet. An administrator has to add one first.`,
         },
         409,
       );
@@ -1720,7 +2067,7 @@ export function createPluginRoutes(
     const verifier = createVerifier();
     return context.json({
       authorizationUrl: authorizationUrlFor({
-        auth: entry.auth,
+        auth: resolvedAuth,
         clientId: client.clientId,
         /*
          * The redirect URI follows the client, and the callback builds it from the same three
@@ -1764,6 +2111,14 @@ export function createPluginRoutes(
    */
   routes.post("/servers/:id/enable", requireUser, async (context) => {
     const key = context.req.param("id");
+    if (pluginIndexServer(key)) {
+      return context.json(
+        {
+          error: `${key} is installed from the Marketplace as a plugin, not enabled. Press Add on the plugin instead.`,
+        },
+        400,
+      );
+    }
     const entry = catalogueEntry(key);
     if (!entry) {
       return context.json(
@@ -2097,6 +2452,22 @@ export function createPluginRoutes(
    * ending their own account, not an administrator ending anybody's.
    */
   routes.delete("/servers/:id/connection", requireUser, async (context) => {
+    /*
+     * A HELD connection — a plugin server's token or grant, or a catalogue vendor's grant — is
+     * ended here, in the vault, and never sent anywhere; the trail says no vendor was asked.
+     * Only a row whose url names no broker app comes this way, so the brokered reading below
+     * keeps its own refusals.
+     */
+    const address = await store.serverAddress(context.req.param("id"));
+    if (address && toolkitOf(address.url) === null) {
+      return context.json(
+        await store.disconnectHeld({
+          serverId: address.id,
+          userId: context.var.actor.id,
+          by: context.var.actor.id,
+        }),
+      );
+    }
     const resolved = await brokeredAppFor(context.req.param("id"));
     if (resolved.refusal) {
       return context.json(
@@ -2240,17 +2611,22 @@ export function createPluginRoutes(
         return context.redirect(failed);
       }
 
-      const entry = catalogueEntry(state.serverId);
-      if (entry?.auth.kind !== "user-oauth") return context.redirect(failed);
+      // The same resolution the consent URL was built from: a catalogue entry's pinned endpoints,
+      // or the metadata the connect route discovered and cached for a plugin's server.
+      const auth = await store.oauthAuthFor(state.serverId);
+      if (!auth) return context.redirect(failed);
 
       const client = await store.oauthClientFor(state.serverId);
       if (!client) return context.redirect(failed);
 
       const grant = await redeemAuthorizationCode({
-        tokenUrl: entry.auth.tokenUrl,
+        tokenUrl: auth.tokenUrl,
         clientId: client.clientId,
         clientSecret: client.clientSecret,
         code,
+        ...(auth.authorizationParams?.resource
+          ? { resource: auth.authorizationParams.resource }
+          : {}),
         // The same three values the consent URL was built from, so the vendor is told the redirect
         // URI it actually sent the person to — a platform client's relay, or our own callback.
         redirectUri: redirectUriFor(
@@ -2427,6 +2803,9 @@ export function createPluginRoutes(
     // skill. Without this, saving over somebody else's name would silently take it.
     const refusal = await skillRefusal(context, body.slug);
     if (refusal) return context.json({ error: refusal }, 403);
+    // A plugin's skill is the plugin's: pinned to its commit, and replaced only with the plugin.
+    const pinned = await pluginSkillRefusal(context, body.slug);
+    if (pinned) return context.json({ error: pinned }, 409);
 
     /*
      * Absent leaves the declarations alone, so a caller that predates this field does not silently
@@ -2482,9 +2861,46 @@ export function createPluginRoutes(
     const slug = context.req.param("slug");
     const refusal = await skillRefusal(context, slug);
     if (refusal) return context.json({ error: refusal }, 403);
+    const pinned = await pluginSkillRefusal(context, slug);
+    if (pinned) return context.json({ error: pinned }, 409);
 
     await store.uninstallSkill(slug, actorEmail(context));
     return context.json({ ok: true });
+  });
+
+  /**
+   * Offer a skill to every Bot, or take that back and let the grant rows decide — the switch
+   * `POST /servers/:id/offer-to-all` is for a server, for a skill. An administrator's.
+   */
+  routes.post("/skills/:slug/offer-to-all", requireUser, async (context) => {
+    const forbidden = requireAdmin(context);
+    if (forbidden) return forbidden;
+
+    const body = (await context.req.json().catch(() => null)) as {
+      on?: unknown;
+    } | null;
+    if (typeof body?.on !== "boolean") {
+      return context.json(
+        { error: "Say whether to offer it to every Bot: on, true or false." },
+        400,
+      );
+    }
+    try {
+      const skill = await store.setSkillOfferedToAllBots(
+        context.req.param("slug"),
+        body.on,
+        actorEmail(context),
+      );
+      return context.json({ skill });
+    } catch (error) {
+      if (error instanceof CatalogueEntryUnknownError) {
+        return context.json(
+          { error: `${context.req.param("slug")} is not a skill here.` },
+          404,
+        );
+      }
+      throw error;
+    }
   });
 
   /**
@@ -2862,4 +3278,56 @@ export function createPluginRoutes(
   });
 
   return routes;
+}
+
+/**
+ * What the Apps tab needs of an index entry, and nothing it does not.
+ *
+ * No git ref, no header templates, no skipped parts: those are the installer's. The servers say
+ * how each is reached and what a `header` one asks for, which is what decides whether the row's
+ * button says Add, Connect or Add key.
+ */
+function marketplaceView(plugin: IndexedPlugin) {
+  return {
+    id: plugin.id,
+    slug: plugin.slug,
+    name: plugin.displayName,
+    description: plugin.description,
+    publisher: plugin.publisher.displayName,
+    verified: plugin.publisher.verified,
+    logoUrl: plugin.logoUrl,
+    categories: plugin.categories,
+    availability: plugin.availability,
+    catalogueKey: plugin.catalogueKey,
+    servers: plugin.servers.map((server) => ({
+      serverId: server.serverId,
+      name: server.name,
+      authKind:
+        server.auth.kind === "discover" ? "oauth-discover" : server.auth.kind,
+      variables: server.auth.kind === "header" ? server.auth.variables : [],
+    })),
+    skills: plugin.skills.map((skill) => ({
+      name: skill.name,
+      slug: skill.slug,
+    })),
+  };
+}
+
+/** Why a plugin is not installable, in a sentence for the person who asked anyway. */
+function unavailableSentence(reason: string | null): string {
+  switch (reason) {
+    case "stdio":
+      return "it runs a program on the computer it is installed on, and a server of ours does not.";
+    case "cursor-hosted":
+      return "its server is one only Cursor's own apps may reach.";
+    case "url-variable":
+    case "url-refused":
+      return "its server is at an address this deployment will not use.";
+    case "unpinned":
+      return "it is not pinned to a commit this deployment could review.";
+    case "hidden":
+      return "its publisher does not offer it to Bots.";
+    default:
+      return "nothing of it runs on a server.";
+  }
 }

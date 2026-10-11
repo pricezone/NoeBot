@@ -127,6 +127,12 @@ export const GATED_ROUTES: Rule[] = [
     path: /^\/api\/plugins\/servers\/[^/]+\/(connect|enable)$/,
     needs: async () => ["connectApps"],
   },
+  // Installing a Marketplace plugin is the same act for every Bot at once. Removing one is not gated.
+  {
+    method: "POST",
+    path: /^\/api\/plugins\/install$/,
+    needs: async () => ["connectApps"],
+  },
 ];
 
 function matches(rule: Rule, method: string, path: string) {

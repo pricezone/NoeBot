@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { MCPMock, type MCPToolDefinition } from "@copilotkit/aimock/mcp";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { catalogueEntry, classifyTool } from "../src/plugins/catalogue";
-import { listTools } from "../src/plugins/mcp";
+import { declaredEffect, listTools } from "../src/plugins/mcp";
 
 /**
  * What an MCP listing carries out of the transport, and what the classifier then makes of it.
@@ -179,5 +179,33 @@ describe("what an MCP listing tells the classifier", () => {
     expect(search?.effect).toBeUndefined();
     expect(search?.destructive).toBeUndefined();
     expect(classify(tools, "notion-search")).toBe("read");
+  });
+});
+
+describe("what a listing's hints are believed to say", () => {
+  // Pulled out of the listing because this is the one decision in it, and the trust flag is what
+  // distinguishes a server an administrator typed from one installed from a reviewed plugin.
+  test("destructiveHint narrows for everybody; readOnlyHint widens only where trusted", () => {
+    expect(declaredEffect({ destructiveHint: true })).toEqual({
+      effect: "write",
+      destructive: true,
+    });
+    expect(declaredEffect({ destructiveHint: true }, true)).toEqual({
+      effect: "write",
+      destructive: true,
+    });
+    expect(declaredEffect({ readOnlyHint: true })).toEqual({});
+    expect(declaredEffect({ readOnlyHint: true }, true)).toEqual({
+      effect: "read",
+    });
+    // Both hints is a server contradicting itself, read as destructive even when trusted.
+    expect(
+      declaredEffect({ readOnlyHint: true, destructiveHint: true }, true),
+    ).toEqual({
+      effect: "write",
+      destructive: true,
+    });
+    expect(declaredEffect(undefined, true)).toEqual({});
+    expect(declaredEffect({ readOnlyHint: false }, true)).toEqual({});
   });
 });

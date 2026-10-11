@@ -1,3 +1,7 @@
+import {
+  discoverAuthorizationServerMetadata,
+  discoverOAuthProtectedResourceMetadata,
+} from "@modelcontextprotocol/sdk/client/auth.js";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { type ApprovalGate, currentApprovalContext } from "../approvals/types";
 import {
@@ -38,6 +42,7 @@ import {
   mcpTools,
   mcpUserCredentials,
   pluginGrants,
+  plugins,
   skills,
   skillTools,
 } from "../db/schema";
@@ -59,6 +64,7 @@ import {
   schemeKind,
 } from "./broker";
 import {
+  type CatalogueAuth,
   type CatalogueEntry,
   catalogueEntry,
   classifyTool,
@@ -73,6 +79,7 @@ import {
   VERSION_ARG,
 } from "./composio";
 import { inspectToolArguments } from "./content-governance";
+import { placeholdersIn, renderHeaders } from "./header-template";
 import { type ListedTool, McpServerError } from "./mcp";
 import {
   type OAuthClientSource,
@@ -80,6 +87,11 @@ import {
   type TokenProxy,
   tokenRequestFor,
 } from "./oauth";
+import {
+  type IndexedPlugin,
+  PLUGIN_INDEX_SERVER_IDS,
+  pluginIndexServer,
+} from "./plugin-index";
 import { shareTargetOf } from "./share-target";
 import { transportFor } from "./transport";
 
@@ -209,6 +221,19 @@ export type ServerRecord = {
    * Null is not an older brokered row. It is a row that is not brokered at all.
    */
   authScheme: string | null;
+  /** The Marketplace plugin this server was installed from, and null for every other provenance. */
+  pluginId: string | null;
+  /** How a plugin server is reached (see the schema column); null for every other row. */
+  authKind: string | null;
+  /** `sse` for a plugin server on the older transport; null means Streamable HTTP. */
+  transport: "sse" | null;
+  /**
+   * What a person is asked for to connect a `header` plugin server: one entry per `${NAME}` in its
+   * templates, with the plugin's own description of it. Null for every other row.
+   */
+  connectVariables: ConnectVariable[] | null;
+  /** Whether a plugin OAuth server's sign-in endpoints have been discovered and cached yet. */
+  oauthDiscovered: boolean;
   tools: ToolRecord[];
   /**
    * Grants on tools this server no longer advertises.
@@ -247,6 +272,60 @@ export type ServerAddress = {
    * is a row that is not brokered.
    */
   authScheme: string | null;
+  provenance: string;
+  authKind: string | null;
+  pluginId: string | null;
+};
+
+/** One variable a `header` plugin server's templates name, as a connect form draws it. */
+export type ConnectVariable = {
+  name: string;
+  description: string | null;
+  /** A secret: the form masks it and nothing echoes it. */
+  writeOnly: boolean;
+  required: boolean;
+};
+
+/**
+ * What the vendor's `.well-known` documents said about signing in, cached on the server row.
+ *
+ * RFC 9728 for the resource (which authorization server, which scopes), RFC 8414 or OpenID
+ * discovery for the server itself. Dated, because the endpoints are the vendor's to move and a
+ * stale cache would send people to a consent screen that no longer exists.
+ */
+export type OAuthMetadata = {
+  /** The RFC 8707 resource indicator, sent on the consent and token requests when the vendor names one. */
+  resource: string | null;
+  authorizationServer: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  registrationEndpoint: string | null;
+  revocationEndpoint: string | null;
+  scopes: string[];
+  discoveredAt: string;
+};
+
+/** What a discovery answers, before it is validated and cached as {@link OAuthMetadata}. */
+export type DiscoveredOAuth = Omit<OAuthMetadata, "discoveredAt"> & {
+  /** `code_challenge_methods_supported`, when the vendor published it. */
+  codeChallengeMethods: string[] | null;
+};
+
+/** A part of a plugin that was not installed, and why. */
+export type SkippedPluginPart = { kind: string; name: string; reason: string };
+
+/** A Marketplace plugin as installed here. The ids are the rows that point at it, read by join. */
+export type PluginRecord = {
+  id: string;
+  slug: string;
+  name: string;
+  gitRef: string;
+  installedBy: string | null;
+  installedByUserId: string | null;
+  installedAt: string;
+  serverIds: string[];
+  skillSlugs: string[];
+  skipped: SkippedPluginPart[];
 };
 
 export type SkillRecord = {
@@ -259,6 +338,10 @@ export type SkillRecord = {
   instructions: string;
   origin: string;
   installedBy: string | null;
+  /** The Marketplace plugin this skill came with, and null for every other origin. */
+  pluginId: string | null;
+  /** Whether every Bot holds it without a grant row; see the schema column. */
+  offeredToAllBots: boolean;
   grantedTo: string[];
   /**
    * The tools this skill says it needs, as `<serverId>/<toolName>` refs.
@@ -896,6 +979,227 @@ function effectiveUrl(
   return resolveServerUrl(row.id)?.url ?? row.url;
 }
 
+/** A `user-oauth` auth block with the vendor's name beside it, whichever source it came from. */
+export type ResolvedUserOAuth = Extract<
+  CatalogueAuth,
+  { kind: "user-oauth" }
+> & {
+  title: string;
+};
+
+/** The two plugin auth kinds that sign a person in through OAuth metadata. */
+export function isPluginOAuthRow(row: {
+  provenance: string;
+  authKind: string | null;
+}): boolean {
+  return (
+    row.provenance === "plugin" &&
+    (row.authKind === "oauth-discover" || row.authKind === "static-client")
+  );
+}
+
+/** The cached discovery off a row, or null for a row that holds none or holds one this build cannot read. */
+export function readOAuthMetadata(value: unknown): OAuthMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const text = (field: unknown) => (typeof field === "string" ? field : null);
+  const authorizationServer = text(record.authorizationServer);
+  const authorizationEndpoint = text(record.authorizationEndpoint);
+  const tokenEndpoint = text(record.tokenEndpoint);
+  const discoveredAt = text(record.discoveredAt);
+  if (
+    !authorizationServer ||
+    !authorizationEndpoint ||
+    !tokenEndpoint ||
+    !discoveredAt
+  ) {
+    return null;
+  }
+  return {
+    resource: text(record.resource),
+    authorizationServer,
+    authorizationEndpoint,
+    tokenEndpoint,
+    registrationEndpoint: text(record.registrationEndpoint),
+    revocationEndpoint: text(record.revocationEndpoint),
+    scopes: Array.isArray(record.scopes)
+      ? record.scopes.filter(
+          (scope): scope is string => typeof scope === "string",
+        )
+      : [],
+    discoveredAt,
+  };
+}
+
+/**
+ * How a person is signed into this server, from whichever of the two sources knows.
+ *
+ * A catalogue entry's `user-oauth` block, pinned in code, as before. Or, for a server installed
+ * from a Marketplace plugin, the same shape synthesised from the OAuth metadata the vendor
+ * published and this deployment cached on the row — the authorization and token endpoints,
+ * dynamic registration where the vendor offers it, the scopes, and the RFC 8707 `resource` as an
+ * authorization parameter (which `authorizationUrlFor` passes through, since it is not one of the
+ * flow's own reserved names). ONE FUNCTION, read by the consent URL, the token redemption, the
+ * refresh exchange and the client registration, so the four cannot name different endpoints.
+ *
+ * Null for a plugin row nobody has connected yet (no metadata cached) and for every row that is
+ * not signed into at all.
+ */
+function resolvedOAuthFor(
+  row: {
+    provenance: string;
+    authKind: string | null;
+    title: string;
+    oauthMetadata: Record<string, unknown> | null;
+  },
+  entry: CatalogueEntry | null,
+): ResolvedUserOAuth | null {
+  if (entry?.auth.kind === "user-oauth") {
+    return { ...entry.auth, title: entry.title };
+  }
+  if (!isPluginOAuthRow(row)) return null;
+  const metadata = readOAuthMetadata(row.oauthMetadata);
+  if (!metadata) return null;
+  return {
+    kind: "user-oauth",
+    authorizationUrl: metadata.authorizationEndpoint,
+    tokenUrl: metadata.tokenEndpoint,
+    ...(metadata.revocationEndpoint
+      ? { revokeUrl: metadata.revocationEndpoint }
+      : {}),
+    scopes: metadata.scopes,
+    ...(metadata.registrationEndpoint
+      ? {
+          clientRegistration: "dynamic" as const,
+          registrationUrl: metadata.registrationEndpoint,
+        }
+      : {}),
+    ...(metadata.resource
+      ? { authorizationParams: { resource: metadata.resource } }
+      : {}),
+    title: row.title,
+  };
+}
+
+/** The header templates off a row, or none for a row that holds no usable ones. */
+function headerTemplatesOf(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  const templates: Record<string, string> = {};
+  for (const [name, template] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (typeof template === "string") templates[name] = template;
+  }
+  return templates;
+}
+
+/** The headers a plugin server sends as they stand, when none of them needs a person's value. */
+function staticHeadersOf(row: {
+  provenance: string;
+  authKind: string | null;
+  headerTemplates: Record<string, unknown> | null;
+}): Record<string, string> | undefined {
+  if (row.provenance !== "plugin" || row.authKind === "header")
+    return undefined;
+  const templates = headerTemplatesOf(row.headerTemplates);
+  if (Object.keys(templates).length === 0) return undefined;
+  const rendered = renderHeaders(templates, {});
+  return rendered.ok ? rendered.headers : undefined;
+}
+
+/** What a connect form asks for, for a `header` plugin server: the templates' variables, described by the plugin. */
+function connectVariablesOf(row: {
+  id: string;
+  provenance: string;
+  authKind: string | null;
+  headerTemplates: Record<string, unknown> | null;
+}): ConnectVariable[] | null {
+  if (row.provenance !== "plugin" || row.authKind !== "header") return null;
+  const indexed = pluginIndexServer(row.id);
+  return placeholdersIn(headerTemplatesOf(row.headerTemplates)).map((name) => {
+    const described = indexed?.plugin.variables[name];
+    return {
+      name,
+      description: described?.description ?? null,
+      // Unknown to the plugin's schema is still a token somebody pastes: masked. And required
+      // whatever the schema says, because a placeholder with no value is a header with a hole.
+      writeOnly: described?.writeOnly ?? true,
+      required: true,
+    };
+  });
+}
+
+/** How long a cached discovery is trusted before the vendor is asked again. */
+const OAUTH_METADATA_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/** A fetch for discovery: no redirects followed (a 3xx is not `ok`, which the SDK refuses), and bounded. */
+const discoveryFetch = (input: string | URL, init?: RequestInit) =>
+  fetch(input, {
+    ...init,
+    redirect: "manual",
+    signal: AbortSignal.timeout(10_000),
+  });
+
+/**
+ * The SDK's discovery, as the store's default `discover`.
+ *
+ * RFC 9728 first — the protected resource metadata names the authorization server and the
+ * scopes — and, where a vendor publishes none, the specification's older fallback: the server's
+ * own origin is the authorization server. Then RFC 8414 or OpenID discovery on that server. The
+ * resource's scopes win over the authorization server's, which is Cursor's reading too; a server
+ * whose `scopes_supported` lists every scope it has is not asking a person for all of them.
+ */
+async function discoverOAuthOverHttp(input: {
+  serverUrl: string;
+  resourceMetadataUrl: string | null;
+}): Promise<DiscoveredOAuth> {
+  const serverUrl = new URL(input.serverUrl);
+  let resource: string | null = null;
+  let authorizationServer = serverUrl.origin;
+  let resourceScopes: string[] = [];
+  try {
+    const published = await discoverOAuthProtectedResourceMetadata(
+      serverUrl,
+      input.resourceMetadataUrl
+        ? { resourceMetadataUrl: input.resourceMetadataUrl }
+        : undefined,
+      discoveryFetch,
+    );
+    resource = published.resource;
+    authorizationServer =
+      published.authorization_servers?.[0] ?? serverUrl.origin;
+    resourceScopes = published.scopes_supported ?? [];
+  } catch {
+    // No resource metadata: the server is its own authorization server, as the older flow had it.
+  }
+  const server = await discoverAuthorizationServerMetadata(
+    authorizationServer,
+    { fetchFn: discoveryFetch },
+  );
+  if (!server) {
+    throw new Error(
+      `no OAuth authorization server metadata at ${authorizationServer}`,
+    );
+  }
+  return {
+    resource,
+    authorizationServer,
+    authorizationEndpoint: server.authorization_endpoint,
+    tokenEndpoint: server.token_endpoint,
+    registrationEndpoint: server.registration_endpoint ?? null,
+    revocationEndpoint:
+      "revocation_endpoint" in server &&
+      typeof server.revocation_endpoint === "string"
+        ? server.revocation_endpoint
+        : null,
+    scopes:
+      resourceScopes.length > 0
+        ? resourceScopes
+        : (server.scopes_supported ?? []),
+    codeChallengeMethods: server.code_challenge_methods_supported ?? null,
+  };
+}
+
 /**
  * Trade a refresh token for a short-lived access token, at the vendor's own token endpoint.
  *
@@ -925,12 +1229,15 @@ export async function exchangeRefreshTokenOverHttp(input: {
    * See {@link TokenProxy}.
    */
   proxy?: TokenProxy;
+  /** The RFC 8707 resource indicator, for a plugin server whose metadata named one. */
+  resource?: string;
 }): Promise<AccessToken> {
   const params = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: input.refreshToken,
     client_id: input.client.clientId,
   });
+  if (input.resource) params.set("resource", input.resource);
   // A public (DCR) client proves itself without one, and some vendors refuse an unexpected empty
   // field outright. The same guard the authorization-code redemption in `oauth.ts` uses. A
   // platform-provided client has none here on purpose: the platform adds it.
@@ -1171,6 +1478,8 @@ export type PluginStoreOptions = {
     connection: {
       url: string;
       token?: string;
+      headers?: Record<string, string>;
+      transport?: "sse";
       actorId?: string;
       botId?: string;
     },
@@ -1184,7 +1493,18 @@ export type PluginStoreOptions = {
     refreshToken: string;
     /** Present for a platform-provided client: where the form goes instead, and the bearer. */
     proxy?: TokenProxy;
+    /** The RFC 8707 resource indicator a plugin server's metadata named, when it named one. */
+    resource?: string;
   }) => Promise<AccessToken>;
+  /**
+   * How a plugin server's OAuth endpoints are found: RFC 9728 on the server, then RFC 8414 or
+   * OpenID discovery on the authorization server it names. Defaults to the SDK's discovery over
+   * HTTP; injected so a test can hand a store a vendor that publishes exactly what it likes.
+   */
+  discover?: (input: {
+    serverUrl: string;
+    resourceMetadataUrl: string | null;
+  }) => Promise<DiscoveredOAuth>;
   /** RFC 7591 self-registration, for entries whose clientRegistration is dynamic. */
   registerClient?: (input: {
     registrationUrl: string;
@@ -1263,6 +1583,7 @@ export function createPluginStore(options: PluginStoreOptions) {
   const exchangeRefreshToken =
     options.exchangeRefreshToken ?? exchangeRefreshTokenOverHttp;
   const registerClient = options.registerClient ?? registerDynamicClient;
+  const discover = options.discover ?? discoverOAuthOverHttp;
   // No default, unlike the seams above: there is no real implementation in this tree to fall back
   // to, and a deployment with no Composio key is supposed to have no broker. See `./broker`.
   const broker = options.broker;
@@ -1486,6 +1807,10 @@ export function createPluginStore(options: PluginStoreOptions) {
       id: string;
       title: string;
       credentialId: string | null;
+      provenance: string;
+      authKind: string | null;
+      headerTemplates: Record<string, unknown> | null;
+      oauthMetadata: Record<string, unknown> | null;
       /*
        * NO `authScheme` HERE, DELIBERATELY. The scheme that decides whether a brokered call needs a
        * connection row is the APP'S, read through `brokeredAppScheme` below — and this row's own
@@ -1496,7 +1821,7 @@ export function createPluginStore(options: PluginStoreOptions) {
     entry: CatalogueEntry | null,
     actorId: string,
     access: ServerAccess,
-  ): Promise<{ token?: string }> {
+  ): Promise<{ token?: string; headers?: Record<string, string> }> {
     /*
      * A brokered app, where the deployment holds one key and Composio keeps the accounts apart.
      *
@@ -1634,6 +1959,76 @@ export function createPluginStore(options: PluginStoreOptions) {
       return {};
     }
 
+    /*
+     * A plugin server that takes the asking person's own token in a header.
+     *
+     * The same shape as the OAuth branch below, one step simpler: the person's values are held
+     * under their connection row as an encrypted JSON object, and are rendered into the templates
+     * the plugin's `mcp.json` declared. Nothing of the deployment's goes out, and no two people
+     * share a header. The same refusals as OAuth, in the same words, because from the person's
+     * side it is the same situation: nothing they can be called with until they connect.
+     */
+    if (access.credential === "person-header") {
+      if (!actorId) {
+        throw new PluginRefusedError(
+          `${row.title} runs with the token of the person asking, and this run is not attributed to anybody.`,
+          null,
+        );
+      }
+      const [held] = await database
+        .select({ credentialId: mcpUserCredentials.credentialId })
+        .from(mcpUserCredentials)
+        .where(
+          and(
+            eq(mcpUserCredentials.serverId, row.id),
+            eq(mcpUserCredentials.userId, actorId),
+          ),
+        )
+        .limit(1);
+      if (!held) {
+        throw new PluginRefusedError(
+          `You have not added your ${row.title} token. Add it in Settings and ask again.`,
+          null,
+        );
+      }
+      const decrypted = await secretFor(
+        held.credentialId,
+        `Your ${row.title} token was withdrawn. Add it again in Settings.`,
+      );
+      let values: Record<string, string> = {};
+      try {
+        const parsed: unknown = JSON.parse(decrypted);
+        if (parsed && typeof parsed === "object") {
+          for (const [name, value] of Object.entries(parsed)) {
+            if (typeof value === "string") values[name] = value;
+          }
+        }
+      } catch {
+        // The parser quotes what it choked on, which is the token: never relayed. See `currentClient`.
+        values = {};
+      }
+      const rendered = renderHeaders(
+        headerTemplatesOf(row.headerTemplates),
+        values,
+      );
+      if (!rendered.ok) {
+        throw new PluginRefusedError(
+          rendered.missing.length > 0
+            ? `Your ${row.title} token is missing ${rendered.missing.join(", ")}. Add it again in Settings.`
+            : `${row.title} names a header this deployment will not send. Remove the plugin and install it again.`,
+          null,
+        );
+      }
+      return { headers: rendered.headers };
+    }
+
+    /*
+     * A plugin server's own headers, for the servers whose headers hold no placeholder: a vendor's
+     * "which client is this" header, sent beside whatever credential the branch below picks.
+     * Templates with a placeholder are the `person-header` branch's, answered above.
+     */
+    const staticHeaders = staticHeadersOf(row);
+
     if (access.credential !== "person-oauth") {
       const token = row.credentialId
         ? await secretFor(
@@ -1641,7 +2036,7 @@ export function createPluginStore(options: PluginStoreOptions) {
             `${row.id} needs a credential this deployment no longer holds. An administrator has to add it again.`,
           )
         : undefined;
-      return { token };
+      return { token, ...(staticHeaders ? { headers: staticHeaders } : {}) };
     }
 
     /*
@@ -1656,7 +2051,19 @@ export function createPluginStore(options: PluginStoreOptions) {
      * out of the deployment's own credential is precisely the failure the comment above this function
      * says must be impossible.
      */
-    if (entry?.auth.kind !== "user-oauth") {
+    const auth = resolvedOAuthFor(row, entry);
+    if (!auth) {
+      /*
+       * A plugin server nobody has connected yet holds no cached metadata, so there is no token
+       * endpoint to exchange at; the connect route discovers it. Anything else here is the
+       * contradiction the comment above describes.
+       */
+      if (isPluginOAuthRow(row)) {
+        throw new PluginRefusedError(
+          `${row.title} has not been connected by anybody yet, so how it signs people in is not known. Connect it in Settings and ask again.`,
+          null,
+        );
+      }
       throw new PluginInvariantError(
         `${row.id} resolves to a per-person credential with no user-oauth catalogue entry.`,
       );
@@ -1695,15 +2102,14 @@ export function createPluginStore(options: PluginStoreOptions) {
 
     if (!held) {
       throw new PluginRefusedError(
-        `You have not connected your ${entry.title} account. Connect it in Settings and ask again.`,
+        `You have not connected your ${auth.title} account. Connect it in Settings and ask again.`,
         null,
       );
     }
 
-    // Held before the critical section, because narrowing does not survive into a closure and this
-    // is where the entry is known to be a `user-oauth` one.
-    const { tokenUrl } = entry.auth;
-    const { title } = entry;
+    // Held before the critical section, because narrowing does not survive into a closure.
+    const { tokenUrl, title } = auth;
+    const resource = auth.authorizationParams?.resource;
     /*
      * The platform's client, when it configured one for this vendor. It needs no vault row and no
      * pointer on the server row, and it is never replaced from here: see
@@ -1718,8 +2124,8 @@ export function createPluginStore(options: PluginStoreOptions) {
      * the platform's to act on.
      */
     const registrationUrl =
-      !envClient && entry.auth.clientRegistration === "dynamic"
-        ? entry.auth.registrationUrl
+      !envClient && auth.clientRegistration === "dynamic"
+        ? auth.registrationUrl
         : undefined;
 
     /*
@@ -1948,6 +2354,7 @@ export function createPluginStore(options: PluginStoreOptions) {
             tokenUrl,
             client: { clientId, clientSecret },
             refreshToken,
+            ...(resource ? { resource } : {}),
             ...(source === "env" && oauthTokenProxy
               ? { proxy: oauthTokenProxy }
               : {}),
@@ -1977,7 +2384,10 @@ export function createPluginStore(options: PluginStoreOptions) {
             );
           }
 
-          return { token: minted.accessToken };
+          return {
+            token: minted.accessToken,
+            ...(staticHeaders ? { headers: staticHeaders } : {}),
+          };
         });
       } catch (error) {
         /*
@@ -2351,8 +2761,8 @@ export function createPluginStore(options: PluginStoreOptions) {
     client: OAuthClientCredentials;
     by: string;
   }): Promise<void> {
-    const { entry } = await requireServer(input.serverId);
-    if (entry?.auth.kind !== "user-oauth") {
+    const { row, entry } = await requireServer(input.serverId);
+    if (entry?.auth.kind !== "user-oauth" && !isPluginOAuthRow(row)) {
       throw new CustomServerRefusedError(
         `${input.serverId} is not reached with an OAuth client.`,
       );
@@ -2520,10 +2930,27 @@ export function createPluginStore(options: PluginStoreOptions) {
   function requireNotBrokered(
     serverId: string,
     existing:
-      | { provenance: string; url: string; authScheme: string | null }
+      | {
+          provenance: string;
+          url: string;
+          authScheme: string | null;
+          authKind?: string | null;
+          pluginId?: string | null;
+        }
       | undefined,
   ) {
     if (!existing) return;
+    /*
+     * Nor over a plugin's server, for the same reason one step over: the row is one of several a
+     * plugin installed together, pointed at by the plugin row and holding people's own tokens or
+     * grants under it, and either add path would relabel it as something else at an address of
+     * the caller's choosing. The plugin is removed whole, and the name is then free.
+     */
+    if (existing.provenance === "plugin") {
+      throw new CustomServerRefusedError(
+        `${serverId} was installed from the Marketplace plugin ${existing.pluginId ?? "it belongs to"}, and people may have connected their accounts to it. Remove the plugin first — which takes its servers and skills with it — and the name is then free.`,
+      );
+    }
     if (accessFor(existing, null).credential !== "brokered") return;
     throw new CustomServerRefusedError(
       `${serverId} is a Composio app this deployment has enabled, and people may have connected their accounts to it. Remove the app first — which ends those accounts at Composio — and the name is then free.`,
@@ -2546,6 +2973,13 @@ export function createPluginStore(options: PluginStoreOptions) {
       // admissible no longer exists to check against, so there is nothing left that says this URL
       // is one we agreed to talk to.
       throw new CatalogueEntryUnknownError(row.id);
+    }
+    if (row.provenance === "plugin" && !row.pluginId) {
+      // A plugin row with no plugin: the pointer that says which install it belongs to is gone,
+      // which nothing in the product does. Refused on the invariant shelf rather than reached.
+      throw new PluginInvariantError(
+        `${row.id} says it was installed from a plugin and names none.`,
+      );
     }
     /*
      * Resolved here so every caller reads the same answer.
@@ -2627,6 +3061,8 @@ export function createPluginStore(options: PluginStoreOptions) {
         id: mcpServers.id,
         url: mcpServers.url,
         authScheme: mcpServers.authScheme,
+        authKind: mcpServers.authKind,
+        pluginId: mcpServers.pluginId,
       })
       .from(mcpServers)
       .where(inArray(mcpServers.url, urls))
@@ -2725,6 +3161,8 @@ export function createPluginStore(options: PluginStoreOptions) {
           // the answer's `reachedAs`, but the column travels with the other two so no caller has
           // to know which of the four answers the one it wants depends on.
           authScheme: mcpServers.authScheme,
+          authKind: mcpServers.authKind,
+          pluginId: mcpServers.pluginId,
         })
         .from(mcpServers)
         .where(eq(mcpServers.id, resolved.entry.key));
@@ -2894,6 +3332,17 @@ export function createPluginStore(options: PluginStoreOptions) {
           `Names beginning composio- belong to the Composio apps this deployment enables, so ${input.id} is not a name a server added by URL can take. Choose another.`,
         );
       }
+      /*
+       * NOR A NAME THE MARKETPLACE INDEX MINTS, whether or not the plugin is installed today, for
+       * the reason the `composio-` reservation gives: the index is what a reader of a grant or a
+       * policy rule relies on, and a typed endpoint sitting where a plugin's server would land
+       * inherits rules written about the plugin.
+       */
+      if (PLUGIN_INDEX_SERVER_IDS.has(input.id)) {
+        throw new CustomServerRefusedError(
+          `${input.id} is the name a Marketplace plugin's server takes here, so a server added by URL cannot take it. Choose another.`,
+        );
+      }
       if (!/^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/.test(input.id)) {
         throw new CustomServerRefusedError(
           "A server name is lower-case letters, numbers and hyphens.",
@@ -2950,6 +3399,8 @@ export function createPluginStore(options: PluginStoreOptions) {
           provenance: mcpServers.provenance,
           // The third of what `accessFor` resolves a row with. See there.
           authScheme: mcpServers.authScheme,
+          authKind: mcpServers.authKind,
+          pluginId: mcpServers.pluginId,
         })
         .from(mcpServers)
         .where(eq(mcpServers.id, input.id));
@@ -3464,6 +3915,8 @@ export function createPluginStore(options: PluginStoreOptions) {
           url: mcpServers.url,
           // The third of what `accessFor` resolves a row with. See there.
           authScheme: mcpServers.authScheme,
+          authKind: mcpServers.authKind,
+          pluginId: mcpServers.pluginId,
         })
         .from(mcpServers)
         .where(eq(mcpServers.id, serverId));
@@ -3825,13 +4278,17 @@ export function createPluginStore(options: PluginStoreOptions) {
          * their personal settings page to grant access, so that a token could be minted and handed to
          * a function that discards it. The gate outlived the reason for it.
          */
-        const token = transport.listNeedsCredential
-          ? (await connectionTokenFor(row, entry, actorId, access)).token
-          : undefined;
+        const credential = transport.listNeedsCredential
+          ? await connectionTokenFor(row, entry, actorId, access)
+          : {};
 
         listed = await transport.listTools({
           url: effectiveUrl(row, entry),
-          token,
+          token: credential.token,
+          headers: credential.headers,
+          transport: row.transport === "sse" ? "sse" : undefined,
+          // Only a plugin's server is believed about its own read-only tools; see `declaredEffect`.
+          trustReadOnlyHint: row.provenance === "plugin",
         });
       } catch (error) {
         /*
@@ -4207,36 +4664,55 @@ export function createPluginStore(options: PluginStoreOptions) {
 
       return rows.map((row) => {
         const entry = catalogueEntry(row.id);
+        const indexed =
+          row.provenance === "plugin" ? pluginIndexServer(row.id) : null;
+        const metadata = isPluginOAuthRow(row)
+          ? readOAuthMetadata(row.oauthMetadata)
+          : null;
+        /*
+         * Whether a person is signed into this server with an OAuth client at all: a `user-oauth`
+         * entry, or a plugin server reached through the vendor's OAuth metadata. A bearer server's
+         * `credential_id` is its token, and reporting that as a stored client would tell the
+         * screen to draw a client where there is none to show.
+         */
+        const signsIn =
+          entry?.auth.kind === "user-oauth" || isPluginOAuthRow(row);
         return {
           id: row.id,
           title: row.title,
           logo: row.logo,
           vendor: row.vendor,
           url: effectiveUrl(row, entry),
-          summary: entry?.summary ?? "",
-          docsUrl: entry?.docsUrl ?? "",
+          summary: entry?.summary ?? indexed?.plugin.description ?? "",
+          docsUrl: entry?.docsUrl ?? indexed?.plugin.gitUrl ?? "",
           provenance: row.provenance,
           hasCredential: row.credentialId !== null,
           toolsRefreshedAt: iso(row.toolsRefreshedAt),
           lastError: row.lastError,
           addedBy: row.addedBy,
-          dynamicClient:
-            entry?.auth.kind === "user-oauth" &&
-            entry.auth.clientRegistration === "dynamic",
           /*
-           * Only a `user-oauth` entry has a client at all. A bearer server's `credential_id` is its
-           * token, and reporting that as a stored client would tell the screen to draw a client
-           * where there is none to show.
+           * A plugin server registers itself where the vendor publishes a registration endpoint —
+           * and, until discovery has run, is assumed to, so the admin screen does not ask for a
+           * pasted client on a vendor that will hand one out on the first connect.
            */
-          oauthClientSource:
-            entry?.auth.kind === "user-oauth"
-              ? envOAuthClients[row.id]
-                ? "env"
-                : row.credentialId !== null
-                  ? "stored"
-                  : null
-              : null,
+          dynamicClient:
+            (entry?.auth.kind === "user-oauth" &&
+              entry.auth.clientRegistration === "dynamic") ||
+            (isPluginOAuthRow(row) &&
+              (metadata === null || metadata.registrationEndpoint !== null)),
+          oauthClientSource: signsIn
+            ? envOAuthClients[row.id]
+              ? "env"
+              : row.credentialId !== null
+                ? "stored"
+                : null
+            : null,
           offeredToAllBots: row.offeredToAllBots,
+          pluginId: row.pluginId,
+          authKind: row.authKind,
+          transport: row.transport === "sse" ? "sse" : null,
+          connectVariables: connectVariablesOf(row),
+          oauthDiscovered: metadata !== null,
           // The app's, for a row whose url names one; this row's own column for everything else,
           // which is a null on every server that is not brokered. See the read above.
           authScheme: toolkitOf(row.url)
@@ -4322,7 +4798,10 @@ export function createPluginStore(options: PluginStoreOptions) {
           id: mcpServers.id,
           title: mcpServers.title,
           url: mcpServers.url,
+          provenance: mcpServers.provenance,
           authScheme: mcpServers.authScheme,
+          authKind: mcpServers.authKind,
+          pluginId: mcpServers.pluginId,
         })
         .from(mcpServers)
         .where(eq(mcpServers.id, serverId))
@@ -4384,6 +4863,8 @@ export function createPluginStore(options: PluginStoreOptions) {
         instructions: row.instructions,
         origin: row.origin,
         installedBy: row.installedBy,
+        pluginId: row.pluginId,
+        offeredToAllBots: row.offeredToAllBots,
         grantedTo: grants.get(row.slug) ?? [],
         tools: declared.get(row.id) ?? [],
       }));
@@ -4487,6 +4968,14 @@ export function createPluginStore(options: PluginStoreOptions) {
        */
       tools?: string[];
       by: string;
+      /** The Marketplace plugin this skill came with. Written on insert only, like the flag below. */
+      pluginId?: string | null;
+      /**
+       * Offered to every Bot without a grant row. INSERT ONLY: a re-save never moves it, for the
+       * reason `addServer` gives about its own flag — an administrator's narrowing must survive
+       * whatever a later save says.
+       */
+      offeredToAllBots?: boolean;
     }): Promise<void> {
       /*
        * Checked before anything is written, so a save is all-or-nothing from the caller's side: a
@@ -4521,6 +5010,8 @@ export function createPluginStore(options: PluginStoreOptions) {
           instructions: input.instructions,
           origin: input.origin ?? "yours",
           installedBy: input.by,
+          pluginId: input.pluginId ?? null,
+          offeredToAllBots: input.offeredToAllBots === true,
         })
         // Editing keeps the owner it already had. Whose a skill is, is not something a re-save
         // should quietly change, and the route has already checked this person may edit it.
@@ -4714,6 +5205,50 @@ export function createPluginStore(options: PluginStoreOptions) {
     },
 
     /**
+     * The same switch for a skill: offered to every Bot, or back to the grant rows deciding.
+     *
+     * A plugin's skills arrive offered to every Bot, as its servers do, so an administrator needs
+     * the same way to narrow one. Recorded as a configuration change like the server's is.
+     */
+    async setSkillOfferedToAllBots(
+      slug: string,
+      on: boolean,
+      by: string,
+    ): Promise<SkillRecord> {
+      const [row] = await database
+        .select({ id: skills.id })
+        .from(skills)
+        .where(eq(skills.slug, slug))
+        .limit(1);
+      if (!row) throw new CatalogueEntryUnknownError(slug);
+
+      await database
+        .update(skills)
+        .set({ offeredToAllBots: on, updatedAt: new Date() })
+        .where(eq(skills.slug, slug));
+
+      await recordAuditEvent(auditStore, {
+        eventType: "configuration.changed",
+        targetType: "skill",
+        targetId: slug,
+        payload: {
+          actor: by,
+          change: on
+            ? "skill_offered_to_all_bots"
+            : "skill_restricted_to_granted_bots",
+          skill: slug,
+          offeredToAllBots: on,
+        },
+      });
+
+      const skill = (await this.listSkills()).find(
+        (candidate) => candidate.slug === slug,
+      );
+      if (!skill) throw new CatalogueEntryUnknownError(slug);
+      return skill;
+    },
+
+    /**
      * Everything one Bot may use. The runtime asks this and offers exactly what comes back.
      *
      * TWO SOURCES, ONE ANSWER, AND {@link decide} READS THE SAME TWO. A grant row is the explicit,
@@ -4723,7 +5258,7 @@ export function createPluginStore(options: PluginStoreOptions) {
      * server is being offered what it advertises, never a name nothing listed.
      */
     async listForAgent(agentId: string): Promise<GrantedPlugins> {
-      const [held, offered] = await Promise.all([
+      const [held, offered, offeredSkills] = await Promise.all([
         database
           .select()
           .from(pluginGrants)
@@ -4732,17 +5267,29 @@ export function createPluginStore(options: PluginStoreOptions) {
           .select({ id: mcpServers.id })
           .from(mcpServers)
           .where(eq(mcpServers.offeredToAllBots, true)),
+        // The same flag on a skill, read the same way: a plugin's playbooks reach every Bot.
+        database
+          .select({ slug: skills.slug })
+          .from(skills)
+          .where(eq(skills.offeredToAllBots, true)),
       ]);
       const offeredServers = new Set(offered.map((row) => row.id));
-      if (held.length === 0 && offeredServers.size === 0)
+      if (
+        held.length === 0 &&
+        offeredServers.size === 0 &&
+        offeredSkills.length === 0
+      )
         return { tools: [], skills: [] };
 
       const toolRefs = held
         .filter((row) => row.kind === "mcp")
         .map((row) => row.ref);
-      const skillSlugs = held
-        .filter((row) => row.kind === "skill")
-        .map((row) => row.ref);
+      const skillSlugs = [
+        ...new Set([
+          ...held.filter((row) => row.kind === "skill").map((row) => row.ref),
+          ...offeredSkills.map((row) => row.slug),
+        ]),
+      ];
 
       /*
        * Narrowed in the query to the servers this Bot is actually granted something from, the same way
@@ -4858,17 +5405,17 @@ export function createPluginStore(options: PluginStoreOptions) {
       const stored = await storedOAuthClient(serverId);
       if (stored) return stored;
 
-      const { entry } = await requireServer(serverId);
+      const { row, entry } = await requireServer(serverId);
+      const auth = resolvedOAuthFor(row, entry);
       if (
-        entry?.auth.kind !== "user-oauth" ||
-        entry.auth.clientRegistration !== "dynamic" ||
-        !entry.auth.registrationUrl ||
+        auth?.clientRegistration !== "dynamic" ||
+        !auth.registrationUrl ||
         !options.redirectUri
       ) {
         return null;
       }
       // Held before the lock, because narrowing does not survive into the closure below.
-      const { registrationUrl } = entry.auth;
+      const { registrationUrl } = auth;
       const { redirectUri } = options;
 
       const outcome = await withOAuthClientLock(
@@ -4935,6 +5482,611 @@ export function createPluginStore(options: PluginStoreOptions) {
           scope: input.scope,
           reconnected: replaced,
         },
+      });
+    },
+
+    /**
+     * How a person is signed into this server, or null for a server nobody signs into — or a
+     * plugin server nobody has connected yet. See {@link resolvedOAuthFor}; this is its door for
+     * the routes, which hold an id and not a row. Null too for an id naming no server.
+     */
+    async oauthAuthFor(serverId: string): Promise<ResolvedUserOAuth | null> {
+      let resolved: Awaited<ReturnType<typeof requireServer>>;
+      try {
+        resolved = await requireServer(serverId);
+      } catch (error) {
+        if (error instanceof CatalogueEntryUnknownError) return null;
+        throw error;
+      }
+      return resolvedOAuthFor(resolved.row, resolved.entry);
+    },
+
+    /**
+     * The vendor's sign-in endpoints for a plugin server, discovered once and cached on the row.
+     *
+     * RFC 9728 on the server, then RFC 8414 or OpenID discovery on the authorization server it
+     * names — the way every MCP client finds them, and the way Cursor connects the same plugins.
+     * Under the server's client lock and re-read inside it, so two people pressing Connect on a
+     * fresh plugin discover once; the vendor is asked again only when the cache is older than
+     * {@link OAUTH_METADATA_TTL_MS}.
+     *
+     * EVERY ENDPOINT PASSES THE SAME FLOOR AN ADMINISTRATOR'S URL DOES. A vendor's metadata is a
+     * document somebody else wrote, and the token endpoint is where this deployment sends people's
+     * authorization codes; one naming an internal address, or a plain-http one, is refused whole
+     * rather than cached in part. PKCE S256 is required where the vendor says what it supports.
+     */
+    async ensureOAuthDiscovery(
+      serverId: string,
+      by: string,
+    ): Promise<OAuthMetadata> {
+      const { row } = await requireServer(serverId);
+      if (!isPluginOAuthRow(row)) {
+        throw new PluginRefusedError(
+          `${row.title} is not signed into through the vendor's OAuth metadata.`,
+          null,
+        );
+      }
+      const fresh = (
+        metadata: OAuthMetadata | null,
+      ): metadata is OAuthMetadata =>
+        metadata !== null &&
+        Date.now() - Date.parse(metadata.discoveredAt) < OAUTH_METADATA_TTL_MS;
+      const cached = readOAuthMetadata(row.oauthMetadata);
+      if (fresh(cached)) return cached;
+
+      const indexed = pluginIndexServer(serverId);
+      const hint =
+        indexed?.server.auth.kind === "discover"
+          ? indexed.server.auth.resourceMetadataUrl
+          : null;
+      const declaredScopes =
+        indexed?.server.auth.kind === "static-client"
+          ? indexed.server.auth.scopes
+          : [];
+
+      const outcome = await withOAuthClientLock(
+        serverId,
+        async (transaction) => {
+          const [current] = await transaction
+            .select({ oauthMetadata: mcpServers.oauthMetadata })
+            .from(mcpServers)
+            .where(eq(mcpServers.id, serverId))
+            .limit(1);
+          const held = readOAuthMetadata(current?.oauthMetadata ?? null);
+          if (fresh(held)) return { metadata: held, discovered: false };
+
+          let found: DiscoveredOAuth;
+          try {
+            found = await discover({
+              serverUrl: row.url,
+              resourceMetadataUrl: hint,
+            });
+          } catch (error) {
+            console.error(
+              JSON.stringify({
+                type: "plugin-oauth-discovery-failed",
+                server: serverId,
+                error: reasonWithoutStatement(error),
+              }),
+            );
+            throw new PluginRefusedError(
+              `${row.title} did not say how to sign in (no OAuth metadata at ${new URL(row.url).hostname}). Try again later, and ask an administrator to check the plugin if it persists.`,
+              null,
+            );
+          }
+
+          for (const endpoint of [
+            found.authorizationEndpoint,
+            found.tokenEndpoint,
+            found.registrationEndpoint,
+            found.revocationEndpoint,
+          ]) {
+            if (endpoint !== null && customUrlRefusal(endpoint) !== null) {
+              throw new PluginRefusedError(
+                `${row.title} published a sign-in address this deployment will not use, so it cannot be connected.`,
+                null,
+              );
+            }
+          }
+          if (
+            found.codeChallengeMethods !== null &&
+            !found.codeChallengeMethods.includes("S256")
+          ) {
+            throw new PluginRefusedError(
+              `${row.title} does not support PKCE (S256), which every sign-in this deployment runs requires, so it cannot be connected.`,
+              null,
+            );
+          }
+
+          const metadata: OAuthMetadata = {
+            resource: found.resource,
+            authorizationServer: found.authorizationServer,
+            authorizationEndpoint: found.authorizationEndpoint,
+            tokenEndpoint: found.tokenEndpoint,
+            registrationEndpoint: found.registrationEndpoint,
+            revocationEndpoint: found.revocationEndpoint,
+            scopes: declaredScopes.length > 0 ? declaredScopes : found.scopes,
+            discoveredAt: new Date().toISOString(),
+          };
+          await transaction
+            .update(mcpServers)
+            .set({ oauthMetadata: metadata, updatedAt: new Date() })
+            .where(eq(mcpServers.id, serverId));
+          return { metadata, discovered: true };
+        },
+      );
+
+      if (outcome.discovered) {
+        await recordAuditEvent(auditStore, {
+          eventType: "configuration.changed",
+          targetType: "mcp_server",
+          targetId: serverId,
+          payload: {
+            actor: by,
+            change: "mcp_oauth_discovered",
+            server: serverId,
+            // Endpoints are published documents, not secrets: named so the trail says where
+            // people are being sent.
+            authorizationServer: outcome.metadata.authorizationServer,
+            registration: outcome.metadata.registrationEndpoint !== null,
+          },
+        });
+      }
+      return outcome.metadata;
+    },
+
+    /** What a `header` plugin server asks a person for, by server id; null for every other row. */
+    async connectVariablesFor(
+      serverId: string,
+    ): Promise<ConnectVariable[] | null> {
+      const { row } = await requireServer(serverId);
+      return connectVariablesOf(row);
+    },
+
+    /**
+     * Record one person's own token for a `header` plugin server.
+     *
+     * The values go into the vault under the same key an OAuth grant does — kind `mcp_user_token`,
+     * provider the server, key the person — as one encrypted JSON object, so everything that
+     * revokes a person's grants (`removeServer`, `retireConnectionsFor`, a disconnect) revokes
+     * these without knowing they are different. The connection row is the same row too, which is
+     * what lists the server as connected on the person's settings page.
+     *
+     * Only the names a template asks for are taken, and all of them must be: a token with a hole
+     * in it would be refused by the vendor in words about the wrong thing. Nothing of a value is
+     * written anywhere but the vault — the trail carries the names.
+     */
+    async recordHeaderConnection(input: {
+      serverId: string;
+      userId: string;
+      values: Record<string, string>;
+      by: string;
+    }): Promise<void> {
+      const { row } = await requireServer(input.serverId);
+      if (row.provenance !== "plugin" || row.authKind !== "header") {
+        throw new PluginRefusedError(
+          `${row.title} does not take a token of yours.`,
+          null,
+        );
+      }
+      const names = placeholdersIn(headerTemplatesOf(row.headerTemplates));
+      const unknown = Object.keys(input.values).filter(
+        (name) => !names.includes(name),
+      );
+      if (unknown.length > 0) {
+        throw new PluginRefusedError(
+          `${row.title} does not take ${unknown.join(", ")}.`,
+          null,
+        );
+      }
+      const missing = names.filter(
+        (name) =>
+          typeof input.values[name] !== "string" ||
+          input.values[name].trim() === "",
+      );
+      if (missing.length > 0) {
+        throw new PluginRefusedError(
+          `${row.title} needs ${missing.join(", ")}.`,
+          null,
+        );
+      }
+      const values: Record<string, string> = {};
+      let total = 0;
+      for (const name of names) {
+        const value = (input.values[name] ?? "").trim();
+        if (value.length > 4_096) {
+          throw new PluginRefusedError(
+            `${name} is longer than a token can be.`,
+            null,
+          );
+        }
+        total += value.length;
+        values[name] = value;
+      }
+      if (total > 16_384) {
+        throw new PluginRefusedError(
+          `${row.title}'s tokens are longer than tokens can be.`,
+          null,
+        );
+      }
+
+      const { replaced } = await swapUserCredential({
+        serverId: input.serverId,
+        userId: input.userId,
+        refreshToken: JSON.stringify(values),
+        scope: "",
+      });
+
+      await recordAuditEvent(auditStore, {
+        eventType: "mcp.account_connected",
+        targetType: "mcp_server",
+        targetId: input.serverId,
+        payload: {
+          actor: input.userId,
+          server: input.serverId,
+          scope: "",
+          method: "header",
+          variables: names,
+          reconnected: replaced,
+        },
+      });
+    },
+
+    /**
+     * End one person's own held connection — an OAuth grant or a header token in the vault.
+     *
+     * The vault row is revoked first and the join row deleted after, so a failure between the two
+     * leaves access dead and a second press finishing the job, never a live secret nothing points
+     * at. The vendor is not asked to revoke anything: for a plugin server that is the honest limit
+     * (see `revokeUrl` on the catalogue type), and the trail says so.
+     */
+    async disconnectHeld(input: {
+      serverId: string;
+      userId: string;
+      by: string;
+    }): Promise<{ disconnected: boolean; vendorRevocationRequested: false }> {
+      const [held] = await database
+        .select({ credentialId: mcpUserCredentials.credentialId })
+        .from(mcpUserCredentials)
+        .where(
+          and(
+            eq(mcpUserCredentials.serverId, input.serverId),
+            eq(mcpUserCredentials.userId, input.userId),
+          ),
+        )
+        .limit(1);
+      if (!held)
+        return { disconnected: false, vendorRevocationRequested: false };
+
+      const [live] = await database
+        .select({ id: credentialRows.id, revokedAt: credentialRows.revokedAt })
+        .from(credentialRows)
+        .where(eq(credentialRows.id, held.credentialId))
+        .limit(1);
+      if (live && !live.revokedAt) await credentials.revoke(live.id);
+
+      await database
+        .delete(mcpUserCredentials)
+        .where(
+          and(
+            eq(mcpUserCredentials.serverId, input.serverId),
+            eq(mcpUserCredentials.userId, input.userId),
+          ),
+        );
+
+      await recordAuditEvent(auditStore, {
+        eventType: "mcp.account_disconnected",
+        targetType: "mcp_server",
+        targetId: input.serverId,
+        payload: {
+          actor: input.by,
+          server: input.serverId,
+          owner: input.userId,
+          reason: "self",
+          vendorRevocationRequested: false,
+        },
+      });
+      return { disconnected: true, vendorRevocationRequested: false };
+    },
+
+    /**
+     * Install a Marketplace plugin: its servers and its skills, in one transaction, offered to
+     * every Bot.
+     *
+     * IDEMPOTENT ON THE COMMIT THAT IS INSTALLED, AND NOTHING ELSE. The same plugin at the same
+     * commit returns what is there and writes nothing — not even the flag, so a member pressing
+     * Add on a plugin an administrator has since narrowed does not undo the narrowing. The same
+     * plugin at another commit is refused: an upgrade is a removal and a fresh install, which is
+     * the only way the people connected to the old servers are told.
+     *
+     * The URL floor is asked again here of the index entry, so an edited `cursor-index.json`
+     * cannot carry a server past the check the sync script made. Open servers are listed right
+     * away; servers reached as a person list at that person's first connect, as a catalogue
+     * `user-oauth` entry does.
+     */
+    async installPlugin(input: {
+      entry: IndexedPlugin;
+      skills: {
+        slug: string;
+        title: string;
+        summary: string;
+        instructions: string;
+      }[];
+      skipped: SkippedPluginPart[];
+      by: string;
+      byUserId: string;
+    }): Promise<{ plugin: PluginRecord; created: boolean }> {
+      const { entry } = input;
+      const [existing] = await database
+        .select({ id: plugins.id, gitRef: plugins.gitRef })
+        .from(plugins)
+        .where(eq(plugins.id, entry.id))
+        .limit(1);
+      if (existing) {
+        if (existing.gitRef !== entry.gitRef) {
+          throw new PluginRefusedError(
+            `${entry.displayName} is installed at an older version. Remove it and install it again to update it.`,
+            null,
+          );
+        }
+        const plugin = (await this.listPlugins()).find(
+          (candidate) => candidate.id === entry.id,
+        );
+        if (!plugin) throw new CatalogueEntryUnknownError(entry.id);
+        return { plugin, created: false };
+      }
+
+      for (const server of entry.servers) {
+        const refusal = customUrlRefusal(server.url);
+        if (refusal) {
+          throw new CustomServerRefusedError(
+            `${entry.displayName}'s server ${server.name} is at an address this deployment will not use: ${refusal}`,
+          );
+        }
+        const [taken] = await database
+          .select({
+            provenance: mcpServers.provenance,
+            pluginId: mcpServers.pluginId,
+          })
+          .from(mcpServers)
+          .where(eq(mcpServers.id, server.serverId))
+          .limit(1);
+        if (
+          taken &&
+          (taken.provenance !== "plugin" || taken.pluginId !== entry.id)
+        ) {
+          throw new CustomServerRefusedError(
+            `${server.serverId} is already the name of a server here, so ${entry.displayName} cannot be installed. An administrator can remove that server first.`,
+          );
+        }
+      }
+
+      const skipped: SkippedPluginPart[] = [...input.skipped];
+      const skillSlugs = input.skills.map((skill) => skill.slug);
+      const takenSkills =
+        skillSlugs.length === 0
+          ? []
+          : await database
+              .select({ slug: skills.slug, pluginId: skills.pluginId })
+              .from(skills)
+              .where(inArray(skills.slug, skillSlugs));
+      const foreignSlugs = new Set(
+        takenSkills
+          .filter((skill) => skill.pluginId !== entry.id)
+          .map((skill) => skill.slug),
+      );
+      const installableSkills = input.skills.filter((skill) => {
+        if (!foreignSlugs.has(skill.slug)) return true;
+        // Another plugin's, or somebody's own: the name is theirs, as the tenant package rules.
+        skipped.push({ kind: "skill", name: skill.slug, reason: "slug-taken" });
+        return false;
+      });
+
+      await database.transaction(async (transaction) => {
+        await transaction.insert(plugins).values({
+          id: entry.id,
+          slug: entry.slug,
+          name: entry.displayName,
+          gitUrl: entry.gitUrl,
+          gitRef: entry.gitRef,
+          gitPath: entry.gitPath,
+          installedBy: input.by,
+          installedByUserId: input.byUserId,
+          skipped: { parts: skipped },
+        });
+        for (const server of entry.servers) {
+          await transaction
+            .insert(mcpServers)
+            .values({
+              id: server.serverId,
+              title:
+                entry.servers.length > 1
+                  ? `${entry.displayName} · ${server.name}`
+                  : entry.displayName,
+              logo: entry.logoUrl,
+              vendor: new URL(server.url).hostname,
+              url: server.url,
+              provenance: "plugin",
+              pluginId: entry.id,
+              authKind:
+                server.auth.kind === "discover"
+                  ? "oauth-discover"
+                  : server.auth.kind,
+              transport: server.transport === "sse" ? "sse" : null,
+              headerTemplates:
+                Object.keys(server.headers).length > 0 ? server.headers : null,
+              offeredToAllBots: true,
+              addedBy: input.by,
+            })
+            // A second installer racing lands on the idempotent path above; nothing is rewritten.
+            .onConflictDoNothing({ target: mcpServers.id });
+        }
+        for (const skill of installableSkills) {
+          await transaction
+            .insert(skills)
+            .values({
+              id: skill.slug,
+              slug: skill.slug,
+              ownerUserId: null,
+              title: skill.title,
+              summary: skill.summary,
+              instructions: skill.instructions,
+              origin: "plugin",
+              installedBy: input.by,
+              pluginId: entry.id,
+              offeredToAllBots: true,
+            })
+            .onConflictDoNothing({ target: skills.slug });
+        }
+      });
+
+      await recordAuditEvent(auditStore, {
+        eventType: "configuration.changed",
+        targetType: "plugin",
+        targetId: entry.id,
+        payload: {
+          actor: input.by,
+          change: "plugin_installed",
+          plugin: entry.id,
+          slug: entry.slug,
+          gitRef: entry.gitRef,
+          servers: entry.servers.map((server) => server.serverId),
+          skills: installableSkills.map((skill) => skill.slug),
+          skipped,
+        },
+      });
+
+      /*
+       * Listed now where nothing of anybody's is needed to ask; a server reached as a person lists
+       * at that person's first connect, exactly as `addServer` leaves a `user-oauth` entry. A
+       * listing that fails writes `lastError` itself and does not fail the install.
+       */
+      for (const server of entry.servers) {
+        if (server.auth.kind !== "none") continue;
+        try {
+          await this.refreshTools(server.serverId);
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              type: "plugin-server-not-listed",
+              server: server.serverId,
+              error: reasonWithoutStatement(error),
+            }),
+          );
+        }
+      }
+
+      const plugin = (await this.listPlugins()).find(
+        (candidate) => candidate.id === entry.id,
+      );
+      if (!plugin) throw new CatalogueEntryUnknownError(entry.id);
+      return { plugin, created: true };
+    },
+
+    /**
+     * Remove a Marketplace plugin whole: every server it installed (ending every account connected
+     * to them, as `removeServer` does), every skill, then the plugin row.
+     *
+     * Servers before skills before the row, so a failure part-way leaves a plugin that removing
+     * again finishes, and never a row whose parts are gone. Unknown id → the same refusal every
+     * other server act gives for a name this deployment does not hold.
+     */
+    async uninstallPlugin(pluginId: string, by: string): Promise<void> {
+      const [row] = await database
+        .select({ id: plugins.id })
+        .from(plugins)
+        .where(eq(plugins.id, pluginId))
+        .limit(1);
+      if (!row) throw new CatalogueEntryUnknownError(pluginId);
+
+      const servers = await database
+        .select({ id: mcpServers.id })
+        .from(mcpServers)
+        .where(eq(mcpServers.pluginId, pluginId))
+        .orderBy(asc(mcpServers.id));
+      for (const server of servers) {
+        await this.removeServer(server.id, by);
+      }
+      const installed = await database
+        .select({ slug: skills.slug })
+        .from(skills)
+        .where(eq(skills.pluginId, pluginId))
+        .orderBy(asc(skills.slug));
+      for (const skill of installed) {
+        await this.uninstallSkill(skill.slug, by);
+      }
+      await database.delete(plugins).where(eq(plugins.id, pluginId));
+
+      await recordAuditEvent(auditStore, {
+        eventType: "configuration.changed",
+        targetType: "plugin",
+        targetId: pluginId,
+        payload: {
+          actor: by,
+          change: "plugin_uninstalled",
+          plugin: pluginId,
+          servers: servers.map((server) => server.id),
+          skills: installed.map((skill) => skill.slug),
+        },
+      });
+    },
+
+    /** Every Marketplace plugin installed here, with the rows that point at it. */
+    async listPlugins(): Promise<PluginRecord[]> {
+      const rows = await database
+        .select()
+        .from(plugins)
+        .orderBy(asc(plugins.id));
+      if (rows.length === 0) return [];
+      const [servers, installedSkills] = await Promise.all([
+        database
+          .select({ id: mcpServers.id, pluginId: mcpServers.pluginId })
+          .from(mcpServers)
+          .where(
+            inArray(
+              mcpServers.pluginId,
+              rows.map((row) => row.id),
+            ),
+          )
+          .orderBy(asc(mcpServers.id)),
+        database
+          .select({ slug: skills.slug, pluginId: skills.pluginId })
+          .from(skills)
+          .where(
+            inArray(
+              skills.pluginId,
+              rows.map((row) => row.id),
+            ),
+          )
+          .orderBy(asc(skills.slug)),
+      ]);
+      return rows.map((row) => {
+        const skippedParts = (row.skipped as { parts?: unknown }).parts;
+        return {
+          id: row.id,
+          slug: row.slug,
+          name: row.name,
+          gitRef: row.gitRef,
+          installedBy: row.installedBy,
+          installedByUserId: row.installedByUserId,
+          installedAt: iso(row.createdAt) ?? "",
+          serverIds: servers
+            .filter((server) => server.pluginId === row.id)
+            .map((server) => server.id),
+          skillSlugs: installedSkills
+            .filter((skill) => skill.pluginId === row.id)
+            .map((skill) => skill.slug),
+          skipped: Array.isArray(skippedParts)
+            ? skippedParts.filter(
+                (part): part is SkippedPluginPart =>
+                  !!part &&
+                  typeof part === "object" &&
+                  typeof (part as SkippedPluginPart).kind === "string" &&
+                  typeof (part as SkippedPluginPart).name === "string" &&
+                  typeof (part as SkippedPluginPart).reason === "string",
+              )
+            : [],
+        };
       });
     },
 
@@ -7105,6 +8257,15 @@ export function createPluginStore(options: PluginStoreOptions) {
           : [];
         if (server?.offeredToAllBots) return { allowed: true };
       }
+      // And a skill offered to every Bot, read the same way {@link listForAgent} offers it.
+      if (kind === "skill") {
+        const [skill] = await database
+          .select({ offeredToAllBots: skills.offeredToAllBots })
+          .from(skills)
+          .where(eq(skills.slug, ref))
+          .limit(1);
+        if (skill?.offeredToAllBots) return { allowed: true };
+      }
 
       return {
         allowed: false,
@@ -7445,7 +8606,7 @@ export function createPluginStore(options: PluginStoreOptions) {
        * it did.
        */
       try {
-        const { token } = await connectionTokenFor(
+        const { token, headers } = await connectionTokenFor(
           row,
           entry,
           input.credentialActorId ?? input.actorId,
@@ -7457,6 +8618,8 @@ export function createPluginStore(options: PluginStoreOptions) {
           {
             url: effectiveUrl(row, entry),
             token,
+            headers,
+            transport: row.transport === "sse" ? "sse" : undefined,
             actorId: input.credentialActorId ?? input.actorId,
             botId: input.botId,
           },

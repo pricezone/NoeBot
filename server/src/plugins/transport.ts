@@ -64,6 +64,15 @@ export type VendorTransport = {
     url: string;
     token?: string;
     /**
+     * Three fields only `mcp` reads, for a server installed from a Marketplace plugin: headers
+     * rendered from the plugin's templates with the asking person's own values, the older SSE
+     * transport where the plugin declared it, and whether the listing's `readOnlyHint` is
+     * believed. Every other transport ignores them, as it ignores `token`.
+     */
+    headers?: Record<string, string>;
+    transport?: "sse";
+    trustReadOnlyHint?: boolean;
+    /**
      * Declared by the shared connection shape, and never supplied on THIS path.
      *
      * `refreshTools` is the only caller of `listTools` in the system, and it passes `{url, token}`.
@@ -85,6 +94,9 @@ export type VendorTransport = {
     connection: {
       url: string;
       token?: string;
+      /** As on `listTools`: a plugin server's rendered headers and transport; `mcp` alone reads them. */
+      headers?: Record<string, string>;
+      transport?: "sse";
       /**
        * Who this call is for, and which Bot is making it.
        *

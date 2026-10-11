@@ -13,6 +13,7 @@ Start with the root [README](../README.md), then use these references:
   - [Composio](plugins/composio.md): the broker, and so the one page here that is a catalogue of apps rather than a single connector.
   - [Google Drive](plugins/google-drive.md)
   - [Notion](plugins/notion.md)
+  - [Marketplace plugins](plugins/marketplace-plugins.md): the Cursor Marketplace plugins Grok Bot lists, installed by anybody from the Marketplace.
 - [Deployment](deployment.md): the container, what is in the image, minimum sizes, and the platform notes.
 - [Kubernetes](../charts/openbot/README.md): the Helm chart, what a cluster needs before it, and the values that differ per cloud.
 - [Releasing](releasing.md): how a release is proposed, reviewed and published.

@@ -28,6 +28,47 @@ const updatedAt = () =>
  */
 
 /**
+ * A Marketplace plugin somebody installed: one Cursor Marketplace plugin, at one commit.
+ *
+ * A plugin is a public git repository pinned to a commit — remote MCP servers in its `mcp.json`,
+ * skills in `skills/<name>/SKILL.md` — and installing it writes one {@link mcpServers} row per
+ * server and one {@link skills} row per skill, each pointing back here through `plugin_id`. This
+ * row holds only what those rows cannot: which commit was installed, who installed it, and which
+ * parts of the plugin were left out and why. The server ids and skill slugs are NOT repeated here
+ * — they are the rows that point at this one, and a second copy would be the "one fact in two
+ * places" the `provenance` comment below warns about.
+ *
+ * `restrict` on the pointers rather than `cascade`: a plugin's parts leave only through
+ * `uninstallPlugin`, which removes the servers (ending every account connected to them) and the
+ * skills before this row, so nothing can delete a server out from under the plugin that owns it.
+ */
+export const plugins = pgTable(
+  "plugins",
+  {
+    /** The Cursor Marketplace id, as text: "404", "45893413". The vendored index is keyed on it. */
+    id: text("id").primaryKey(),
+    /** The slug every server id and skill slug of this plugin is derived from. */
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    gitUrl: text("git_url").notNull(),
+    /** The commit installed. Every fetch for this plugin was pinned to it, never to a branch. */
+    gitRef: text("git_ref").notNull(),
+    gitPath: text("git_path").notNull().default(""),
+    /** Email, like `mcp_servers.added_by`: what the trail shows. */
+    installedBy: text("installed_by"),
+    /** `users.id`, for "the person who installed it may remove it". Null once they leave. */
+    installedByUserId: text("installed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    /** `{ parts: [{ kind, name, reason }] }`: what the plugin ships that was not installed, and why. */
+    skipped: jsonb("skipped").notNull().default({ parts: [] }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [uniqueIndex("plugins_slug_key").on(table.slug)],
+);
+
+/**
  * An MCP server this deployment has added.
  *
  * Account-wide, not per-Bot. Adding a server is an administrative act with a
@@ -40,102 +81,143 @@ const updatedAt = () =>
  * from two servers can never collide, and a rule written against `mcp.server == "atlassian"` keeps
  * meaning the same thing after somebody renames the display title.
  */
-export const mcpServers = pgTable("mcp_servers", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  logo: text("logo"),
-  /** The vendor this server is maintained by, which is what the first-party rule is checked against. */
-  vendor: text("vendor").notNull(),
-  url: text("url").notNull(),
-  /**
-   * `first-party` for a curated entry, `custom` for one an administrator added by URL, `composio`
-   * for an app enabled through the broker.
-   *
-   * Recorded because the three are not the same risk. A curated entry has reviewed source provenance
-   * and a pinned host. A custom one is a URL somebody typed, and every surface that lists it says so.
-   * Storing which it is means the Plugins page, the audit trail and anybody reading the database
-   * later all agree about how a server got here, rather than inferring it from whether the host
-   * happens to still be in this build's catalogue.
-   *
-   * AND `composio` IS NOT MERELY A THIRD LABEL — it decides how the row is REACHED. `accessFor`
-   * reads this column to answer that a call is brokered, which is what makes it run in the account
-   * of the person asking rather than on the deployment's own credential, and `toolkitOf` then reads
-   * which app out of {@link mcpServers.url}. So this column and that one are ONE FACT IN TWO PLACES,
-   * and the invariant every writer keeps is that they are written together: a `composio://` url
-   * carries `provenance = composio`, and a row saying `composio` carries a url naming an app. Half
-   * of the pair is not a mislabelled row, it is a row dialled one way and governed another — see
-   * `requireNotBrokered` in `plugins/store.ts` for which writes are refused to keep the pair whole,
-   * and `addBrokeredApp` for the one that converts.
-   */
-  provenance: text("provenance").notNull().default("first-party"),
-  /**
-   * The vault row holding this server's credential, or null for a server that needs none.
-   *
-   * A pointer rather than the secret: the vault owns encryption, rotation and revocation, and a
-   * second copy of a token here would be a second thing to remember to revoke.
-   *
-   * A REAL foreign key, where this was `text` against a `uuid` primary key with none. That is not a
-   * typing nicety. The database was willing to hold a pointer to a credential row that did not
-   * exist, and it did: a test deleted the credential an administrator had registered and left this
-   * column addressing nothing, so the connector reported "no OAuth client registered yet" while the
-   * row still looked configured. Nothing caught it because nothing was checking.
-   *
-   * `restrict`, not `cascade` or `set null`. A credential this server points at should not be
-   * removable out from under it — the two legitimate ways to change it are replacing it, which
-   * repoints this column first, and removing the server, which takes the row with it. Anything else
-   * is a mistake, and should be refused rather than silently tidied into a working-looking state.
-   */
-  credentialId: uuid("credential_id").references(() => credentials.id, {
-    onDelete: "restrict",
-  }),
-  /**
-   * How this app connects, as it was resolved when somebody enabled it.
-   *
-   * Recorded rather than re-derived, because the catalogue is somebody else's and a vendor that
-   * starts publishing a new scheme for an app must not move live connections onto a different
-   * flow underneath them.
-   *
-   * THE VENDOR'S OWN SCHEME LITERAL, NOT A {@link BrokerConnection} KIND — `OAUTH2`, `DCR_OAUTH`,
-   * `API_KEY`, `BASIC`, `BEARER_TOKEN`, `BASIC_WITH_JWT`, `NO_AUTH`. Those two vocabularies name one
-   * fact, and this column is where a reader comes to find out which of them is written down, so it
-   * says: somebody looking here for `consent` or `fields` is reading the other one. Migration 0038
-   * backfilled every row whose provenance is `composio` to `OAUTH2`, because managed OAuth was the
-   * only config this deployment ever created and `addBrokeredApp` writes the row only after that
-   * config stands. A null is therefore not an older brokered row this deployment WROTE.
-   *
-   * WHICH IS NOT THE SAME AS A NULL BEING UNREACHABLE ON A BROKERED READ, and the difference has
-   * cost a verdict already. Every reader finds an app's row by {@link mcpServers.url}, which carries
-   * no unique index — two rows may name one app, and the one that answers is not always the one an
-   * enable wrote a scheme onto. Add a row inserted by hand, a row restored from elsewhere, or an app
-   * whose `BrokerConnection` was `unsupported`, and a brokered read really does meet a null here. So
-   * a reader must have three answers and not two: a key, a consent, and a column it cannot act on.
-   * `schemeKind` in `plugins/broker.ts` is that reading, and `confirmBrokeredConnection` is what
-   * happened without it — a null read as consent, and `verified: true` written on every page load
-   * over evidence nobody had.
-   */
-  authScheme: text("auth_scheme"),
-  /**
-   * Whether every Bot may use this server's tools without a {@link pluginGrants} row of its own.
-   *
-   * Set by the Marketplace: a person who connects or enables an app there is not choosing a Bot,
-   * they are saying "my Bots can use this", and a flag on the server is what makes that true of a
-   * Bot created next week as well as of the ones that exist today. A grant row is still the
-   * explicit, per-Bot answer an administrator writes, and `listForAgent` and `decide` read the two
-   * as a union — so turning this off restores grant-only behaviour and takes nothing an
-   * administrator granted away.
-   *
-   * False by default, so every server an administrator added before this column existed keeps
-   * being offered to exactly the Bots it was granted to.
-   */
-  offeredToAllBots: boolean("offered_to_all_bots").notNull().default(false),
-  /** What the deployment last heard back from it. `null` until the first successful listing. */
-  toolsRefreshedAt: timestamp("tools_refreshed_at", { withTimezone: true }),
-  /** The last failure, kept so the Plugins page can say why a server has no tools. */
-  lastError: text("last_error"),
-  addedBy: text("added_by"),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+export const mcpServers = pgTable(
+  "mcp_servers",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    logo: text("logo"),
+    /** The vendor this server is maintained by, which is what the first-party rule is checked against. */
+    vendor: text("vendor").notNull(),
+    url: text("url").notNull(),
+    /**
+     * `first-party` for a curated entry, `custom` for one an administrator added by URL, `composio`
+     * for an app enabled through the broker, `plugin` for a server installed from a Marketplace
+     * plugin (see {@link plugins}; such a row carries `plugin_id` and `auth_kind`).
+     *
+     * Recorded because the four are not the same risk. A curated entry has reviewed source provenance
+     * and a pinned host. A custom one is a URL somebody typed, and every surface that lists it says so.
+     * Storing which it is means the Plugins page, the audit trail and anybody reading the database
+     * later all agree about how a server got here, rather than inferring it from whether the host
+     * happens to still be in this build's catalogue.
+     *
+     * AND `composio` IS NOT MERELY A THIRD LABEL — it decides how the row is REACHED. `accessFor`
+     * reads this column to answer that a call is brokered, which is what makes it run in the account
+     * of the person asking rather than on the deployment's own credential, and `toolkitOf` then reads
+     * which app out of {@link mcpServers.url}. So this column and that one are ONE FACT IN TWO PLACES,
+     * and the invariant every writer keeps is that they are written together: a `composio://` url
+     * carries `provenance = composio`, and a row saying `composio` carries a url naming an app. Half
+     * of the pair is not a mislabelled row, it is a row dialled one way and governed another — see
+     * `requireNotBrokered` in `plugins/store.ts` for which writes are refused to keep the pair whole,
+     * and `addBrokeredApp` for the one that converts.
+     */
+    provenance: text("provenance").notNull().default("first-party"),
+    /**
+     * The vault row holding this server's credential, or null for a server that needs none.
+     *
+     * A pointer rather than the secret: the vault owns encryption, rotation and revocation, and a
+     * second copy of a token here would be a second thing to remember to revoke.
+     *
+     * A REAL foreign key, where this was `text` against a `uuid` primary key with none. That is not a
+     * typing nicety. The database was willing to hold a pointer to a credential row that did not
+     * exist, and it did: a test deleted the credential an administrator had registered and left this
+     * column addressing nothing, so the connector reported "no OAuth client registered yet" while the
+     * row still looked configured. Nothing caught it because nothing was checking.
+     *
+     * `restrict`, not `cascade` or `set null`. A credential this server points at should not be
+     * removable out from under it — the two legitimate ways to change it are replacing it, which
+     * repoints this column first, and removing the server, which takes the row with it. Anything else
+     * is a mistake, and should be refused rather than silently tidied into a working-looking state.
+     */
+    credentialId: uuid("credential_id").references(() => credentials.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * How this app connects, as it was resolved when somebody enabled it.
+     *
+     * Recorded rather than re-derived, because the catalogue is somebody else's and a vendor that
+     * starts publishing a new scheme for an app must not move live connections onto a different
+     * flow underneath them.
+     *
+     * THE VENDOR'S OWN SCHEME LITERAL, NOT A {@link BrokerConnection} KIND — `OAUTH2`, `DCR_OAUTH`,
+     * `API_KEY`, `BASIC`, `BEARER_TOKEN`, `BASIC_WITH_JWT`, `NO_AUTH`. Those two vocabularies name one
+     * fact, and this column is where a reader comes to find out which of them is written down, so it
+     * says: somebody looking here for `consent` or `fields` is reading the other one. Migration 0038
+     * backfilled every row whose provenance is `composio` to `OAUTH2`, because managed OAuth was the
+     * only config this deployment ever created and `addBrokeredApp` writes the row only after that
+     * config stands. A null is therefore not an older brokered row this deployment WROTE.
+     *
+     * WHICH IS NOT THE SAME AS A NULL BEING UNREACHABLE ON A BROKERED READ, and the difference has
+     * cost a verdict already. Every reader finds an app's row by {@link mcpServers.url}, which carries
+     * no unique index — two rows may name one app, and the one that answers is not always the one an
+     * enable wrote a scheme onto. Add a row inserted by hand, a row restored from elsewhere, or an app
+     * whose `BrokerConnection` was `unsupported`, and a brokered read really does meet a null here. So
+     * a reader must have three answers and not two: a key, a consent, and a column it cannot act on.
+     * `schemeKind` in `plugins/broker.ts` is that reading, and `confirmBrokeredConnection` is what
+     * happened without it — a null read as consent, and `verified: true` written on every page load
+     * over evidence nobody had.
+     */
+    authScheme: text("auth_scheme"),
+    /**
+     * Whether every Bot may use this server's tools without a {@link pluginGrants} row of its own.
+     *
+     * Set by the Marketplace: a person who connects or enables an app there is not choosing a Bot,
+     * they are saying "my Bots can use this", and a flag on the server is what makes that true of a
+     * Bot created next week as well as of the ones that exist today. A grant row is still the
+     * explicit, per-Bot answer an administrator writes, and `listForAgent` and `decide` read the two
+     * as a union — so turning this off restores grant-only behaviour and takes nothing an
+     * administrator granted away.
+     *
+     * False by default, so every server an administrator added before this column existed keeps
+     * being offered to exactly the Bots it was granted to.
+     */
+    offeredToAllBots: boolean("offered_to_all_bots").notNull().default(false),
+    /**
+     * The Marketplace plugin this row was installed from, and null for every other provenance.
+     *
+     * `restrict`: a plugin server leaves through `uninstallPlugin`, never on its own, so the plugin
+     * row can always say which servers it still has.
+     */
+    pluginId: text("plugin_id").references(() => plugins.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * How a plugin server is reached, decided when the plugin's `mcp.json` was indexed and written
+     * once at install: `oauth-discover` (the vendor publishes OAuth metadata and the person signs in
+     * on their own account), `static-client` (the plugin names an OAuth client id of its own, which
+     * this deployment cannot use — a platform-provided client or the vendor's own registration
+     * endpoint stands in), `header` (the person pastes a token rendered into
+     * {@link mcpServers.headerTemplates}), `none` (open). Null for every row that is not a plugin's,
+     * where the catalogue entry or the provenance decides instead — `accessFor` reads this column
+     * only for `provenance = plugin`, and refuses a value it does not know rather than guessing.
+     */
+    authKind: text("auth_kind"),
+    /** `sse` for a plugin server whose `mcp.json` declared the SSE transport; null means Streamable HTTP. */
+    transport: text("transport"),
+    /**
+     * `{ "Authorization": "Bearer ${TREG_TOKEN}" }`: header names to templates, for a `header` row.
+     *
+     * Templates and never values. What fills a `${NAME}` is one person's own token, held in the
+     * vault under their `mcp_user_credentials` row and rendered into the headers per request, so
+     * nothing here is a secret and two people's calls carry two different tokens.
+     */
+    headerTemplates: jsonb("header_templates"),
+    /**
+     * What the vendor's `.well-known` documents said about signing in, for an `oauth-discover` or
+     * `static-client` row, as `OAuthMetadata` in `plugins/store.ts`; null until the first connect
+     * discovers it. A cache with a date, re-read when stale: the endpoints are the vendor's to move.
+     */
+    oauthMetadata: jsonb("oauth_metadata"),
+    /** What the deployment last heard back from it. `null` until the first successful listing. */
+    toolsRefreshedAt: timestamp("tools_refreshed_at", { withTimezone: true }),
+    /** The last failure, kept so the Plugins page can say why a server has no tools. */
+    lastError: text("last_error"),
+    addedBy: text("added_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [index("mcp_servers_plugin_idx").on(table.pluginId)],
+);
 
 /**
  * A tool one server says it offers, as of the last listing.
@@ -485,15 +567,30 @@ export const skills = pgTable(
     summary: text("summary").notNull(),
     /** The instruction itself, prepended to the run when the skill is invoked. */
     instructions: text("instructions").notNull(),
-    /** Where it came from: `catalogue` for one we ship, `yours` for one somebody wrote here. */
+    /**
+     * Where it came from: `catalogue` for one we ship, `yours` for one somebody wrote here, `plugin`
+     * for one installed from a Marketplace plugin's `SKILL.md` (then {@link skills.pluginId} says which).
+     */
     origin: text("origin").notNull().default("yours"),
     installedBy: text("installed_by"),
+    /** The Marketplace plugin this skill came with, and null for every other origin. See {@link plugins}. */
+    pluginId: text("plugin_id").references(() => plugins.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * Whether every Bot holds this skill without a {@link pluginGrants} row of its own — the same
+     * meaning, and the same two readers (`listForAgent`, `decide`), as
+     * {@link mcpServers.offeredToAllBots}. Set when a plugin is installed from the Marketplace, so
+     * its playbooks reach the Bots its tools reach; an administrator narrows it afterwards.
+     */
+    offeredToAllBots: boolean("offered_to_all_bots").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     uniqueIndex("skills_slug_key").on(table.slug),
     index("skills_owner_idx").on(table.ownerUserId),
+    index("skills_plugin_idx").on(table.pluginId),
   ],
 );
 

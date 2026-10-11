@@ -422,6 +422,8 @@ export async function redeemAuthorizationCode(input: {
    * instead of to `tokenUrl`, with the platform's bearer and no secret; see {@link TokenProxy}.
    */
   proxy?: TokenProxy;
+  /** The RFC 8707 resource indicator a plugin server's metadata named, sent as on the consent URL. */
+  resource?: string;
 }): Promise<RedeemedGrant | null> {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
@@ -430,6 +432,7 @@ export async function redeemAuthorizationCode(input: {
     redirect_uri: input.redirectUri,
     code_verifier: input.verifier,
   });
+  if (input.resource) params.set("resource", input.resource);
   // A public (DCR) client proves itself with PKCE, and some vendors refuse an unexpected empty
   // field. A platform-provided client has none here on purpose: the platform adds it.
   if (input.clientSecret) params.set("client_secret", input.clientSecret);

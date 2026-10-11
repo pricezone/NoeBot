@@ -1279,9 +1279,18 @@ describe("platform-provided plugin OAuth clients", () => {
       loadConfig({
         ...baseEnvironment,
         ...proxy,
-        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID: "x",
+        OPENBOT_PLUGIN_OAUTH_CLIENT_NOT_A_PLUGIN_ID: "x",
       }),
-    ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID");
+    ).toThrow("OPENBOT_PLUGIN_OAUTH_CLIENT_NOT_A_PLUGIN_ID");
+    // A Marketplace plugin's server that signs people in with OAuth takes a platform client too:
+    // Slack's plugin names a client of Cursor's, and a platform client is what lets it connect.
+    expect(
+      loadConfig({
+        ...baseEnvironment,
+        ...proxy,
+        OPENBOT_PLUGIN_OAUTH_CLIENT_SLACK_ID: "x",
+      }).pluginOauthClients,
+    ).toEqual({ slack: { clientId: "x" } });
     // A blank value is unset, as everywhere else in this file.
     expect(
       loadConfig({

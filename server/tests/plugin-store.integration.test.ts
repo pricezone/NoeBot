@@ -5497,6 +5497,11 @@ test("a server's address is the url the row holds, not one composed from its id"
     // fixture creates none. The column holds nothing for a row nothing was created against rather
     // than a default standing in for one, so null here is the read passing the column through.
     authScheme: null,
+    // And how the row is reached, for the routes that fork on it: a brokered row, and not a
+    // Marketplace plugin's.
+    provenance: "composio",
+    authKind: null,
+    pluginId: null,
   });
   /*
    * By membership rather than by equality, because this database is not only this test's: the

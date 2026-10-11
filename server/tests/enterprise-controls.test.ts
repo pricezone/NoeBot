@@ -66,11 +66,15 @@ describe("the Connect apps capability", () => {
     for (const path of [
       "/api/plugins/servers/google-drive/connect",
       "/api/plugins/servers/parallel/enable",
+      // Installing a Marketplace plugin is the same act for every Bot at once.
+      "/api/plugins/install",
     ]) {
       const rule = ruleFor("POST", path);
       expect(rule).toBeDefined();
       expect(await rule?.needs(context)).toEqual(["connectApps"]);
     }
+    // Taking a plugin away is never gated, as revoking never is.
+    expect(ruleFor("DELETE", "/api/plugins/install/698")).toBeUndefined();
     for (const path of [
       "/api/plugins/servers/google-drive/refresh",
       "/api/plugins/servers/google-drive/oauth-client",

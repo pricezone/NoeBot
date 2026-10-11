@@ -9,7 +9,8 @@
       "!app/src/routeTree.gen.ts",
       "!desktop/src-tauri/gen",
       "!**/target",
-      "!server/drizzle"
+      "!server/drizzle",
+      "!server/src/plugins/cursor-index.json"
     ]
   },
   "formatter": {

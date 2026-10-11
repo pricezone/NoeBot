@@ -33,6 +33,14 @@ export type CredentialSource =
   | "person-oauth"
   /** One key the deployment holds, with the broker keeping people apart by an id we send. */
   | "brokered"
+  /**
+   * The asking person's own token, rendered into the headers a plugin's `mcp.json` names.
+   *
+   * A plugin that takes an API key (`"Authorization": "Bearer ${TREG_TOKEN}"`) is reached as the
+   * person whose key it is, the way an OAuth vendor is reached on the person's grant: the key is
+   * theirs, held under their connection row, and never one the deployment holds for everybody.
+   */
+  | "person-header"
   /** None at all, because the call never leaves this process. */
   | "none";
 
@@ -182,6 +190,26 @@ export class CatalogueTransportUnroutableError extends ServerUnresolvableError {
 }
 
 /**
+ * A plugin row whose `auth_kind` names no way this build knows to reach a server.
+ *
+ * CRITERION. A `provenance = plugin` row is reached only by one of the four kinds the installer
+ * writes; any other value — null included — is refused at resolution, and no answer is produced.
+ *
+ * REASON. The column is what says whose credential a plugin server goes out on, and the four
+ * values differ in exactly the way that matters: a header row carries one person's own key, an
+ * OAuth row one person's own grant, an open row nobody's. Falling through to the MCP default
+ * would reach a person's connector on the deployment's token, which is the failure every other
+ * branch of this module exists to make impossible. Same shelf as the two above: nobody asked for
+ * this refusal and nobody can act on it mid-call, so `isDeploymentFault` carries it to an operator.
+ */
+export class PluginRowUnreadableError extends ServerUnresolvableError {
+  constructor(message: string) {
+    super(message);
+    this.name = "PluginRowUnreadableError";
+  }
+}
+
+/**
  * Whether a kind is the broker's, asked through a function so the question survives being answered.
  *
  * CRITERION. This comparison must stay live even though {@link CuratedTransportKind} makes it
@@ -219,6 +247,8 @@ function isBrokerTransport(kind: TransportKind): boolean {
  */
 export function accessFor(
   row: {
+    /** Named in the plugin refusal only; every caller has it, and a fixture may leave it out. */
+    id?: string;
     provenance: string;
     url: string;
     /**
@@ -226,12 +256,17 @@ export function accessFor(
      * says whether a brokered call lands in an ACCOUNT at all. See the `reachedAs` branch below.
      */
     authScheme: string | null;
+    /**
+     * How a plugin server is reached, written by the installer; null on every other row. Read
+     * only for `provenance = plugin`, and refused there when it names nothing this build knows.
+     */
+    authKind?: string | null;
   },
   entry: CatalogueEntry | null,
 ): ServerAccess {
-  if (entry && row.provenance === "composio") {
+  if (entry && (row.provenance === "composio" || row.provenance === "plugin")) {
     throw new ServerRowAmbiguousError(
-      `${entry.key} is a server this deployment ships an entry for, and a row with that id says its provenance is composio. Nothing can tell an edited column from a brokered app that took the name, so this row is not resolved at all: rename it, or correct its provenance.`,
+      `${entry.key} is a server this deployment ships an entry for, and a row with that id says its provenance is ${row.provenance}. Nothing can tell an edited column from an app that took the name, so this row is not resolved at all: rename it, or correct its provenance.`,
     );
   }
 
@@ -279,6 +314,49 @@ export function accessFor(
         schemeKind(row.authScheme) === "none" ? "deployment" : "person",
       toolkit: toolkitOf(row.url),
     };
+  }
+
+  /*
+   * A SERVER INSTALLED FROM A MARKETPLACE PLUGIN, reached the way its `auth_kind` says.
+   *
+   * The installer writes the column from the vendored index, which classified the server when
+   * the plugin was synced: whether its `mcp.json` names a header to fill, an OAuth client of its
+   * own, or nothing — and for the last, whether an unauthenticated probe was answered or refused.
+   * So the column is a fact about the vendor as reviewed, and this reads it rather than deriving
+   * it again from the url. The two OAuth kinds land on the same credential: a static client id
+   * the plugin names is one this deployment cannot use (it is registered to another product's
+   * redirect), so such a server is signed into the same way a discovered one is — through a
+   * platform-provided client where there is one, or the vendor's own registration endpoint.
+   */
+  if (row.provenance === "plugin") {
+    switch (row.authKind) {
+      case "oauth-discover":
+      case "static-client":
+        return {
+          transport: "mcp",
+          credential: "person-oauth",
+          reachedAs: "person",
+          toolkit: null,
+        };
+      case "header":
+        return {
+          transport: "mcp",
+          credential: "person-header",
+          reachedAs: "person",
+          toolkit: null,
+        };
+      case "none":
+        return {
+          transport: "mcp",
+          credential: "none",
+          reachedAs: "deployment",
+          toolkit: null,
+        };
+      default:
+        throw new PluginRowUnreadableError(
+          `${row.id ?? "this server"} was installed from a Marketplace plugin and its auth_kind column holds ${JSON.stringify(row.authKind)}, which this build cannot reach a server by. Remove the plugin and install it again.`,
+        );
+    }
   }
 
   return {

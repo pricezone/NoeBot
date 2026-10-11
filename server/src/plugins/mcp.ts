@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { cutAtCodeUnits } from "../channels/text";
@@ -211,6 +212,18 @@ type Connection = {
   url: string;
   /** The bearer token for this server, already decrypted. Absent for a server that needs none. */
   token?: string;
+  /**
+   * Headers already rendered from a plugin's templates with one person's values — never the
+   * templates. Sent beside, or instead of, the bearer above. See `plugins/header-template.ts`.
+   */
+  headers?: Record<string, string>;
+  /** `sse` for a server whose plugin declared the older SSE transport; absent means Streamable HTTP. */
+  transport?: "sse";
+  /**
+   * Whether a listing's `readOnlyHint` is believed. False for every server but one installed from
+   * a Marketplace plugin, for the reasons {@link declaredEffect} gives.
+   */
+  trustReadOnlyHint?: boolean;
 };
 
 /**
@@ -340,11 +353,35 @@ async function withClient<T>(
   connection: Connection,
   use: (client: Client) => Promise<T>,
 ): Promise<T> {
-  const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
-    requestInit: connection.token
-      ? { headers: { Authorization: authorizationHeader(connection.token) } }
-      : undefined,
-  });
+  const headers: Record<string, string> = {
+    ...(connection.token
+      ? { Authorization: authorizationHeader(connection.token) }
+      : {}),
+    ...(connection.headers ?? {}),
+  };
+  const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
+  const url = new URL(connection.url);
+  /*
+   * The older SSE transport for the plugin servers that still declare it. Its opening GET goes
+   * through `eventSourceInit.fetch` and its POSTs through `requestInit`, so the headers have to be
+   * handed to both, or the stream opens authenticated and every call on it goes out bare.
+   */
+  const transport =
+    connection.transport === "sse"
+      ? new SSEClientTransport(url, {
+          requestInit,
+          eventSourceInit: {
+            fetch: (input, init) =>
+              fetch(input, {
+                ...init,
+                headers: {
+                  ...(init?.headers as Record<string, string>),
+                  ...headers,
+                },
+              }),
+          },
+        })
+      : new StreamableHTTPClientTransport(url, { requestInit });
   const client = new Client({ name: "openbot", version: "1.0.0" });
 
   try {
@@ -371,7 +408,7 @@ async function withClient<T>(
 export const listNeedsCredential = true;
 
 /**
- * ONLY THE HINT THAT NARROWS IS BELIEVED, and the omission of the other one is the decision here.
+ * THE HINT THAT NARROWS IS ALWAYS BELIEVED; THE ONE THAT WIDENS, ONLY WHERE THE CALLER SAYS SO.
  *
  * The SDK declares four hints on `annotations` — `readOnlyHint`, `destructiveHint`,
  * `idempotentHint`, `openWorldHint` — and warns in the same place that a client should never make
@@ -380,15 +417,19 @@ export const listNeedsCredential = true;
  * so a server that lies with it can restrict itself and nothing else. `readOnlyHint` moves an
  * action the other way, and `classifyTool` exists to make sure nothing but review can do that.
  *
- * WHAT HONOURING `readOnlyHint` WOULD ACTUALLY BUY, which is the reason withholding it costs
- * nothing. For a curated vendor it changes no answer: an advertised name absent from the reviewed
- * `writeTools` already classifies as a read, so recording `read` for it lands on the same result by
- * a worse route. For a name the reviewed list DOES hold, `classifyTool` consults review first and
- * ignores the column, so the hint would be discarded anyway. The single case where it would change
- * an answer is a server an administrator added by URL, which has no reviewed list behind it and
- * whose every tool is a write for exactly that reason — and there, believing it means letting an
- * arbitrary server declare its own tools harmless and be believed. Zero accuracy gained, one
- * fail-open introduced, so it is not read at all.
+ * WHAT HONOURING `readOnlyHint` BUYS, AND WHERE. For a curated vendor it changes no answer: an
+ * advertised name absent from the reviewed `writeTools` already classifies as a read, and a name
+ * the list holds is settled by review before the column is read. For a server an administrator
+ * added by URL it would change the answer for the worse — no reviewed list stands behind it, every
+ * tool of it is a write for exactly that reason, and believing the hint would let an arbitrary
+ * server declare its own tools harmless. So there it is not read, as before. A server installed
+ * from a Marketplace plugin is the one case in between: a public repository at a pinned commit,
+ * reviewed into the vendored index, reached by the same vendor's own MCP server — and Cursor, whose
+ * plugins they are, classifies their tools by exactly this hint. Reading it there is what makes a
+ * plugin's search tools reads rather than every one of them a write behind an approval; a plugin
+ * vendor that lies with it has lied to every client of its plugin, and the write policy still
+ * stands over anything the hint does not cover. `trustReadOnlyHint` is that one case, and the
+ * caller (`refreshTools`) sets it from the row's provenance and nothing else.
  *
  * `destructiveHint` is taken on presence of `true` only, never inverted. The specification gives it
  * a default of true when a tool is not read-only, and applying that default would reclassify every
@@ -400,9 +441,17 @@ export const listNeedsCredential = true;
  * specification says `destructiveHint` is meaningless while `readOnlyHint` is true, but resolving
  * an incoherent listing towards the permissive reading is the one direction that could hurt.
  */
-function declaredEffect(annotations: ToolAnnotations | undefined) {
-  if (annotations?.destructiveHint !== true) return {};
-  return { effect: "write", destructive: true } as const;
+export function declaredEffect(
+  annotations: ToolAnnotations | undefined,
+  trustReadOnlyHint = false,
+): { effect?: "read" | "write"; destructive?: boolean } {
+  if (annotations?.destructiveHint === true) {
+    return { effect: "write", destructive: true };
+  }
+  if (trustReadOnlyHint && annotations?.readOnlyHint === true) {
+    return { effect: "read" };
+  }
+  return {};
 }
 
 /** What this server says it offers, right now. */
@@ -415,7 +464,10 @@ export async function listTools(connection: Connection): Promise<ListedTool[]> {
       name: tool.name,
       description: tool.description ?? "",
       inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
-      ...declaredEffect(tool.annotations),
+      ...declaredEffect(
+        tool.annotations,
+        connection.trustReadOnlyHint === true,
+      ),
     }));
   });
 }

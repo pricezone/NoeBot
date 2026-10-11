@@ -17,6 +17,7 @@ import {
   transcriptionConfig,
 } from "./dictation/config";
 import { CATALOGUE } from "./plugins/catalogue";
+import { PLUGIN_INDEX } from "./plugins/plugin-index";
 import { type VoiceConfig, voiceConfig } from "./voice/config";
 
 export type RuntimeCapabilities = {
@@ -802,9 +803,28 @@ function pluginOauth(environment: Environment): {
   const clients: Record<string, { clientId: string }> = {};
   const claimed = new Set<string>();
 
-  for (const entry of CATALOGUE) {
-    if (entry.auth.kind !== "user-oauth") continue;
-    const prefix = `${PLUGIN_OAUTH_CLIENT_PREFIX}${pluginOauthEnvironmentKey(entry.key)}`;
+  /*
+   * Every server a person signs into with an OAuth client: the catalogue's `user-oauth` entries,
+   * and every Marketplace plugin server the index says is reached through OAuth — discovered or
+   * naming a client of its own. A platform client for one of those (Slack's, say, whose plugin
+   * names Cursor's client) is what lets it be connected at all.
+   */
+  const oauthKeys = [
+    ...CATALOGUE.filter((entry) => entry.auth.kind === "user-oauth").map(
+      (entry) => entry.key,
+    ),
+    ...PLUGIN_INDEX.flatMap((plugin) =>
+      plugin.servers
+        .filter(
+          (server) =>
+            server.auth.kind === "discover" ||
+            server.auth.kind === "static-client",
+        )
+        .map((server) => server.serverId),
+    ),
+  ];
+  for (const key of oauthKeys) {
+    const prefix = `${PLUGIN_OAUTH_CLIENT_PREFIX}${pluginOauthEnvironmentKey(key)}`;
     claimed.add(`${prefix}_ID`);
     claimed.add(`${prefix}_SECRET`);
     if (optional(environment, `${prefix}_SECRET`)) {
@@ -813,7 +833,7 @@ function pluginOauth(environment: Environment): {
       );
     }
     const clientId = optional(environment, `${prefix}_ID`);
-    if (clientId) clients[entry.key] = { clientId };
+    if (clientId) clients[key] = { clientId };
   }
 
   const unclaimed = Object.keys(environment)
@@ -825,11 +845,7 @@ function pluginOauth(environment: Environment): {
     )
     .sort();
   if (unclaimed.length > 0) {
-    const offered = CATALOGUE.filter(
-      (entry) => entry.auth.kind === "user-oauth",
-    )
-      .map((entry) => pluginOauthEnvironmentKey(entry.key))
-      .join(", ");
+    const offered = oauthKeys.map(pluginOauthEnvironmentKey).join(", ");
     throw new Error(
       `${unclaimed.join(", ")}: not a plugin this deployment connects with an OAuth client. ${PLUGIN_OAUTH_CLIENT_PREFIX}<KEY>_ID takes one of: ${offered}.`,
     );

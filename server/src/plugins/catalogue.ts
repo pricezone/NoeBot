@@ -546,7 +546,7 @@ const CREDENTIAL_NAMES = new Set([
  * It over-refuses in one direction on purpose. A parameter this rule misreads costs an operator a
  * rename, and one it misses is written to an append-only audit row that cannot be deleted.
  */
-function readsAsCredential(name: string): boolean {
+export function readsAsCredential(name: string): boolean {
   const normalized = name.replaceAll(/[^a-zA-Z0-9]/g, "").toLowerCase();
   if (CREDENTIAL_NAMES.has(normalized) || normalized.endsWith("key")) {
     return true;

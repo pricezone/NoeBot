@@ -1574,6 +1574,9 @@ function brokeredApp(
     by: string;
     reason: string;
   }> = [];
+  /** Every held connection the route ended in the vault, as (server, person, actor). */
+  const disconnectedHeld: { serverId: string; userId: string; by: string }[] =
+    [];
   /** Every time the route went and asked Composio what an app wants typed in. */
   const asked: Array<{ toolkit: string; authScheme: string }> = [];
   /**
@@ -1765,6 +1768,15 @@ function brokeredApp(
       if (deployment.storeThrows) throw deployment.storeThrows;
       return { vendorRevocationRequested: true };
     },
+    // A held connection — a row whose url names no broker app — ends in the vault instead.
+    disconnectHeld: async (input: {
+      serverId: string;
+      userId: string;
+      by: string;
+    }) => {
+      disconnectedHeld.push(input);
+      return { disconnected: true, vendorRevocationRequested: false as const };
+    },
   });
 
   const app = createApp(
@@ -1814,6 +1826,7 @@ function brokeredApp(
     confirmed,
     rechecked,
     disconnected,
+    disconnectedHeld,
     asked,
     submitted,
     /**
@@ -2869,22 +2882,29 @@ describe("confirming and ending a brokered connection", () => {
     // `notion` is a row this deployment really has. What is wrong is not that it is missing but
     // that its connection does not live at Composio, and the sentence says so rather than talking
     // about a broker setting or an app nobody has heard of.
-    const { confirmed, disconnected, confirm, disconnect } = brokeredApp();
+    const { confirmed, disconnected, disconnectedHeld, confirm, disconnect } =
+      brokeredApp();
 
     const confirmResponse = await confirm({ serverId: "notion" });
     const disconnectResponse = await disconnect({ serverId: "notion" });
 
     expect(confirmResponse.status).toBe(400);
-    expect(disconnectResponse.status).toBe(400);
     expect((await confirmResponse.json()).error).toBe(
       "That app is not reached through a broker.",
     );
-    expect((await disconnectResponse.json()).error).toBe(
-      "That app is not reached through a broker.",
-    );
-    // And the store was left alone: a confirm here would write a row for an app whose connection
-    // is not Composio's to answer about, and a disconnect would ask the broker to revoke a grant
-    // it never issued.
+    // A disconnect is the one act a held connection shares with a brokered one: it ends here,
+    // in the vault, as the person's own, and the broker is never asked about a grant it never
+    // issued.
+    expect(disconnectResponse.status).toBe(200);
+    expect(await disconnectResponse.json()).toEqual({
+      disconnected: true,
+      vendorRevocationRequested: false,
+    });
+    expect(disconnectedHeld).toEqual([
+      { serverId: "notion", userId: ADMIN.id, by: ADMIN.id },
+    ]);
+    // And the brokered half of the store was left alone: a confirm here would write a row for an
+    // app whose connection is not Composio's to answer about.
     expect(confirmed).toEqual([]);
     expect(disconnected).toEqual([]);
   });
@@ -3097,6 +3117,7 @@ function removalApp(
   const store = pluginStore({
     removeServer,
     // Every read the plugins surface makes on its way to the route under test.
+    serverAddress: async () => undefined,
     listServers: async () => [],
     listSkills: async () => [],
   });
