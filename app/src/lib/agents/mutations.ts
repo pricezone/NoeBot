@@ -61,6 +61,27 @@ export type QuickCreatedAgent = { agent: AgentProfile; channel: AgentChannel };
  * the row in keeps the sidebar's working dot for a turn that may already have started. A roster
  * that is not loaded yet has nothing to patch and will fetch the row with everything else.
  */
+/**
+ * "Add" on a Bot template: a private Bot of yours from it, with the template's prompt, avatar and
+ * skills. The server does the three writes on the package's authority; the roster is refetched
+ * so the new Bot is on it when its dialog opens.
+ */
+export function addTemplateMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: (templateId: string): Promise<AgentProfile> =>
+      client(
+        `/api/bot-templates/${encodeURIComponent(templateId)}/add`,
+        "agent",
+        {
+          method: "POST",
+          body: {},
+          fallback: "That Bot could not be added.",
+        },
+      ),
+    onSuccess: () => invalidateAgents(queryClient),
+  });
+}
+
 export function quickCreateAgentMutationOptions(queryClient: QueryClient) {
   return mutationOptions({
     mutationFn: async (): Promise<QuickCreatedAgent> => {

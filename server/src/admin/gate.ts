@@ -86,6 +86,12 @@ export const GATED_ROUTES: Rule[] = [
     path: /^\/api\/agents\/[^/]+\/duplicate$/,
     needs: async () => ["useBots"],
   },
+  // Adding a Bot template makes a private Bot, the same act as creating one.
+  {
+    method: "POST",
+    path: /^\/api\/bot-templates\/[^/]+\/add$/,
+    needs: async () => ["useBots"],
+  },
   {
     method: "POST",
     path: /^\/api\/host-access\/grants$/,

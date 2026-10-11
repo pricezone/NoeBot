@@ -3,6 +3,20 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { parse } from "yaml";
+import {
+  type AvatarColor,
+  type AvatarExpression,
+  isAvatarColor,
+  isAvatarExpression,
+} from "../../shared/avatar";
+import {
+  FEATURED_TEMPLATES,
+  isTemplateCategory,
+  TEMPLATE_CATEGORIES,
+  type TemplateCategory,
+} from "../../shared/templates";
+import { catalogueEntry } from "./plugins/catalogue";
+import { pluginIndexEntry } from "./plugins/plugin-index";
 import { DEPLOYMENT_ROUTES } from "./computer/deployment-routes";
 import type { Database } from "./db/client";
 import {
@@ -116,6 +130,8 @@ type PackageFiles = {
    * package had until now.
    */
   skills?: string;
+  /** `templates.yaml`, or absent for a package that ships no Bot templates. */
+  templates?: string;
   /**
    * A coworker per file, from `agents/` beside `agents.yaml`, in the order they should be read.
    *
@@ -132,6 +148,36 @@ type PackageFiles = {
 export type PackageAgentFile = {
   filename: string;
   contents: string;
+};
+
+/**
+ * A Bot template: a Bot a person starts from, as Grok Bot's marketplace offers them.
+ *
+ * The same fields Grok Bot's templates carry — instructions, skills, the routines it runs and the
+ * apps it uses — authored here, in `templates.yaml`, and shipped with the package. Adding one
+ * creates a private Bot for the person with the instructions as its prompt, the avatar chosen
+ * here and the package skills granted; the routines and the apps are told, not set up, because a
+ * Bot schedules its own routines and a person connects their own apps.
+ */
+export type TenantTemplate = {
+  id: string;
+  name: string;
+  title: string;
+  creator: string;
+  categories: TemplateCategory[];
+  /** One line, for the row. */
+  summary: string;
+  /** The template's page. */
+  description: string;
+  /** The Bot's prompt. */
+  instructions: string;
+  avatar: { color: AvatarColor; expression: AvatarExpression };
+  /** Package skills, by slug, granted to the Bot on add. */
+  skills: string[];
+  /** Catalogue keys or Marketplace plugin ids the Bot is meant to use; shown, never connected. */
+  apps: string[];
+  routines: { name: string; summary: string }[];
+  featured: boolean;
 };
 
 /**
@@ -232,6 +278,8 @@ export type TenantPackage = {
   }[];
   /** What `skills.yaml` ships, or empty for a package that has none. */
   skills: TenantSkill[];
+  /** What `templates.yaml` ships, or empty for a package that has none. */
+  templates: TenantTemplate[];
   themeCss: string;
 };
 
@@ -532,6 +580,10 @@ export function validateTenantPackage(files: PackageFiles): TenantPackage {
   for (const id of agentIds) omittedAgentIds.delete(id);
   const packageSkills = parseTenantSkills(skillsYaml.skills);
   const skillSlugs = new Set(packageSkills.map((skill) => skill.slug));
+  const templatesYaml = files.templates?.trim()
+    ? yaml(files.templates, "templates.yaml")
+    : {};
+  const templates = parseTenantTemplates(templatesYaml.templates, skillSlugs);
   for (const agent of agents) {
     // Sync writes one grant row per entry in a single INSERT ... ON CONFLICT, which Postgres refuses
     // when two of its rows collide, so a repeated slug stopped the server at boot with a SQL error.
@@ -632,6 +684,7 @@ export function validateTenantPackage(files: PackageFiles): TenantPackage {
     },
     knowledgeSources: sources,
     skills: packageSkills,
+    templates,
     themeCss: files.themeCss,
   };
 }
@@ -642,6 +695,125 @@ export function validateTenantPackage(files: PackageFiles): TenantPackage {
  * A slug is what a person types after `/`, so the shape the API enforces is enforced here too: a
  * package shipping `Find A Document` would create a command nobody can type.
  */
+/**
+ * Every template the package ships, held to what it names.
+ *
+ * A skill has to be one the package ships, as a coworker's skills do; an app has to be a catalogue
+ * key or a Marketplace plugin something of which runs here, so a template never promises an app
+ * nobody can add; a category has to be one the Agents tab draws a pill for; and no more than the
+ * featured strip holds may be marked featured.
+ */
+function parseTenantTemplates(
+  value: unknown,
+  skillSlugs: ReadonlySet<string>,
+): TenantTemplate[] {
+  if (value === undefined || value === null) return [];
+  const ids = new Set<string>();
+  const templates = asList(value, "templates.yaml templates").map((entry) => {
+    const template = asRecord(entry, "template");
+    const id = requiredString(template.id, "template.id");
+    if (ids.has(id)) {
+      throw new Error(`template "${id}" is declared twice in templates.yaml`);
+    }
+    ids.add(id);
+    if (!/^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/.test(id)) {
+      throw new Error(
+        `template.id "${id}" must be lowercase letters, digits and hyphens, 2 to 40 characters, starting and ending with a letter or digit`,
+      );
+    }
+    const categories = stringArray(template.categories, "template.categories");
+    if (categories.length === 0) {
+      throw new Error(`template "${id}" names no category`);
+    }
+    for (const category of categories) {
+      if (!isTemplateCategory(category)) {
+        throw new Error(
+          `template "${id}" names category "${category}", which is not one of: ${TEMPLATE_CATEGORIES.join(", ")}`,
+        );
+      }
+    }
+    const skills =
+      template.skills === undefined || template.skills === null
+        ? []
+        : stringArray(template.skills, "template.skills");
+    for (const slug of skills) {
+      if (!skillSlugs.has(slug)) {
+        throw new Error(
+          `template "${id}" names skill "${slug}", which this package does not ship`,
+        );
+      }
+    }
+    const apps =
+      template.apps === undefined || template.apps === null
+        ? []
+        : stringArray(template.apps, "template.apps");
+    for (const app of apps) {
+      const plugin = pluginIndexEntry(app);
+      if (
+        !catalogueEntry(app) &&
+        (plugin === null || plugin.availability === "unavailable")
+      ) {
+        throw new Error(
+          `template "${id}" names app "${app}", which is neither a catalogue app nor a Marketplace plugin that runs here`,
+        );
+      }
+    }
+    const avatar = asRecord(template.avatar, "template.avatar");
+    if (!isAvatarColor(avatar.color)) {
+      throw new Error(
+        `template "${id}" avatar.color must be one of the avatar palette's colours`,
+      );
+    }
+    if (!isAvatarExpression(avatar.expression)) {
+      throw new Error(
+        `template "${id}" avatar.expression must be one of the avatar expressions`,
+      );
+    }
+    const routines =
+      template.routines === undefined || template.routines === null
+        ? []
+        : asList(template.routines, "template.routines").map((raw) => {
+            const routine = asRecord(raw, "template.routines entry");
+            return {
+              name: requiredString(routine.name, "routine.name"),
+              summary: requiredString(routine.summary, "routine.summary"),
+            };
+          });
+    const summary = requiredString(template.summary, "template.summary");
+    if (summary.length > 140) {
+      throw new Error(`template "${id}" summary is longer than 140 characters`);
+    }
+    return {
+      id,
+      name: requiredString(template.name, "template.name"),
+      title: requiredString(template.title, "template.title"),
+      creator:
+        typeof template.creator === "string" && template.creator.trim()
+          ? template.creator.trim()
+          : "Noë Bot Team",
+      categories: categories.filter(isTemplateCategory),
+      summary,
+      description: requiredString(template.description, "template.description"),
+      instructions: requiredString(
+        template.instructions,
+        "template.instructions",
+      ),
+      avatar: { color: avatar.color, expression: avatar.expression },
+      skills,
+      apps,
+      routines,
+      featured: template.featured === true,
+    };
+  });
+  const featured = templates.filter((template) => template.featured).length;
+  if (featured > FEATURED_TEMPLATES) {
+    throw new Error(
+      `templates.yaml marks ${featured} templates featured; the Marketplace features at most ${FEATURED_TEMPLATES}`,
+    );
+  }
+  return templates;
+}
+
 function parseTenantSkills(value: unknown): TenantSkill[] {
   if (value === undefined || value === null) return [];
   // Sync upserts one skill per entry, so a repeated slug silently became the last one.
@@ -760,6 +932,13 @@ export async function loadTenantPackage(
       if (error.code === "ENOENT") return "";
       throw error;
     });
+  // Optional for the reason `skills.yaml` is: a package written before templates shipped has none.
+  const templates = await readFile(join(sourcePath, "templates.yaml"), "utf8")
+    .then((file) => expandEnvironment(file, "templates.yaml"))
+    .catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return "";
+      throw error;
+    });
   const agentFiles = await readAgentFiles(sourcePath);
   const tenantPackage = validateTenantPackage({
     brand,
@@ -768,6 +947,7 @@ export async function loadTenantPackage(
     model,
     knowledge,
     skills,
+    templates,
     agentFiles,
     themeCss,
   });
@@ -785,6 +965,8 @@ export async function loadTenantPackage(
         [
           ...contents,
           skills,
+          // In the checksum for the reason `skills` is: an edited template is a package change.
+          templates,
           ...agentFiles.map((file) => `${file.filename}\n${file.contents}`),
         ].join("\n"),
       )

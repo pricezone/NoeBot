@@ -671,7 +671,7 @@ test("?tab picks the tab, and clicking another writes it back to the URL", async
       "agents",
     ),
   );
-  expect(await view.findByText("Your agents")).toBeTruthy();
+  expect(await view.findByRole("heading", { name: "Your Bots" })).toBeTruthy();
 });
 
 test("?q fills the search and narrows the apps; typing writes ?q back", async () => {

@@ -4,7 +4,6 @@ import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import * as React from "react";
 import useMeasure from "react-use-measure";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
-import AgentOrb from "@/components/agents/orb/agent-orb";
 import { Composer } from "@/components/channels/composer";
 import { DesktopIllustration } from "@/components/computer/desktop-illustration";
 import { ComputerPlaceholder } from "@/components/computer/placeholder";
@@ -28,14 +27,25 @@ export const Route = createFileRoute("/_authed/onboarding")({
   component: RouteComponent,
 });
 
-function WelcomeStep() {
+export function WelcomeStep() {
   return (
     <div className="w-full flex flex-col items-center justify-center">
       <h1 className="text-3xl font-semibold tracking-tight max-w-md text-center">
         Welcome to {appConfig.brand.productName}
       </h1>
-      <div className="h-32" />
-      <AgentOrb size="72px" />
+      <div className="h-10" />
+      {/*
+       * The mascot itself — its own capsule eyes on the brand rose — rather than one Bot's face:
+       * the screen is about the product, and every Bot's avatar is this same drawing in a colour
+       * and an expression of its own. Still, as the guide asks of it when nothing is running.
+       */}
+      <NoeBotAvatar
+        color="#ff2056"
+        face="body"
+        name={appConfig.brand.productName}
+        seed="noe-bot"
+        size={96}
+      />
       {/*
        * A POSTER OF A COMPOSER, AND `pointer-events-none` IS WHAT MAKES IT ONE. Nothing here is
        * meant to be typed in, clicked or dropped on: it is a picture of the thing the person is

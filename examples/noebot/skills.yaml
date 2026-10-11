@@ -236,3 +236,84 @@ skills:
       save_bot once, at the end. It is not a way to show a draft: it puts a card in front of the
       person and nothing is created unless they press the button.
     tools: []
+
+  # The playbooks the Bot templates in `templates.yaml` run. Each is an instruction, not a
+  # capability: the tools it names are offered only where the Bot holds them.
+  - slug: review-a-change
+    title: Review a change
+    summary: Read a diff or a file for what would break, and answer as findings with fixes.
+    instructions: >-
+      Read the whole change before judging any line of it, and the surrounding code where it is
+      available. Look, in order, for what would break (wrong logic, a missed case, a race, a
+      resource not released), what is unsafe (input reaching a query, a shell or a URL unchecked;
+      a secret in a log), and what is unclear (a name that lies, a comment that contradicts the
+      code). Answer as a list: location, what is wrong, the smallest fix, severity first. No
+      praise and no summary of what the change does. When unsure, say what would confirm the bug.
+    tools: []
+
+  - slug: write-a-follow-up
+    title: Write a follow-up
+    summary: Draft the message after a call from the notes, in the sender's voice, with one next step.
+    instructions: >-
+      From the notes, pull out what was agreed, what the sender committed to and by when, what is
+      needed from the other side, and the single next step. Write three to six sentences in the
+      sender's voice as their earlier messages show it: plain, warm, no filler. Never promise a
+      date, price or feature the notes do not contain; ask for it instead. One draft, then revise
+      on feedback.
+    tools: []
+
+  - slug: audit-a-page
+    title: Audit a page for search
+    summary: Read a page and rank what holds it back in search, with a fix and a reason for each.
+    instructions: >-
+      Read the page itself first: its title, description, headings, the question it answers, its
+      internal links and whether the first screen says what the page is for. Use a connected SEO
+      tool for rankings, backlinks and keyword data when one is granted, and say when none is.
+      Answer as a ranked list of fixes, each with the reason and the expected effect, most
+      valuable first. Quote the exact text you are talking about. No scores.
+    tools: []
+
+  - slug: critique-a-screen
+    title: Critique a screen
+    summary: Review a screen or a flow from the point of view of the person using it, five findings at most.
+    instructions: >-
+      State what the person is trying to do on this screen. Then look at hierarchy (does the eye
+      land on the right thing), wording (does each label say what happens), affordance (does
+      what is pressable look pressable), state (loading, empty, error, success) and recovery
+      (what happens when something fails). Lead with the one change that matters most, give at
+      most five findings with a concrete fix each, and mark anything that is taste rather than a
+      finding as taste.
+    tools: []
+
+  - slug: screen-a-cv
+    title: Screen a CV against a role
+    summary: Compare one CV to a role, quoting the evidence, and write the questions for a first call.
+    instructions: >-
+      For each requirement of the role, say whether the CV shows evidence for it — quoting the
+      line — or does not. Compare the candidate to the role only, never to another candidate.
+      Infer nothing the CV does not state, and never anything about age, nationality, family,
+      health or any protected characteristic; if a requirement would need one, say it cannot be
+      screened from a CV. End with three questions for a first call that would settle the gaps.
+    tools: []
+
+  - slug: write-a-spec
+    title: Write a one-page spec
+    summary: "Turn a rough idea into a one-page spec: problem, proposal, out of scope, open questions, success."
+    instructions: >-
+      Ask up to three clarifying questions when the idea is ambiguous; otherwise write and mark
+      assumptions as assumptions. The spec has five parts, in this order: the problem and who has
+      it; the proposal in plain language; what is deliberately out of scope; the open questions;
+      how we will know it worked. One page. Cut adjectives, keep decisions. Read any page the
+      person points you at before drafting, and revise a draft on feedback rather than defending it.
+    tools: []
+
+  - slug: synthesise-feedback
+    title: Synthesise customer feedback
+    summary: Group feedback into themes with counts and a verbatim quote each, and mark what is new.
+    instructions: >-
+      Group the feedback into themes, count the items under each, and pick one representative
+      quote per theme, verbatim. Order by count. Mark a theme new when it did not appear in the
+      previous period you were shown. Keep what people said apart from what you think they meant:
+      quotes in their words, interpretation labelled as yours. Never merge two different complaints
+      into one theme to shorten the list.
+    tools: []

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
+import type { TemplateCategory } from "../../../../shared/templates";
 import { client, tryClient } from "@/lib/client";
 
 export type AgentVisibility = "public" | "private";
@@ -72,6 +73,60 @@ export type AgentProfile = {
  */
 export function isSharedWithYou(agent: AgentProfile): boolean {
   return !agent.mine && agent.visibility === "public";
+}
+
+/** The coworkers whose name, title or role contains the query. An empty query keeps them all. */
+export function matchingAgents(
+  agents: AgentProfile[],
+  query: string,
+): AgentProfile[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return agents;
+  return agents.filter((agent) =>
+    `${agent.name} ${agent.title} ${agent.roleDescription}`
+      .toLocaleLowerCase()
+      .includes(needle),
+  );
+}
+
+/**
+ * A Bot template as `/api/bot-templates` lists it: a Bot a person starts from, with its skills
+ * and apps expanded to what the page draws.
+ */
+export type BotTemplate = {
+  id: string;
+  name: string;
+  title: string;
+  creator: string;
+  categories: TemplateCategory[];
+  summary: string;
+  description: string;
+  instructions: string;
+  avatar: { color: AvatarColor; expression: AvatarExpression };
+  skills: string[];
+  apps: {
+    key: string;
+    title: string;
+    logoUrl: string | null;
+    installed: boolean;
+    kind: "catalogue" | "plugin";
+  }[];
+  routines: { name: string; summary: string }[];
+  featured: boolean;
+};
+
+export const templateKeys = {
+  all: ["bot-templates"] as const,
+};
+
+export function templateListQueryOptions() {
+  return queryOptions({
+    queryKey: templateKeys.all,
+    queryFn: (): Promise<BotTemplate[]> =>
+      client("/api/bot-templates", "templates", {
+        fallback: "Bot templates could not be loaded.",
+      }),
+  });
 }
 
 export const agentKeys = {

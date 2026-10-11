@@ -897,7 +897,7 @@ function boundedText(
     : { ok: false, error };
 }
 
-function agentDto(actor: AgentActor, agent: AgentProfile) {
+export function agentDto(actor: AgentActor, agent: AgentProfile) {
   return {
     id: agent.id,
     name: agent.name,

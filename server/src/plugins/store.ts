@@ -1129,6 +1129,14 @@ function connectVariablesOf(row: {
   });
 }
 
+/** An address a vendor's metadata named that this deployment will not fetch. */
+export class DiscoveryRefusedError extends Error {
+  constructor(candidate: string) {
+    super(`refused to discover OAuth metadata at ${candidate}`);
+    this.name = "DiscoveryRefusedError";
+  }
+}
+
 /** How long a cached discovery is trusted before the vendor is asked again. */
 const OAUTH_METADATA_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -1165,7 +1173,7 @@ export async function discoverOAuthOverHttp(input: {
    */
   const admissible = (candidate: string): string => {
     if (customUrlRefusal(candidate) !== null) {
-      throw new Error(`refused to discover OAuth metadata at ${candidate}`);
+      throw new DiscoveryRefusedError(candidate);
     }
     return candidate;
   };
@@ -1185,12 +1193,7 @@ export async function discoverOAuthOverHttp(input: {
   } catch (error) {
     // A refused address is refused; anything else is no resource metadata, and the server is its
     // own authorization server, as the older flow had it.
-    if (
-      error instanceof Error &&
-      error.message.startsWith("refused to discover")
-    ) {
-      throw error;
-    }
+    if (error instanceof DiscoveryRefusedError) throw error;
   }
   const server = await discoverAuthorizationServerMetadata(
     authorizationServer,
