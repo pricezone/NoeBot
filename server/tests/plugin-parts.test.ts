@@ -174,3 +174,44 @@ describe("one file out of GitHub", () => {
     ).toEqual({ ok: false, reason: "refused" });
   });
 });
+
+describe("discovering a vendor's sign-in over HTTP", () => {
+  test("an authorization server the resource metadata names is held to the URL floor before it is fetched", async () => {
+    const fetched: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      fetched.push(url);
+      if (url.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({
+            resource: "https://mcp.example.com/mcp",
+            authorization_servers: ["http://169.254.169.254/"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response("", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const { discoverOAuthOverHttp } = await import("../src/plugins/store");
+      await expect(
+        discoverOAuthOverHttp({
+          serverUrl: "https://mcp.example.com/mcp",
+          resourceMetadataUrl: null,
+        }),
+      ).rejects.toThrow("refused to discover");
+      expect(fetched.some((url) => url.startsWith("http://169.254"))).toBe(
+        false,
+      );
+      await expect(
+        discoverOAuthOverHttp({
+          serverUrl: "https://mcp.example.com/mcp",
+          resourceMetadataUrl: "https://metadata.internal/.well-known/x",
+        }),
+      ).rejects.toThrow("refused to discover");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});

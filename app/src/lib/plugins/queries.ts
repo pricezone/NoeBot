@@ -95,9 +95,31 @@ export type PluginServer = {
    * has none yet, or one that is not reached as a person at all.
    */
   oauthClientSource: "env" | "stored" | null;
+  /** The Marketplace plugin this server was installed from, and null for every other provenance. */
+  pluginId: string | null;
+  /**
+   * How a plugin server is reached — `none`, `oauth-discover`, `static-client` or `header` — and
+   * null for every other row. What decides whether its row says Add, Connect or Add key.
+   */
+  authKind: string | null;
+  /** `sse` for a plugin server on the older transport; null means Streamable HTTP. */
+  transport: "sse" | null;
+  /** What a `header` plugin server asks a person for; null for every other row. */
+  connectVariables: ConnectVariable[] | null;
+  /** Whether a plugin OAuth server's sign-in endpoints have been discovered yet. */
+  oauthDiscovered: boolean;
   tools: PluginTool[];
   /** Empty for a healthy connector. See {@link WithdrawnGrant}. */
   withdrawn: WithdrawnGrant[];
+};
+
+/** One value a `header` plugin server's templates name, as the form that asks for it draws it. */
+export type ConnectVariable = {
+  name: string;
+  description: string | null;
+  /** A secret: the form masks it and nothing echoes it. */
+  writeOnly: boolean;
+  required: boolean;
 };
 
 export type PluginSkill = {
@@ -110,6 +132,10 @@ export type PluginSkill = {
   instructions: string;
   origin: string;
   installedBy: string | null;
+  /** The Marketplace plugin this skill came with, and null for every other origin. */
+  pluginId: string | null;
+  /** Whether every Bot holds it without a grant row, as a server's flag of the same name. */
+  offeredToAllBots: boolean;
   grantedTo: string[];
   /**
    * The tools this skill says it needs, as `<serverId>/<toolName>` refs.
@@ -200,9 +226,57 @@ export type GrantedPlugins = {
   }[];
 };
 
+/**
+ * One Cursor Marketplace plugin as the Apps tab lists it: the trimmed view `GET /api/plugins/
+ * marketplace` answers, with what its servers want and which skills come along.
+ */
+export type MarketplacePlugin = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  publisher: string;
+  verified: boolean;
+  logoUrl: string | null;
+  /** Cursor's category keys, `PRODUCTIVITY` and the like; empty for an uncategorised plugin. */
+  categories: string[];
+  /** `catalogue` names a plugin this deployment ships its own entry for; see `catalogueKey`. */
+  availability: "installable" | "catalogue";
+  catalogueKey: string | null;
+  servers: {
+    serverId: string;
+    name: string;
+    authKind: "none" | "oauth-discover" | "static-client" | "header";
+    variables: string[];
+  }[];
+  skills: { name: string; slug: string }[];
+};
+
+/** A plugin installed here, with who installed it and whether that was the person asking. */
+export type InstalledPlugin = {
+  id: string;
+  slug: string;
+  name: string;
+  gitRef: string;
+  installedBy: string | null;
+  installedByUserId: string | null;
+  installedAt: string;
+  serverIds: string[];
+  skillSlugs: string[];
+  skipped: { kind: string; name: string; reason: string }[];
+  mine: boolean;
+};
+
+export type MarketplacePage = {
+  syncedAt: string;
+  plugins: MarketplacePlugin[];
+  installed: Record<string, InstalledPlugin>;
+};
+
 export const pluginKeys = {
   all: ["plugins"] as const,
   page: () => ["plugins", "page"] as const,
+  marketplace: () => ["plugins", "marketplace"] as const,
   forAgent: (agentId: string) => ["plugins", "for-agent", agentId] as const,
   connections: () => ["plugins", "connections"] as const,
   composioApps: (query: string) =>
@@ -304,6 +378,20 @@ export function connectionsQueryOptions() {
     queryFn: async (): Promise<PluginConnections> => {
       const response = await client("/api/plugins/connections", {
         fallback: "Your connected accounts could not be loaded.",
+      });
+      return response.json();
+    },
+  });
+}
+
+/** The Marketplace's plugin index, and what of it is installed. Every signed-in person may read it. */
+export function marketplaceQueryOptions() {
+  return queryOptions({
+    queryKey: pluginKeys.marketplace(),
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<MarketplacePage> => {
+      const response = await client("/api/plugins/marketplace", {
+        fallback: "The Marketplace could not be loaded.",
       });
       return response.json();
     },

@@ -264,6 +264,90 @@ export function offerToAllBotsMutationOptions(queryClient: QueryClient) {
   });
 }
 
+/**
+ * Install a Marketplace plugin, for every Bot.
+ *
+ * Any signed-in person may press it, behind the same switch Connect and Enable are: the plugin is
+ * a public repository at a reviewed commit, and nothing it installs reaches anybody's account until
+ * that person connects it themselves. The server reads the plugin's skills out of GitHub at the
+ * pinned commit on the way, so the answer takes a moment.
+ */
+export function installPluginMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (pluginId: string) => {
+      await client("/api/plugins/install", {
+        method: "POST",
+        body: { pluginId },
+        fallback: "That plugin could not be added.",
+      });
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
+/** Remove a Marketplace plugin whole: its servers, every account connected to them, its skills. */
+export function uninstallPluginMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (pluginId: string) => {
+      await client(`/api/plugins/install/${encodeURIComponent(pluginId)}`, {
+        method: "DELETE",
+        fallback: "That plugin could not be removed.",
+      });
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
+/**
+ * Hand a plugin server the person's own token, for a server that takes one in a header.
+ *
+ * The values live in the form and in this request, and nowhere else — the same rule, for the same
+ * reason, as {@link connectBrokeredWithFieldsMutationOptions}: the mutation's copy is erased as the
+ * request settles, so a credential we were only asked to forward is not kept legible afterwards.
+ */
+export function connectWithVariablesMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (variables: {
+      serverId: string;
+      values: Record<string, string>;
+    }): Promise<void> => {
+      try {
+        await client(
+          `/api/plugins/servers/${encodeURIComponent(variables.serverId)}/connect`,
+          {
+            method: "POST",
+            body: { variables: variables.values },
+            fallback: "That token could not be added.",
+          },
+        );
+      } finally {
+        variables.values = {};
+      }
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
+/**
+ * Whether one skill is offered to every Bot, or only to the Bots granted it — the switch
+ * {@link offerToAllBotsMutationOptions} is for a server, for a skill. An administrator's.
+ */
+export function offerSkillToAllBotsMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: async (variables: { slug: string; on: boolean }) => {
+      await client(
+        `/api/plugins/skills/${encodeURIComponent(variables.slug)}/offer-to-all`,
+        {
+          method: "POST",
+          body: { on: variables.on },
+          fallback: FALLBACK,
+        },
+      );
+    },
+    onSettled: () => invalidatePlugins(queryClient),
+  });
+}
+
 export function removePluginServerMutationOptions(queryClient: QueryClient) {
   return mutationOptions({
     mutationFn: async (serverId: string) => {
@@ -433,11 +517,13 @@ export function confirmBrokeredConnectionMutationOptions(
 }
 
 /**
- * End the signed-in person's brokered connection.
+ * End the signed-in person's own connection to one server.
  *
- * Ends the account at Composio rather than only here. Forgetting the row on our side would leave
- * the vendor still holding a live grant on somebody's mailbox, which is not what the person who
- * pressed disconnect was told would happen.
+ * For a brokered app, ends the account at Composio rather than only here: forgetting the row on
+ * our side would leave the vendor still holding a live grant on somebody's mailbox, which is not
+ * what the person who pressed disconnect was told would happen. For a held connection — an OAuth
+ * grant or a plugin server's token in this deployment's own vault — revokes the secret here; the
+ * vendor is not asked, and the page says so.
  */
 export function disconnectBrokeredMutationOptions(queryClient: QueryClient) {
   return mutationOptions({

@@ -1149,7 +1149,7 @@ const discoveryFetch = (input: string | URL, init?: RequestInit) =>
  * resource's scopes win over the authorization server's, which is Cursor's reading too; a server
  * whose `scopes_supported` lists every scope it has is not asking a person for all of them.
  */
-async function discoverOAuthOverHttp(input: {
+export async function discoverOAuthOverHttp(input: {
   serverUrl: string;
   resourceMetadataUrl: string | null;
 }): Promise<DiscoveredOAuth> {
@@ -1157,20 +1157,40 @@ async function discoverOAuthOverHttp(input: {
   let resource: string | null = null;
   let authorizationServer = serverUrl.origin;
   let resourceScopes: string[] = [];
+  /*
+   * EVERY ADDRESS THIS FETCHES PASSES THE FLOOR BEFORE IT IS FETCHED, not only the endpoints it
+   * ends up caching. The resource metadata names the authorization server, and that is a document
+   * the vendor wrote: one naming an internal address would have this deployment fetch it on the
+   * vendor's say-so. The hint from the index is held to the same, reviewed or not.
+   */
+  const admissible = (candidate: string): string => {
+    if (customUrlRefusal(candidate) !== null) {
+      throw new Error(`refused to discover OAuth metadata at ${candidate}`);
+    }
+    return candidate;
+  };
   try {
     const published = await discoverOAuthProtectedResourceMetadata(
       serverUrl,
       input.resourceMetadataUrl
-        ? { resourceMetadataUrl: input.resourceMetadataUrl }
+        ? { resourceMetadataUrl: admissible(input.resourceMetadataUrl) }
         : undefined,
       discoveryFetch,
     );
     resource = published.resource;
-    authorizationServer =
-      published.authorization_servers?.[0] ?? serverUrl.origin;
+    authorizationServer = admissible(
+      published.authorization_servers?.[0] ?? serverUrl.origin,
+    );
     resourceScopes = published.scopes_supported ?? [];
-  } catch {
-    // No resource metadata: the server is its own authorization server, as the older flow had it.
+  } catch (error) {
+    // A refused address is refused; anything else is no resource metadata, and the server is its
+    // own authorization server, as the older flow had it.
+    if (
+      error instanceof Error &&
+      error.message.startsWith("refused to discover")
+    ) {
+      throw error;
+    }
   }
   const server = await discoverAuthorizationServerMetadata(
     authorizationServer,

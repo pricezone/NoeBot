@@ -22,6 +22,11 @@ export const marketplaceSearchSchema = z.object({
   edit: z.string().optional(),
   /** The coworker whose dialog is open. */
   agent: z.string().optional(),
+  /**
+   * One category of the tab, shown in full, in place of the preview of every category. The Apps
+   * tab reads Cursor's category keys; the Agents tab, a template category. Absent is All.
+   */
+  category: z.string().optional(),
 });
 
 export type MarketplaceSearch = z.infer<typeof marketplaceSearchSchema>;
