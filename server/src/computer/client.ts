@@ -2,6 +2,20 @@ import type { HandoffRequest } from "../../../shared/computer-control";
 import type { NavigateResult } from "./schema";
 import { checkNavigationTarget } from "./target";
 
+/**
+ * A page the Bot opened did not arrive before the navigation deadline.
+ *
+ * Not a missing element (nothing about refs is wrong) and not an unavailable computer (the computer
+ * answered; the site did not). Its own class so the route can say so with its own status, and the
+ * Bot is told to try again or try another page rather than to take a snapshot or wait for repairs.
+ */
+export class NavigationTimeoutError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "NavigationTimeoutError";
+  }
+}
+
 /** The computer did not accept or answer a request. */
 export class ComputerUnavailableError extends Error {
   constructor(reason: string) {
@@ -380,11 +394,20 @@ function throwMappedError(
   if (status === 413) {
     throw new WorkspaceTooLargeError(detail);
   }
-  if (/waiting for locator|Timeout .* exceeded/i.test(detail)) {
+  /*
+   * An action that timed out WAITING FOR AN ELEMENT: the ref is not on the page. Only that. A
+   * navigation that missed its deadline says "Timeout ... exceeded" too, and was told to the Bot as
+   * a missing element, which sent it taking snapshot after snapshot of a page that was simply slow.
+   */
+  if (/waiting for locator|aria-ref=/i.test(detail)) {
     const ref = detail.match(/aria-ref=([A-Za-z0-9_-]+)/)?.[1];
     throw new ElementNotFoundError(
       `${ref ? `Element ${ref} is` : "That element is"} not on the page any more. Take a fresh snapshot and use the refs from it.`,
     );
   }
+  if (/^page\.goto: Timeout \d+ms exceeded/i.test(detail))
+    throw new NavigationTimeoutError(
+      "The page did not load in time. Try it again, or try another page.",
+    );
   throw new ComputerUnavailableError(detail);
 }

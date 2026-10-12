@@ -40,6 +40,7 @@ export {
   HandoffRequestError,
   HumanHasControlError,
   NavigationRefusedError,
+  NavigationTimeoutError,
   StaleSnapshotError,
   WorkspaceNotFoundError,
   WorkspaceRefusedError,

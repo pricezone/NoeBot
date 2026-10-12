@@ -120,15 +120,28 @@ async function runOneTick(): Promise<void> {
   try {
     const { offered } = await offerDueRoutines(options);
     const report = await dispatchClaimedRoutines(options);
-    console.info(
-      JSON.stringify({
-        type: "routine-sweep",
-        offered,
-        considered: report.considered,
-        fired: report.fired,
-        skipped: report.skipped,
-      }),
-    );
+    /*
+     * Said when the tick did something, and on the first one so a start is visible. An idle line every
+     * 30 seconds is 2,880 a day, and where the container's log is read through a tail of a couple of
+     * thousand lines (a hosted instance's log panel) it buried every other line within a day. That the
+     * worker is alive is recorded in `routine_sweeps` either way, which is what the Routines page reads.
+     */
+    if (
+      tick === 1 ||
+      offered.length > 0 ||
+      report.considered > 0 ||
+      report.fired.length > 0 ||
+      report.skipped.length > 0
+    )
+      console.info(
+        JSON.stringify({
+          type: "routine-sweep",
+          offered,
+          considered: report.considered,
+          fired: report.fired,
+          skipped: report.skipped,
+        }),
+      );
   } catch (error) {
     console.warn(
       JSON.stringify({

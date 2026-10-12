@@ -11,6 +11,7 @@ import {
   ActionRefusedError,
   type ComputerGateway,
   ComputerUnavailableError,
+  NavigationTimeoutError,
   ElementNotFoundError,
   HandoffRequestError,
   HumanHasControlError,
@@ -1017,8 +1018,12 @@ function handoffId(body: Record<string, unknown> | null): string {
   return body.requestId;
 }
 
-function statusFor(error: unknown): 400 | 403 | 404 | 409 | 413 | 500 | 503 {
+function statusFor(
+  error: unknown,
+): 400 | 403 | 404 | 409 | 413 | 500 | 503 | 504 {
   if (error instanceof HandoffRequestError) return error.status;
+  // The site did not answer in time. The computer is fine, which 503 would deny.
+  if (error instanceof NavigationTimeoutError) return 504;
   if (error instanceof StaleSnapshotError) return 409;
   // Same status as a stale snapshot and for the same reason: nothing is broken, the caller has to do
   // something else first. What differs is what that something is, which the body carries.

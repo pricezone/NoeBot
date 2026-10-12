@@ -4,6 +4,7 @@ import {
   ComputerUnavailableError,
   createComputerTransport,
   ElementNotFoundError,
+  NavigationTimeoutError,
   HumanHasControlError,
   NavigationRefusedError,
   StaleSnapshotError,
@@ -201,6 +202,40 @@ describe("computer client", () => {
       base64: "aGVsbG8=",
       width: 1280,
     });
+  });
+});
+
+/**
+ * A navigation that missed its deadline.
+ *
+ * Playwright words it "Timeout ... exceeded" like an element wait, and it used to be reported the
+ * same way: "That element is not on the page any more. Take a fresh snapshot". The Bot then took
+ * snapshot after snapshot of a page that was only slow. It is its own condition now.
+ */
+describe("a page that did not load in time", () => {
+  const navigationTimeout = {
+    error:
+      'page.goto: Timeout 30000ms exceeded.\nCall log:\n  - navigating to "https://slow.example/", waiting until "domcontentloaded"\n',
+  };
+
+  test("is a navigation timeout, not a missing element or an unavailable computer", async () => {
+    const client = clientWith(
+      () =>
+        new Response(JSON.stringify(navigationTimeout), {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    try {
+      await client.navigate("https://slow.example/");
+      throw new Error("should have failed");
+    } catch (error) {
+      expect(error).toBeInstanceOf(NavigationTimeoutError);
+      expect(error).not.toBeInstanceOf(ElementNotFoundError);
+      expect((error as Error).message).toBe(
+        "The page did not load in time. Try it again, or try another page.",
+      );
+    }
   });
 });
 

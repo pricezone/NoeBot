@@ -1160,7 +1160,7 @@ serve<StreamData>({
         try {
           const target = await currentPage(botId, "navigate");
           session.control.assertBotMayAct(true);
-          const response = await navigateWebPage(
+          const { response, stillLoading } = await navigateWebPage(
             target,
             parsed.url,
             RUNTIME.backend,
@@ -1176,6 +1176,13 @@ serve<StreamData>({
             title: await target.title(),
             text: extract.text,
             truncated: extract.truncated,
+            // Said to the Bot in words, so it reads what is there rather than navigating again.
+            ...(stillLoading
+              ? {
+                  stillLoading: true,
+                  note: `The page had not finished loading after ${Math.round(NAVIGATION_TIMEOUT_MS / 1000)} seconds. This is what it showed so far; read or snapshot it rather than opening it again.`,
+                }
+              : {}),
             elapsedMs: Date.now() - startedAt,
             challenge: await detectChallenge(target, session.control, {
               cfMitigated: response
