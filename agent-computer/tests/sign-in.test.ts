@@ -57,6 +57,17 @@ beforeAll(async () => {
         return page(`<form method="post" action="/session">
           <input name="email" type="email" value="${url.searchParams.get("username") ?? ""}">
           <input name="password" type="password"></form>`);
+      // No form at all: the button's own script sends the login, and Enter in a field does nothing.
+      if (url.pathname === "/script-login")
+        return page(`<div class="login">
+          <label>Username <input id="username" name="username"></label>
+          <label>Password <input id="password" name="password" type="password"></label>
+          <button type="button" aria-label="Show password">👁</button>
+          <button id="submit" class="btn" onclick="
+            if (document.getElementById('password').value === '${PASSWORD}')
+              location.href = '/home';
+            else document.body.insertAdjacentHTML('beforeend', '<p>Wrong</p>');
+          ">Submit</button></div>`);
       if (url.pathname === "/home") return page("<h1>Welcome back</h1>");
       return new Response("not found", { status: 404 });
     },
@@ -137,6 +148,21 @@ describe.skipIf(!asked)("typing a login", () => {
       passwordFieldVisible: false,
     });
     expect(result.url).toBe(`${origin}/home`);
+    await tab.close();
+  });
+
+  test("sends a login that no form wraps, through the button that does, never the show-password one", async () => {
+    const tab = await open("/script-login");
+    const result = await fillSignIn(tab, {
+      origin,
+      username: "student",
+      password: PASSWORD,
+    });
+    expect(result).toEqual({
+      submitted: true,
+      passwordFieldVisible: false,
+      url: `${origin}/home`,
+    });
     await tab.close();
   });
 

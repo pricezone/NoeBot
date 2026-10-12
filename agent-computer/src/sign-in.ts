@@ -148,21 +148,71 @@ function markCodeField(attribute: string) {
 /**
  * How a form is sent, decided in the page: its own submit button when it has one, the form itself
  * when it has none (a form with several fields and no button ignores Enter), and Enter otherwise.
+ *
+ * A login no form wraps is sent by a script on its button, and Enter in a field goes nowhere: the
+ * login was typed, nothing sent it, and the person was told it "was probably not accepted". So with no
+ * form, the button is found the way a person finds it: the nearest one around the field that says it
+ * sends the login, never one that shows the password or signs in somewhere else. Enter only when
+ * there is no such button. Self-contained, because it runs in the page.
  */
 function markSubmit(
   field: Element,
   attribute: string,
 ): "button" | "form" | "key" {
   const form = (field as HTMLInputElement).form;
-  if (!form) return "key";
-  const button = form.querySelector(
-    "button:not([type=button]):not([type=reset]), input[type=submit]",
-  );
-  if (button) {
-    button.setAttribute(attribute, "submit");
-    return "button";
+  if (form) {
+    const button = form.querySelector(
+      "button:not([type=button]):not([type=reset]), input[type=submit]",
+    );
+    if (button) {
+      button.setAttribute(attribute, "submit");
+      return "button";
+    }
+    return "form";
   }
-  return "form";
+  const sends =
+    /log\s?in|sign\s?in|submit|continue|next|σύνδεση|είσοδος|συνέχεια/i;
+  const elsewhere =
+    /show|hide|reveal|forgot|google|apple|facebook|microsoft|github|sso|εμφάνιση|απόκρυψη/i;
+  const label = (element: Element) =>
+    [
+      element.textContent,
+      (element as HTMLInputElement).value,
+      element.id,
+      element.getAttribute("name"),
+      element.getAttribute("aria-label"),
+    ]
+      .filter(Boolean)
+      .join(" ");
+  const usable = (element: Element) => {
+    const box = element.getBoundingClientRect();
+    return (
+      box.width > 0 &&
+      box.height > 0 &&
+      !(element as HTMLButtonElement).disabled &&
+      !elsewhere.test(label(element))
+    );
+  };
+  let scope = field.parentElement;
+  for (let depth = 0; scope && depth < 6; depth++) {
+    const candidates = [
+      ...scope.querySelectorAll(
+        "button, input[type=submit], input[type=button], [role=button]",
+      ),
+    ].filter(usable);
+    const chosen =
+      candidates.find(
+        (element) =>
+          element.getAttribute("type") === "submit" &&
+          element.tagName === "INPUT",
+      ) ?? candidates.find((element) => sends.test(label(element)));
+    if (chosen) {
+      chosen.setAttribute(attribute, "submit");
+      return "button";
+    }
+    scope = scope.parentElement;
+  }
+  return "key";
 }
 
 async function submitFrom(page: Page, field: Locator) {
