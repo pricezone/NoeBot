@@ -20,6 +20,7 @@ export type EyeShiftOptions = {
   centreY?: number;
 };
 
+const REST: readonly [number, number] = [0, 0];
 const EASE = 0.22;
 const EPSILON = 0.005;
 
@@ -69,12 +70,7 @@ export const useEyeShift = (
   const ref = useCallback((node: SVGSVGElement | null) => setElement(node), []);
 
   useEffect(() => {
-    if (!element || isReducedMotion) {
-      setShift((previous) =>
-        previous[0] === 0 && previous[1] === 0 ? previous : [0, 0],
-      );
-      return undefined;
-    }
+    if (!element || isReducedMotion) return undefined;
     const centre = { x: centreX, y: centreY };
     const controller = new AbortController();
     const { signal } = controller;
@@ -225,6 +221,8 @@ export const useEyeShift = (
       stop();
       unwatch();
       controller.abort();
+      // The next subscription starts from rest, so the shift it reports must too.
+      setShift(REST);
     };
   }, [
     element,
@@ -237,5 +235,6 @@ export const useEyeShift = (
     centreY,
   ]);
 
-  return [shift, ref] as const;
+  // Without a face to measure, or under reduced motion, the eyes rest, whatever was last seen.
+  return [element && !isReducedMotion ? shift : REST, ref] as const;
 };
