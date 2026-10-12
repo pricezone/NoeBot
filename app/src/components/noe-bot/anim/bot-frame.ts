@@ -9,7 +9,7 @@
  */
 
 import { ACTS, SEQUENCES } from "./acts";
-import { type Animation, segmentAt } from "./catalog";
+import { type Animation, IDLE_CUES, IDLE_SECONDS, segmentAt } from "./catalog";
 import {
   coolRig,
   dizzyRig,
@@ -57,7 +57,28 @@ export type FrameInput = {
    * pointer.
    */
   eyeShift?: readonly [number, number];
+  /**
+   * A portrait rather than a moment: the face settled and centred, no blink, no glitch, no idle
+   * shift, hands and legs at their pose, and the props that are its eyes kept whatever `props`
+   * says. For a roster at rest, a picker tile, a 16 px icon.
+   */
+  still?: boolean;
 };
+
+/**
+ * The frame of a face's own motion that makes its portrait: most faces are themselves at frame 0;
+ * cool's sunglasses have dropped into place by frame 6, eye-roll's eyes are rolled up at 8, hug's
+ * arms are back at its sides by 20.
+ */
+const PORTRAIT_FRAME: Record<string, number> = {
+  cool: 6,
+  "eye-roll": 8,
+  hug: 20,
+};
+
+/** Whether a cell lies in the eye region (rows 2–9, cols 1–12), where a prop is an eye. */
+const inEyeRegion = (c: Cell): boolean =>
+  c.x >= 1 && c.x <= 12.5 && c.y >= 2 && c.y <= 9.5;
 
 export type Frame = {
   cells: Cell[];
@@ -251,6 +272,24 @@ const timelineAt = (input: FrameInput, T: number): Timeline => {
         bootIn: Number.NEGATIVE_INFINITY,
         out: REST_OUT,
       };
+    case "idle": {
+      // A looping pass of glances; from the second pass on, the face before the first cue is the
+      // last glance's return to the original face, not whatever played before the idle began.
+      const passStart =
+        T - (((T % IDLE_SECONDS) + IDLE_SECONDS) % IDLE_SECONDS);
+      const last = IDLE_CUES[IDLE_CUES.length - 1]?.[1] ?? "original";
+      const cues: (readonly [number, string])[] = [
+        ...(passStart > 0 ? [[passStart - 3.5, last] as const] : []),
+        ...IDLE_CUES.map(([at, face]) => [passStart + at, face] as const),
+      ];
+      return {
+        cur: holdOf(cues, passStart + IDLE_SECONDS),
+        act: null,
+        changes: changesFrom(cues, null),
+        bootIn: Number.NEGATIVE_INFINITY,
+        out: Number.POSITIVE_INFINITY,
+      };
+    }
     case "action":
     case "state": {
       const seg = segmentAt(animation, T);
@@ -323,8 +362,17 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   const Traw = Math.max(0, input.t);
   const T = strict ? Math.floor(Traw * 12) / 12 : Traw;
   const F = Math.floor(T * 12);
-  const { cur, act, changes, bootIn, out } = timelineAt(input, T);
+  const timeline = timelineAt(input, T);
+  const { act, changes, bootIn, out } = timeline;
+  const still = input.still === true && !act;
+  // A portrait has no history: the face is its own predecessor, so nothing flashes or eases in.
+  const cur = still
+    ? { ...timeline.cur, prevKey: timeline.cur.key, at: T }
+    : timeline.cur;
   const reduced = input.reduced === true;
+  const quiet = reduced || still;
+  // The clock the hands, legs and tears read: a portrait sits at phase zero of every wave.
+  const Tm = still ? 0 : T;
 
   let w = act ? act.w : 0;
   const at = act ? (strict ? Math.floor(act.t * 12) / 12 : act.t) : 0;
@@ -332,15 +380,18 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   let rig: Rig =
     act && actDef
       ? actDef.fn(at, w, input.mode)
-      : exprRigFor(cur.key, T - cur.at);
+      : exprRigFor(
+          cur.key,
+          still ? (PORTRAIT_FRAME[cur.key] ?? 0) / 12 : T - cur.at,
+        );
   if (!act && rig.strict) w = 1;
 
   // Body offsets: whole cells in terminal mode; HD keeps sub-cell motion, rotation and squash.
   {
-    let bx = (rig.bx ?? 0) * (act ? w : 1);
-    let by = (rig.by ?? 0) * (act ? w : 1);
+    let bx = still ? 0 : (rig.bx ?? 0) * (act ? w : 1);
+    let by = still ? 0 : (rig.by ?? 0) * (act ? w : 1);
     const idle =
-      !act && IDLE[cur.key] && !rig.strict && !reduced ? IDLE[cur.key] : null;
+      !act && IDLE[cur.key] && !rig.strict && !quiet ? IDLE[cur.key] : null;
     if (idle) {
       if (strict) {
         const id = idle(Math.floor((T - cur.at) * 12));
@@ -378,11 +429,11 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   let diffN = 0;
   for (let i = 0; i < COLS * 12; i++) if (!!facePx[i] !== !!prevPx[i]) diffN++;
   const since = T - cur.at;
-  const flash = !reduced && changed && since < 0.17;
+  const flash = !quiet && changed && since < 0.17;
 
   // Scheduled blinks: first ~0.9 s into each hold, then every 2.4 s; every third hold opens with a double blink.
   let blinkRows = 0;
-  if (!reduced && !neverBlinks(cur.key) && !rig.noBlink && T < out) {
+  if (!quiet && !neverBlinks(cur.key) && !rig.noBlink && T < out) {
     const holdLen = cur.end - cur.at;
     const first = 0.8 + (cur.i % 3) * 0.15;
     const check = (b: number) => {
@@ -487,6 +538,9 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   if (input.props) {
     if (rig.props) cells.push(...rig.props);
     if (rig.glyphs) glyphs.push(...rig.glyphs);
+  } else if (rig.props) {
+    // Small sizes hide accessories, not eyes: hearts, stars, shades and glasses stay on the face.
+    cells.push(...rig.props.filter(inEyeRegion));
   }
 
   // Ears: whole cells, stepping one frame after the face (left) and two (right).
@@ -506,7 +560,7 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   // Hands and legs: the pose's offset, eased, mixed toward the act's.
   for (const side of ["l", "r"] as const) {
     const c = side === "l" ? 0 : 13;
-    let [dx, dy] = handOffset(T, cur, side);
+    let [dx, dy] = handOffset(Tm, cur, side);
     if (rig.hands)
       [dx, dy] = mix2([dx, dy], (rig.hands ?? EMPTY_LIMBS)[side], w);
     if (strict) {
@@ -525,7 +579,7 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   if (legVis && !rig.noLegs) {
     for (const side of ["l", "r"] as const) {
       const cs = side === "l" ? [3, 4] : [9, 10];
-      let [dx, dy] = legOffset(T, cur, side);
+      let [dx, dy] = legOffset(Tm, cur, side);
       if (rig.legs)
         [dx, dy] = mix2([dx, dy], (rig.legs ?? EMPTY_LIMBS)[side], w);
       if (strict) {
@@ -581,7 +635,7 @@ export const renderBotFrame = (input: FrameInput): Frame => {
   const sx = strict ? 1 : (1 + 0.06 * (1 - p)) * (1 + 0.12 * q);
   const sy = strict ? 1 : (1 - 0.07 * (1 - p)) * (1 - 0.14 * q);
   const bob =
-    strict || reduced
+    strict || quiet
       ? 0
       : Math.sin((T * Math.PI * 2) / (sleepy ? 3.2 : 2.2)) *
         (sleepy ? 0.18 : 0.1);

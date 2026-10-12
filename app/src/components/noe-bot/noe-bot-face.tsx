@@ -4,10 +4,10 @@ import { NoeBotSprite } from "./anim/noe-bot-sprite";
 import { CURRENT_COLOR_PALETTE } from "./anim/palette";
 import { type Face, facePath } from "./pixel-art";
 
-/** The animation a face name stands for: the mascot's own eyes are the neutral face, offline is unplugged. */
+/** The animation a face name stands for: the mascot's own eyes idle on the original face, offline is unplugged. */
 export const animationForFace = (face: Face): AnimationId =>
   face === "body"
-    ? "face:neutral"
+    ? "idle"
     : face === "offline"
       ? "state:unplugged"
       : `face:${face}`;

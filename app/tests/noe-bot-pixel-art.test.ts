@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ALL_FACES } from "@/components/noe-bot/anim/exprs";
 import { GRID_16 } from "@/components/noe-bot/drawings";
 import {
   AVATAR_SCHEMES,
@@ -11,7 +12,6 @@ import {
   pathFor,
   schemeFor,
 } from "@/components/noe-bot/pixel-art";
-import { ALL_FACES } from "@/components/noe-bot/anim/exprs";
 import {
   AVATAR_COLORS,
   AVATAR_EXPRESSIONS,
@@ -106,9 +106,15 @@ describe("the brand guide's half-block drawings", () => {
     expect(facePath("offline").path).not.toBe(facePath("body").path);
     expect(facePath("body").width).toBe(14);
     expect(facePath("body").height).toBe(12);
-    // The still of a newer face is drawn from the same pixels the animation uses.
+    // The still of a newer face is its portrait: heart eyes are cut out of the ink, not a solid block.
     expect(facePath("monocle").path).not.toBe(facePath("neutral").path);
     expect(facePath("in-love").width).toBe(14);
+    const inkCells = (path: string) =>
+      [...path.matchAll(/h(\d+)v1/g)].reduce((n, m) => n + Number(m[1]), 0);
+    const solid = 14 * 12 - 4 * 4;
+    expect(inkCells(facePath("in-love").path)).toBeLessThan(solid - 8);
+    expect(inkCells(facePath("cool").path)).toBeLessThan(solid - 8);
+    expect(inkCells(facePath("star-struck").path)).toBeLessThan(solid - 8);
   });
 });
 

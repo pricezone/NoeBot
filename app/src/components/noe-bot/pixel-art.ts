@@ -7,7 +7,7 @@ import {
   isAvatarExpression,
   SEED_EXPRESSIONS,
 } from "../../../../shared/avatar";
-import { FACES } from "./anim/exprs";
+import { renderBotFrame } from "./anim/bot-frame";
 import { COLS, type Px } from "./anim/pixels";
 import { GRID_16, type HalfBlockDrawing } from "./drawings";
 
@@ -103,8 +103,11 @@ export function gridFromPx(px: Px): PixelGrid {
 /**
  * The still drawing for a face, decoded once and kept.
  *
- * The mascot's own eyes come from the guide's half-block body; every expression from the design's
- * pixels under that name; offline wears the unplugged state's face, the sad one.
+ * The mascot's own eyes come from the guide's half-block body. Every expression is its portrait
+ * (`renderBotFrame` with `still`): the face settled and centred, with the props that are its eyes
+ * cut out of the ink — heart eyes, star eyes, shades, glasses — so a 16 px icon reads the same
+ * face the animation does rather than a solid block. Offline wears the unplugged state's face, the
+ * sad one.
  */
 export function facePath(face: Face): FacePath {
   const known = cache.get(face);
@@ -112,9 +115,7 @@ export function facePath(face: Face): FacePath {
   const pixels =
     face === "body"
       ? decodeHalfBlocks(GRID_16.body)
-      : gridFromPx(
-          FACES[face === "offline" ? "sad" : face] ?? FACES.neutral ?? [],
-        );
+      : gridFromPortrait(face === "offline" ? "sad" : face);
   const result = {
     width: pixels.width,
     height: pixels.height,
@@ -122,6 +123,38 @@ export function facePath(face: Face): FacePath {
   };
   cache.set(face, result);
   return result;
+}
+
+/** A face's portrait as a 14 × 12 grid: body ink, with any eye-region prop as a cut-out. */
+export function gridFromPortrait(face: string): PixelGrid {
+  const frame = renderBotFrame({
+    animation: { kind: "face", id: face },
+    t: 0,
+    mode: "terminal",
+    props: false,
+    still: true,
+  });
+  const rows: boolean[][] = Array.from({ length: 12 }, () =>
+    Array.from({ length: COLS }, () => false),
+  );
+  const inside = (x: number, y: number) =>
+    x >= 0 && x < COLS && y >= 0 && y < 12;
+  for (const cell of frame.cells) {
+    const x = Math.round(cell.x);
+    const y = Math.round(cell.y);
+    if (!inside(x, y)) continue;
+    const row = rows[y];
+    if (!row) continue;
+    if (cell.fill === "P") row[x] = true;
+  }
+  for (const cell of frame.cells) {
+    const x = Math.round(cell.x);
+    const y = Math.round(cell.y);
+    if (!inside(x, y) || cell.fill === "P") continue;
+    const row = rows[y];
+    if (row) row[x] = false;
+  }
+  return { width: COLS, height: 12, rows };
 }
 
 /** FNV-1a, 32 bit. Small, stable across runtimes, and spreads short seeds well enough. */

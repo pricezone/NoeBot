@@ -262,7 +262,10 @@ describe("the indicator's state machine", () => {
       "face:sleepy",
     ]);
     expect(outcomeFor("I cannot help with that")).toEqual(["face:sad"]);
-    expect(outcomeFor("Stopped")).toEqual(["face:unimpressed", "face:neutral"]);
+    expect(outcomeFor("Stopped")).toEqual([
+      "face:unimpressed",
+      "face:original",
+    ]);
     expect(outcomeFor("TypeError: x is undefined")).toEqual(["face:dizzy"]);
     const [shown, gone] = play(INITIAL_DIRECTOR, [
       [{ ...idle, stopped: "Stopped" }, 0],

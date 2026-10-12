@@ -53,14 +53,16 @@ export type AnimationId =
   | `action:${ActionId}`
   | `state:${StateId}`
   | "boot"
-  | "rest";
+  | "rest"
+  | "idle";
 
 export type Animation =
   | { kind: "face"; id: string }
   | { kind: "action"; id: ActionId }
   | { kind: "state"; id: StateId }
   | { kind: "boot" }
-  | { kind: "rest" };
+  | { kind: "rest" }
+  | { kind: "idle" };
 
 const ACTION_SET: ReadonlySet<string> = new Set(ACTIONS);
 const STATE_SET: ReadonlySet<string> = new Set(STATE_IDS);
@@ -70,17 +72,18 @@ export const isFace = (id: string): boolean => FACE_SET.has(id);
 export const isAction = (id: string): id is ActionId => ACTION_SET.has(id);
 export const isState = (id: string): id is StateId => STATE_SET.has(id);
 
-/** `face:neutral` → `{kind:"face", id:"neutral"}`; anything unknown falls back to `face:neutral`. */
+/** `face:neutral` → `{kind:"face", id:"neutral"}`; anything unknown falls back to the mascot's own face. */
 export const parseAnimation = (id: string): Animation => {
   if (id === "boot") return { kind: "boot" };
   if (id === "rest") return { kind: "rest" };
+  if (id === "idle") return { kind: "idle" };
   const colon = id.indexOf(":");
   const kind = colon < 0 ? "face" : id.slice(0, colon);
   const name = colon < 0 ? id : id.slice(colon + 1);
   if (kind === "face" && isFace(name)) return { kind: "face", id: name };
   if (kind === "action" && isAction(name)) return { kind: "action", id: name };
   if (kind === "state" && isState(name)) return { kind: "state", id: name };
-  return { kind: "face", id: "neutral" };
+  return { kind: "face", id: "original" };
 };
 
 export const animationId = (a: Animation): AnimationId => {
@@ -95,11 +98,25 @@ export const animationId = (a: Animation): AnimationId => {
       return "boot";
     case "rest":
       return "rest";
+    case "idle":
+      return "idle";
   }
 };
 
 export const BOOT_SECONDS = 3.5;
 export const REST_SECONDS = 6;
+/**
+ * The mascot at rest: the brand sheet's "00 Neutral · original" with a glance to "01 Neutral" and
+ * "02 Attentive" as variations, every 20 s.
+ */
+export const IDLE_SECONDS = 20;
+export const IDLE_CUES: readonly (readonly [number, string])[] = [
+  [0, "original"],
+  [7, "neutral"],
+  [8.5, "original"],
+  [15, "attentive"],
+  [16.5, "original"],
+];
 
 /** How long one pass of an animation lasts; a face hold has no end (`Infinity`). */
 export const durationOf = (a: Animation): number => {
@@ -113,6 +130,8 @@ export const durationOf = (a: Animation): number => {
       return BOOT_SECONDS;
     case "rest":
       return REST_SECONDS;
+    case "idle":
+      return IDLE_SECONDS;
   }
 };
 
@@ -278,6 +297,7 @@ export const CATALOG: readonly AnimationId[] = [
   ...STATE_IDS.map((s): AnimationId => `state:${s}`),
   "boot",
   "rest",
+  "idle",
 ];
 
 export const hasAct = (id: string): boolean => id in ACTS;

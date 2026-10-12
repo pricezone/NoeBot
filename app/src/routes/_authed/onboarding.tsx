@@ -46,7 +46,7 @@ export function WelcomeStep() {
         name={appConfig.brand.productName}
         seed="noe-bot"
         size={96}
-        then="face:neutral"
+        then="idle"
       />
       {/*
        * A POSTER OF A COMPOSER, AND `pointer-events-none` IS WHAT MAKES IT ONE. Nothing here is

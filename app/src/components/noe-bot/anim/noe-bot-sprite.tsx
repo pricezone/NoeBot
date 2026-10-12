@@ -113,14 +113,19 @@ export function NoeBotSprite({
       hold: previous.hold + 1,
     }));
   }, [ended, then]);
+  // Held still — a roster at rest, reduced motion — a face is its portrait; an action or a state
+  // shows its first settled frame (props in place) and the boot its scanned-in character.
+  const portrait =
+    !live && (playing.kind === "face" || playing.kind === "idle");
   const frame = renderBotFrame({
     animation: playing,
-    t: live ? t : reduced ? 0.6 : 0,
+    t: live ? t : portrait ? 0 : playing.kind === "boot" ? 1.5 : 0.6,
     prevFace: run.prevFace,
     holdIndex: run.hold,
     mode: resolvedMode,
     props: showProps,
     reduced,
+    still: portrait,
     eyeShift,
   });
   useEffect(() => {

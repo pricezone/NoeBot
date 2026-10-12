@@ -68,7 +68,7 @@ describe("the design's pixels", () => {
   test("the catalogue matches avatar-map.json and every id parses", () => {
     expect(ACTIONS.join(",")).toBe(AVATAR_MAP.catalog.actions.join(","));
     expect(STATE_IDS.join(",")).toBe(AVATAR_MAP.catalog.states.join(","));
-    expect(CATALOG).toHaveLength(55 + 20 + 9 + 2);
+    expect(CATALOG).toHaveLength(55 + 20 + 9 + 3);
     for (const id of CATALOG) {
       const a = parseAnimation(id);
       if (a.kind === "face") expect(id).toBe(`face:${a.id}`);
@@ -77,7 +77,7 @@ describe("the design's pixels", () => {
     }
     expect(parseAnimation("face:nope")).toEqual({
       kind: "face",
-      id: "neutral",
+      id: "original",
     });
     for (const [id, seq] of Object.entries(SEQUENCES)) {
       for (const [act] of seq.segments)
@@ -282,5 +282,100 @@ describe("one frame as a pure function of time", () => {
         el: labelFor(id, "el") !== undefined,
       }).toEqual({ id, en: true, el: true });
     }
+  });
+});
+
+describe("the mascot at rest and the portraits", () => {
+  const faces = CATALOG.filter((id) => id.startsWith("face:")).map((id) =>
+    id.slice(5),
+  );
+  const still = (face: string) =>
+    renderBotFrame({
+      animation: { kind: "face", id: face },
+      t: 0,
+      mode: "terminal",
+      props: false,
+      still: true,
+    });
+
+  test("idle is 00 Neutral with a glance to 01 and 02 every 20 s, and loops", () => {
+    const at = (t: number) =>
+      renderBotFrame({
+        animation: parseAnimation("idle"),
+        t,
+        mode: "terminal",
+        props: true,
+      });
+    expect(at(0).face).toBe("original");
+    expect(at(7.5).face).toBe("neutral");
+    expect(at(10).face).toBe("original");
+    expect(at(15.5).face).toBe("attentive");
+    expect(at(20.5).face).toBe("original");
+    expect(at(27.5).face).toBe("neutral");
+    // The second pass does not flash: the face before its first cue is the original face itself.
+    expect(at(20.05).cells.some((c) => c.fill === "X")).toBe(false);
+    // The glance itself does flash, as any face change does.
+    expect(at(7.05).cells.some((c) => c.fill === "X")).toBe(true);
+  });
+
+  test("every face's portrait is centred, settled and has open eyes", () => {
+    for (const face of faces) {
+      const frame = still(face);
+      expect({ face, bx: frame.bx, by: frame.by }).toEqual({
+        face,
+        bx: 0,
+        by: 0,
+      });
+      // No blink, no glitch in a portrait.
+      expect(frame.cells.some((c) => c.fill === "X")).toBe(false);
+      // The eye region is never a solid block: at least two cells (scared's pinpoint eyes) show the
+      // background or a prop drawn over the body (shades, hearts, stars, glasses).
+      const region = (c: (typeof frame.cells)[number]) =>
+        c.y >= 2 && c.y <= 9 && c.x >= 1 && c.x <= 12;
+      const covered = new Set(
+        frame.cells
+          .filter((c) => c.fill !== "P" && region(c))
+          .map((c) => `${c.x},${c.y}`),
+      );
+      const ink = new Set(
+        frame.cells
+          .filter((c) => c.fill === "P" && region(c))
+          .map((c) => `${c.x},${c.y}`)
+          .filter((key) => !covered.has(key)),
+      );
+      const open = 8 * 12 - ink.size;
+      expect({ face, open: open >= 2 }).toEqual({ face, open: true });
+    }
+  });
+
+  test("the portraits the frame-0 capture got wrong are right", () => {
+    // in-love and star-struck draw their eyes as props: kept even with props hidden.
+    expect(
+      still("in-love").cells.some(
+        (c) => c.fill === "W" && c.y >= 4 && c.y <= 7,
+      ),
+    ).toBe(true);
+    expect(still("star-struck").cells.some((c) => c.fill === "W")).toBe(true);
+    // cool's shades sit on row 4 once dropped in.
+    expect(still("cool").cells.some((c) => c.fill === "D" && c.y === 4)).toBe(
+      true,
+    );
+    // eye-roll: eyes rolled up, at the top of the eye region.
+    const rolled = still("eye-roll");
+    const holes = [];
+    for (let r = 2; r <= 9; r++)
+      for (let c = 1; c <= 12; c++) {
+        if (
+          !rolled.cells.some(
+            (cell) => cell.fill === "P" && cell.x === c && cell.y === r,
+          )
+        )
+          holes.push(r);
+      }
+    expect(Math.min(...holes)).toBe(2);
+    // hug: arms at the sides, not flung out past the body.
+    expect(still("hug").cells.every((c) => c.x >= -1 && c.x <= 14)).toBe(true);
+    // angry at frame 0 used to sit a cell left; a portrait does not.
+    expect(still("angry").bx).toBe(0);
   });
 });

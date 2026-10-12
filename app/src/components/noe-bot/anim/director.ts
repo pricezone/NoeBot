@@ -59,7 +59,7 @@ export type DirectorState = {
 
 export const INITIAL_DIRECTOR: DirectorState = {
   phase: "idle",
-  animation: "face:neutral",
+  animation: "face:original",
   label: "",
   lang: "en",
   visible: false,
@@ -103,7 +103,7 @@ export const outcomeFor = (reason: string): readonly AnimationId[] => {
   if (/refus|cannot help|can't help|not allowed|policy|declin/.test(r))
     return ["face:sad"];
   if (/stopped|cancel|abort|interrupt/.test(r))
-    return ["face:unimpressed", "face:neutral"];
+    return ["face:unimpressed", "face:original"];
   return ["face:dizzy"];
 };
 
@@ -141,7 +141,7 @@ const desiredAnimation = (
 ): AnimationId => {
   switch (phase) {
     case "idle":
-      return "face:neutral";
+      return "face:original";
     case "thinking": {
       const sinceTurn = now - (state.turnStartedAt ?? now);
       if (sinceTurn < REACTION_S) return state.reaction;
@@ -274,7 +274,7 @@ export const reduceDirector = (
     };
   }
   if (phase === "idle") {
-    return next.visible || next.animation !== "face:neutral"
+    return next.visible || next.animation !== "face:original"
       ? { ...INITIAL_DIRECTOR, lang: next.lang }
       : next;
   }
