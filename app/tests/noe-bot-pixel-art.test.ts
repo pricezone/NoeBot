@@ -22,7 +22,10 @@ import {
 
 describe("the brand guide's half-block drawings", () => {
   test("every face is 14 by 12 pixels: the 16 grid, and only the 16 grid", () => {
-    for (const drawing of [GRID_16.body, ...Object.values(GRID_16.expressions)]) {
+    for (const drawing of [
+      GRID_16.body,
+      ...Object.values(GRID_16.expressions),
+    ]) {
       const grid = decodeHalfBlocks(drawing);
       expect([grid.width, grid.height]).toEqual([14, 12]);
     }
@@ -136,7 +139,8 @@ describe("what a person may choose", () => {
   test("the expressions the server accepts are exactly the ones the design draws, in its order", () => {
     expect(AVATAR_EXPRESSIONS.join(",")).toBe(ALL_FACES.join(","));
     expect(AVATAR_EXPRESSIONS).toHaveLength(55);
-    for (const face of AVATAR_EXPRESSIONS) expect(facePath(face).width).toBe(14);
+    for (const face of AVATAR_EXPRESSIONS)
+      expect(facePath(face).width).toBe(14);
   });
 
   test("a seed still picks from the same fifteen names, in the same order", () => {
@@ -160,7 +164,8 @@ describe("what a person may choose", () => {
       "shy",
       "unimpressed",
     ]);
-    for (const face of SEED_EXPRESSIONS) expect(isAvatarExpression(face)).toBe(true);
+    for (const face of SEED_EXPRESSIONS)
+      expect(isAvatarExpression(face)).toBe(true);
   });
 
   test("the palette is the guide's three plus five, each with white or black ink", () => {
