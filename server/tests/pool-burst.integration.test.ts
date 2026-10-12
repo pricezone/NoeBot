@@ -75,40 +75,36 @@ async function tenSleeps(): Promise<{ ms: number; timeouts: number }> {
 }
 
 describe("the Marketplace's reads in a burst", () => {
-  test(
-    "two rounds of the Agents tab beside the plugins page answer, and the pool is whole afterwards",
-    async () => {
-      // Opens the pool's connections, so the measurement after the burst is of the burst alone.
-      const warm = await tenSleeps();
-      expect(warm.timeouts).toBe(0);
+  test("two rounds of the Agents tab beside the plugins page answer, and the pool is whole afterwards", async () => {
+    // Opens the pool's connections, so the measurement after the burst is of the burst alone.
+    const warm = await tenSleeps();
+    expect(warm.timeouts).toBe(0);
 
-      const actor = { id: "pool-burst-admin", isAdmin: true };
-      const keys = Array.from({ length: 28 }, (_, index) => `app-${index % 20}`);
-      for (const round of [1, 2]) {
-        const calls = [
-          ...Array.from({ length: 18 }, () => [
-            ...keys.map((key) => settled(store.serverExists(key), 20_000)),
-            ...Array.from({ length: 14 }, () =>
-              settled(store.listPlugins(), 20_000),
-            ),
-          ]).flat(),
-          ...Array.from({ length: 18 }, () => [
-            settled(store.listServers(), 20_000),
-            settled(store.listSkills(actor), 20_000),
-          ]).flat(),
-        ];
-        const out = await Promise.all(calls);
-        const timeouts = out.filter((value) => value === "timeout").length;
-        expect(`round ${round}: ${timeouts} of ${out.length} timed out`).toBe(
-          `round ${round}: 0 of ${out.length} timed out`,
-        );
-      }
+    const actor = { id: "pool-burst-admin", isAdmin: true };
+    const keys = Array.from({ length: 28 }, (_, index) => `app-${index % 20}`);
+    for (const round of [1, 2]) {
+      const calls = [
+        ...Array.from({ length: 18 }, () => [
+          ...keys.map((key) => settled(store.serverExists(key), 20_000)),
+          ...Array.from({ length: 14 }, () =>
+            settled(store.listPlugins(), 20_000),
+          ),
+        ]).flat(),
+        ...Array.from({ length: 18 }, () => [
+          settled(store.listServers(), 20_000),
+          settled(store.listSkills(actor), 20_000),
+        ]).flat(),
+      ];
+      const out = await Promise.all(calls);
+      const timeouts = out.filter((value) => value === "timeout").length;
+      expect(`round ${round}: ${timeouts} of ${out.length} timed out`).toBe(
+        `round ${round}: 0 of ${out.length} timed out`,
+      );
+    }
 
-      const after = await tenSleeps();
-      expect(after.timeouts).toBe(0);
-      // Ten live connections take one sleep; four would take three, and the leak took all ten.
-      expect(after.ms).toBeLessThan(1_500);
-    },
-    120_000,
-  );
+    const after = await tenSleeps();
+    expect(after.timeouts).toBe(0);
+    // Ten live connections take one sleep; four would take three, and the leak took all ten.
+    expect(after.ms).toBeLessThan(1_500);
+  }, 120_000);
 });

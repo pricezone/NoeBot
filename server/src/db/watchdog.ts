@@ -111,7 +111,8 @@ export function startPoolWatchdog(options: PoolWatchdogOptions): PoolWatchdog {
       return state;
     }
     // A refusal is an answer: the pool is alive and the database said no. Not a wedge.
-    if (pooled === "refused") return unreachable("the pooled query was refused");
+    if (pooled === "refused")
+      return unreachable("the pooled query was refused");
     // Only a pool that says nothing while a connection of its own gets through is wedged.
     if ((await outcomeOf(options.fresh, timeoutMs)) !== "answered") {
       return unreachable("a fresh connection did not answer either");
