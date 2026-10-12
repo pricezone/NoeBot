@@ -131,7 +131,7 @@ export function NoeBotSprite({
     className,
     style: { display: "block", overflow: "visible", ...style },
     "data-face": frame.face,
-    "data-animation": id,
+    "data-animation": animationId(playing),
     "data-act": frame.act ?? undefined,
   } as const;
   const body = (
