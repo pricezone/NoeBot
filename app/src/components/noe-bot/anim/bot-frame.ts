@@ -51,6 +51,12 @@ export type FrameInput = {
   props: boolean;
   /** Reduced motion: no blink, no glitch, no idle motion. */
   reduced?: boolean;
+  /**
+   * Where the eyes look, in whole cells: the holes move by this much inside the face, clamped to
+   * the eye region, the way the film's glancing faces move them. For a mark whose eyes follow the
+   * pointer.
+   */
+  eyeShift?: readonly [number, number];
 };
 
 export type Frame = {
@@ -288,6 +294,29 @@ const durationOfSequence = (id: string): number => SEQUENCES[id]?.duration ?? 3;
 const segmentsOf = (id: string) => SEQUENCES[id]?.segments ?? [];
 
 const EMPTY_LIMBS: Limbs = { l: [0, 0], r: [0, 0] };
+
+/** The face with its eye holes moved by whole cells, kept inside rows 2–9 and cols 1–12. */
+export const shiftHoles = (px: Px, dx: number, dy: number): Px => {
+  const sx = Math.round(dx);
+  const sy = Math.round(dy);
+  if (!sx && !sy) return px;
+  const out = px.slice();
+  const holes: [number, number][] = [];
+  for (let r = 2; r <= 9; r++) {
+    for (let c = 1; c <= 12; c++) {
+      if (!px[r * COLS + c]) {
+        holes.push([r, c]);
+        out[r * COLS + c] = 1;
+      }
+    }
+  }
+  for (const [r, c] of holes) {
+    const nr = Math.min(9, Math.max(2, r + sy));
+    const nc = Math.min(12, Math.max(1, c + sx));
+    out[nr * COLS + nc] = 0;
+  }
+  return out;
+};
 
 export const renderBotFrame = (input: FrameInput): Frame => {
   const strict = input.mode === "terminal";

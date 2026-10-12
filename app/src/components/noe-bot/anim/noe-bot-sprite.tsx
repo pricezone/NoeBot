@@ -1,5 +1,5 @@
 import { useReducedMotion } from "motion/react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 import { useEffect, useRef, useState } from "react";
 import { type Mode, renderBotFrame } from "./bot-frame";
 import {
@@ -33,6 +33,8 @@ export function NoeBotSprite({
   props,
   active = true,
   then,
+  eyeShift,
+  ref,
   title,
   className,
   style,
@@ -49,6 +51,9 @@ export function NoeBotSprite({
   active?: boolean;
   /** What plays once a finite animation (boot, rest) has ended. */
   then?: AnimationId;
+  /** Where the eyes look, in whole cells (a mark whose eyes follow the pointer). */
+  eyeShift?: readonly [number, number];
+  ref?: Ref<SVGSVGElement>;
   title?: string;
   className?: string;
   style?: CSSProperties;
@@ -110,6 +115,7 @@ export function NoeBotSprite({
     mode: resolvedMode,
     props: showProps,
     reduced,
+    eyeShift,
   });
   lastFace.current = frame.face;
 
@@ -143,12 +149,12 @@ export function NoeBotSprite({
     </g>
   );
   return title ? (
-    <svg {...shared} role="img" aria-label={title}>
+    <svg {...shared} aria-label={title} ref={ref} role="img">
       <title>{title}</title>
       {body}
     </svg>
   ) : (
-    <svg {...shared} aria-hidden="true">
+    <svg {...shared} aria-hidden="true" ref={ref}>
       {body}
     </svg>
   );
