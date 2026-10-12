@@ -187,15 +187,20 @@ def test_an_anthropic_key_uses_the_official_endpoint_when_compose_sets_a_blank_u
     provider_seen = []
     provider_app = _provider_app(provider_seen)
 
-    async def respond(transport, request):
+    async def send(client, request, **kwargs):
         seen.append(
             (request.url.scheme, request.url.host, request.url.path, request.headers.get("x-api-key"))
         )
         async with httpx.ASGITransport(app=provider_app) as local_provider:
-            return await local_provider.handle_async_request(request)
+            response = await local_provider.handle_async_request(request)
+        response.request = request
+        return response
 
-    # Keep the real framework and Anthropic clients; replace only the network transport.
-    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", respond)
+    # Keep the real framework and Anthropic clients; replace only where a request leaves the
+    # process. At the client's `send`, not the transport's `handle_async_request`: the Anthropic
+    # SDK (1.x) sends through its own transport, which the transport patch no longer reached, and
+    # the request went to api.anthropic.com for real.
+    monkeypatch.setattr(httpx.AsyncClient, "send", send)
     monkeypatch.setenv("MANAGED_AGENT_TOKEN", TOKEN)
     monkeypatch.setenv("BOT_PROVIDER", "anthropic")
     monkeypatch.setenv("BOT_MODEL", "claude-sonnet-4-5")

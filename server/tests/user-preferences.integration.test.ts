@@ -26,20 +26,21 @@ afterAll(async () => {
 test("database defaults and writes survive a new store and remain scoped to the user", async () => {
   const alice = await person();
   const bob = await person();
+  // The default is the shared one (the Bot's name leads each row), not a value in the database.
   expect(await store.read(alice)).toEqual({
-    messageListEmphasis: "thread",
+    messageListEmphasis: "agent",
     selfHostBannerDismissed: false,
   });
-  expect(await store.patch(alice, { messageListEmphasis: "agent" })).toEqual({
-    messageListEmphasis: "agent",
+  expect(await store.patch(alice, { messageListEmphasis: "thread" })).toEqual({
+    messageListEmphasis: "thread",
     selfHostBannerDismissed: false,
   });
   expect(await createUserPreferencesStore(database).read(alice)).toEqual({
-    messageListEmphasis: "agent",
+    messageListEmphasis: "thread",
     selfHostBannerDismissed: false,
   });
   expect(await store.read(bob)).toEqual({
-    messageListEmphasis: "thread",
+    messageListEmphasis: "agent",
     selfHostBannerDismissed: false,
   });
 });
