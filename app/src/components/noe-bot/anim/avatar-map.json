@@ -1,0 +1,407 @@
+{
+  "version": "1.0",
+  "character": "Noë Bot",
+  "render": {
+    "grid": "14 × 12 pixels (half-block terminal cells: ▀ ▄ █, 2 pixels per text row → 6 text rows)",
+    "colour": {
+      "body": "#ff2056",
+      "background": "#09090b",
+      "props": ["#fafafa", "#a1a1aa", "#3f3f46", "#52525c"],
+      "glitch": "#ffffff"
+    },
+    "frameRate": 12,
+    "modes": {
+      "terminal": "Whole cells only, 12 fps, no rotation / sub-pixel motion. Source: noe-bot-film.jsx. Use for CLI, terminal UI, and small sizes.",
+      "hd": "2× sub-pixel grid, smooth sub-cell motion (bob, squash, lean, spin), fine props. Source: noe-bot-film-hd.jsx. Use for web/app avatars ≥ 48 px."
+    },
+    "sizes": [
+      {
+        "range": "16–23 px",
+        "use": "Static frame of the current face only (no animation, no props)."
+      },
+      {
+        "range": "24–47 px",
+        "use": "Terminal mode, face + ears + blink only; props hidden."
+      },
+      { "range": "48–127 px", "use": "HD mode, full animation, props shown." },
+      {
+        "range": "≥ 128 px",
+        "use": "HD mode, full animation, props + overhead effects."
+      }
+    ],
+    "layers": [
+      "body (face pixels)",
+      "tears",
+      "props",
+      "ears",
+      "hands",
+      "legs",
+      "overhead fx"
+    ],
+    "systems": {
+      "blink": "First blink ~0.9 s into a hold, then every 2.4 s; every third hold starts with a double blink. Half-closed → closed (one lid line kept under each eye) → half-closed, 0.2 s total. Suppressed on faces whose eyes are already closed/narrow.",
+      "ears": "Pixel row 0, cols 3–4 / 9–10. Shapes: droop, flat, splay, inward, normal, lean, pointy, tall. 12 fps; left ear reacts 1 frame after a face change, right ear 2 frames after; height changes ≥ 2 levels step through the ladder droop → splay → normal → pointy → tall.",
+      "changeGlitch": "On every expression change, each pixel that differs flashes #ffffff for 2 frames (0.17 s). If both faces share identical pixels, the cells bordering the eyes glitch instead.",
+      "tears": "Sad only: white whole-cell drops at 12 fps with flicker, 1-cell jumps and ghost slices.",
+      "reducedMotion": "Show the static first frame of the chosen animation + its text label; no loops, no glitch."
+    }
+  },
+  "brandStates": [
+    { "id": "neutral", "label": "Available", "animation": "face:neutral" },
+    { "id": "listening", "label": "Listening", "animation": "face:attentive" },
+    { "id": "thinking", "label": "Thinking", "animation": "face:curious" },
+    {
+      "id": "working",
+      "label": "Working",
+      "animation": "action (see intentRules)"
+    },
+    {
+      "id": "waiting",
+      "label": "Waiting for approval",
+      "animation": "face:pleading"
+    },
+    { "id": "success", "label": "Done", "animation": "state:success" },
+    {
+      "id": "uncertain",
+      "label": "Needs clarification",
+      "animation": "face:confused"
+    },
+    { "id": "offline", "label": "Offline", "animation": "state:unplugged" }
+  ],
+  "pipeline": [
+    {
+      "phase": "idle",
+      "when": "No conversation activity",
+      "animation": "face:neutral",
+      "loop": true
+    },
+    {
+      "phase": "userTyping",
+      "when": "User is composing a message",
+      "animation": "face:attentive",
+      "loop": true
+    },
+    {
+      "phase": "received",
+      "when": "Message sent, before the model starts",
+      "animation": "reaction (see sentimentReactions)",
+      "minMs": 600
+    },
+    {
+      "phase": "thinking",
+      "when": "Model is planning / no tool call yet",
+      "animation": "face:curious → face:pensive after 4 s",
+      "loop": true
+    },
+    {
+      "phase": "working",
+      "when": "Tool call or long generation in progress",
+      "animation": "action from intentRules / toolMap",
+      "loop": true,
+      "minMs": 1200
+    },
+    {
+      "phase": "streaming",
+      "when": "Response tokens are streaming",
+      "animation": "action:type",
+      "loop": true
+    },
+    {
+      "phase": "waiting",
+      "when": "Bot needs user approval / input",
+      "animation": "face:pleading",
+      "loop": true
+    },
+    {
+      "phase": "done",
+      "when": "Response complete",
+      "animation": "state:success (once, ~1.2 s) → face:happy → face:neutral"
+    },
+    { "phase": "error", "when": "Failure", "animation": "see outcomes" }
+  ],
+  "toolMap": [
+    { "tool": "web search / browse", "animation": "action:search" },
+    {
+      "tool": "read file / docs / PDF / RAG retrieval",
+      "animation": "action:study"
+    },
+    { "tool": "write document / email / notes", "animation": "action:writing" },
+    { "tool": "generate or edit code", "animation": "action:type" },
+    {
+      "tool": "long or heavy code generation (> 20 s or > 2k tokens)",
+      "animation": "action:type (turbo segment)"
+    },
+    { "tool": "run code / shell / terminal", "animation": "action:terminal" },
+    {
+      "tool": "analyse data / read logs / audit / checklist",
+      "animation": "action:logs"
+    },
+    {
+      "tool": "build UI / page / slide / design",
+      "animation": "action:present"
+    },
+    { "tool": "deploy / infra / database / API", "animation": "state:servers" },
+    {
+      "tool": "debug / fix / migrate / maintenance",
+      "animation": "state:repair"
+    },
+    {
+      "tool": "inspect / investigate a bug",
+      "animation": "action:search (detective segment)"
+    },
+    {
+      "tool": "spawn sub-agents / parallel tasks",
+      "animation": "state:sub-agents"
+    },
+    { "tool": "translate / localise", "animation": "action:greeting" },
+    {
+      "tool": "image / creative generation",
+      "animation": "action:sparkler (wizard segment)"
+    },
+    { "tool": "payments / pricing / finance calc", "animation": "action:cash" },
+    { "tool": "audio / music / transcription", "animation": "action:music" }
+  ],
+  "intentRules": [
+    {
+      "intent": "greeting / small talk",
+      "examples": ["hi", "good morning", "γεια"],
+      "sequence": ["face:happy", "action:greeting"]
+    },
+    {
+      "intent": "question needing research",
+      "examples": ["what's the latest on…", "compare X and Y"],
+      "sequence": ["face:curious", "action:search", "action:study"]
+    },
+    {
+      "intent": "summarise / explain a document",
+      "examples": ["summarise this PDF"],
+      "sequence": ["face:attentive", "action:study", "action:writing"]
+    },
+    {
+      "intent": "write text",
+      "examples": ["draft an email", "write a post"],
+      "sequence": ["face:attentive", "action:writing"]
+    },
+    {
+      "intent": "code task",
+      "examples": ["write a function", "refactor this"],
+      "sequence": ["face:curious", "action:type"]
+    },
+    {
+      "intent": "debug",
+      "examples": ["why does this crash?", "fix this error"],
+      "sequence": [
+        "face:suspicious",
+        "action:search (detective)",
+        "state:repair"
+      ]
+    },
+    {
+      "intent": "run / test",
+      "examples": ["run the tests", "execute this"],
+      "sequence": ["action:terminal"]
+    },
+    {
+      "intent": "data / analytics",
+      "examples": ["analyse this CSV", "check the logs"],
+      "sequence": ["face:nerd", "action:logs"]
+    },
+    {
+      "intent": "build UI",
+      "examples": ["make a landing page"],
+      "sequence": ["face:excited", "action:present"]
+    },
+    {
+      "intent": "deploy / infra",
+      "examples": ["deploy to prod", "set up the DB"],
+      "sequence": ["face:attentive", "state:servers"]
+    },
+    {
+      "intent": "big multi-step task",
+      "examples": ["plan and build the whole feature"],
+      "sequence": ["face:proud", "state:sub-agents", "state:powered-up"]
+    },
+    {
+      "intent": "long-running / heavy",
+      "examples": ["process 10k rows"],
+      "sequence": ["action:coffee", "state:caffeinated"]
+    },
+    {
+      "intent": "creative / imagine",
+      "examples": ["write a poem", "brainstorm names"],
+      "sequence": ["face:star-struck", "action:sparkler"]
+    },
+    {
+      "intent": "finance",
+      "examples": ["budget", "invoice", "price this"],
+      "sequence": ["face:monocle", "action:cash"]
+    },
+    {
+      "intent": "music / audio",
+      "examples": ["make a playlist"],
+      "sequence": ["action:music"]
+    },
+    {
+      "intent": "games / fun",
+      "examples": ["let's play", "tell me a joke"],
+      "sequence": ["face:zany", "action:game"]
+    },
+    {
+      "intent": "fitness / motivation",
+      "examples": ["workout plan", "motivate me"],
+      "sequence": ["action:flex", "action:barbell"]
+    },
+    {
+      "intent": "travel / plans / moving",
+      "examples": ["plan a trip"],
+      "sequence": ["action:walk", "action:skate"]
+    },
+    {
+      "intent": "gratitude / affection",
+      "examples": ["thank you!", "love it"],
+      "sequence": ["face:in-love", "action:heart"]
+    },
+    {
+      "intent": "secret / private info",
+      "examples": ["keep this between us"],
+      "sequence": ["face:shush"]
+    }
+  ],
+  "sentimentReactions": [
+    { "userTone": "happy / excited", "face": "excited" },
+    { "userTone": "grateful", "face": "in-love" },
+    { "userTone": "joking", "face": "laughing" },
+    { "userTone": "frustrated / angry", "face": "worried" },
+    { "userTone": "sad", "face": "pleading" },
+    { "userTone": "urgent", "face": "surprised" },
+    { "userTone": "confused", "face": "curious" },
+    { "userTone": "neutral", "face": "attentive" }
+  ],
+  "outcomes": [
+    {
+      "result": "success (normal)",
+      "sequence": ["state:success", "face:happy"]
+    },
+    {
+      "result": "success (big milestone: deploy, task list complete)",
+      "sequence": ["state:confetti", "state:finish"]
+    },
+    {
+      "result": "partial / needs clarification",
+      "sequence": ["face:confused"]
+    },
+    { "result": "tool error / exception", "sequence": ["face:dizzy"] },
+    { "result": "network / connection lost", "sequence": ["state:unplugged"] },
+    {
+      "result": "timeout / rate limit",
+      "sequence": ["face:weary", "face:sleepy"]
+    },
+    { "result": "refusal / cannot help", "sequence": ["face:sad"] },
+    {
+      "result": "user cancelled",
+      "sequence": ["face:unimpressed", "face:neutral"]
+    },
+    { "result": "offline / session ended", "sequence": ["rest (scan-out)"] }
+  ],
+  "timing": {
+    "minDisplayMs": 1200,
+    "reactionMs": 600,
+    "debounceMs": 250,
+    "maxSameLoopBeforeSwitchMs": 12000,
+    "longWaitFallback": "After 12 s on one working animation, alternate with face:pensive or action:coffee every 6 s; after 30 s switch to state:caffeinated.",
+    "transition": "Change-glitch (2 frames) on every face change; hands/legs ease 0.3 s into an action and back."
+  },
+  "catalog": {
+    "expressions": [
+      "original",
+      "neutral",
+      "attentive",
+      "surprised",
+      "excited",
+      "happy",
+      "laughing",
+      "angry",
+      "sad",
+      "scared",
+      "suspicious",
+      "confused",
+      "curious",
+      "proud",
+      "shy",
+      "unimpressed",
+      "sleepy",
+      "injured",
+      "dizzy",
+      "cool",
+      "wink",
+      "in-love",
+      "star-struck",
+      "blowing-kiss",
+      "hug",
+      "angelic",
+      "zany",
+      "smirk",
+      "eye-roll",
+      "shush",
+      "salute",
+      "devilish",
+      "cowboy",
+      "sick",
+      "sneeze",
+      "hot",
+      "cold",
+      "woozy",
+      "mind-blown",
+      "melting",
+      "shaking",
+      "worried",
+      "pleading",
+      "holding-tears",
+      "sobbing",
+      "screaming",
+      "weary",
+      "yawning",
+      "huffing",
+      "pensive",
+      "relieved",
+      "joy",
+      "party",
+      "nerd",
+      "monocle"
+    ],
+    "actions": [
+      "walk",
+      "jump",
+      "skate",
+      "study",
+      "writing",
+      "search",
+      "type",
+      "logs",
+      "present",
+      "terminal",
+      "greeting",
+      "game",
+      "music",
+      "coffee",
+      "barbell",
+      "flex",
+      "sparkler",
+      "bubblegum",
+      "heart",
+      "cash"
+    ],
+    "states": [
+      "repair",
+      "servers",
+      "sub-agents",
+      "caffeinated",
+      "powered-up",
+      "success",
+      "confetti",
+      "finish",
+      "unplugged"
+    ],
+    "lifecycle": ["boot (scan-in + --wake)", "rest (sleepy → scan-out)"]
+  }
+}
