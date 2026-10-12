@@ -14,6 +14,12 @@ import { DESIGN_PALETTE, type Palette } from "./palette";
 import type { Cell, Glyph } from "./sprites";
 
 /**
+ * HD mode redraws at 30 fps: the film's sub-cell motion reads as smooth well below the display's
+ * rate, and a 64 px character has no business costing a frame of work every frame of the page.
+ */
+const HD_FPS = 30;
+
+/**
  * The character, animated, as an SVG.
  *
  * The same 16-unit box as every static face (`viewBox="-1 -2 16 16"`), so it drops into any slot a
@@ -90,7 +96,7 @@ export function NoeBotSprite({
   const live = active && !reduced;
   const t = useAnimationTime(
     live,
-    resolvedMode === "terminal" ? 12 : null,
+    resolvedMode === "terminal" ? 12 : HD_FPS,
     run.startedAt,
   );
   const playing = run.id === id ? parsed : parseAnimation(run.id);
