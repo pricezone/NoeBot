@@ -423,8 +423,34 @@ export const renderBotFrame = (input: FrameInput): Frame => {
 
   const eyeKey =
     rig.eyes && w > 0.5 && cur.key === "reading" ? rig.eyes : cur.key;
-  const facePx: Px = rig.facePx ?? FACES[eyeKey] ?? FACES.neutral ?? [];
-  const prevPx: Px = rig.eyes ? facePx : (FACES[cur.prevKey] ?? facePx);
+  // Where the eyes look: the holes move by whole cells inside the eye region, the face before this
+  // one moves with them (a glance is not a change of face, so it must not flash), and the props
+  // that are its eyes — hearts, stars, shades — move with the holes they sit in.
+  const gazeX = Math.round(input.eyeShift?.[0] ?? 0);
+  const gazeY = Math.round(input.eyeShift?.[1] ?? 0);
+  const gazing = gazeX !== 0 || gazeY !== 0;
+  const facePx: Px = shiftHoles(
+    rig.facePx ?? FACES[eyeKey] ?? FACES.neutral ?? [],
+    gazeX,
+    gazeY,
+  );
+  const prevFacePx = FACES[cur.prevKey];
+  const prevPx: Px =
+    rig.eyes || !prevFacePx ? facePx : shiftHoles(prevFacePx, gazeX, gazeY);
+  if (gazing && !act && rig.props) {
+    rig = {
+      ...rig,
+      props: rig.props.map((c) =>
+        inEyeRegion(c)
+          ? {
+              ...c,
+              x: Math.min(12, Math.max(1, c.x + gazeX)),
+              y: Math.min(9, Math.max(2, c.y + gazeY)),
+            }
+          : c,
+      ),
+    };
+  }
   const changed = cur.prevKey !== cur.key;
   let diffN = 0;
   for (let i = 0; i < COLS * 12; i++) if (!!facePx[i] !== !!prevPx[i]) diffN++;

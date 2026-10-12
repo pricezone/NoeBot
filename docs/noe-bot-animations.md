@@ -16,19 +16,35 @@ copied verbatim.
 | `acts.ts` | the 20 actions and 9 states, their face cues, and `SEQUENCES` (loop lengths, segments) |
 | `bot-frame.ts` | `renderBotFrame({animation, t, …})` — one frame as a pure function of time |
 | `catalog.ts` | animation ids (`face:<id>`, `action:<id>`, `state:<id>`, `boot`, `rest`), labels (en/el), face groups |
-| `palette.ts` | the design's inks, and the avatar palette (face in the scheme's ink on its background) |
+| `palette.ts` | the design's inks; `THEMED_PALETTE` + `THEMED_INK_CLASS` for a coloured Noë Bot on the page (body `currentColor`, props in theme greys) |
+| `use-eye-shift.ts` | the pointer's pull on the eyes: `follow: "hover"` (avatars, 1.5 s linger) or `"page"` (the deploy form's mascot) |
 | `clock.ts` | one shared `requestAnimationFrame` clock for every sprite on the page |
 | `noe-bot-sprite.tsx` | the React sprite: cells joined into paths, `viewBox="-1 -2 16 16"` |
 | `director.ts`, `tool-map.ts`, `intent.ts` | the chat indicator's state machine and its classifiers |
 
 Size rules (from the design): under 24 px a still; 24–47 px terminal mode (whole cells, 12 fps,
 face + ears + blink, no props); 48 px and up HD with props. `NoeBotFace` and `NoeBotAvatar` apply
-them; a roster avatar only moves while the Bot is busy or under the pointer, a large one (bot panel,
-cards, the picker) whenever it is on screen. `prefers-reduced-motion` shows a still plus the label.
+them (an avatar is a still only under 16 px, so a roster face can look at the pointer); a roster
+avatar only moves while the Bot is busy or under the pointer, a large one (bot panel, cards, the
+picker) whenever it is on screen. `prefers-reduced-motion` shows a still plus the label.
+
+**No disc.** Every Noë Bot is the character alone, standing on the page: the Bot's colour (the
+stored `avatarColor`, or the seed's) paints the body, the eye holes show whatever is behind, and the
+character fills the avatar's box. The two colours that vanish into one theme's page — near-black on
+dark, light grey on light — get a one-pixel outline there only (`hairlineClassName(colour,
+"outline")`); the colour itself is never swapped.
+
+**Eyes that look.** `renderBotFrame`'s `eyeShift` moves the eye holes (and the props that are eyes —
+hearts, stars, shades) by whole cells inside the eye region; a glance is not a change of face, so it
+never flashes. Avatars follow a hovering pointer and keep watching it for 1.5 s after it leaves; the
+www deploy form's mascot follows the pointer anywhere on the page. Touch and reduced motion: none.
 
 ## Chat indicator
 
-`ChatActivityIndicator` sits under the last message for the whole turn. `useAvatarDirector` turns
+`ChatActivityIndicator` sits under the last message for the whole turn, like Grok's status row: the
+Bot's own character in its colour, a 32 px box (2 px per cell), inline with the label, with nothing
+behind it. The animation is the director's, in HD with its props; the label starts 24 px after the
+box, the room the props on the right need. `useAvatarDirector` turns
 the transcript's signals (busy, waiting on the first token, the tool in flight, streaming text, the
 person's last words, how the turn stopped) into a phase, an animation and a label:
 
@@ -45,6 +61,14 @@ follow the language of the person's message (Greek script → Greek).
 ## Changing a Bot's look
 
 Click the avatar in the bot panel, on the Bot's page or in Manage › Profile (`AvatarChooser`):
-every face in the design's groups on the Bot's colour, then the palette. `shared/avatar.ts` lists
+every face in the design's groups drawn in the Bot's colour, then the palette, which recolours the
+character itself. `shared/avatar.ts` lists
 what the server accepts (`AVATAR_EXPRESSIONS`, the 55) and what a seed may pick
 (`SEED_EXPRESSIONS`, the original fifteen names in their original order).
+
+## Fidelity notes
+
+- `action:search` in HD holds the lens in the right hand at `(14.5 + sweep, 7.9 − crouch − lift·2.2)`,
+  from the HD film's `props`. The terminal film also carries a dead `oldProps` with `ox = oy = 0`;
+  copying it once pinned the lens to the top-left of the head. The study, type, game and music HD
+  branches were audited against `noe-bot-film-hd.jsx` and match.

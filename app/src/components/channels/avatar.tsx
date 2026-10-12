@@ -20,7 +20,7 @@ import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 const AGENT_LIST_KEY = agentKeys.list(false);
 const AGENT_LIST_HASH = hashKey(AGENT_LIST_KEY);
 
-function useAvatarLooks(): (id: string) => AvatarChoice {
+export function useAvatarLooks(): (id: string) => AvatarChoice {
   const client = useContext(QueryClientContext);
   const subscribe = useCallback(
     (notify: () => void) =>
@@ -76,24 +76,33 @@ export const ChannelAvatar = memo(function ChannelAvatar({
         size={size}
       />
     ) : (
-      <div className="flex flex-row items-center size-full">
-        {participantIds.slice(0, 3).map((c, i, shown) => (
-          <div
-            className="shrink-0 border-2 border-sidebar rounded-full flex items-center justify-center"
-            key={c}
-            style={{
-              height: size / (shown.length / 2),
-              width: size / (shown.length / 2),
-              transform: `translateX(${i * -75}%)`,
-            }}
-          >
-            <NoeBotAvatar
-              {...lookOf(c)}
-              {...working}
-              size={size / (shown.length / 2)}
-            />
-          </div>
-        ))}
+      <div className="relative size-full">
+        {participantIds.slice(0, 3).map((c, i, shown) => {
+          /*
+           * SIDE BY SIDE, NOT STACKED. Overlapping faces were told apart by a ring of the sidebar's
+           * colour round each disc; without discs, one character's see-through eyes would show the
+           * other behind it. So two sit on the diagonal and three in a triangle, each in its own
+           * corner of the square. The 14 × 12 body leaves the corners of its box empty, so the
+           * boxes may touch without the characters doing so.
+           */
+          const part = Math.round(size * (shown.length === 2 ? 0.56 : 0.5));
+          const far = size - part;
+          const [left, top] =
+            shown.length === 2
+              ? i === 0
+                ? [0, 0]
+                : [far, far]
+              : i === 0
+                ? [0, 0]
+                : i === 1
+                  ? [far, 0]
+                  : [far / 2, far];
+          return (
+            <div className="absolute" key={c} style={{ left, top }}>
+              <NoeBotAvatar {...lookOf(c)} {...working} size={part} />
+            </div>
+          );
+        })}
       </div>
     );
 

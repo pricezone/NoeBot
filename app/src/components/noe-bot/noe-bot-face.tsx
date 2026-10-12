@@ -1,7 +1,7 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 import type { AnimationId } from "./anim/catalog";
 import { NoeBotSprite } from "./anim/noe-bot-sprite";
-import { CURRENT_COLOR_PALETTE } from "./anim/palette";
+import { CURRENT_COLOR_PALETTE, type Palette } from "./anim/palette";
 import { type Face, facePath } from "./pixel-art";
 
 /** The animation a face name stands for: the mascot's own eyes idle on the original face, offline is unplugged. */
@@ -24,7 +24,8 @@ export const animationForFace = (face: Face): AnimationId =>
  * size; the guide's 24 grid is for terminal banners and the app does not use it, so Noë Bot is one
  * drawing wherever it appears.
  *
- * Animated by the design's rules: under 24 px a still of the face; from 24 px the face blinks and
+ * Animated by the design's rules: under 24 px a still of the face (16 px for an avatar, which must
+ * be able to look at a hovering pointer); above it the face blinks and
  * its ears and idle motion follow the expression; from 48 px it is drawn in HD with its props.
  * `active` false holds the still (a roster at rest); `animation` plays something other than the
  * face itself (a state, an action, the boot).
@@ -41,6 +42,10 @@ export function NoeBotFace({
   animate = true,
   mode,
   props,
+  palette = CURRENT_COLOR_PALETTE,
+  eyeShift,
+  ref,
+  stillBelow = 24,
 }: {
   face?: Face;
   /** Pixels. Left out, the SVG takes its size from CSS, like any icon. */
@@ -60,17 +65,27 @@ export function NoeBotFace({
   mode?: "terminal" | "hd";
   /** Draw props and effects; default from the size. */
   props?: boolean;
+  /** The inks; the body is `currentColor` in both defaults. */
+  palette?: Palette;
+  /** Where the eyes look, in whole cells (`useEyeShift`). */
+  eyeShift?: readonly [number, number];
+  /** The drawing's `<svg>`, for `useEyeShift` to measure the pointer against. */
+  ref?: Ref<SVGSVGElement>;
+  /** Below this many pixels the face is a still path. Avatars move from 16 px, icons from 24. */
+  stillBelow?: number;
 }) {
-  const still = !animate || (size !== undefined && size < 24);
+  const still = !animate || (size !== undefined && size < stillBelow);
   if (!still) {
     return (
       <NoeBotSprite
         active={active}
         animation={animation ?? animationForFace(face)}
         className={className}
+        eyeShift={eyeShift}
         mode={mode}
-        palette={CURRENT_COLOR_PALETTE}
+        palette={palette}
         props={props}
+        ref={ref}
         size={size}
         style={style}
         then={then}
@@ -95,12 +110,12 @@ export function NoeBotFace({
   // Two elements rather than one with conditional attributes, so what a screen reader gets is
   // decided here and not by whichever attribute happened to be set.
   return title ? (
-    <svg {...shared} role="img" aria-label={title}>
+    <svg {...shared} ref={ref} role="img" aria-label={title}>
       <title>{title}</title>
       <path d={path} />
     </svg>
   ) : (
-    <svg {...shared} aria-hidden="true">
+    <svg {...shared} ref={ref} aria-hidden="true">
       <path d={path} />
     </svg>
   );

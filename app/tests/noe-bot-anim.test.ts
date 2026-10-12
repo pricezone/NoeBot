@@ -10,6 +10,7 @@ import {
   STATE_IDS,
 } from "@/components/noe-bot/anim/catalog";
 import { ALL_FACES, EXPR_KEYS, FACES } from "@/components/noe-bot/anim/exprs";
+import { path } from "@/components/noe-bot/anim/motion";
 import {
   COLS,
   EAR_LADDER,
@@ -17,6 +18,7 @@ import {
   ROW_FACE_PX,
 } from "@/components/noe-bot/anim/pixels";
 import { AVATAR_MAP } from "@/components/noe-bot/anim/rules";
+import type { Cell } from "@/components/noe-bot/anim/sprites";
 
 const body = ROW_FACE_PX.original;
 
@@ -377,5 +379,134 @@ describe("the mascot at rest and the portraits", () => {
     expect(still("hug").cells.every((c) => c.x >= -1 && c.x <= 14)).toBe(true);
     // angry at frame 0 used to sit a cell left; a portrait does not.
     expect(still("angry").bx).toBe(0);
+  });
+});
+
+describe("search in HD holds the magnifying glass in its hand", () => {
+  // The HD film's lens position: in the right hand, sweeping for three seconds, then lifted with
+  // the item it found. The port once drew every part of the lens at the top-left of the head.
+  const lensAt = (t: number) => {
+    const sweep =
+      Math.sin(2 * Math.PI * 0.8 * t) *
+      1.3 *
+      (1 - Math.min(1, Math.max(0, (t - 3.0) / 0.3)));
+    const found = path(t, [
+      [3.5, 0],
+      [3.8, 1],
+    ]);
+    const lift = path(t, [
+      [4.2, 0],
+      [4.6, 1],
+      [5.3, 1],
+      [5.7, 0],
+    ]);
+    const crouch = 0.5 * (1 - found * 0.6);
+    return { x: 14.5 + sweep, y: 7.9 - crouch - lift * 2.2 };
+  };
+  const ring = (t: number): Cell[] =>
+    renderBotFrame({
+      animation: parseAnimation("action:search"),
+      t,
+      mode: "hd",
+      props: true,
+    }).cells.filter((c) => c.w === 1.06 && c.fill === "W");
+
+  for (const t of [1, 2, 4.4, 5]) {
+    test(`at ${t} s the ring is where the hand holds it`, () => {
+      const cells = ring(t);
+      expect(cells).toHaveLength(8);
+      const lens = lensAt(t);
+      expect(Math.min(...cells.map((c) => c.x))).toBeCloseTo(lens.x, 5);
+      expect(Math.min(...cells.map((c) => c.y))).toBeCloseTo(lens.y, 5);
+      // Never on the head's top-left, where the copied stub put it.
+      expect(Math.min(...cells.map((c) => c.x))).toBeGreaterThan(10);
+    });
+  }
+
+  test("the found item is lifted about two cells", () => {
+    const before = Math.min(...ring(3.4).map((c) => c.y));
+    const lifted = Math.min(...ring(5).map((c) => c.y));
+    expect(before - lifted).toBeGreaterThan(1.9);
+  });
+});
+
+describe("the eyes look where they are told", () => {
+  const holes = (cells: Cell[]): string[] => {
+    const body = new Set(
+      cells.filter((c) => c.fill === "P").map((c) => `${c.x},${c.y}`),
+    );
+    const out: string[] = [];
+    for (let r = 2; r <= 9; r++)
+      for (let c = 1; c <= 12; c++)
+        if (!body.has(`${c},${r}`)) out.push(`${c},${r}`);
+    return out;
+  };
+  const still = (
+    face: string,
+    eyeShift?: readonly [number, number],
+    props = false,
+  ) =>
+    renderBotFrame({
+      animation: parseAnimation(`face:${face}`),
+      t: 0,
+      mode: "terminal",
+      props,
+      still: true,
+      eyeShift,
+    });
+
+  test("a shift of one cell moves every eye hole one cell, inside the eye region", () => {
+    const rest = holes(still("original").cells);
+    const right = holes(still("original", [1, 0]).cells);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(right).toEqual(
+      rest.map((key) => {
+        const [c, r] = key.split(",").map(Number);
+        return `${Math.min(12, (c ?? 0) + 1)},${r}`;
+      }),
+    );
+    const down = holes(still("original", [0, 1]).cells);
+    for (const key of down) {
+      const r = Number(key.split(",")[1]);
+      expect(r).toBeGreaterThanOrEqual(2);
+      expect(r).toBeLessThanOrEqual(9);
+    }
+  });
+
+  test("no shift draws exactly what it drew before", () => {
+    expect(still("original", [0, 0])).toEqual(still("original"));
+  });
+
+  test("eyes that are props move with the holes", () => {
+    const eyeProps = (cells: Cell[]) =>
+      cells
+        .filter((c) => c.fill !== "P")
+        .map((c) => `${c.x},${c.y},${c.fill}`)
+        .sort();
+    const rest = eyeProps(still("in-love").cells);
+    const left = eyeProps(still("in-love", [-1, 0]).cells);
+    expect(rest.length).toBeGreaterThan(0);
+    expect(left).not.toEqual(rest);
+    expect(left).toEqual(
+      rest
+        .map((key) => {
+          const [c, r, fill] = key.split(",");
+          return `${Math.max(1, Number(c) - 1)},${r},${fill}`;
+        })
+        .sort(),
+    );
+  });
+
+  test("a glance alone is not a change of face, so nothing flashes", () => {
+    for (const t of [0.5, 1, 2.5]) {
+      const frame = renderBotFrame({
+        animation: parseAnimation("face:original"),
+        t,
+        mode: "hd",
+        props: true,
+        eyeShift: [1, -1],
+      });
+      expect(frame.cells.filter((c) => c.fill === "X")).toHaveLength(0);
+    }
   });
 });

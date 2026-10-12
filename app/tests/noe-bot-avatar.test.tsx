@@ -36,8 +36,9 @@ test("the same seed draws the same face everywhere, on the 16 grid at every size
   expect(large.container.querySelector("svg")?.getAttribute("viewBox")).toBe(
     "-1 -2 16 16",
   );
+  // No disc: the character fills the avatar's box.
   expect(large.container.querySelector("svg")?.getAttribute("width")).toBe(
-    "56",
+    "80",
   );
 });
 
@@ -64,8 +65,9 @@ test("the icon for Bots in general is the mascot's own face", () => {
 function avatarOf(view: ReturnType<typeof render>) {
   const avatar = view.container.querySelector<HTMLElement>("span");
   return {
+    // The Bot's colour paints the character (`currentColor`); nothing is painted behind it.
+    colour: avatar?.style.color,
     background: avatar?.style.backgroundColor,
-    ink: avatar?.style.color,
     face: avatar?.querySelector("svg")?.getAttribute("data-face"),
     className: avatar?.className ?? "",
   };
@@ -83,8 +85,9 @@ test("a chosen colour and expression are drawn instead of the seed's", () => {
       />,
     ),
   );
-  expect(chosen.background).toBe("#7c3aed");
-  expect(chosen.ink).toBe("#ffffff");
+  expect(chosen.colour).toBe("#7c3aed");
+  expect(chosen.background).toBe("");
+  expect(chosen.className).not.toContain("rounded-full");
   expect(chosen.face).toBe("curious");
 });
 
@@ -95,7 +98,7 @@ test("with nothing chosen it is the seed's face, the one the Bot had before ther
     <NoeBotAvatar color={null} expression={null} key="null" seed={seed} />,
   ]) {
     const drawn = avatarOf(render(unchosen));
-    expect(drawn.background).toBe(schemeFor(seed).background);
+    expect(drawn.colour).toBe(schemeFor(seed).background);
     expect(drawn.face).toBe(expressionFor(seed));
     cleanup();
   }
@@ -104,24 +107,40 @@ test("with nothing chosen it is the seed's face, the one the Bot had before ther
 test("one half chosen leaves the other to the seed", () => {
   const seed = "noe-assistant";
   const drawn = avatarOf(render(<NoeBotAvatar color="#f59e0b" seed={seed} />));
-  expect(drawn.background).toBe("#f59e0b");
-  // Amber takes black ink.
-  expect(drawn.ink).toBe("#09090b");
+  expect(drawn.colour).toBe("#f59e0b");
   expect(drawn.face).toBe(expressionFor(seed));
 });
 
-test("the light grey is ringed so it shows on white, and a saturated colour is not", () => {
+test("the light grey is outlined so it shows on white, and a saturated colour is not", () => {
   const grey = avatarOf(render(<NoeBotAvatar color="#f4f4f5" seed="a" />));
-  expect(grey.className).toContain("ring-1");
-  expect(grey.className).toContain("dark:ring-0");
+  expect(grey.className).toMatch(/(^|\s)\[filter:drop-shadow/);
+  expect(grey.className).toContain("dark:[filter:none]");
   cleanup();
   const black = avatarOf(render(<NoeBotAvatar color="#18181b" seed="a" />));
-  // The near-black disappears into the dark theme's page instead, so only there.
-  expect(black.className).toContain("dark:ring-1");
-  expect(black.className).not.toMatch(/(^|\s)ring-1/);
+  // The near-black disappears into the dark theme's page instead, so only there — and it stays black.
+  expect(black.colour).toBe("#18181b");
+  expect(black.className).toContain("dark:[filter:drop-shadow");
+  expect(black.className).not.toMatch(/(^|\s)\[filter:/);
   cleanup();
   const rose = avatarOf(render(<NoeBotAvatar color="#ff2056" seed="a" />));
+  expect(rose.className).not.toContain("filter");
   expect(rose.className).not.toContain("ring");
+});
+
+test("from 16 px an avatar is the moving character, below it the still path in the Bot's colour", () => {
+  const roster = render(<NoeBotAvatar color="#2563eb" seed="a" size={32} />);
+  const sprite = roster.container.querySelector("svg");
+  // The sprite (it can look at a hovering pointer), not the 16 px icon path.
+  expect(sprite?.getAttribute("viewBox")).toBe("-1 -2 16 16");
+  expect(sprite?.getAttribute("width")).toBe("32");
+  expect(sprite?.getAttribute("fill")).toBeNull();
+  cleanup();
+  const tiny = render(<NoeBotAvatar color="#2563eb" seed="a" size={12} />);
+  const icon = tiny.container.querySelector("svg");
+  expect(icon?.getAttribute("fill")).toBe("currentColor");
+  expect(tiny.container.querySelector<HTMLElement>("span")?.style.color).toBe(
+    "#2563eb",
+  );
 });
 
 test("a participant's face follows the roster: the colour and expression its owner chose", () => {
@@ -139,9 +158,9 @@ test("a participant's face follows the roster: the colour and expression its own
     </QueryClientProvider>,
   );
   const avatar = view.container.querySelector<HTMLElement>(
-    "[style*='background-color']",
+    "span[style*='color']",
   );
-  expect(avatar?.style.backgroundColor).toBe("#16a34a");
+  expect(avatar?.style.color).toBe("#16a34a");
   expect(avatar?.querySelector("svg")?.getAttribute("data-face")).toBe(
     "laughing",
   );

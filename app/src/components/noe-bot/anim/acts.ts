@@ -186,12 +186,14 @@ const search: ActFn = (t, w, mode) => {
     const off = X * w;
     const gy = 12.1 - crouch * w;
     const els: Cell[] = [];
+    // The lens is in the right hand, at (ox, oy), and shows the item magnified while it is under
+    // the glass — the HD film's `props`. (The terminal film's dead `oldProps` pinned all of this to
+    // (0, 0), the top-left of the head, which is what this branch used to draw.)
     const item = ITEM_X - off;
-    const itemUnder =
-      ITEM_X - off >= 1 - 0.3 && ITEM_X - off <= 3 && lift < 0.5;
+    const itemUnder = item >= ox + 1 - 0.3 && item <= ox + 3 && lift < 0.5;
     els.push(rect(item, gy - 0.45, 0.45, 0.45, "P"));
-    els.push(rect(1, 1, 2, 2, "D", 0.85));
-    if (itemUnder) els.push(rect(1.4, 1.4, 1.2, 1.2, "P"));
+    els.push(rect(ox + 1, oy + 1, 2, 2, "D", 0.85));
+    if (itemUnder) els.push(rect(ox + 1.4, oy + 1.4, 1.2, 1.2, "P"));
     if (found > 0.5 && Math.floor(t * 6) % 2 === 0) {
       els.push(
         rect(item - 0.6, gy - 1.2, 0.3, 0.3, "W"),
@@ -200,10 +202,13 @@ const search: ActFn = (t, w, mode) => {
     }
     [".##.", "#..#", "#..#", ".##."].forEach((row, ry) => {
       row.split("").forEach((ch, rx) => {
-        if (ch === "#") els.push(cel(rx, ry, "W"));
+        if (ch === "#") els.push(rect(ox + rx, oy + ry, 1.06, 1.06, "W"));
       });
     });
-    els.push(rect(1, 1, 2, 2, "W", 0.12), rect(-0.85, -0.85, 0.9, 0.9, "W"));
+    els.push(
+      rect(ox + 1, oy + 1, 2, 2, "W", 0.12),
+      rect(ox - 0.85, oy - 0.85, 0.9, 0.9, "W"),
+    );
     return {
       bx: X,
       by: crouch - Math.abs(s) * 0.12 * amp,

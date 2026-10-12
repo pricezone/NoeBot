@@ -22,7 +22,7 @@ import {
 import { markdownComponents } from "@/lib/markdown";
 import { newId } from "@/lib/new-id";
 import { ChatActivityIndicator } from "./activity-indicator";
-import { ChannelAvatar } from "./avatar";
+import { ChannelAvatar, useAvatarLooks } from "./avatar";
 import { BotBubble, GROUP_PERSON_SCHEME, PersonBubble } from "./bubbles";
 import { Composer, toAgentOptions } from "./composer";
 import { TeamBotConsentCard } from "./team-bot-consent";
@@ -146,6 +146,8 @@ function GroupLine({
   answeredBy?: string;
   mine: boolean;
 }) {
+  // The status row's character wears the speaking Bot's colour, as its avatar beside it does.
+  const lookOf = useAvatarLooks();
   if (message.agentId === null)
     return (
       <MessageRow align={mine ? "end" : "start"}>
@@ -186,9 +188,9 @@ function GroupLine({
             animation={
               message.status === "queued" ? "face:attentive" : "face:curious"
             }
+            avatar={lookOf(message.agentId)}
             label="Thinking"
             phase="thinking"
-            size={48}
           />
         ) : message.status === "waiting" ? (
           <p className="text-sm text-muted-foreground">

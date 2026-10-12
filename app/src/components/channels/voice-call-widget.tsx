@@ -9,7 +9,6 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { AbstractAvatar } from "@/components/agents/abstract-avatar";
 import { IconWaveform } from "@/components/icons/waveform";
 import { Button } from "@/components/ui/button";
@@ -25,6 +24,7 @@ import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import type { useVoiceCall } from "@/lib/voice/use-voice-call";
 import { queryClient } from "@/query-client";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 
 export function VoiceCallWidget({
   call,
@@ -138,7 +138,7 @@ export function VoiceCallWidget({
             <div
               title={name}
               className={cn(
-                "flex size-[40px] shrink-0 items-center justify-center rounded-full ring-2 ring-transparent ring-offset-2 ring-offset-muted transition-shadow motion-reduce:transition-none",
+                "flex size-[40px] shrink-0 items-center justify-center rounded-xl ring-2 ring-transparent ring-offset-2 ring-offset-muted transition-shadow motion-reduce:transition-none",
                 state.speaking && "ring-primary/40",
               )}
             >

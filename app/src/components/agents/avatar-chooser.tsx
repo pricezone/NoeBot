@@ -2,6 +2,10 @@ import { IconPencil } from "@tabler/icons-react";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { FACE_GROUPS, faceLabel } from "@/components/noe-bot/anim/catalog";
+import {
+  THEMED_INK_CLASS,
+  THEMED_PALETTE,
+} from "@/components/noe-bot/anim/palette";
 import { hairlineClassName } from "@/components/noe-bot/hairline";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { NoeBotFace } from "@/components/noe-bot/noe-bot-face";
@@ -92,18 +96,19 @@ export function AvatarChooser({
           render={
             <PopoverTrigger
               aria-label="Edit avatar"
-              className="group/avatar relative rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="group/avatar relative rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               nativeButton
             />
           }
         >
           {avatar}
+          {/* A badge in the corner, not a disc over the character: nothing is drawn behind Noë Bot. */}
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-full bg-background/60 text-foreground opacity-0 transition-opacity group-hover/avatar:opacity-100 group-focus-visible/avatar:opacity-100 data-[open]:opacity-100"
+            className="pointer-events-none absolute -right-1 -bottom-1 flex size-7 items-center justify-center rounded-full border border-border bg-popover text-foreground opacity-0 shadow-sm transition-opacity group-hover/avatar:opacity-100 group-focus-visible/avatar:opacity-100 data-[open]:opacity-100"
             data-open={open ? "" : undefined}
           >
-            <IconPencil className="size-5" />
+            <IconPencil className="size-4" />
           </span>
         </TooltipTrigger>
         <TooltipContent>Edit avatar</TooltipContent>
@@ -137,9 +142,8 @@ export function AvatarChooser({
               <div className="grid grid-cols-5 justify-items-start gap-2">
                 {group.faces.map((candidate) => (
                   <FaceTile
-                    background={look.scheme.background}
                     candidate={candidate as Expression}
-                    ink={look.scheme.ink}
+                    colour={look.scheme.background}
                     key={candidate}
                     onChoose={() => {
                       if (candidate !== profile.avatarExpression)
@@ -183,17 +187,15 @@ export function AvatarChooser({
   );
 }
 
-/** One face on the Bot's colour: still until the pointer or focus rests on it. */
+/** One face, drawn in the Bot's colour with nothing behind it: still until the pointer or focus rests on it. */
 function FaceTile({
   candidate,
-  background,
-  ink,
+  colour,
   pressed,
   onChoose,
 }: {
   candidate: Expression;
-  background: string;
-  ink: string;
+  colour: string;
   pressed: boolean;
   onChoose: () => void;
 }) {
@@ -203,8 +205,9 @@ function FaceTile({
       aria-label={faceLabel(candidate)}
       aria-pressed={pressed}
       className={cn(
-        "flex size-11 items-center justify-center rounded-full border border-transparent outline-none transition-shadow focus-visible:ring-3 focus-visible:ring-ring/50",
-        hairlineClassName(background, "border"),
+        "flex size-11 items-center justify-center rounded-lg outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
+        THEMED_INK_CLASS,
+        hairlineClassName(colour, "outline"),
         SELECTED,
       )}
       onBlur={() => setActive(false)}
@@ -212,11 +215,17 @@ function FaceTile({
       onFocus={() => setActive(true)}
       onPointerEnter={() => setActive(true)}
       onPointerLeave={() => setActive(false)}
-      style={{ backgroundColor: background, color: ink }}
+      style={{ color: colour }}
       title={faceLabel(candidate)}
       type="button"
     >
-      <NoeBotFace active={active} face={candidate} props={false} size={30} />
+      <NoeBotFace
+        active={active}
+        face={candidate}
+        palette={THEMED_PALETTE}
+        props={false}
+        size={36}
+      />
     </button>
   );
 }

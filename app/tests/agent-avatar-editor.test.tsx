@@ -138,7 +138,8 @@ async function openChooser() {
 function preview(view: ReturnType<typeof render>) {
   const avatar = view.getByRole("img", { name: "Expenses's avatar" });
   return {
-    background: avatar.style.backgroundColor,
+    // The chosen colour paints the character itself; there is no disc behind it.
+    colour: avatar.style.color,
     face: avatar.querySelector("svg")?.getAttribute("data-face"),
   };
 }
@@ -152,7 +153,7 @@ test("a colour is saved on the click, and the avatar takes it", async () => {
   await user.click(blue);
 
   await waitFor(() => expect(choices).toEqual([{ avatarColor: "#2563eb" }]));
-  await waitFor(() => expect(preview(view).background).toBe("#2563eb"));
+  await waitFor(() => expect(preview(view).colour).toBe("#2563eb"));
   expect(
     view.getByRole("button", { name: "Blue" }).getAttribute("aria-pressed"),
   ).toBe("true");
@@ -180,7 +181,7 @@ test("an expression is saved on the click, and only the expression", async () =>
   await waitFor(() => expect(choices).toEqual([{ avatarExpression: "happy" }]));
   await waitFor(() => expect(preview(view).face).toBe("happy"));
   // The colour chosen before is untouched by choosing a face.
-  expect(preview(view).background).toBe("#16a34a");
+  expect(preview(view).colour).toBe("#16a34a");
 });
 
 test("Reset hands both halves back to the seed", async () => {
