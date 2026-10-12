@@ -282,8 +282,19 @@ export function ConversationView({
    * commit that clears `running`, and a state update made in the rejection is a render behind. It
    * also must not itself cause a render — nothing on screen changes when a queue is held back; the
    * entries are drawn as parked either way.
+   *
+   * THREE STATES AND NOT A BOOLEAN, because the failed run's own start can be committed late.
+   * `start` sets `running` and the render that carries it can still be in progress (React yields
+   * during a long render) when a fast refusal has already rejected and restored. That render then
+   * commits `inFlight` true AFTER the restore, and read as "a turn started" it released the hold;
+   * the commit that followed, with `inFlight` false, drained the restored queue on its own — the
+   * very re-send this guard exists to stop. So the hold is released only by a turn that starts
+   * after the failed one has been seen to end:
+   * - `held`: restored; any `inFlight` commit still belongs to the run that failed.
+   * - `settled`: a commit with `inFlight` false has been seen since; the next turn to start is new.
+   * - `released`: nothing held.
    */
-  const heldBack = useRef(false);
+  const heldBack = useRef<"held" | "settled" | "released">("released");
 
   /**
    * PUT A FAILED RUN'S MESSAGES BACK WHERE THEY CAME FROM, and hold the drain until somebody asks.
@@ -298,7 +309,7 @@ export function ConversationView({
       }
       // Before the restore, not after: the effect reads both off refs, and the guard has to be
       // true by the moment the queue is non-empty again rather than one statement later.
-      heldBack.current = true;
+      heldBack.current = "held";
       apply({ messages, type: "restore" });
     },
     [apply],
@@ -400,10 +411,19 @@ export function ConversationView({
        * to it, a button inside a rendered card — so the retry is always something a person did,
        * never this effect trying again on its own.
        */
-      heldBack.current = false;
+      if (heldBack.current === "settled") {
+        heldBack.current = "released";
+      }
       return;
     }
-    if (disabled || heldBack.current || queuedRef.current.length === 0) {
+    if (heldBack.current === "held") {
+      heldBack.current = "settled";
+    }
+    if (
+      disabled ||
+      heldBack.current !== "released" ||
+      queuedRef.current.length === 0
+    ) {
       return;
     }
     const next = apply({ type: "settle" });
