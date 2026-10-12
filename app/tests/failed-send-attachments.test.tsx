@@ -492,10 +492,15 @@ test("the next turn carries a restored message, with its file, ahead of the newe
   // The turn ends, the queue drains, and the drained send fails.
   firstRun.settle(finished(runs[0] as RunAgentInput));
   await waitFor(() => expect(runs).toHaveLength(2));
-  await waitFor(() =>
-    expect(
-      view.container.querySelector("[aria-label^='Remove queued message']"),
-    ).not.toBeNull(),
+  // The restore follows the failed send's error path and a re-render of the whole thread; on a
+  // loaded CI runner that has taken longer than the default second (passed at 220 ms, failed once
+  // at 1.1 s on the same code), so this waits as long as the other slow renders in the suite.
+  await waitFor(
+    () =>
+      expect(
+        view.container.querySelector("[aria-label^='Remove queued message']"),
+      ).not.toBeNull(),
+    { timeout: 5000 },
   );
 
   // Nothing ran on its own while it sat there. The restore is a retry somebody can take, not one
