@@ -48,7 +48,7 @@ import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
  * themselves on their own Skills page, while adding an MCP server stays an administrator's decision.
  * Sitting in a list of vendors made it look like a third kind of thing a Bot could reach.
  */
-export const Route = createFileRoute("/_authed/admin/skills")({
+export const Route = createFileRoute("/_authed/_app/admin/skills")({
   component: RouteComponent,
 });
 

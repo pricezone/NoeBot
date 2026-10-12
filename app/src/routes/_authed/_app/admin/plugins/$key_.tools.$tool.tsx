@@ -34,12 +34,12 @@ import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
  * than becoming a layout with an outlet.
  */
 export const Route = createFileRoute(
-  "/_authed/admin/plugins/$key_/tools/$tool",
+  "/_authed/_app/admin/plugins/$key_/tools/$tool",
 )({ component: RouteComponent });
 
 function RouteComponent() {
   const { key, tool: toolName } = useParams({
-    from: "/_authed/admin/plugins/$key_/tools/$tool",
+    from: "/_authed/_app/admin/plugins/$key_/tools/$tool",
   });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());

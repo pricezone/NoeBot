@@ -21,8 +21,8 @@ import userEvent from "@testing-library/user-event";
 import {
   grantSummary,
   Route as AdminAppRoute,
-} from "@/routes/_authed/admin/plugins/$key";
-import { Route as AdminToolRoute } from "@/routes/_authed/admin/plugins/$key_.tools.$tool";
+} from "@/routes/_authed/_app/admin/plugins/$key";
+import { Route as AdminToolRoute } from "@/routes/_authed/_app/admin/plugins/$key_.tools.$tool";
 
 /**
  * What the Marketplace's one-press arrangement looks like from the admin side.
@@ -189,7 +189,7 @@ type Updatable = { update: (options: unknown) => unknown };
 function renderAdmin(at: string) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
-    id: "/_authed",
+    id: "/_authed/_app",
     getParentRoute: () => rootRoute,
     component: Outlet,
   });

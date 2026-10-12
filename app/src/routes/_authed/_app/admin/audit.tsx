@@ -21,7 +21,7 @@ import { silenceOf } from "@/lib/audit/silence";
 /**
  * Read surface for policy, computer, component, MCP, and credential audit events.
  */
-export const Route = createFileRoute("/_authed/admin/audit")({
+export const Route = createFileRoute("/_authed/_app/admin/audit")({
   component: AuditPage,
 });
 

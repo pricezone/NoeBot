@@ -68,7 +68,7 @@ import {
  * third, and then a grant per tool per Bot. The screen this replaced tried to hold all of that in a
  * list and grew a column per Bot, which is how a grant goes unread.
  */
-export const Route = createFileRoute("/_authed/admin/plugins/$key")({
+export const Route = createFileRoute("/_authed/_app/admin/plugins/$key")({
   component: RouteComponent,
 });
 
@@ -184,7 +184,7 @@ function ConnectionStateUnreadable() {
 }
 
 function RouteComponent() {
-  const { key } = useParams({ from: "/_authed/admin/plugins/$key" });
+  const { key } = useParams({ from: "/_authed/_app/admin/plugins/$key" });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
   /*

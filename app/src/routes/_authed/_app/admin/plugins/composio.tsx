@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
  * The list itself lives in `components/plugins/composio-app-list.tsx`, because the Marketplace
  * draws the same directory under "Featured plugins"; this page is the search field and the frame.
  */
-export const Route = createFileRoute("/_authed/admin/plugins/composio")({
+export const Route = createFileRoute("/_authed/_app/admin/plugins/composio")({
   component: RouteComponent,
 });
 

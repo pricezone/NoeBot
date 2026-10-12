@@ -16,7 +16,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentType } from "react";
-import { Route as BoundariesRoute } from "@/routes/_authed/admin/boundaries";
+import { Route as BoundariesRoute } from "@/routes/_authed/_app/admin/boundaries";
 
 /**
  * Boundaries is drawn from one read, `GET /api/computers/policy`. When that read fails the page

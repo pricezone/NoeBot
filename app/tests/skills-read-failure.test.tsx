@@ -19,7 +19,7 @@ import type { ComponentType } from "react";
 import { EditSkill } from "@/components/skills/edit-skill";
 import { SkillsSections } from "@/components/skills/skills-sections";
 import { type PluginsPage, pluginKeys } from "@/lib/plugins/queries";
-import { Route as AdminSkillsRoute } from "@/routes/_authed/admin/skills";
+import { Route as AdminSkillsRoute } from "@/routes/_authed/_app/admin/skills";
 
 /**
  * The three places skills are listed or opened, when `GET /api/plugins` fails.

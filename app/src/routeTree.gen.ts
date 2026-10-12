@@ -12,9 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as SignRouteImport } from './routes/sign'
 import { Route as AuthedAppRouteImport } from './routes/_authed/_app'
-import { Route as AuthedAdminRouteRouteImport } from './routes/_authed/admin/route'
 import { Route as AuthedOnboardingRouteImport } from './routes/_authed/onboarding'
 import { Route as AuthedAppIndexRouteImport } from './routes/_authed/_app/index'
+import { Route as AuthedAppAdminRouteRouteImport } from './routes/_authed/_app/admin/route'
 import { Route as AuthedAppApprovalsRouteImport } from './routes/_authed/_app/approvals'
 import { Route as AuthedAppBotRouteImport } from './routes/_authed/_app/bot'
 import { Route as AuthedAppMemoryRouteImport } from './routes/_authed/_app/memory'
@@ -24,18 +24,18 @@ import { Route as AuthedAppRoutinesRouteImport } from './routes/_authed/_app/rou
 import { Route as AuthedAppSettingsRouteRouteImport } from './routes/_authed/_app/settings/route'
 import { Route as AuthedAppSkillsRouteImport } from './routes/_authed/_app/skills'
 import { Route as AuthedAppTeamBotsRouteImport } from './routes/_authed/_app/team-bots'
-import { Route as AuthedAdminIndexRouteImport } from './routes/_authed/admin/index'
-import { Route as AuthedAdminAuditRouteImport } from './routes/_authed/admin/audit'
-import { Route as AuthedAdminBoundariesRouteImport } from './routes/_authed/admin/boundaries'
-import { Route as AuthedAdminComputersRouteImport } from './routes/_authed/admin/computers'
-import { Route as AuthedAdminCredentialsRouteImport } from './routes/_authed/admin/credentials'
-import { Route as AuthedAdminEnterpriseRouteImport } from './routes/_authed/admin/enterprise'
-import { Route as AuthedAdminIdentityProvidersRouteImport } from './routes/_authed/admin/identity-providers'
-import { Route as AuthedAdminLearningRouteImport } from './routes/_authed/admin/learning'
-import { Route as AuthedAdminPeopleRouteImport } from './routes/_authed/admin/people'
-import { Route as AuthedAdminPlaygroundRouteImport } from './routes/_authed/admin/playground'
-import { Route as AuthedAdminSkillsRouteImport } from './routes/_authed/admin/skills'
 import { Route as AuthedSignInRequestIdRouteImport } from './routes/_authed/sign-in/$requestId'
+import { Route as AuthedAppAdminIndexRouteImport } from './routes/_authed/_app/admin/index'
+import { Route as AuthedAppAdminAuditRouteImport } from './routes/_authed/_app/admin/audit'
+import { Route as AuthedAppAdminBoundariesRouteImport } from './routes/_authed/_app/admin/boundaries'
+import { Route as AuthedAppAdminComputersRouteImport } from './routes/_authed/_app/admin/computers'
+import { Route as AuthedAppAdminCredentialsRouteImport } from './routes/_authed/_app/admin/credentials'
+import { Route as AuthedAppAdminEnterpriseRouteImport } from './routes/_authed/_app/admin/enterprise'
+import { Route as AuthedAppAdminIdentityProvidersRouteImport } from './routes/_authed/_app/admin/identity-providers'
+import { Route as AuthedAppAdminLearningRouteImport } from './routes/_authed/_app/admin/learning'
+import { Route as AuthedAppAdminPeopleRouteImport } from './routes/_authed/_app/admin/people'
+import { Route as AuthedAppAdminPlaygroundRouteImport } from './routes/_authed/_app/admin/playground'
+import { Route as AuthedAppAdminSkillsRouteImport } from './routes/_authed/_app/admin/skills'
 import { Route as AuthedAppAgentsIndexRouteImport } from './routes/_authed/_app/agents/index'
 import { Route as AuthedAppBotsIndexRouteImport } from './routes/_authed/_app/bots.index'
 import { Route as AuthedAppBotsAgentIdRouteImport } from './routes/_authed/_app/bots.$agentId'
@@ -52,17 +52,17 @@ import { Route as AuthedAppSettingsMemoryRouteImport } from './routes/_authed/_a
 import { Route as AuthedAppSettingsNotificationsRouteImport } from './routes/_authed/_app/settings/notifications'
 import { Route as AuthedAppSettingsPasswordsRouteImport } from './routes/_authed/_app/settings/passwords'
 import { Route as AuthedAppSettingsUsageRouteImport } from './routes/_authed/_app/settings/usage'
-import { Route as AuthedAdminComponentsIndexRouteImport } from './routes/_authed/admin/components/index'
-import { Route as AuthedAdminComponentsNameRouteImport } from './routes/_authed/admin/components/$name'
-import { Route as AuthedAdminPluginsIndexRouteImport } from './routes/_authed/admin/plugins/index'
-import { Route as AuthedAdminPluginsKeyRouteImport } from './routes/_authed/admin/plugins/$key'
-import { Route as AuthedAdminPluginsComposioRouteImport } from './routes/_authed/admin/plugins/composio'
+import { Route as AuthedAppAdminComponentsIndexRouteImport } from './routes/_authed/_app/admin/components/index'
+import { Route as AuthedAppAdminComponentsNameRouteImport } from './routes/_authed/_app/admin/components/$name'
+import { Route as AuthedAppAdminPluginsIndexRouteImport } from './routes/_authed/_app/admin/plugins/index'
+import { Route as AuthedAppAdminPluginsKeyRouteImport } from './routes/_authed/_app/admin/plugins/$key'
+import { Route as AuthedAppAdminPluginsComposioRouteImport } from './routes/_authed/_app/admin/plugins/composio'
 import { Route as AuthedAppSettingsComponentsGalleryIndexRouteImport } from './routes/_authed/_app/settings/components-gallery/index'
 import { Route as AuthedAppSettingsComponentsGalleryNameRouteImport } from './routes/_authed/_app/settings/components-gallery/$name'
 import { Route as AuthedAppSettingsConnectedAccountsIndexRouteImport } from './routes/_authed/_app/settings/connected-accounts/index'
 import { Route as AuthedAppSettingsConnectedAccountsKeyRouteImport } from './routes/_authed/_app/settings/connected-accounts/$key'
-import { Route as AuthedAdminPluginsKeyBotsAgentIdRouteImport } from './routes/_authed/admin/plugins/$key_.bots.$agentId'
-import { Route as AuthedAdminPluginsKeyToolsToolRouteImport } from './routes/_authed/admin/plugins/$key_.tools.$tool'
+import { Route as AuthedAppAdminPluginsKeyBotsAgentIdRouteImport } from './routes/_authed/_app/admin/plugins/$key_.bots.$agentId'
+import { Route as AuthedAppAdminPluginsKeyToolsToolRouteImport } from './routes/_authed/_app/admin/plugins/$key_.tools.$tool'
 
 const AuthedRoute = AuthedRouteImport.update({
   id: '/_authed',
@@ -77,11 +77,6 @@ const AuthedAppRoute = AuthedAppRouteImport.update({
   id: '/_app',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedAdminRouteRoute = AuthedAdminRouteRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => AuthedRoute,
-} as any)
 const AuthedOnboardingRoute = AuthedOnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -90,6 +85,11 @@ const AuthedOnboardingRoute = AuthedOnboardingRouteImport.update({
 const AuthedAppIndexRoute = AuthedAppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AuthedAppRoute,
+} as any)
+const AuthedAppAdminRouteRoute = AuthedAppAdminRouteRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => AuthedAppRoute,
 } as any)
 const AuthedAppApprovalsRoute = AuthedAppApprovalsRouteImport.update({
@@ -138,66 +138,70 @@ const AuthedAppTeamBotsRoute = AuthedAppTeamBotsRouteImport.update({
   path: '/team-bots',
   getParentRoute: () => AuthedAppRoute,
 } as any)
-const AuthedAdminIndexRoute = AuthedAdminIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminAuditRoute = AuthedAdminAuditRouteImport.update({
-  id: '/audit',
-  path: '/audit',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminBoundariesRoute = AuthedAdminBoundariesRouteImport.update({
-  id: '/boundaries',
-  path: '/boundaries',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminComputersRoute = AuthedAdminComputersRouteImport.update({
-  id: '/computers',
-  path: '/computers',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminCredentialsRoute = AuthedAdminCredentialsRouteImport.update({
-  id: '/credentials',
-  path: '/credentials',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminEnterpriseRoute = AuthedAdminEnterpriseRouteImport.update({
-  id: '/enterprise',
-  path: '/enterprise',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminIdentityProvidersRoute =
-  AuthedAdminIdentityProvidersRouteImport.update({
-    id: '/identity-providers',
-    path: '/identity-providers',
-    getParentRoute: () => AuthedAdminRouteRoute,
-  } as any)
-const AuthedAdminLearningRoute = AuthedAdminLearningRouteImport.update({
-  id: '/learning',
-  path: '/learning',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminPeopleRoute = AuthedAdminPeopleRouteImport.update({
-  id: '/people',
-  path: '/people',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminPlaygroundRoute = AuthedAdminPlaygroundRouteImport.update({
-  id: '/playground',
-  path: '/playground',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminSkillsRoute = AuthedAdminSkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
 const AuthedSignInRequestIdRoute = AuthedSignInRequestIdRouteImport.update({
   id: '/sign-in/$requestId',
   path: '/sign-in/$requestId',
   getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedAppAdminIndexRoute = AuthedAppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
+} as any)
+const AuthedAppAdminAuditRoute = AuthedAppAdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
+} as any)
+const AuthedAppAdminBoundariesRoute =
+  AuthedAppAdminBoundariesRouteImport.update({
+    id: '/boundaries',
+    path: '/boundaries',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminComputersRoute = AuthedAppAdminComputersRouteImport.update({
+  id: '/computers',
+  path: '/computers',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
+} as any)
+const AuthedAppAdminCredentialsRoute =
+  AuthedAppAdminCredentialsRouteImport.update({
+    id: '/credentials',
+    path: '/credentials',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminEnterpriseRoute =
+  AuthedAppAdminEnterpriseRouteImport.update({
+    id: '/enterprise',
+    path: '/enterprise',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminIdentityProvidersRoute =
+  AuthedAppAdminIdentityProvidersRouteImport.update({
+    id: '/identity-providers',
+    path: '/identity-providers',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminLearningRoute = AuthedAppAdminLearningRouteImport.update({
+  id: '/learning',
+  path: '/learning',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
+} as any)
+const AuthedAppAdminPeopleRoute = AuthedAppAdminPeopleRouteImport.update({
+  id: '/people',
+  path: '/people',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
+} as any)
+const AuthedAppAdminPlaygroundRoute =
+  AuthedAppAdminPlaygroundRouteImport.update({
+    id: '/playground',
+    path: '/playground',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminSkillsRoute = AuthedAppAdminSkillsRouteImport.update({
+  id: '/skills',
+  path: '/skills',
+  getParentRoute: () => AuthedAppAdminRouteRoute,
 } as any)
 const AuthedAppAgentsIndexRoute = AuthedAppAgentsIndexRouteImport.update({
   id: '/agents/',
@@ -284,33 +288,35 @@ const AuthedAppSettingsUsageRoute = AuthedAppSettingsUsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => AuthedAppSettingsRouteRoute,
 } as any)
-const AuthedAdminComponentsIndexRoute =
-  AuthedAdminComponentsIndexRouteImport.update({
+const AuthedAppAdminComponentsIndexRoute =
+  AuthedAppAdminComponentsIndexRouteImport.update({
     id: '/components/',
     path: '/components/',
-    getParentRoute: () => AuthedAdminRouteRoute,
+    getParentRoute: () => AuthedAppAdminRouteRoute,
   } as any)
-const AuthedAdminComponentsNameRoute =
-  AuthedAdminComponentsNameRouteImport.update({
+const AuthedAppAdminComponentsNameRoute =
+  AuthedAppAdminComponentsNameRouteImport.update({
     id: '/components/$name',
     path: '/components/$name',
-    getParentRoute: () => AuthedAdminRouteRoute,
+    getParentRoute: () => AuthedAppAdminRouteRoute,
   } as any)
-const AuthedAdminPluginsIndexRoute = AuthedAdminPluginsIndexRouteImport.update({
-  id: '/plugins/',
-  path: '/plugins/',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminPluginsKeyRoute = AuthedAdminPluginsKeyRouteImport.update({
-  id: '/plugins/$key',
-  path: '/plugins/$key',
-  getParentRoute: () => AuthedAdminRouteRoute,
-} as any)
-const AuthedAdminPluginsComposioRoute =
-  AuthedAdminPluginsComposioRouteImport.update({
+const AuthedAppAdminPluginsIndexRoute =
+  AuthedAppAdminPluginsIndexRouteImport.update({
+    id: '/plugins/',
+    path: '/plugins/',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminPluginsKeyRoute =
+  AuthedAppAdminPluginsKeyRouteImport.update({
+    id: '/plugins/$key',
+    path: '/plugins/$key',
+    getParentRoute: () => AuthedAppAdminRouteRoute,
+  } as any)
+const AuthedAppAdminPluginsComposioRoute =
+  AuthedAppAdminPluginsComposioRouteImport.update({
     id: '/plugins/composio',
     path: '/plugins/composio',
-    getParentRoute: () => AuthedAdminRouteRoute,
+    getParentRoute: () => AuthedAppAdminRouteRoute,
   } as any)
 const AuthedAppSettingsComponentsGalleryIndexRoute =
   AuthedAppSettingsComponentsGalleryIndexRouteImport.update({
@@ -336,24 +342,24 @@ const AuthedAppSettingsConnectedAccountsKeyRoute =
     path: '/connected-accounts/$key',
     getParentRoute: () => AuthedAppSettingsRouteRoute,
   } as any)
-const AuthedAdminPluginsKeyBotsAgentIdRoute =
-  AuthedAdminPluginsKeyBotsAgentIdRouteImport.update({
+const AuthedAppAdminPluginsKeyBotsAgentIdRoute =
+  AuthedAppAdminPluginsKeyBotsAgentIdRouteImport.update({
     id: '/plugins/$key_/bots/$agentId',
     path: '/plugins/$key/bots/$agentId',
-    getParentRoute: () => AuthedAdminRouteRoute,
+    getParentRoute: () => AuthedAppAdminRouteRoute,
   } as any)
-const AuthedAdminPluginsKeyToolsToolRoute =
-  AuthedAdminPluginsKeyToolsToolRouteImport.update({
+const AuthedAppAdminPluginsKeyToolsToolRoute =
+  AuthedAppAdminPluginsKeyToolsToolRouteImport.update({
     id: '/plugins/$key_/tools/$tool',
     path: '/plugins/$key/tools/$tool',
-    getParentRoute: () => AuthedAdminRouteRoute,
+    getParentRoute: () => AuthedAppAdminRouteRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedAppIndexRoute
   '/sign': typeof SignRoute
-  '/admin': typeof AuthedAdminRouteRouteWithChildren
   '/onboarding': typeof AuthedOnboardingRoute
+  '/admin': typeof AuthedAppAdminRouteRouteWithChildren
   '/settings': typeof AuthedAppSettingsRouteRouteWithChildren
   '/approvals': typeof AuthedAppApprovalsRoute
   '/bot': typeof AuthedAppBotRoute
@@ -363,18 +369,17 @@ export interface FileRoutesByFullPath {
   '/routines': typeof AuthedAppRoutinesRoute
   '/skills': typeof AuthedAppSkillsRoute
   '/team-bots': typeof AuthedAppTeamBotsRoute
-  '/admin/audit': typeof AuthedAdminAuditRoute
-  '/admin/boundaries': typeof AuthedAdminBoundariesRoute
-  '/admin/computers': typeof AuthedAdminComputersRoute
-  '/admin/credentials': typeof AuthedAdminCredentialsRoute
-  '/admin/enterprise': typeof AuthedAdminEnterpriseRoute
-  '/admin/identity-providers': typeof AuthedAdminIdentityProvidersRoute
-  '/admin/learning': typeof AuthedAdminLearningRoute
-  '/admin/people': typeof AuthedAdminPeopleRoute
-  '/admin/playground': typeof AuthedAdminPlaygroundRoute
-  '/admin/skills': typeof AuthedAdminSkillsRoute
   '/sign-in/$requestId': typeof AuthedSignInRequestIdRoute
-  '/admin/': typeof AuthedAdminIndexRoute
+  '/admin/audit': typeof AuthedAppAdminAuditRoute
+  '/admin/boundaries': typeof AuthedAppAdminBoundariesRoute
+  '/admin/computers': typeof AuthedAppAdminComputersRoute
+  '/admin/credentials': typeof AuthedAppAdminCredentialsRoute
+  '/admin/enterprise': typeof AuthedAppAdminEnterpriseRoute
+  '/admin/identity-providers': typeof AuthedAppAdminIdentityProvidersRoute
+  '/admin/learning': typeof AuthedAppAdminLearningRoute
+  '/admin/people': typeof AuthedAppAdminPeopleRoute
+  '/admin/playground': typeof AuthedAppAdminPlaygroundRoute
+  '/admin/skills': typeof AuthedAppAdminSkillsRoute
   '/bots/$agentId': typeof AuthedAppBotsAgentIdRoute
   '/channel/$channelId': typeof AuthedAppChannelChannelIdRoute
   '/channel/new': typeof AuthedAppChannelNewRoute
@@ -387,21 +392,22 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
   '/settings/passwords': typeof AuthedAppSettingsPasswordsRoute
   '/settings/usage': typeof AuthedAppSettingsUsageRoute
-  '/admin/components/$name': typeof AuthedAdminComponentsNameRoute
-  '/admin/plugins/$key': typeof AuthedAdminPluginsKeyRoute
-  '/admin/plugins/composio': typeof AuthedAdminPluginsComposioRoute
+  '/admin/': typeof AuthedAppAdminIndexRoute
   '/agents/': typeof AuthedAppAgentsIndexRoute
   '/bots/': typeof AuthedAppBotsIndexRoute
   '/marketplace/': typeof AuthedAppMarketplaceIndexRoute
   '/settings/': typeof AuthedAppSettingsIndexRoute
-  '/admin/components/': typeof AuthedAdminComponentsIndexRoute
-  '/admin/plugins/': typeof AuthedAdminPluginsIndexRoute
+  '/admin/components/$name': typeof AuthedAppAdminComponentsNameRoute
+  '/admin/plugins/$key': typeof AuthedAppAdminPluginsKeyRoute
+  '/admin/plugins/composio': typeof AuthedAppAdminPluginsComposioRoute
   '/settings/components-gallery/$name': typeof AuthedAppSettingsComponentsGalleryNameRoute
   '/settings/connected-accounts/$key': typeof AuthedAppSettingsConnectedAccountsKeyRoute
+  '/admin/components/': typeof AuthedAppAdminComponentsIndexRoute
+  '/admin/plugins/': typeof AuthedAppAdminPluginsIndexRoute
   '/settings/components-gallery/': typeof AuthedAppSettingsComponentsGalleryIndexRoute
   '/settings/connected-accounts/': typeof AuthedAppSettingsConnectedAccountsIndexRoute
-  '/admin/plugins/$key/bots/$agentId': typeof AuthedAdminPluginsKeyBotsAgentIdRoute
-  '/admin/plugins/$key/tools/$tool': typeof AuthedAdminPluginsKeyToolsToolRoute
+  '/admin/plugins/$key/bots/$agentId': typeof AuthedAppAdminPluginsKeyBotsAgentIdRoute
+  '/admin/plugins/$key/tools/$tool': typeof AuthedAppAdminPluginsKeyToolsToolRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AuthedAppIndexRoute
@@ -415,18 +421,17 @@ export interface FileRoutesByTo {
   '/routines': typeof AuthedAppRoutinesRoute
   '/skills': typeof AuthedAppSkillsRoute
   '/team-bots': typeof AuthedAppTeamBotsRoute
-  '/admin/audit': typeof AuthedAdminAuditRoute
-  '/admin/boundaries': typeof AuthedAdminBoundariesRoute
-  '/admin/computers': typeof AuthedAdminComputersRoute
-  '/admin/credentials': typeof AuthedAdminCredentialsRoute
-  '/admin/enterprise': typeof AuthedAdminEnterpriseRoute
-  '/admin/identity-providers': typeof AuthedAdminIdentityProvidersRoute
-  '/admin/learning': typeof AuthedAdminLearningRoute
-  '/admin/people': typeof AuthedAdminPeopleRoute
-  '/admin/playground': typeof AuthedAdminPlaygroundRoute
-  '/admin/skills': typeof AuthedAdminSkillsRoute
   '/sign-in/$requestId': typeof AuthedSignInRequestIdRoute
-  '/admin': typeof AuthedAdminIndexRoute
+  '/admin/audit': typeof AuthedAppAdminAuditRoute
+  '/admin/boundaries': typeof AuthedAppAdminBoundariesRoute
+  '/admin/computers': typeof AuthedAppAdminComputersRoute
+  '/admin/credentials': typeof AuthedAppAdminCredentialsRoute
+  '/admin/enterprise': typeof AuthedAppAdminEnterpriseRoute
+  '/admin/identity-providers': typeof AuthedAppAdminIdentityProvidersRoute
+  '/admin/learning': typeof AuthedAppAdminLearningRoute
+  '/admin/people': typeof AuthedAppAdminPeopleRoute
+  '/admin/playground': typeof AuthedAppAdminPlaygroundRoute
+  '/admin/skills': typeof AuthedAppAdminSkillsRoute
   '/bots/$agentId': typeof AuthedAppBotsAgentIdRoute
   '/channel/$channelId': typeof AuthedAppChannelChannelIdRoute
   '/channel/new': typeof AuthedAppChannelNewRoute
@@ -439,29 +444,30 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
   '/settings/passwords': typeof AuthedAppSettingsPasswordsRoute
   '/settings/usage': typeof AuthedAppSettingsUsageRoute
-  '/admin/components/$name': typeof AuthedAdminComponentsNameRoute
-  '/admin/plugins/$key': typeof AuthedAdminPluginsKeyRoute
-  '/admin/plugins/composio': typeof AuthedAdminPluginsComposioRoute
+  '/admin': typeof AuthedAppAdminIndexRoute
   '/agents': typeof AuthedAppAgentsIndexRoute
   '/bots': typeof AuthedAppBotsIndexRoute
   '/marketplace': typeof AuthedAppMarketplaceIndexRoute
   '/settings': typeof AuthedAppSettingsIndexRoute
-  '/admin/components': typeof AuthedAdminComponentsIndexRoute
-  '/admin/plugins': typeof AuthedAdminPluginsIndexRoute
+  '/admin/components/$name': typeof AuthedAppAdminComponentsNameRoute
+  '/admin/plugins/$key': typeof AuthedAppAdminPluginsKeyRoute
+  '/admin/plugins/composio': typeof AuthedAppAdminPluginsComposioRoute
   '/settings/components-gallery/$name': typeof AuthedAppSettingsComponentsGalleryNameRoute
   '/settings/connected-accounts/$key': typeof AuthedAppSettingsConnectedAccountsKeyRoute
+  '/admin/components': typeof AuthedAppAdminComponentsIndexRoute
+  '/admin/plugins': typeof AuthedAppAdminPluginsIndexRoute
   '/settings/components-gallery': typeof AuthedAppSettingsComponentsGalleryIndexRoute
   '/settings/connected-accounts': typeof AuthedAppSettingsConnectedAccountsIndexRoute
-  '/admin/plugins/$key/bots/$agentId': typeof AuthedAdminPluginsKeyBotsAgentIdRoute
-  '/admin/plugins/$key/tools/$tool': typeof AuthedAdminPluginsKeyToolsToolRoute
+  '/admin/plugins/$key/bots/$agentId': typeof AuthedAppAdminPluginsKeyBotsAgentIdRoute
+  '/admin/plugins/$key/tools/$tool': typeof AuthedAppAdminPluginsKeyToolsToolRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
   '/sign': typeof SignRoute
-  '/_authed/admin': typeof AuthedAdminRouteRouteWithChildren
   '/_authed/_app': typeof AuthedAppRouteWithChildren
   '/_authed/onboarding': typeof AuthedOnboardingRoute
+  '/_authed/_app/admin': typeof AuthedAppAdminRouteRouteWithChildren
   '/_authed/_app/settings': typeof AuthedAppSettingsRouteRouteWithChildren
   '/_authed/_app/approvals': typeof AuthedAppApprovalsRoute
   '/_authed/_app/bot': typeof AuthedAppBotRoute
@@ -471,19 +477,18 @@ export interface FileRoutesById {
   '/_authed/_app/routines': typeof AuthedAppRoutinesRoute
   '/_authed/_app/skills': typeof AuthedAppSkillsRoute
   '/_authed/_app/team-bots': typeof AuthedAppTeamBotsRoute
-  '/_authed/admin/audit': typeof AuthedAdminAuditRoute
-  '/_authed/admin/boundaries': typeof AuthedAdminBoundariesRoute
-  '/_authed/admin/computers': typeof AuthedAdminComputersRoute
-  '/_authed/admin/credentials': typeof AuthedAdminCredentialsRoute
-  '/_authed/admin/enterprise': typeof AuthedAdminEnterpriseRoute
-  '/_authed/admin/identity-providers': typeof AuthedAdminIdentityProvidersRoute
-  '/_authed/admin/learning': typeof AuthedAdminLearningRoute
-  '/_authed/admin/people': typeof AuthedAdminPeopleRoute
-  '/_authed/admin/playground': typeof AuthedAdminPlaygroundRoute
-  '/_authed/admin/skills': typeof AuthedAdminSkillsRoute
   '/_authed/sign-in/$requestId': typeof AuthedSignInRequestIdRoute
   '/_authed/_app/': typeof AuthedAppIndexRoute
-  '/_authed/admin/': typeof AuthedAdminIndexRoute
+  '/_authed/_app/admin/audit': typeof AuthedAppAdminAuditRoute
+  '/_authed/_app/admin/boundaries': typeof AuthedAppAdminBoundariesRoute
+  '/_authed/_app/admin/computers': typeof AuthedAppAdminComputersRoute
+  '/_authed/_app/admin/credentials': typeof AuthedAppAdminCredentialsRoute
+  '/_authed/_app/admin/enterprise': typeof AuthedAppAdminEnterpriseRoute
+  '/_authed/_app/admin/identity-providers': typeof AuthedAppAdminIdentityProvidersRoute
+  '/_authed/_app/admin/learning': typeof AuthedAppAdminLearningRoute
+  '/_authed/_app/admin/people': typeof AuthedAppAdminPeopleRoute
+  '/_authed/_app/admin/playground': typeof AuthedAppAdminPlaygroundRoute
+  '/_authed/_app/admin/skills': typeof AuthedAppAdminSkillsRoute
   '/_authed/_app/bots/$agentId': typeof AuthedAppBotsAgentIdRoute
   '/_authed/_app/channel/$channelId': typeof AuthedAppChannelChannelIdRoute
   '/_authed/_app/channel/new': typeof AuthedAppChannelNewRoute
@@ -496,29 +501,30 @@ export interface FileRoutesById {
   '/_authed/_app/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
   '/_authed/_app/settings/passwords': typeof AuthedAppSettingsPasswordsRoute
   '/_authed/_app/settings/usage': typeof AuthedAppSettingsUsageRoute
-  '/_authed/admin/components/$name': typeof AuthedAdminComponentsNameRoute
-  '/_authed/admin/plugins/$key': typeof AuthedAdminPluginsKeyRoute
-  '/_authed/admin/plugins/composio': typeof AuthedAdminPluginsComposioRoute
+  '/_authed/_app/admin/': typeof AuthedAppAdminIndexRoute
   '/_authed/_app/agents/': typeof AuthedAppAgentsIndexRoute
   '/_authed/_app/bots/': typeof AuthedAppBotsIndexRoute
   '/_authed/_app/marketplace/': typeof AuthedAppMarketplaceIndexRoute
   '/_authed/_app/settings/': typeof AuthedAppSettingsIndexRoute
-  '/_authed/admin/components/': typeof AuthedAdminComponentsIndexRoute
-  '/_authed/admin/plugins/': typeof AuthedAdminPluginsIndexRoute
+  '/_authed/_app/admin/components/$name': typeof AuthedAppAdminComponentsNameRoute
+  '/_authed/_app/admin/plugins/$key': typeof AuthedAppAdminPluginsKeyRoute
+  '/_authed/_app/admin/plugins/composio': typeof AuthedAppAdminPluginsComposioRoute
   '/_authed/_app/settings/components-gallery/$name': typeof AuthedAppSettingsComponentsGalleryNameRoute
   '/_authed/_app/settings/connected-accounts/$key': typeof AuthedAppSettingsConnectedAccountsKeyRoute
+  '/_authed/_app/admin/components/': typeof AuthedAppAdminComponentsIndexRoute
+  '/_authed/_app/admin/plugins/': typeof AuthedAppAdminPluginsIndexRoute
   '/_authed/_app/settings/components-gallery/': typeof AuthedAppSettingsComponentsGalleryIndexRoute
   '/_authed/_app/settings/connected-accounts/': typeof AuthedAppSettingsConnectedAccountsIndexRoute
-  '/_authed/admin/plugins/$key_/bots/$agentId': typeof AuthedAdminPluginsKeyBotsAgentIdRoute
-  '/_authed/admin/plugins/$key_/tools/$tool': typeof AuthedAdminPluginsKeyToolsToolRoute
+  '/_authed/_app/admin/plugins/$key_/bots/$agentId': typeof AuthedAppAdminPluginsKeyBotsAgentIdRoute
+  '/_authed/_app/admin/plugins/$key_/tools/$tool': typeof AuthedAppAdminPluginsKeyToolsToolRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/sign'
-    | '/admin'
     | '/onboarding'
+    | '/admin'
     | '/settings'
     | '/approvals'
     | '/bot'
@@ -528,6 +534,7 @@ export interface FileRouteTypes {
     | '/routines'
     | '/skills'
     | '/team-bots'
+    | '/sign-in/$requestId'
     | '/admin/audit'
     | '/admin/boundaries'
     | '/admin/computers'
@@ -538,8 +545,6 @@ export interface FileRouteTypes {
     | '/admin/people'
     | '/admin/playground'
     | '/admin/skills'
-    | '/sign-in/$requestId'
-    | '/admin/'
     | '/bots/$agentId'
     | '/channel/$channelId'
     | '/channel/new'
@@ -552,17 +557,18 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/passwords'
     | '/settings/usage'
-    | '/admin/components/$name'
-    | '/admin/plugins/$key'
-    | '/admin/plugins/composio'
+    | '/admin/'
     | '/agents/'
     | '/bots/'
     | '/marketplace/'
     | '/settings/'
-    | '/admin/components/'
-    | '/admin/plugins/'
+    | '/admin/components/$name'
+    | '/admin/plugins/$key'
+    | '/admin/plugins/composio'
     | '/settings/components-gallery/$name'
     | '/settings/connected-accounts/$key'
+    | '/admin/components/'
+    | '/admin/plugins/'
     | '/settings/components-gallery/'
     | '/settings/connected-accounts/'
     | '/admin/plugins/$key/bots/$agentId'
@@ -580,6 +586,7 @@ export interface FileRouteTypes {
     | '/routines'
     | '/skills'
     | '/team-bots'
+    | '/sign-in/$requestId'
     | '/admin/audit'
     | '/admin/boundaries'
     | '/admin/computers'
@@ -590,8 +597,6 @@ export interface FileRouteTypes {
     | '/admin/people'
     | '/admin/playground'
     | '/admin/skills'
-    | '/sign-in/$requestId'
-    | '/admin'
     | '/bots/$agentId'
     | '/channel/$channelId'
     | '/channel/new'
@@ -604,17 +609,18 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/passwords'
     | '/settings/usage'
-    | '/admin/components/$name'
-    | '/admin/plugins/$key'
-    | '/admin/plugins/composio'
+    | '/admin'
     | '/agents'
     | '/bots'
     | '/marketplace'
     | '/settings'
-    | '/admin/components'
-    | '/admin/plugins'
+    | '/admin/components/$name'
+    | '/admin/plugins/$key'
+    | '/admin/plugins/composio'
     | '/settings/components-gallery/$name'
     | '/settings/connected-accounts/$key'
+    | '/admin/components'
+    | '/admin/plugins'
     | '/settings/components-gallery'
     | '/settings/connected-accounts'
     | '/admin/plugins/$key/bots/$agentId'
@@ -623,9 +629,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_authed'
     | '/sign'
-    | '/_authed/admin'
     | '/_authed/_app'
     | '/_authed/onboarding'
+    | '/_authed/_app/admin'
     | '/_authed/_app/settings'
     | '/_authed/_app/approvals'
     | '/_authed/_app/bot'
@@ -635,19 +641,18 @@ export interface FileRouteTypes {
     | '/_authed/_app/routines'
     | '/_authed/_app/skills'
     | '/_authed/_app/team-bots'
-    | '/_authed/admin/audit'
-    | '/_authed/admin/boundaries'
-    | '/_authed/admin/computers'
-    | '/_authed/admin/credentials'
-    | '/_authed/admin/enterprise'
-    | '/_authed/admin/identity-providers'
-    | '/_authed/admin/learning'
-    | '/_authed/admin/people'
-    | '/_authed/admin/playground'
-    | '/_authed/admin/skills'
     | '/_authed/sign-in/$requestId'
     | '/_authed/_app/'
-    | '/_authed/admin/'
+    | '/_authed/_app/admin/audit'
+    | '/_authed/_app/admin/boundaries'
+    | '/_authed/_app/admin/computers'
+    | '/_authed/_app/admin/credentials'
+    | '/_authed/_app/admin/enterprise'
+    | '/_authed/_app/admin/identity-providers'
+    | '/_authed/_app/admin/learning'
+    | '/_authed/_app/admin/people'
+    | '/_authed/_app/admin/playground'
+    | '/_authed/_app/admin/skills'
     | '/_authed/_app/bots/$agentId'
     | '/_authed/_app/channel/$channelId'
     | '/_authed/_app/channel/new'
@@ -660,21 +665,22 @@ export interface FileRouteTypes {
     | '/_authed/_app/settings/notifications'
     | '/_authed/_app/settings/passwords'
     | '/_authed/_app/settings/usage'
-    | '/_authed/admin/components/$name'
-    | '/_authed/admin/plugins/$key'
-    | '/_authed/admin/plugins/composio'
+    | '/_authed/_app/admin/'
     | '/_authed/_app/agents/'
     | '/_authed/_app/bots/'
     | '/_authed/_app/marketplace/'
     | '/_authed/_app/settings/'
-    | '/_authed/admin/components/'
-    | '/_authed/admin/plugins/'
+    | '/_authed/_app/admin/components/$name'
+    | '/_authed/_app/admin/plugins/$key'
+    | '/_authed/_app/admin/plugins/composio'
     | '/_authed/_app/settings/components-gallery/$name'
     | '/_authed/_app/settings/connected-accounts/$key'
+    | '/_authed/_app/admin/components/'
+    | '/_authed/_app/admin/plugins/'
     | '/_authed/_app/settings/components-gallery/'
     | '/_authed/_app/settings/connected-accounts/'
-    | '/_authed/admin/plugins/$key_/bots/$agentId'
-    | '/_authed/admin/plugins/$key_/tools/$tool'
+    | '/_authed/_app/admin/plugins/$key_/bots/$agentId'
+    | '/_authed/_app/admin/plugins/$key_/tools/$tool'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -705,13 +711,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/admin': {
-      id: '/_authed/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AuthedAdminRouteRouteImport
-      parentRoute: typeof AuthedRoute
-    }
     '/_authed/onboarding': {
       id: '/_authed/onboarding'
       path: '/onboarding'
@@ -724,6 +723,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AuthedAppIndexRouteImport
+      parentRoute: typeof AuthedAppRoute
+    }
+    '/_authed/_app/admin': {
+      id: '/_authed/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthedAppAdminRouteRouteImport
       parentRoute: typeof AuthedAppRoute
     }
     '/_authed/_app/approvals': {
@@ -789,89 +795,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppTeamBotsRouteImport
       parentRoute: typeof AuthedAppRoute
     }
-    '/_authed/admin/': {
-      id: '/_authed/admin/'
-      path: '/'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof AuthedAdminIndexRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/audit': {
-      id: '/_authed/admin/audit'
-      path: '/audit'
-      fullPath: '/admin/audit'
-      preLoaderRoute: typeof AuthedAdminAuditRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/boundaries': {
-      id: '/_authed/admin/boundaries'
-      path: '/boundaries'
-      fullPath: '/admin/boundaries'
-      preLoaderRoute: typeof AuthedAdminBoundariesRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/computers': {
-      id: '/_authed/admin/computers'
-      path: '/computers'
-      fullPath: '/admin/computers'
-      preLoaderRoute: typeof AuthedAdminComputersRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/credentials': {
-      id: '/_authed/admin/credentials'
-      path: '/credentials'
-      fullPath: '/admin/credentials'
-      preLoaderRoute: typeof AuthedAdminCredentialsRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/enterprise': {
-      id: '/_authed/admin/enterprise'
-      path: '/enterprise'
-      fullPath: '/admin/enterprise'
-      preLoaderRoute: typeof AuthedAdminEnterpriseRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/identity-providers': {
-      id: '/_authed/admin/identity-providers'
-      path: '/identity-providers'
-      fullPath: '/admin/identity-providers'
-      preLoaderRoute: typeof AuthedAdminIdentityProvidersRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/learning': {
-      id: '/_authed/admin/learning'
-      path: '/learning'
-      fullPath: '/admin/learning'
-      preLoaderRoute: typeof AuthedAdminLearningRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/people': {
-      id: '/_authed/admin/people'
-      path: '/people'
-      fullPath: '/admin/people'
-      preLoaderRoute: typeof AuthedAdminPeopleRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/playground': {
-      id: '/_authed/admin/playground'
-      path: '/playground'
-      fullPath: '/admin/playground'
-      preLoaderRoute: typeof AuthedAdminPlaygroundRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
-    '/_authed/admin/skills': {
-      id: '/_authed/admin/skills'
-      path: '/skills'
-      fullPath: '/admin/skills'
-      preLoaderRoute: typeof AuthedAdminSkillsRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
-    }
     '/_authed/sign-in/$requestId': {
       id: '/_authed/sign-in/$requestId'
       path: '/sign-in/$requestId'
       fullPath: '/sign-in/$requestId'
       preLoaderRoute: typeof AuthedSignInRequestIdRouteImport
       parentRoute: typeof AuthedRoute
+    }
+    '/_authed/_app/admin/': {
+      id: '/_authed/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthedAppAdminIndexRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/audit': {
+      id: '/_authed/_app/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AuthedAppAdminAuditRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/boundaries': {
+      id: '/_authed/_app/admin/boundaries'
+      path: '/boundaries'
+      fullPath: '/admin/boundaries'
+      preLoaderRoute: typeof AuthedAppAdminBoundariesRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/computers': {
+      id: '/_authed/_app/admin/computers'
+      path: '/computers'
+      fullPath: '/admin/computers'
+      preLoaderRoute: typeof AuthedAppAdminComputersRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/credentials': {
+      id: '/_authed/_app/admin/credentials'
+      path: '/credentials'
+      fullPath: '/admin/credentials'
+      preLoaderRoute: typeof AuthedAppAdminCredentialsRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/enterprise': {
+      id: '/_authed/_app/admin/enterprise'
+      path: '/enterprise'
+      fullPath: '/admin/enterprise'
+      preLoaderRoute: typeof AuthedAppAdminEnterpriseRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/identity-providers': {
+      id: '/_authed/_app/admin/identity-providers'
+      path: '/identity-providers'
+      fullPath: '/admin/identity-providers'
+      preLoaderRoute: typeof AuthedAppAdminIdentityProvidersRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/learning': {
+      id: '/_authed/_app/admin/learning'
+      path: '/learning'
+      fullPath: '/admin/learning'
+      preLoaderRoute: typeof AuthedAppAdminLearningRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/people': {
+      id: '/_authed/_app/admin/people'
+      path: '/people'
+      fullPath: '/admin/people'
+      preLoaderRoute: typeof AuthedAppAdminPeopleRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/playground': {
+      id: '/_authed/_app/admin/playground'
+      path: '/playground'
+      fullPath: '/admin/playground'
+      preLoaderRoute: typeof AuthedAppAdminPlaygroundRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
+    }
+    '/_authed/_app/admin/skills': {
+      id: '/_authed/_app/admin/skills'
+      path: '/skills'
+      fullPath: '/admin/skills'
+      preLoaderRoute: typeof AuthedAppAdminSkillsRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
     '/_authed/_app/agents/': {
       id: '/_authed/_app/agents/'
@@ -985,40 +991,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppSettingsUsageRouteImport
       parentRoute: typeof AuthedAppSettingsRouteRoute
     }
-    '/_authed/admin/components/': {
-      id: '/_authed/admin/components/'
+    '/_authed/_app/admin/components/': {
+      id: '/_authed/_app/admin/components/'
       path: '/components'
       fullPath: '/admin/components/'
-      preLoaderRoute: typeof AuthedAdminComponentsIndexRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminComponentsIndexRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
-    '/_authed/admin/components/$name': {
-      id: '/_authed/admin/components/$name'
+    '/_authed/_app/admin/components/$name': {
+      id: '/_authed/_app/admin/components/$name'
       path: '/components/$name'
       fullPath: '/admin/components/$name'
-      preLoaderRoute: typeof AuthedAdminComponentsNameRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminComponentsNameRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
-    '/_authed/admin/plugins/': {
-      id: '/_authed/admin/plugins/'
+    '/_authed/_app/admin/plugins/': {
+      id: '/_authed/_app/admin/plugins/'
       path: '/plugins'
       fullPath: '/admin/plugins/'
-      preLoaderRoute: typeof AuthedAdminPluginsIndexRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminPluginsIndexRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
-    '/_authed/admin/plugins/$key': {
-      id: '/_authed/admin/plugins/$key'
+    '/_authed/_app/admin/plugins/$key': {
+      id: '/_authed/_app/admin/plugins/$key'
       path: '/plugins/$key'
       fullPath: '/admin/plugins/$key'
-      preLoaderRoute: typeof AuthedAdminPluginsKeyRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminPluginsKeyRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
-    '/_authed/admin/plugins/composio': {
-      id: '/_authed/admin/plugins/composio'
+    '/_authed/_app/admin/plugins/composio': {
+      id: '/_authed/_app/admin/plugins/composio'
       path: '/plugins/composio'
       fullPath: '/admin/plugins/composio'
-      preLoaderRoute: typeof AuthedAdminPluginsComposioRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminPluginsComposioRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
     '/_authed/_app/settings/components-gallery/': {
       id: '/_authed/_app/settings/components-gallery/'
@@ -1048,67 +1054,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppSettingsConnectedAccountsKeyRouteImport
       parentRoute: typeof AuthedAppSettingsRouteRoute
     }
-    '/_authed/admin/plugins/$key_/bots/$agentId': {
-      id: '/_authed/admin/plugins/$key_/bots/$agentId'
+    '/_authed/_app/admin/plugins/$key_/bots/$agentId': {
+      id: '/_authed/_app/admin/plugins/$key_/bots/$agentId'
       path: '/plugins/$key/bots/$agentId'
       fullPath: '/admin/plugins/$key/bots/$agentId'
-      preLoaderRoute: typeof AuthedAdminPluginsKeyBotsAgentIdRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminPluginsKeyBotsAgentIdRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
-    '/_authed/admin/plugins/$key_/tools/$tool': {
-      id: '/_authed/admin/plugins/$key_/tools/$tool'
+    '/_authed/_app/admin/plugins/$key_/tools/$tool': {
+      id: '/_authed/_app/admin/plugins/$key_/tools/$tool'
       path: '/plugins/$key/tools/$tool'
       fullPath: '/admin/plugins/$key/tools/$tool'
-      preLoaderRoute: typeof AuthedAdminPluginsKeyToolsToolRouteImport
-      parentRoute: typeof AuthedAdminRouteRoute
+      preLoaderRoute: typeof AuthedAppAdminPluginsKeyToolsToolRouteImport
+      parentRoute: typeof AuthedAppAdminRouteRoute
     }
   }
 }
 
-interface AuthedAdminRouteRouteChildren {
-  AuthedAdminAuditRoute: typeof AuthedAdminAuditRoute
-  AuthedAdminBoundariesRoute: typeof AuthedAdminBoundariesRoute
-  AuthedAdminComputersRoute: typeof AuthedAdminComputersRoute
-  AuthedAdminCredentialsRoute: typeof AuthedAdminCredentialsRoute
-  AuthedAdminEnterpriseRoute: typeof AuthedAdminEnterpriseRoute
-  AuthedAdminIdentityProvidersRoute: typeof AuthedAdminIdentityProvidersRoute
-  AuthedAdminLearningRoute: typeof AuthedAdminLearningRoute
-  AuthedAdminPeopleRoute: typeof AuthedAdminPeopleRoute
-  AuthedAdminPlaygroundRoute: typeof AuthedAdminPlaygroundRoute
-  AuthedAdminSkillsRoute: typeof AuthedAdminSkillsRoute
-  AuthedAdminIndexRoute: typeof AuthedAdminIndexRoute
-  AuthedAdminComponentsNameRoute: typeof AuthedAdminComponentsNameRoute
-  AuthedAdminPluginsKeyRoute: typeof AuthedAdminPluginsKeyRoute
-  AuthedAdminPluginsComposioRoute: typeof AuthedAdminPluginsComposioRoute
-  AuthedAdminComponentsIndexRoute: typeof AuthedAdminComponentsIndexRoute
-  AuthedAdminPluginsIndexRoute: typeof AuthedAdminPluginsIndexRoute
-  AuthedAdminPluginsKeyBotsAgentIdRoute: typeof AuthedAdminPluginsKeyBotsAgentIdRoute
-  AuthedAdminPluginsKeyToolsToolRoute: typeof AuthedAdminPluginsKeyToolsToolRoute
+interface AuthedAppAdminRouteRouteChildren {
+  AuthedAppAdminAuditRoute: typeof AuthedAppAdminAuditRoute
+  AuthedAppAdminBoundariesRoute: typeof AuthedAppAdminBoundariesRoute
+  AuthedAppAdminComputersRoute: typeof AuthedAppAdminComputersRoute
+  AuthedAppAdminCredentialsRoute: typeof AuthedAppAdminCredentialsRoute
+  AuthedAppAdminEnterpriseRoute: typeof AuthedAppAdminEnterpriseRoute
+  AuthedAppAdminIdentityProvidersRoute: typeof AuthedAppAdminIdentityProvidersRoute
+  AuthedAppAdminLearningRoute: typeof AuthedAppAdminLearningRoute
+  AuthedAppAdminPeopleRoute: typeof AuthedAppAdminPeopleRoute
+  AuthedAppAdminPlaygroundRoute: typeof AuthedAppAdminPlaygroundRoute
+  AuthedAppAdminSkillsRoute: typeof AuthedAppAdminSkillsRoute
+  AuthedAppAdminIndexRoute: typeof AuthedAppAdminIndexRoute
+  AuthedAppAdminComponentsNameRoute: typeof AuthedAppAdminComponentsNameRoute
+  AuthedAppAdminPluginsKeyRoute: typeof AuthedAppAdminPluginsKeyRoute
+  AuthedAppAdminPluginsComposioRoute: typeof AuthedAppAdminPluginsComposioRoute
+  AuthedAppAdminComponentsIndexRoute: typeof AuthedAppAdminComponentsIndexRoute
+  AuthedAppAdminPluginsIndexRoute: typeof AuthedAppAdminPluginsIndexRoute
+  AuthedAppAdminPluginsKeyBotsAgentIdRoute: typeof AuthedAppAdminPluginsKeyBotsAgentIdRoute
+  AuthedAppAdminPluginsKeyToolsToolRoute: typeof AuthedAppAdminPluginsKeyToolsToolRoute
 }
 
-const AuthedAdminRouteRouteChildren: AuthedAdminRouteRouteChildren = {
-  AuthedAdminAuditRoute: AuthedAdminAuditRoute,
-  AuthedAdminBoundariesRoute: AuthedAdminBoundariesRoute,
-  AuthedAdminComputersRoute: AuthedAdminComputersRoute,
-  AuthedAdminCredentialsRoute: AuthedAdminCredentialsRoute,
-  AuthedAdminEnterpriseRoute: AuthedAdminEnterpriseRoute,
-  AuthedAdminIdentityProvidersRoute: AuthedAdminIdentityProvidersRoute,
-  AuthedAdminLearningRoute: AuthedAdminLearningRoute,
-  AuthedAdminPeopleRoute: AuthedAdminPeopleRoute,
-  AuthedAdminPlaygroundRoute: AuthedAdminPlaygroundRoute,
-  AuthedAdminSkillsRoute: AuthedAdminSkillsRoute,
-  AuthedAdminIndexRoute: AuthedAdminIndexRoute,
-  AuthedAdminComponentsNameRoute: AuthedAdminComponentsNameRoute,
-  AuthedAdminPluginsKeyRoute: AuthedAdminPluginsKeyRoute,
-  AuthedAdminPluginsComposioRoute: AuthedAdminPluginsComposioRoute,
-  AuthedAdminComponentsIndexRoute: AuthedAdminComponentsIndexRoute,
-  AuthedAdminPluginsIndexRoute: AuthedAdminPluginsIndexRoute,
-  AuthedAdminPluginsKeyBotsAgentIdRoute: AuthedAdminPluginsKeyBotsAgentIdRoute,
-  AuthedAdminPluginsKeyToolsToolRoute: AuthedAdminPluginsKeyToolsToolRoute,
+const AuthedAppAdminRouteRouteChildren: AuthedAppAdminRouteRouteChildren = {
+  AuthedAppAdminAuditRoute: AuthedAppAdminAuditRoute,
+  AuthedAppAdminBoundariesRoute: AuthedAppAdminBoundariesRoute,
+  AuthedAppAdminComputersRoute: AuthedAppAdminComputersRoute,
+  AuthedAppAdminCredentialsRoute: AuthedAppAdminCredentialsRoute,
+  AuthedAppAdminEnterpriseRoute: AuthedAppAdminEnterpriseRoute,
+  AuthedAppAdminIdentityProvidersRoute: AuthedAppAdminIdentityProvidersRoute,
+  AuthedAppAdminLearningRoute: AuthedAppAdminLearningRoute,
+  AuthedAppAdminPeopleRoute: AuthedAppAdminPeopleRoute,
+  AuthedAppAdminPlaygroundRoute: AuthedAppAdminPlaygroundRoute,
+  AuthedAppAdminSkillsRoute: AuthedAppAdminSkillsRoute,
+  AuthedAppAdminIndexRoute: AuthedAppAdminIndexRoute,
+  AuthedAppAdminComponentsNameRoute: AuthedAppAdminComponentsNameRoute,
+  AuthedAppAdminPluginsKeyRoute: AuthedAppAdminPluginsKeyRoute,
+  AuthedAppAdminPluginsComposioRoute: AuthedAppAdminPluginsComposioRoute,
+  AuthedAppAdminComponentsIndexRoute: AuthedAppAdminComponentsIndexRoute,
+  AuthedAppAdminPluginsIndexRoute: AuthedAppAdminPluginsIndexRoute,
+  AuthedAppAdminPluginsKeyBotsAgentIdRoute:
+    AuthedAppAdminPluginsKeyBotsAgentIdRoute,
+  AuthedAppAdminPluginsKeyToolsToolRoute:
+    AuthedAppAdminPluginsKeyToolsToolRoute,
 }
 
-const AuthedAdminRouteRouteWithChildren =
-  AuthedAdminRouteRoute._addFileChildren(AuthedAdminRouteRouteChildren)
+const AuthedAppAdminRouteRouteWithChildren =
+  AuthedAppAdminRouteRoute._addFileChildren(AuthedAppAdminRouteRouteChildren)
 
 interface AuthedAppSettingsRouteRouteChildren {
   AuthedAppSettingsApprovalsRoute: typeof AuthedAppSettingsApprovalsRoute
@@ -1151,6 +1159,7 @@ const AuthedAppSettingsRouteRouteWithChildren =
   )
 
 interface AuthedAppRouteChildren {
+  AuthedAppAdminRouteRoute: typeof AuthedAppAdminRouteRouteWithChildren
   AuthedAppSettingsRouteRoute: typeof AuthedAppSettingsRouteRouteWithChildren
   AuthedAppApprovalsRoute: typeof AuthedAppApprovalsRoute
   AuthedAppBotRoute: typeof AuthedAppBotRoute
@@ -1172,6 +1181,7 @@ interface AuthedAppRouteChildren {
 }
 
 const AuthedAppRouteChildren: AuthedAppRouteChildren = {
+  AuthedAppAdminRouteRoute: AuthedAppAdminRouteRouteWithChildren,
   AuthedAppSettingsRouteRoute: AuthedAppSettingsRouteRouteWithChildren,
   AuthedAppApprovalsRoute: AuthedAppApprovalsRoute,
   AuthedAppBotRoute: AuthedAppBotRoute,
@@ -1197,14 +1207,12 @@ const AuthedAppRouteWithChildren = AuthedAppRoute._addFileChildren(
 )
 
 interface AuthedRouteChildren {
-  AuthedAdminRouteRoute: typeof AuthedAdminRouteRouteWithChildren
   AuthedAppRoute: typeof AuthedAppRouteWithChildren
   AuthedOnboardingRoute: typeof AuthedOnboardingRoute
   AuthedSignInRequestIdRoute: typeof AuthedSignInRequestIdRoute
 }
 
 const AuthedRouteChildren: AuthedRouteChildren = {
-  AuthedAdminRouteRoute: AuthedAdminRouteRouteWithChildren,
   AuthedAppRoute: AuthedAppRouteWithChildren,
   AuthedOnboardingRoute: AuthedOnboardingRoute,
   AuthedSignInRequestIdRoute: AuthedSignInRequestIdRoute,

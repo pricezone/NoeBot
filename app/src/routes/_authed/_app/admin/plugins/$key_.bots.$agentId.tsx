@@ -48,7 +48,7 @@ import {
  * than becoming a layout with an outlet.
  */
 export const Route = createFileRoute(
-  "/_authed/admin/plugins/$key_/bots/$agentId",
+  "/_authed/_app/admin/plugins/$key_/bots/$agentId",
 )({ component: RouteComponent });
 
 /**
@@ -72,7 +72,7 @@ export function readOnlyRefs(tools: PluginTool[]): string[] {
 
 function RouteComponent() {
   const { key, agentId } = useParams({
-    from: "/_authed/admin/plugins/$key_/bots/$agentId",
+    from: "/_authed/_app/admin/plugins/$key_/bots/$agentId",
   });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());

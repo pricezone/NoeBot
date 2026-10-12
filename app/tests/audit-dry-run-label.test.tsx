@@ -10,7 +10,7 @@ import {
 import { cleanup, render, within } from "@testing-library/react";
 import { agentKeys } from "@/lib/agents/queries";
 import { auditKeys } from "@/lib/audit/queries";
-import { Route as AuditRoute } from "@/routes/_authed/admin/audit";
+import { Route as AuditRoute } from "@/routes/_authed/_app/admin/audit";
 
 beforeAll(() => GlobalRegistrator.register());
 

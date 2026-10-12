@@ -1,9 +1,20 @@
 import { IconChevronLeft } from "@tabler/icons-react";
 import { Link, type LinkProps } from "@tanstack/react-router";
 import type * as React from "react";
+import { createContext, useContext } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { SidebarToggle, useSidebarToggleVisible } from "./sidebar-toggle";
+
+/**
+ * Where a `PageShell` is drawn: on a page of its own, or inside a modal such as Settings.
+ *
+ * Inside a modal the shell takes the Settings pages' measure — their column, their padding, their
+ * title size — and never draws the sidebar toggle: the sidebar is behind the overlay, and a button
+ * offering to hide it would be offering something the person cannot see. The admin route provides
+ * `"modal"`; everything else is a page.
+ */
+export const PageFrame = createContext<"page" | "modal">("page");
 
 /**
  * The frame every configuration screen sits in.
@@ -72,16 +83,25 @@ export function PageShell({
    * on `/assist` and `/link/slack`, which draw PageShell directly under `_authed` with no sidebar
    * provider at all, so there is nothing for a toggle to act on there.
    */
-  const showToggle = useSidebarToggleVisible();
+  const inModal = useContext(PageFrame) === "modal";
+  const showToggle = useSidebarToggleVisible() && !inModal;
   const bar = showToggle || !!backButton;
 
   return (
     <>
       {bar ? (
-        <div className="max-w-7xl w-full h-14 flex items-center gap-1 px-3">
+        <div
+          className={cn(
+            "flex w-full items-center gap-1",
+            inModal
+              ? "mx-auto max-w-3xl px-4 pt-4 md:px-6"
+              : "h-14 max-w-7xl px-3",
+          )}
+        >
           {showToggle ? <SidebarToggle /> : null}
           {!!backButton && (
             <Button
+              size={inModal ? "sm" : undefined}
               variant="ghost"
               render={(props) => <Link {...backButton.linkProps} {...props} />}
             >
@@ -115,14 +135,27 @@ export function PageShell({
           className={cn(
             "mx-auto flex w-full flex-col px-4 pb-12",
             // Without a bar above it the heading keeps the full original space.
-            bar ? "pt-8" : "pt-12",
-            WIDTHS[width],
+            inModal
+              ? bar
+                ? "pt-2 md:px-8"
+                : "pt-6 md:px-8"
+              : bar
+                ? "pt-8"
+                : "pt-12",
+            // A modal's body is narrower than a page, and the Settings pages' measure fits it.
+            inModal && width === "prose" ? "max-w-3xl" : WIDTHS[width],
             className,
           )}
         >
           <header className="flex flex-col gap-2">
             <div className="flex flex-row items-center justify-between gap-4">
-              <h1 className="font-bold text-2xl">{title}</h1>
+              <h1
+                className={
+                  inModal ? "text-[18px] font-semibold" : "font-bold text-2xl"
+                }
+              >
+                {title}
+              </h1>
               {action}
             </div>
             {description ? (

@@ -45,7 +45,7 @@ const PRESETS: { label: string; rule: string; cost?: string }[] = [
   },
 ];
 
-export const Route = createFileRoute("/_authed/admin/boundaries")({
+export const Route = createFileRoute("/_authed/_app/admin/boundaries")({
   component: BoundariesPage,
 });
 

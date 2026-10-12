@@ -23,7 +23,7 @@ import {
   type PluginTool,
   pluginKeys,
 } from "@/lib/plugins/queries";
-import { Route as BotAppRoute } from "@/routes/_authed/admin/plugins/$key_.bots.$agentId";
+import { Route as BotAppRoute } from "@/routes/_authed/_app/admin/plugins/$key_.bots.$agentId";
 
 /**
  * What the per-Bot grant screen draws: which of its three pages a failed read returns, and the one
@@ -168,7 +168,7 @@ async function waitForFailedRefetch(queryClient: QueryClient) {
 }
 
 /*
- * This screen's component calls `useParams({ from: "/_authed/admin/plugins/$key_/bots/$agentId" })`,
+ * This screen's component calls `useParams({ from: "/_authed/_app/admin/plugins/$key_/bots/$agentId" })`,
  * which resolves that id against the router's matched routes, so the tree has to produce exactly
  * that id — decoy pathless/static parents are enough, as `agent-roster-error.test.tsx` establishes,
  * and the real ancestors (a session check, the admin shell) are not what this file is about.
@@ -215,7 +215,7 @@ afterEach(() => {
 function renderScreen(queryClient: QueryClient) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
-    id: "/_authed",
+    id: "/_authed/_app",
     getParentRoute: () => rootRoute,
     component: Outlet,
   });

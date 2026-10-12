@@ -55,7 +55,7 @@ test("uses explicit manual chunks for route components", () => {
   ).toBe("route-chat-core");
   expect(
     selectOpenBotManualChunk(
-      "/repo/app/src/routes/_authed/admin/credentials.tsx?tsr-split=component",
+      "/repo/app/src/routes/_authed/_app/admin/credentials.tsx?tsr-split=component",
     ),
   ).toBe("route-admin");
   expect(

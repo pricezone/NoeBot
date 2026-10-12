@@ -38,7 +38,7 @@ import {
 import { identityProviderListQueryOptions } from "@/lib/identity-providers/queries";
 import { queryClient } from "@/query-client";
 
-export const Route = createFileRoute("/_authed/admin/identity-providers")({
+export const Route = createFileRoute("/_authed/_app/admin/identity-providers")({
   component: IdentityProvidersPage,
 });
 

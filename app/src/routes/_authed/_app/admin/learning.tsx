@@ -16,9 +16,9 @@ import {
 import type {
   LearningSettings,
   LearningTarget,
-} from "../../../../../shared/learning";
+} from "../../../../../../shared/learning";
 
-export const Route = createFileRoute("/_authed/admin/learning")({
+export const Route = createFileRoute("/_authed/_app/admin/learning")({
   component: LearningPage,
 });
 const selectClass = "w-full rounded-md border bg-background px-3 py-2 text-sm";

@@ -21,7 +21,11 @@ let remembered: ReturnTo | null = null;
 
 /** Whether a path is one of the modal surfaces, which must never become a return target. */
 export function isModalPath(path: string): boolean {
-  return path.startsWith("/settings") || path.startsWith("/marketplace");
+  return (
+    path.startsWith("/settings") ||
+    path.startsWith("/admin") ||
+    path.startsWith("/marketplace")
+  );
 }
 
 /**

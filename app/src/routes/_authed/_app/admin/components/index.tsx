@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  * component carries per-Bot grants, per-function grants and an editable description — more than a
  * tile can hold.
  */
-export const Route = createFileRoute("/_authed/admin/components/")({
+export const Route = createFileRoute("/_authed/_app/admin/components/")({
   component: RouteComponent,
 });
 

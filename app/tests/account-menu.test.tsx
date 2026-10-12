@@ -158,8 +158,8 @@ test("initials come from the name, else from the address", () => {
   expect(initialsOf({ name: null, email: "ab@example.com" })).toBe("AB");
 });
 
-test("the usage row says Weekly usage, with the week's credits beside it once known", () => {
-  expect(USAGE_ROW_LABEL).toBe("Weekly usage");
+test("the usage row says Usage & Billing, with the week's credits beside it once known", () => {
+  expect(USAGE_ROW_LABEL).toBe("Usage & Billing");
   expect(usageRowValue(undefined)).toBeNull();
   expect(usageRowValue(12480.4)).toBe("12,480 credits");
 });
@@ -169,7 +169,7 @@ test("the trigger shows the person's initials and opens the menu", async () => {
   const trigger = await view.findByRole("button", { name: "Account menu" });
   expect(trigger.textContent).toBe("HN");
   await open(view);
-  expect(view.getByRole("link", { name: "Approvals" })).toBeTruthy();
+  expect(view.getByRole("link", { name: "Settings" })).toBeTruthy();
   expect(view.getByRole("button", { name: "Log out" })).toBeTruthy();
 });
 
@@ -182,33 +182,26 @@ test("the usage row exists only on a metered deployment, and links to the usage 
   const metered = draw({ usage: true, weekCredits: 1234 });
   await open(metered.view);
   const row = await metered.view.findByRole("link", {
-    name: /Weekly usage\s*1,234 credits/,
+    name: /Usage & Billing\s*1,234 credits/,
   });
   expect(row.getAttribute("href")).toBe("/settings/usage");
 });
 
-test("the Approvals row carries the pending count and nothing else is counted", async () => {
-  const { view } = draw({ pending: 2 });
-  await open(view);
-  const row = view.getByRole("link", { name: /Approvals/ });
-  expect(row.getAttribute("href")).toBe("/settings/approvals");
-  await waitFor(() => expect(row.textContent).toContain("2"));
-  expect(row.textContent).not.toContain("3");
-  // The count is asked for only once the menu is open.
-  expect(requests.map((request) => request.path)).toEqual(["/api/approvals"]);
-});
-
-test("Admin shows only to an administrator", async () => {
-  const asUser = draw({ role: "user" });
-  await open(asUser.view);
-  expect(asUser.view.queryByRole("link", { name: "Admin" })).toBeNull();
+test("Approvals and Admin are not rows of the menu, for anybody: they are sections of Settings", async () => {
+  const asAdmin = draw({ role: "admin", pending: 2 });
+  await open(asAdmin.view);
+  expect(asAdmin.view.queryByRole("link", { name: /Approvals/ })).toBeNull();
+  expect(asAdmin.view.queryByRole("link", { name: "Admin" })).toBeNull();
+  // Nothing is asked for on their behalf either: a menu does not poll the approvals inbox.
+  expect(requests.map((request) => request.path)).not.toContain(
+    "/api/approvals",
+  );
   cleanup();
 
-  const asAdmin = draw({ role: "admin" });
-  await open(asAdmin.view);
-  expect(
-    asAdmin.view.getByRole("link", { name: "Admin" }).getAttribute("href"),
-  ).toBe("/admin");
+  const asUser = draw({ role: "user" });
+  await open(asUser.view);
+  expect(asUser.view.queryByRole("link", { name: /Approvals/ })).toBeNull();
+  expect(asUser.view.queryByRole("link", { name: "Admin" })).toBeNull();
 });
 
 test("a row navigates and closes the menu", async () => {
@@ -218,7 +211,7 @@ test("a row navigates and closes the menu", async () => {
   await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
   await view.findByText("Settings page");
   await waitFor(() =>
-    expect(view.queryByRole("link", { name: "Approvals" })).toBeNull(),
+    expect(view.queryByRole("button", { name: "Log out" })).toBeNull(),
   );
 });
 

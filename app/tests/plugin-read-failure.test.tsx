@@ -18,8 +18,8 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { type PluginsPage, pluginKeys } from "@/lib/plugins/queries";
-import { Route as AdminAppRoute } from "@/routes/_authed/admin/plugins/$key";
-import { Route as AdminToolRoute } from "@/routes/_authed/admin/plugins/$key_.tools.$tool";
+import { Route as AdminAppRoute } from "@/routes/_authed/_app/admin/plugins/$key";
+import { Route as AdminToolRoute } from "@/routes/_authed/_app/admin/plugins/$key_.tools.$tool";
 import { Route as ConnectedAccountRoute } from "@/routes/_authed/_app/settings/connected-accounts/$key";
 
 /**
@@ -125,7 +125,7 @@ type Updatable = { update: (options: unknown) => unknown };
 function renderAdmin(client: QueryClient, at: string) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
-    id: "/_authed",
+    id: "/_authed/_app",
     getParentRoute: () => rootRoute,
     component: Outlet,
   });

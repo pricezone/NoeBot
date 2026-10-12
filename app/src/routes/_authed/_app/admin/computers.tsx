@@ -39,7 +39,7 @@ import {
 } from "@/lib/computers/host-access";
 import { computerFleetQueryOptions } from "@/lib/computers/queries";
 
-export const Route = createFileRoute("/_authed/admin/computers")({
+export const Route = createFileRoute("/_authed/_app/admin/computers")({
   component: ComputersPage,
 });
 

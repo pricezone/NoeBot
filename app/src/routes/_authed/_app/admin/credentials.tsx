@@ -57,7 +57,7 @@ import {
   credentialListQueryOptions,
 } from "@/lib/credentials/queries";
 
-export const Route = createFileRoute("/_authed/admin/credentials")({
+export const Route = createFileRoute("/_authed/_app/admin/credentials")({
   component: CredentialsPage,
 });
 

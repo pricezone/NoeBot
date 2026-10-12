@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 
-export const Route = createFileRoute("/_authed/admin/")({
+export const Route = createFileRoute("/_authed/_app/admin/")({
   component: RouteComponent,
 });
 

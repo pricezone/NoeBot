@@ -70,7 +70,7 @@ import {
 } from "@/lib/enterprise/queries";
 import { queryClient } from "@/query-client";
 
-export const Route = createFileRoute("/_authed/admin/enterprise")({
+export const Route = createFileRoute("/_authed/_app/admin/enterprise")({
   component: EnterprisePage,
 });
 

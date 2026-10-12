@@ -1,10 +1,8 @@
 import {
-  IconChecks,
   IconChevronRight,
-  IconGauge,
+  IconCreditCard,
   IconLogout,
   IconSettings,
-  IconShieldLock,
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -16,7 +14,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { approvalInboxOptions } from "@/lib/approvals";
 import { signOutMutationOptions } from "@/lib/auth/mutations";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
@@ -31,9 +28,7 @@ import { cn } from "@/lib/utils";
  * to literals once the routes exist.
  */
 const USAGE_PATH: string = "/settings/usage";
-const APPROVALS_PATH: string = "/settings/approvals";
 const SETTINGS_PATH: string = "/settings";
-const ADMIN_PATH: string = "/admin";
 
 const rowClassName =
   "flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[15px] text-foreground outline-none hover:bg-muted focus-visible:bg-muted data-popup-open:bg-muted [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
@@ -97,14 +92,15 @@ function MenuLink({
 }
 
 /**
- * What the usage row says, as Grok Bot's "Weekly usage   3%  ›": the label on the left, the
- * figure on the right in muted type. A 288px menu could not hold the figure inside the label.
+ * What the usage row says, laid out as Grok Bot's "Weekly usage   3%  ›": the label on the left,
+ * the week's figure on the right in muted type. A 288px menu could not hold the figure inside
+ * the label. Named after the Settings section it opens, so the menu and the nav agree.
  *
  * No figure while it is still on its way or could not be had: the row is a doorway to the usage
  * tab either way, and a number that is not known is better left unsaid than drawn as zero.
  * Exported so the wording is pinned where it is decided.
  */
-export const USAGE_ROW_LABEL = "Weekly usage";
+export const USAGE_ROW_LABEL = "Usage & Billing";
 
 export function usageRowValue(weekCredits: number | undefined): string | null {
   return weekCredits === undefined
@@ -117,7 +113,7 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
   const usage = useQuery(usageQueryOptions());
   return (
     <MenuLink to={USAGE_PATH} onNavigate={onNavigate}>
-      <IconGauge />
+      <IconCreditCard />
       <span className="min-w-0 flex-1 truncate">{USAGE_ROW_LABEL}</span>
       {usageRowValue(usage.data?.week.credits) ? (
         <span className="shrink-0 text-muted-foreground tabular-nums">
@@ -129,37 +125,16 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
   );
 }
 
-/** The Approvals row, with how many are waiting. Mounted with the menu, so a closed menu polls nothing. */
-function ApprovalsRow({ onNavigate }: { onNavigate: () => void }) {
-  const approvals = useQuery(approvalInboxOptions());
-  const pending = (approvals.data?.requests ?? []).filter(
-    (request) => request.status === "pending",
-  ).length;
-  return (
-    <MenuLink to={APPROVALS_PATH} onNavigate={onNavigate}>
-      <IconChecks />
-      <span className="min-w-0 flex-1 truncate">Approvals</span>
-      {pending > 0 ? (
-        <span className="rounded-full bg-primary px-1.5 text-[11px] font-medium text-primary-foreground tabular-nums">
-          {pending}
-          <span className="sr-only"> pending</span>
-        </span>
-      ) : null}
-    </MenuLink>
-  );
-}
-
 /**
  * The account menu behind the sidebar's avatar.
  *
- * Grok Bot's: usage, then the places a person goes to look after their account, then the way out.
- * Rows are gated where the server gates them — usage only on a deployment the platform meters,
- * Admin only for an administrator — so a row that is here is a row that works. The pending
- * approvals count rides on the Approvals row, because an approval is the one thing in this menu
- * that is waiting on the person rather than the other way round.
+ * Grok Bot's: usage, then Settings, then the way out. Approvals and Admin are not rows here any
+ * more: both are sections of Settings, where the nav names them, and a menu that repeated them
+ * was two ways to the same place. The usage row is gated where the server gates it — only on a
+ * deployment the platform meters — so a row that is here is a row that works.
  *
- * The usage figure and the approvals count are asked for by the rows, which exist only while the
- * menu is open: the sidebar is on screen all day, and a closed menu should cost the server nothing.
+ * The usage figure is asked for by the row, which exists only while the menu is open: the
+ * sidebar is on screen all day, and a closed menu should cost the server nothing.
  *
  * Signing out forgets the remembered return location as well: the chat it named belongs to the
  * session that just ended, and the next sign-in must not close its first modal back into it.
@@ -167,7 +142,6 @@ function ApprovalsRow({ onNavigate }: { onNavigate: () => void }) {
 export function AccountMenu() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { data: currentUser } = useQuery(currentUserQueryOptions());
   const capabilities = useQuery(deploymentCapabilitiesQueryOptions());
   const signOut = useMutation(signOutMutationOptions(queryClient));
   const [open, setOpen] = useState(false);
@@ -193,18 +167,10 @@ export function AccountMenu() {
         {capabilities.data?.usage === true ? (
           <UsageRow onNavigate={close} />
         ) : null}
-        <ApprovalsRow onNavigate={close} />
         <MenuLink to={SETTINGS_PATH} onNavigate={close}>
           <IconSettings />
           <span className="min-w-0 flex-1 truncate">Settings</span>
         </MenuLink>
-        {/* Admin routes are server-guarded; hide the entry for people who cannot open them. */}
-        {currentUser?.role === "admin" ? (
-          <MenuLink to={ADMIN_PATH} onNavigate={close}>
-            <IconShieldLock />
-            <span className="min-w-0 flex-1 truncate">Admin</span>
-          </MenuLink>
-        ) : null}
         <Separator className="my-1.5" />
         <button
           type="button"

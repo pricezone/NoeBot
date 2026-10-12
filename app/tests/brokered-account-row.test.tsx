@@ -25,7 +25,7 @@ import {
 } from "@/components/plugins/brokered-account-row";
 import type { BrokerField } from "@/lib/plugins/mutations";
 import type { PluginServer, PluginsPage } from "@/lib/plugins/queries";
-import { Route as AdminAppRoute } from "@/routes/_authed/admin/plugins/$key";
+import { Route as AdminAppRoute } from "@/routes/_authed/_app/admin/plugins/$key";
 import { Route as ConnectedAccountRoute } from "@/routes/_authed/_app/settings/connected-accounts/$key";
 import { BROKERED_PROBE_OUTCOMES } from "../../server/src/plugins/store";
 
@@ -753,7 +753,7 @@ function renderAccountScreen(client: QueryClient) {
 function renderAdminScreen(client: QueryClient) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
-    id: "/_authed",
+    id: "/_authed/_app",
     getParentRoute: () => rootRoute,
     component: Outlet,
   });

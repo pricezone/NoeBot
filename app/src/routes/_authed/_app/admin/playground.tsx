@@ -30,7 +30,7 @@ import {
  * Browser-authored components are edited as drafts, previewed in the production sandbox renderer,
  * and used by conversations only after publishing.
  */
-export const Route = createFileRoute("/_authed/admin/playground")({
+export const Route = createFileRoute("/_authed/_app/admin/playground")({
   component: PlaygroundPage,
 });
 

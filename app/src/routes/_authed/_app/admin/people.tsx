@@ -30,7 +30,7 @@ import {
 import { type Person, peopleListQueryOptions } from "@/lib/people/queries";
 import { queryClient } from "@/query-client";
 
-export const Route = createFileRoute("/_authed/admin/people")({
+export const Route = createFileRoute("/_authed/_app/admin/people")({
   component: PeoplePage,
 });
 

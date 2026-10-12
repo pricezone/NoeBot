@@ -38,7 +38,7 @@ import {
  * tool per Bot do not fit on a row, and the previous screen's attempt to fit them made a page that
  * scrolled sideways.
  */
-export const Route = createFileRoute("/_authed/admin/plugins/")({
+export const Route = createFileRoute("/_authed/_app/admin/plugins/")({
   component: RouteComponent,
 });
 
