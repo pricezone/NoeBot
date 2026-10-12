@@ -20,7 +20,10 @@ import {
 } from "@/components/channels/composer";
 import type { ComposerHandle } from "@/components/channels/composer/composer";
 import { SendFailedNotice } from "@/components/channels/send-failed-notice";
-import type { AvatarScheme } from "@/components/noe-bot/pixel-art";
+import type {
+  AvatarChoice,
+  AvatarScheme,
+} from "@/components/noe-bot/pixel-art";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import { newId } from "../../lib/new-id";
 
@@ -40,6 +43,7 @@ export function ConversationView({
   restoring = false,
   placeholder,
   personScheme,
+  botAvatar,
   onSubmit,
   onStop,
   voiceCall,
@@ -99,6 +103,8 @@ export function ConversationView({
   placeholder?: string;
   /** The colour of the person's bubbles, from `personBubbleScheme`; forwarded to the transcript. */
   personScheme?: AvatarScheme;
+  /** The Bot this conversation is with, for the activity indicator under the last message. */
+  botAvatar?: AvatarChoice;
   onSubmit: (draft: ComposerDraft) => void | Promise<void>;
   /** Stop the Bot mid-answer; forwarded to turn the send button into a stop button. */
   onStop?: () => void;
@@ -462,6 +468,7 @@ export function ConversationView({
             apply({ id, type: "remove" });
           }}
           {...(personScheme ? { personScheme } : {})}
+          {...(botAvatar ? { botAvatar } : {})}
           queued={queued}
           restoring={restoring}
           {...(stopped ? { stopped } : {})}

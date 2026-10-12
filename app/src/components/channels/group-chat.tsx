@@ -3,24 +3,25 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   MessageContent,
   MessageHeader,
   Message as MessageRow,
 } from "@/components/ui/message";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import {
   addGroupMemberMutationOptions,
-  type GroupPerson,
-  removeGroupMemberMutationOptions,
   type GroupMessage,
+  type GroupPerson,
   groupQueryOptions,
+  removeGroupMemberMutationOptions,
   sendGroupMessageMutationOptions,
 } from "@/lib/groups";
 import { markdownComponents } from "@/lib/markdown";
 import { newId } from "@/lib/new-id";
+import { ChatActivityIndicator } from "./activity-indicator";
 import { ChannelAvatar } from "./avatar";
 import { BotBubble, GROUP_PERSON_SCHEME, PersonBubble } from "./bubbles";
 import { Composer, toAgentOptions } from "./composer";
@@ -180,12 +181,15 @@ function GroupLine({
         </MessageHeader>
         {(message.status === "running" || message.status === "queued") &&
         !message.text ? (
-          <p
-            className="tool-line-running text-sm text-muted-foreground"
-            role="status"
-          >
-            Thinking
-          </p>
+          // Queued, the Bot listens; running, it thinks — the design's faces for each.
+          <ChatActivityIndicator
+            animation={
+              message.status === "queued" ? "face:attentive" : "face:curious"
+            }
+            label="Thinking"
+            phase="thinking"
+            size={48}
+          />
         ) : message.status === "waiting" ? (
           <p className="text-sm text-muted-foreground">
             {message.reason ?? "Waiting for your response."}{" "}

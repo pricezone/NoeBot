@@ -22,7 +22,11 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
-import type { AvatarScheme } from "@/components/noe-bot/pixel-art";
+import { useAvatarDirector } from "@/components/noe-bot/anim/use-avatar-director";
+import type {
+  AvatarChoice,
+  AvatarScheme,
+} from "@/components/noe-bot/pixel-art";
 import {
   Dialog,
   DialogClose,
@@ -48,8 +52,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
 import { readFiring } from "@/lib/channels/routine-firing";
-import { splitChatOrigin } from "./chat-origin";
-import { DateSeparator, daySeparators, messageSentAt } from "./date-separator";
 import { markdownComponents } from "@/lib/markdown";
 import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { readToolName } from "@/lib/plugins/tool-name";
@@ -57,6 +59,7 @@ import { asText, forDisplay, REFUSAL_MARKER } from "@/lib/plugins/tool-result";
 import { readTeamBotConsent } from "@/lib/team-bots";
 import { cn } from "@/lib/utils";
 import { VOICE_CHAT_ACTIVITY, type VoiceChatEntry } from "@/lib/voice/archive";
+import { ChatActivityIndicator } from "./activity-indicator";
 import {
   BrowserActivity,
   groupBrowserSteps,
@@ -68,7 +71,9 @@ import {
   type SentAttachment,
   toVisibleChatItems,
 } from "./chat-messages";
+import { splitChatOrigin } from "./chat-origin";
 import type { QueuedMessage } from "./composer";
+import { DateSeparator, daySeparators, messageSentAt } from "./date-separator";
 import { TeamBotConsentCard } from "./team-bot-consent";
 import { ToolRenderBoundary } from "./tool-boundary";
 import { ToolLine } from "./tool-line";
@@ -102,6 +107,8 @@ type ChatTranscriptProps = {
    * be told, and only the thing that ended the turn knows which one happened.
    */
   stopped?: string;
+  /** The Bot whose reply is being prepared, drawn small beside the activity indicator. */
+  botAvatar?: AvatarChoice;
 };
 
 /** One shared empty array, so a screen without a queue does not hand down a new one per render. */
@@ -165,29 +172,14 @@ function RestoringTranscript() {
   );
 }
 
-/**
- * The Bot has the turn and has produced nothing yet.
- *
- * THE GAP THIS FILLS IS THE WORST ONE IN THE CONVERSATION. Between pressing send and the first token
- * there was `aria-busy` and nothing else: announced to a screen reader, invisible to everybody else.
- * A person who has just asked something watches their own message sit there, and a Bot that is
- * thinking is indistinguishable from a Bot that failed silently — which this app has shipped before.
- *
- * It borrows the shimmer a running tool line uses, so "working on it" reads the same whether the
- * work is a tool call or a model that has not spoken yet.
+/*
+ * THE GAP UNDER A SENT MESSAGE IS THE WORST ONE IN THE CONVERSATION. Between pressing send and the
+ * first token there was `aria-busy` and nothing else: announced to a screen reader, invisible to
+ * everybody else. A person who has just asked something watches their own message sit there, and a
+ * Bot that is thinking is indistinguishable from a Bot that failed silently — which this app has
+ * shipped before. `ChatActivityIndicator` fills it, and stays for the whole turn: the character
+ * does what the Bot does, and the label says it.
  */
-function Thinking() {
-  return (
-    <p
-      className="tool-line-running text-muted-foreground text-sm"
-      // `status` rather than `alert`: this is progress, not something that interrupts what somebody
-      // is doing. The text says it, so a screen reader is told the same thing the shimmer implies.
-      role="status"
-    >
-      Thinking
-    </p>
-  );
-}
 
 /**
  * The turn ended and no answer came.
@@ -1527,6 +1519,7 @@ export function ChatTranscript({
   queued = EMPTY_QUEUE,
   restoring = false,
   stopped,
+  botAvatar,
 }: ChatTranscriptProps) {
   /*
    * NOT MEMOISED, AND THAT IS DELIBERATE. `useMemo` keyed on `messages` looks obviously right and
@@ -1565,6 +1558,35 @@ export function ChatTranscript({
        * starts on an empty conversation and the person watches the empty space for it.
        */
       (lastItem === undefined && !restoring));
+
+  /*
+   * WHAT THE BOT IS DOING, for the character under the last message (`ChatActivityIndicator`).
+   * Read off the same items the rows are drawn from: a tool call with no result yet is the tool in
+   * flight, a browser group at the end is the Bot browsing, assistant text at the end is the reply
+   * streaming, and the person's last words are what it was asked. The director turns those into
+   * the animation and the label; while history is still being restored there is nothing to show.
+   */
+  let lastUserText: string | null = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.kind === "text" && item.role === "user") {
+      lastUserText = item.text;
+      break;
+    }
+  }
+  const director = useAvatarDirector({
+    busy: busy && !restoring,
+    waitingOnFirstToken,
+    runningTool:
+      busy && lastItem?.kind === "tool" && lastItem.result === undefined
+        ? lastItem.toolCall.function.name
+        : null,
+    browsing: busy && lastItem?.kind === "browser",
+    streaming:
+      busy && lastItem?.kind === "text" && lastItem.role === "assistant",
+    pendingText: lastUserText,
+    stopped: stopped ?? null,
+  });
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const newestUserMessageId =
@@ -1690,11 +1712,15 @@ export function ChatTranscript({
              * position, which is the library's to change and is worth asking for.
              */}
             <div className="contents [&>*]:order-1">
-              {stopped ? (
-                <Stopped reason={stopped} />
-              ) : waitingOnFirstToken ? (
-                <Thinking />
+              {director.visible ? (
+                <ChatActivityIndicator
+                  animation={director.animation}
+                  avatar={botAvatar}
+                  label={director.label}
+                  phase={director.phase}
+                />
               ) : null}
+              {stopped ? <Stopped reason={stopped} /> : null}
               {queued.map((message) => (
                 <Queued
                   attachments={message.attachments}

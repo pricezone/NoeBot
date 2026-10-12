@@ -6,7 +6,6 @@ import {
   useAgent,
   useCopilotKit,
 } from "@copilotkit/react-core/v2";
-import { observeApprovalAgent } from "@/lib/copilot/approval-context";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   useCallback,
@@ -15,17 +14,17 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { personBubbleScheme } from "@/components/channels/bubbles";
 import { attachmentModality } from "@/components/channels/chat-messages";
 import { toAgentOptions } from "@/components/channels/composer";
 import { ConversationView } from "@/components/channels/conversation-view";
-import { VoiceCallWidget } from "@/components/channels/voice-call-widget";
 import {
   seedMessage,
   takeFirstMessage,
   transcriptMessages,
 } from "@/components/channels/transcript-messages";
+import { VoiceCallWidget } from "@/components/channels/voice-call-widget";
+import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
   answerQuestionsInConversation,
@@ -43,6 +42,7 @@ import {
   channelKeys,
 } from "@/lib/channels/queries";
 import { useActiveBot } from "@/lib/copilot/active-bot";
+import { observeApprovalAgent } from "@/lib/copilot/approval-context";
 import { ConversationProvider } from "@/lib/copilot/conversation";
 import { afterMs, joinWithin } from "@/lib/copilot/join-thread";
 import {
@@ -60,14 +60,14 @@ import {
   voiceContext,
   withVoiceContext,
 } from "@/lib/voice/agent-bridge";
-import { useVoiceCall } from "@/lib/voice/use-voice-call";
 import {
-  loadVoiceArchive,
   cachedVoiceArchive,
+  loadVoiceArchive,
   useVoiceArchive,
   voiceArchiveContext,
   withVoiceChats,
 } from "@/lib/voice/archive";
+import { useVoiceCall } from "@/lib/voice/use-voice-call";
 import { queryClient } from "@/query-client";
 import { newId } from "../../lib/new-id";
 
@@ -1046,6 +1046,11 @@ export function ChannelChat({
             agents={toAgentOptions(agentProfiles, channel.agentIds)}
             channelId={channel.id}
             personScheme={personScheme}
+            botAvatar={{
+              seed: conversationBot?.avatarSeed ?? runtimeAgentId,
+              color: conversationBot?.avatarColor,
+              expression: conversationBot?.avatarExpression,
+            }}
             /*
              * THE TURN, not the run. `say` waits for the runtime agent and the join before a run starts,
              * and `agent.isRunning` alone leaves that gap unmarked — which is the one moment the
