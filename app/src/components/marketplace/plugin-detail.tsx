@@ -8,8 +8,13 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type * as React from "react";
 import { useEffect, useState } from "react";
+import {
+  countOf,
+  Fact,
+  Group,
+  Row,
+} from "@/components/marketplace/detail-parts";
 import { PluginAction } from "@/components/marketplace/plugin-action";
 import { VariablesDialog } from "@/components/marketplace/variables-dialog";
 import {
@@ -296,73 +301,6 @@ export function PluginDetail({
       ) : null}
     </div>
   );
-}
-
-/** "Apps 1" over a card of rows; nothing at all when there are none. */
-function Group({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: number;
-  children: React.ReactNode;
-}) {
-  if (count === 0) return null;
-  return (
-    <section aria-label={title} className="mt-8">
-      <h2 className="mb-3 text-[15px] font-medium">
-        {title}{" "}
-        <span className="font-normal text-muted-foreground">{count}</span>
-      </h2>
-      <div className="flex flex-col divide-y divide-border/60 rounded-2xl bg-muted/40 px-5">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function Row({
-  mark,
-  title,
-  summary,
-}: {
-  mark: React.ReactNode;
-  title: string;
-  summary: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 py-3">
-      <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-5">
-        {mark}
-      </span>
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate text-[15px] font-medium">{title}</span>
-        <span className="line-clamp-2 text-sm text-muted-foreground">
-          {summary}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-function Fact({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-6 border-b border-border/60 py-3 last:border-b-0">
-      <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd className="text-right text-sm">{children}</dd>
-    </div>
-  );
-}
-
-function countOf(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function accessSentence(

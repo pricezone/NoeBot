@@ -10,6 +10,7 @@ import {
   type SetMarketplaceSearch,
 } from "@/components/marketplace/search";
 import { SkillsTab } from "@/components/marketplace/skills-tab";
+import { TemplateDetail } from "@/components/templates/template-detail";
 import {
   InputGroup,
   InputGroupAddon,
@@ -84,6 +85,33 @@ export default function Marketplace({
                 : { category: search.category }),
             })
           }
+        />
+      </div>
+    );
+  }
+
+  /*
+   * A Bot template's page takes the body the same way. The Bot dialogs still stack over the tab
+   * (`?new`, `?agent=`), and either of those being open is the more recent intent, so the page
+   * waits for them; Add lands on the new Bot's own dialog, which clears `template` on the way.
+   */
+  if (
+    tab === "agents" &&
+    search.template !== undefined &&
+    search.new !== true &&
+    search.agent === undefined
+  ) {
+    const list = {
+      tab: "agents" as const,
+      q: search.q,
+      ...(search.category === undefined ? {} : { category: search.category }),
+    };
+    return (
+      <div className="flex flex-1 flex-col px-5 py-5 md:px-10 md:py-6">
+        <TemplateDetail
+          id={search.template}
+          onAdded={(agentId) => onSearchChange({ ...list, agent: agentId })}
+          onBack={() => onSearchChange(list)}
         />
       </div>
     );

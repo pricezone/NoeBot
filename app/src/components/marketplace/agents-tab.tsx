@@ -4,7 +4,6 @@ import type {
   MarketplaceSearch,
   SetMarketplaceSearch,
 } from "@/components/marketplace/search";
-import { TemplateDialog } from "@/components/templates/template-dialog";
 import { TemplateMarket } from "@/components/templates/template-market";
 
 /**
@@ -13,7 +12,8 @@ import { TemplateMarket } from "@/components/templates/template-market";
  * Every dialog stacks over the Marketplace's own dialog. Base UI draws no backdrop for a nested
  * dialog unless asked, so the modal underneath stays readable rather than going dark twice; the
  * dialog on top is still the one with focus and Escape closes it first. Which one is open is the
- * Marketplace's search (`?new`, `?agent=id`, `?template=id`), so Back closes it.
+ * Marketplace's search (`?new`, `?agent=id`), so Back closes it. A template (`?template=id`) is
+ * not a dialog: its page takes the Marketplace's body, as a plugin's does — see marketplace.tsx.
  */
 export function AgentsTab({
   search,
@@ -25,8 +25,6 @@ export function AgentsTab({
   // Creating wins if both are somehow set: it is the more recent intent.
   const showCreate = search.new === true;
   const showProfile = !showCreate && search.agent !== undefined;
-  const showTemplate =
-    !showCreate && !showProfile && search.template !== undefined;
   const base = {
     tab: "agents" as const,
     q: search.q,
@@ -46,12 +44,6 @@ export function AgentsTab({
         agentId={search.agent ?? null}
         onClose={close}
         open={showProfile}
-      />
-      <TemplateDialog
-        onAdded={(agentId) => onSearchChange({ ...base, agent: agentId })}
-        onClose={close}
-        open={showTemplate}
-        templateId={search.template ?? null}
       />
     </>
   );

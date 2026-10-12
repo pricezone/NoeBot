@@ -489,6 +489,53 @@ beforeEach(() => {
         return json({ created: true });
       }
       if (path === "/api/agents") return json({ agents: [] });
+      // The Agents tab's templates: one, in two categories, with a skill, a routine and two apps.
+      if (path === "/api/bot-templates") {
+        return json({
+          templates: [
+            {
+              id: "research-desk",
+              name: "Research Desk",
+              title: "Research Desk",
+              creator: "Noë Bot Team",
+              categories: ["From Noë Bot Team", "Operations"],
+              summary: "Briefs you can act on.",
+              description: "Answers a question by reading around it.",
+              instructions: "Read, then write a brief.",
+              avatar: { color: "#ff2056", expression: "happy" },
+              skills: ["research-brief"],
+              apps: [
+                {
+                  key: "parallel",
+                  title: "Parallel",
+                  logoUrl: null,
+                  installed: true,
+                  kind: "catalogue",
+                },
+                {
+                  key: "404",
+                  title: "Notion",
+                  logoUrl: null,
+                  installed: false,
+                  kind: "plugin",
+                },
+              ],
+              routines: [
+                { name: "Morning brief", summary: "Every weekday at eight." },
+              ],
+              featured: true,
+            },
+          ],
+        });
+      }
+      const addMatch = path.match(/^\/api\/bot-templates\/([^/]+)\/add$/);
+      if (method === "POST" && addMatch) {
+        const id = decodeURIComponent(addMatch[1] ?? "");
+        return json(
+          { agent: { id: `from-${id}`, name: "Research Desk", mine: true } },
+          201,
+        );
+      }
       return new Response(null, { status: 404 });
     },
     { preconnect: originalFetch.preconnect },
@@ -1007,4 +1054,93 @@ test("a refused Add is said in the server's words, and the row keeps its button"
       name: "Add Ahrefs",
     }),
   ).toBeTruthy();
+});
+
+test("a template row opens the template's own page in place of the list, and Back keeps the search", async () => {
+  const { view, router } = renderMarketplace(
+    "/marketplace?tab=agents&category=Operations",
+  );
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  const row = await view.findByTestId("template-research-desk");
+  await user.click(
+    within(row).getByRole("button", { name: "About Research Desk" }),
+  );
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      tab: "agents",
+      template: "research-desk",
+      category: "Operations",
+    });
+  });
+
+  expect(
+    await view.findByRole("heading", { name: "Research Desk" }),
+  ).toBeTruthy();
+  // The list, its search and its tabs are gone: the page takes the body, as a plugin's does.
+  expect(view.queryByRole("tab", { name: "Agents" })).toBeNull();
+  expect(view.queryByRole("dialog", { name: "Research Desk" })).toBeNull();
+  expect(view.getByText("By Noë Bot Team")).toBeTruthy();
+  expect(
+    view.getByText("Answers a question by reading around it."),
+  ).toBeTruthy();
+  const instructions = view.getByRole("region", { name: "Instructions" });
+  expect(
+    within(instructions).getByText("Read, then write a brief."),
+  ).toBeTruthy();
+  const skills = view.getByRole("region", { name: "Skills" });
+  expect(within(skills).getByText("/research-brief")).toBeTruthy();
+  const routines = view.getByRole("region", { name: "Routines" });
+  expect(within(routines).getByText("Morning brief")).toBeTruthy();
+  expect(within(routines).getByText("Every weekday at eight.")).toBeTruthy();
+  const apps = view.getByRole("region", { name: "Apps" });
+  expect(within(apps).getByText("Parallel")).toBeTruthy();
+  expect(within(apps).getByText("Here")).toBeTruthy();
+  expect(within(apps).getByText("Notion")).toBeTruthy();
+  expect(
+    within(apps)
+      .getByRole("link", { name: "Add from Apps" })
+      .getAttribute("href"),
+  ).toBe("/marketplace?tab=apps&q=Notion");
+  const facts = view.getByRole("region", { name: "Information" });
+  expect(within(facts).getByText("1 skill, 1 routine, 2 apps")).toBeTruthy();
+  expect(within(facts).getByText("Noë Bot Team")).toBeTruthy();
+  expect(within(facts).getByText("From Noë Bot Team, Operations")).toBeTruthy();
+
+  await user.click(view.getByRole("button", { name: "Back to agents" }));
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({
+      tab: "agents",
+      category: "Operations",
+    });
+  });
+  expect(await view.findByTestId("template-research-desk")).toBeTruthy();
+});
+
+test("the template page's Share copies its address, and Add Bot makes the Bot and opens it", async () => {
+  const { view, router } = renderMarketplace(
+    "/marketplace?tab=agents&template=research-desk",
+  );
+  // `userEvent.setup` installs its own clipboard on the window, which is the one read back below.
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await view.findByRole("heading", { name: "Research Desk" });
+
+  await user.click(view.getByRole("button", { name: "Share" }));
+  await waitFor(() => {
+    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+  expect(await window.navigator.clipboard.readText()).toBe(
+    "http://localhost/marketplace?tab=agents&template=research-desk",
+  );
+
+  await user.click(view.getByRole("button", { name: "Add Bot" }));
+  await waitFor(() => {
+    expect(writes).toContain("POST /api/bot-templates/research-desk/add");
+  });
+  // The page gives way to the new Bot's own dialog over the tab: `template` is gone from the address.
+  await waitFor(() => {
+    expect(router.state.location.search).toEqual({
+      tab: "agents",
+      agent: "from-research-desk",
+    });
+  });
 });
