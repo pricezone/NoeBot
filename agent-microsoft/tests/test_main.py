@@ -216,7 +216,9 @@ def test_an_anthropic_key_uses_the_official_endpoint_when_compose_sets_a_blank_u
     client = main._client()
 
     assert isinstance(client, anthropic_clients.AnthropicClient)
-    assert seen == [{"args": (), "base_url": "https://api.anthropic.com", "model": "claude-sonnet-4-5"}]
+    # Built once at import and once here; every construction must carry the official endpoint.
+    expected = {"args": (), "base_url": "https://api.anthropic.com", "model": "claude-sonnet-4-5"}
+    assert seen and all(entry == expected for entry in seen)
 
 
 def test_an_openai_key_uses_the_official_endpoint_when_compose_sets_a_blank_url(monkeypatch):
