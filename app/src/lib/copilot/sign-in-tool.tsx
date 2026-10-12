@@ -1,5 +1,5 @@
 import { IconLock } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { ToolLine } from "@/components/channels/tool-line";
 import { SignInForm } from "@/components/passwords/sign-in-form";
@@ -46,6 +46,47 @@ function parse(result: string | undefined): Outcome {
 }
 
 /**
+ * Which request each running sign-in call opened, kept outside React.
+ *
+ * The SDK registers a frontend tool's render once, with the closure of the render that registered it:
+ * `useFrontendTool` in react-core re-registers on the tool's name and availability only. A
+ * `useState` read inside that render therefore stays at its first value, the empty map. The handler
+ * filled its copy, the card never saw it, and so the card never knew its request id and never drew
+ * "Open private sign-in", the one thing it exists for. Nobody could reach the form from the chat, and
+ * every request expired with "Nobody signed in". A store outside React, read with
+ * `useSyncExternalStore` from the card component, is something a once-registered render can still
+ * see change.
+ */
+const openedRequests = new Map<string, string>();
+const openedListeners = new Set<() => void>();
+
+function rememberOpenedRequest(toolCallId: string, requestId: string) {
+  openedRequests.set(toolCallId, requestId);
+  for (const listener of openedListeners) listener();
+}
+
+function forgetOpenedRequest(toolCallId: string) {
+  if (!openedRequests.delete(toolCallId)) return;
+  for (const listener of openedListeners) listener();
+}
+
+function subscribeToOpenedRequests(listener: () => void) {
+  openedListeners.add(listener);
+  return () => {
+    openedListeners.delete(listener);
+  };
+}
+
+/** The request a running sign-in call opened, once its handler has opened one. */
+export function useOpenedSignInRequest(toolCallId: string | undefined) {
+  return useSyncExternalStore(
+    subscribeToOpenedRequests,
+    () => (toolCallId ? openedRequests.get(toolCallId) : undefined),
+    () => undefined,
+  );
+}
+
+/**
  * The open chat's half of `computer_request_sign_in`.
  *
  * The handler opens the request and waits on it; the render draws a card whose button opens the
@@ -55,8 +96,6 @@ function parse(result: string | undefined): Outcome {
  */
 export function SignInTool() {
   const bot = useActiveBotHolder();
-  // The request the handler opened, so the render can show its form before the call finishes.
-  const [pending, setPending] = useState<Record<string, string>>({});
   // A sign-in is typed into the Bot's computer; see useComputerAvailable.
   const available = useComputerAvailable();
   useFrontendTool({
@@ -90,69 +129,74 @@ export function SignInTool() {
       );
       if (!asked.ok) return { ok: false, reason: asked.reason };
       const id = asked.request.id;
-      if (toolCall?.id) {
-        const callId = toolCall.id;
-        setPending((current) => ({ ...current, [callId]: id }));
+      // Where the card reads it from: see `openedRequests` for why not component state.
+      const callId = toolCall?.id;
+      if (callId) rememberOpenedRequest(callId, id);
+      try {
+        return await waitForSignIn(id, signal);
+      } finally {
+        if (callId) forgetOpenedRequest(callId);
       }
-      const deadline = Date.now() + WAIT_MS;
-      while (Date.now() < deadline) {
-        if (signal?.aborted)
-          return {
-            ok: false,
-            requestId: id,
-            result: "The request was stopped.",
-          };
-        const state = await readSignIn(id, signal);
-        if (state && FINAL_SIGN_IN.includes(state.status))
-          return {
-            ok: state.status === "signed_in",
-            signedIn: state.status === "signed_in",
-            site: state.origin,
-            requestId: id,
-            result:
-              state.outcome ??
-              (state.status === "signed_in"
-                ? `Signed in to ${state.origin}.`
-                : `The sign-in to ${state.origin} did not complete.`),
-            note: "You were not told the credentials and must never ask for them another way.",
-          };
-        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-      }
-      return {
-        ok: false,
-        requestId: id,
-        result: "Nobody signed in. Do not ask for the login another way.",
-      };
     },
-    render: ({ args, result, status, toolCallId }) => {
-      const outcome = parse(result);
-      const requestId =
-        outcome.requestId ?? (toolCallId ? pending[toolCallId] : undefined);
-      return (
-        <SignInCard
-          site={typeof args?.site === "string" ? args.site : ""}
-          requestId={requestId}
-          running={status !== "complete"}
-          outcome={outcome}
-        />
-      );
-    },
+    render: ({ args, result, status, toolCallId }) => (
+      <SignInCard
+        site={typeof args?.site === "string" ? args.site : ""}
+        toolCallId={toolCallId}
+        running={status !== "complete"}
+        outcome={parse(result)}
+      />
+    ),
   });
   return null;
 }
 
+/** Wait for the person to answer the request, as long as the server keeps it open. */
+async function waitForSignIn(id: string, signal?: AbortSignal) {
+  const deadline = Date.now() + WAIT_MS;
+  while (Date.now() < deadline) {
+    if (signal?.aborted)
+      return {
+        ok: false,
+        requestId: id,
+        result: "The request was stopped.",
+      };
+    const state = await readSignIn(id, signal);
+    if (state && FINAL_SIGN_IN.includes(state.status))
+      return {
+        ok: state.status === "signed_in",
+        signedIn: state.status === "signed_in",
+        site: state.origin,
+        requestId: id,
+        result:
+          state.outcome ??
+          (state.status === "signed_in"
+            ? `Signed in to ${state.origin}.`
+            : `The sign-in to ${state.origin} did not complete.`),
+        note: "You were not told the credentials and must never ask for them another way.",
+      };
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+  }
+  return {
+    ok: false,
+    requestId: id,
+    result: "Nobody signed in. Do not ask for the login another way.",
+  };
+}
+
 function SignInCard({
   site,
-  requestId,
+  toolCallId,
   running,
   outcome,
 }: {
   site: string;
-  requestId?: string;
+  toolCallId?: string;
   running: boolean;
   outcome: Outcome;
 }) {
   const [open, setOpen] = useState(false);
+  const opened = useOpenedSignInRequest(toolCallId);
+  const requestId = outcome.requestId ?? opened;
   return (
     <div className="flex flex-col gap-2">
       <ToolLine
