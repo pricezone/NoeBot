@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import type { AppVariables } from "../src/auth/guards";
-import { readConnectState } from "../src/plugins/oauth";
+import {
+  OAuthRegistrationRefusedError,
+  readConnectState,
+} from "../src/plugins/oauth";
 import { PLUGIN_INDEX, pluginIndexEntry } from "../src/plugins/plugin-index";
 import { createPluginRoutes } from "../src/plugins/routes";
 import {
@@ -117,6 +120,8 @@ function harness(
     skills?: SkillRecord[];
     metadata?: OAuthMetadata | null;
     discoveryFails?: boolean;
+    /** What the vendor's registration endpoint said when it turned this deployment down. */
+    registerRefuses?: string;
     installRefuses?: Error;
     variables?: {
       name: string;
@@ -171,11 +176,19 @@ function harness(
     },
     oauthAuthFor: async () => (metadata ? resolved(metadata) : null),
     oauthClientFor: async () => null,
-    ensureOAuthClient: async () => ({
-      clientId: "registered",
-      clientSecret: "",
-      source: "stored" as const,
-    }),
+    ensureOAuthClient: async () => {
+      if (input.registerRefuses) {
+        throw new OAuthRegistrationRefusedError(
+          "invalid_redirect_uri",
+          input.registerRefuses,
+        );
+      }
+      return {
+        clientId: "registered",
+        clientSecret: "",
+        source: "stored" as const,
+      };
+    },
     disconnectHeld: async (request: unknown) => {
       calls.heldDisconnects.push(request);
       return { disconnected: true, vendorRevocationRequested: false as const };
@@ -537,6 +550,21 @@ describe("connecting a plugin's server", () => {
     );
     expect(state?.serverId).toBe("ahrefs");
     expect(state?.userId).toBe("user-1");
+  });
+
+  test("a vendor that would not register this deployment says why, as a 502", async () => {
+    const { request } = harness({
+      rows: [ahrefsRow],
+      registerRefuses:
+        "The provided redirect URIs are not approved for use by this authorization server.",
+    });
+    const response = await request("/servers/ahrefs/connect", {
+      method: "POST",
+    });
+    expect(response.status).toBe(502);
+    expect((await response.json()).error).toBe(
+      "Ahrefs would not register this deployment: The provided redirect URIs are not approved for use by this authorization server. Nothing was connected.",
+    );
   });
 
   test("a vendor that publishes no sign-in is a 502 in the store's words", async () => {

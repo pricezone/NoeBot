@@ -555,16 +555,36 @@ export async function redeemAuthorizationCode(input: {
 }
 
 /**
+ * A vendor that answered the registration with a reason: RFC 7591's `error` and
+ * `error_description`. Thrown rather than folded into null, because the reason is the one thing
+ * the person pressing Connect can act on — Vercel, for one, registers only redirect URIs on its
+ * own allowlist, and "would not register this deployment" without the why sends them to a status
+ * page that will say everything is fine.
+ */
+export class OAuthRegistrationRefusedError extends Error {
+  constructor(
+    readonly code: string,
+    description: string,
+  ) {
+    super(description);
+    this.name = "OAuthRegistrationRefusedError";
+  }
+}
+
+/**
  * Register this deployment as an OAuth client, at the vendor's own registration endpoint.
  *
  * RFC 7591, the shape Notion's hosted MCP expects: a public client (`token_endpoint_auth_method:
- * "none"`) whose proof is PKCE rather than a secret. Null on refusal rather than a throw, for the
- * same reason `redeemAuthorizationCode` refuses quietly: the vendor's error body is written for a
- * developer console and can be surfaced by the caller that knows who is listening.
+ * "none"`) whose proof is PKCE rather than a secret. Null when the vendor could not be reached or
+ * answered with nothing usable, for the same reason `redeemAuthorizationCode` refuses quietly; a
+ * refusal the vendor explained is `OAuthRegistrationRefusedError`, so the explanation reaches
+ * the person who pressed Connect.
  */
 export async function registerDynamicClient(input: {
   registrationUrl: string;
   redirectUri: string;
+  /** What the vendor's consent screen calls this deployment; the product's name, "OpenBot" by default. */
+  clientName?: string;
 }): Promise<{ clientId: string; clientSecret: string } | null> {
   // The same catalogue check the redemption makes, and for the same reason: a registration endpoint
   // that is not an address is this deployment's mistake, not the vendor's outage, and only the log
@@ -594,7 +614,7 @@ export async function registerDynamicClient(input: {
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
-        client_name: "OpenBot",
+        client_name: input.clientName?.trim() || "OpenBot",
       }),
       // The registration endpoint is pinned in the catalogue, so a redirect is somebody else deciding
       // where this deployment introduces itself. Left as the response, which is not `ok`.
@@ -615,7 +635,37 @@ export async function registerDynamicClient(input: {
     );
     return null;
   }
-  if (!response.ok) return null;
+  if (!response.ok) {
+    // A 4xx with RFC 7591's error pair is the vendor explaining itself; said in the log for the
+    // administrator and thrown for the person. Anything else is the null the caller turns into
+    // "could not be reached".
+    const refusal = (await response.json().catch(() => null)) as {
+      error?: unknown;
+      error_description?: unknown;
+    } | null;
+    if (
+      response.status >= 400 &&
+      response.status < 500 &&
+      typeof refusal?.error === "string"
+    ) {
+      const description =
+        typeof refusal.error_description === "string" &&
+        refusal.error_description.trim()
+          ? refusal.error_description.trim()
+          : refusal.error;
+      console.error(
+        JSON.stringify({
+          type: "oauth-registration-refused",
+          registrationUrl: input.registrationUrl,
+          status: response.status,
+          error: refusal.error,
+          description,
+        }),
+      );
+      throw new OAuthRegistrationRefusedError(refusal.error, description);
+    }
+    return null;
+  }
   // A 200 is not a promise of JSON — see `redeemAuthorizationCode`. A body that will not parse is
   // the vendor answering with something other than a client, which is this function's null.
   const body = (await response.json().catch(() => null)) as {

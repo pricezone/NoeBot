@@ -44,6 +44,10 @@ Discovered endpoints are cached on the row for seven days and must pass the URL 
 
 Tools a plugin's server lists are classified by the vendor's own `readOnlyHint` and `destructiveHint` annotations, as Cursor classifies them; a server an administrator added by URL is still not believed about its own read-only tools. Writes go through the same approval policy as every other tool.
 
+## A vendor that will not register this deployment
+
+An OAuth server whose index entry says `discover` is reached through its own metadata (RFC 9728 and RFC 8414) and a client this deployment registers at the vendor (RFC 7591) with its callback as the redirect URI, under the product's name. Some vendors register only redirect URIs on their own allowlist — Vercel's MCP (`mcp.vercel.com`) answers `invalid_redirect_uri: The provided redirect URIs are not approved for use by this authorization server` to anybody but the clients it knows. Connect then answers 502 with the vendor's sentence, and the log carries `oauth-registration-refused`; there is nothing to configure on this side. Linear, Sentry and the others that register anybody go straight to their consent screen.
+
 ## Removing
 
 A plugin's servers and skills leave only with the plugin: the person who installed it, or an administrator, removes it from the connected-accounts page, which ends every account connected to its servers and takes the skills with it. An administrator can still narrow what a plugin's servers and skills reach from the Plugins screens (*Offered to every Bot*), as for any other app.

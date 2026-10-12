@@ -202,7 +202,7 @@ import { useRoutineTools } from "./plugins/builtin-routines";
 import { useComposioClient } from "./plugins/composio";
 import { createComposioClient } from "./plugins/composio-adapter";
 import { backfillComposioLogos } from "./plugins/logos";
-import { redirectUriFor } from "./plugins/oauth";
+import { redirectUriFor, registerDynamicClient } from "./plugins/oauth";
 import { createPluginStore } from "./plugins/store";
 import {
   grantedSkills,
@@ -748,6 +748,16 @@ const pluginStore = createPluginStore({
    * registering.
    */
   redirectUri: config.publicUrl ? redirectUriFor(config.publicUrl) : undefined,
+  /*
+   * The name a vendor's consent screen shows for this deployment: the product's own. The default
+   * registers as "OpenBot", which is the framework and not what a person recognises when a vendor
+   * asks them whether to let it in.
+   */
+  registerClient: (input) =>
+    registerDynamicClient({
+      ...input,
+      clientName: tenantPackage.productName,
+    }),
   /*
    * OAuth clients the platform running this deployment configured, one per catalogue key. Each
    * wins over anything the vault holds for that server; see the option's own comment. Empty on a

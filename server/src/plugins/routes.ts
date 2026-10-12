@@ -25,6 +25,7 @@ import {
   challengeFor,
   connectedAccountsUrlFor,
   createVerifier,
+  OAuthRegistrationRefusedError,
   readConnectState,
   redeemAuthorizationCode,
   redirectUriFor,
@@ -2071,11 +2072,25 @@ export function createPluginRoutes(
      * registers is guaranteed to exist. A manual entry with nothing in either place still waits
      * for an administrator, and says so below.
      */
-    const client: OAuthClient | null =
-      (await store.oauthClientFor(serverId)) ??
-      (resolvedAuth.clientRegistration === "dynamic"
-        ? await store.ensureOAuthClient(serverId, actorEmail(context))
-        : null);
+    let client: OAuthClient | null;
+    try {
+      client =
+        (await store.oauthClientFor(serverId)) ??
+        (resolvedAuth.clientRegistration === "dynamic"
+          ? await store.ensureOAuthClient(serverId, actorEmail(context))
+          : null);
+    } catch (error) {
+      // The vendor said why it would not register this deployment; that is the person's answer.
+      if (error instanceof OAuthRegistrationRefusedError) {
+        return context.json(
+          {
+            error: `${resolvedAuth.title} would not register this deployment: ${error.message} Nothing was connected.`,
+          },
+          502,
+        );
+      }
+      throw error;
+    }
     if (!client) {
       if (resolvedAuth.clientRegistration === "dynamic") {
         return context.json(
