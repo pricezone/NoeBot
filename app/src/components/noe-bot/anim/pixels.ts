@@ -26,7 +26,7 @@ const F = (
 
 /** Half-block rows to pixels: each text row is two pixel rows. */
 export const toPixels = (rows: readonly string[]): number[] => {
-  const px: number[] = new Array(CELLS).fill(0);
+  const px: number[] = Array.from({ length: CELLS }, () => 0);
   rows.forEach((row, r) => {
     for (let c = 0; c < COLS; c++) {
       const ch = row[c] ?? " ";

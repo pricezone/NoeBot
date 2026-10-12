@@ -508,7 +508,7 @@ export const EXPRS: Record<string, Expr> = {
         "............",
         "............",
       ]);
-      const px: number[] = new Array(168).fill(0);
+      const px: number[] = Array.from({ length: 168 }, () => 0);
       for (let r = 0; r < 12; r++)
         for (let c = 0; c < COLS; c++)
           if (base[r * COLS + c] && r + L <= 11) px[(r + L) * COLS + c] = 1;

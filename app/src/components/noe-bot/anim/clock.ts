@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * One clock for every sprite on the page.
@@ -68,13 +68,11 @@ export function useAnimationTime(
   fps: number | null,
   startedAt: number,
 ): number {
-  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const [time, setTime] = useState(0);
   const frame = useRef(-1);
-  const time = useRef(0);
   useEffect(() => {
     if (!active) {
       frame.current = -1;
-      time.current = 0;
       return undefined;
     }
     return subscribeClock((now) => {
@@ -82,9 +80,8 @@ export function useAnimationTime(
       const key = Math.floor(t * (fps ?? 120));
       if (key === frame.current) return;
       frame.current = key;
-      time.current = t;
-      rerender();
+      setTime(t);
     });
   }, [active, fps, startedAt]);
-  return active ? time.current : 0;
+  return active ? time : 0;
 }

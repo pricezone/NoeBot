@@ -117,7 +117,9 @@ export function NoeBotSprite({
     reduced,
     eyeShift,
   });
-  lastFace.current = frame.face;
+  useEffect(() => {
+    lastFace.current = frame.face;
+  }, [frame.face]);
 
   const paths = toPaths(frame.cells, palette);
   const rotating = Math.abs(frame.rot) > 0.01;
