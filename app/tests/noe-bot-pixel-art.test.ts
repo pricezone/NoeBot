@@ -11,24 +11,46 @@ import {
   pathFor,
   schemeFor,
 } from "@/components/noe-bot/pixel-art";
+import { ALL_FACES } from "@/components/noe-bot/anim/exprs";
 import {
   AVATAR_COLORS,
   AVATAR_EXPRESSIONS,
   isAvatarColor,
   isAvatarExpression,
+  SEED_EXPRESSIONS,
 } from "../../shared/avatar";
 
 describe("the brand guide's half-block drawings", () => {
   test("every face is 14 by 12 pixels: the 16 grid, and only the 16 grid", () => {
-    for (const drawing of [
-      GRID_16.body,
-      GRID_16.offline,
-      ...Object.values(GRID_16.expressions),
-    ]) {
+    for (const drawing of [GRID_16.body, ...Object.values(GRID_16.expressions)]) {
       const grid = decodeHalfBlocks(drawing);
       expect([grid.width, grid.height]).toEqual([14, 12]);
     }
-    expect(Object.keys(GRID_16.expressions)).toHaveLength(15);
+    // The brand sheet's eighteen, by its own numbers: 00 original … 17 injured.
+    expect(Object.keys(GRID_16.expressions)).toEqual([
+      "original",
+      "neutral",
+      "attentive",
+      "surprised",
+      "excited",
+      "happy",
+      "laughing",
+      "angry",
+      "sad",
+      "scared",
+      "suspicious",
+      "confused",
+      "curious",
+      "proud",
+      "shy",
+      "unimpressed",
+      "sleepy",
+      "injured",
+    ]);
+    // The mascot's own body is the sheet's "01 Neutral" drawing.
+    expect([...GRID_16.expressions.neutral].map((r) => r.trimEnd())).toEqual(
+      GRID_16.body.map((r) => r.trimEnd()),
+    );
   });
 
   test("the mascot's capsule eyes are negative space in columns 5 and 8, rows 4 to 7", () => {
@@ -81,6 +103,9 @@ describe("the brand guide's half-block drawings", () => {
     expect(facePath("offline").path).not.toBe(facePath("body").path);
     expect(facePath("body").width).toBe(14);
     expect(facePath("body").height).toBe(12);
+    // The still of a newer face is drawn from the same pixels the animation uses.
+    expect(facePath("monocle").path).not.toBe(facePath("neutral").path);
+    expect(facePath("in-love").width).toBe(14);
   });
 });
 
@@ -108,12 +133,34 @@ describe("what a seed chooses", () => {
 });
 
 describe("what a person may choose", () => {
-  test("the expressions the server accepts are exactly the ones drawn, in the guide's order", () => {
+  test("the expressions the server accepts are exactly the ones the design draws, in its order", () => {
+    expect(AVATAR_EXPRESSIONS.join(",")).toBe(ALL_FACES.join(","));
+    expect(AVATAR_EXPRESSIONS).toHaveLength(55);
+    for (const face of AVATAR_EXPRESSIONS) expect(facePath(face).width).toBe(14);
+  });
+
+  test("a seed still picks from the same fifteen names, in the same order", () => {
     // The order matters as much as the set: a Bot nobody chose for wears the face its seed hashes
-    // to by index, so a reordered list would quietly change every such Bot's face.
-    expect(Object.keys(GRID_16.expressions)).toEqual([...AVATAR_EXPRESSIONS]);
-    expect(EXPRESSIONS).toEqual([...AVATAR_EXPRESSIONS]);
-    expect(AVATAR_EXPRESSIONS).toHaveLength(15);
+    // to by index, so a reordered or longer list would quietly change every such Bot's face.
+    expect(EXPRESSIONS).toEqual([...SEED_EXPRESSIONS]);
+    expect([...SEED_EXPRESSIONS]).toEqual([
+      "neutral",
+      "attentive",
+      "surprised",
+      "excited",
+      "happy",
+      "laughing",
+      "angry",
+      "sad",
+      "scared",
+      "suspicious",
+      "confused",
+      "curious",
+      "proud",
+      "shy",
+      "unimpressed",
+    ]);
+    for (const face of SEED_EXPRESSIONS) expect(isAvatarExpression(face)).toBe(true);
   });
 
   test("the palette is the guide's three plus five, each with white or black ink", () => {

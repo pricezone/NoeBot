@@ -3,10 +3,10 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import * as React from "react";
 import useMeasure from "react-use-measure";
-import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { Composer } from "@/components/channels/composer";
 import { DesktopIllustration } from "@/components/computer/desktop-illustration";
 import { ComputerPlaceholder } from "@/components/computer/placeholder";
+import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { Button } from "@/components/ui/button";
 import { type AgentProfile, agentListQueryOptions } from "@/lib/agents/queries";
 import { currentUserQueryOptions, needsOnboarding } from "@/lib/auth/queries";
@@ -37,14 +37,16 @@ export function WelcomeStep() {
       {/*
        * The mascot itself — its own capsule eyes on the brand rose — rather than one Bot's face:
        * the screen is about the product, and every Bot's avatar is this same drawing in a colour
-       * and an expression of its own. Still, as the guide asks of it when nothing is running.
+       * and an expression of its own. It boots: the rows scan in, then it settles and blinks.
        */}
       <NoeBotAvatar
+        animation="boot"
         color="#ff2056"
         face="body"
         name={appConfig.brand.productName}
         seed="noe-bot"
         size={96}
+        then="face:neutral"
       />
       {/*
        * A POSTER OF A COMPOSER, AND `pointer-events-none` IS WHAT MAKES IT ONE. Nothing here is

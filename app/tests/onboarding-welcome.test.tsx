@@ -36,8 +36,8 @@ test("the mascot avatar sits under the welcome heading", async () => {
   const avatar = await view.findByRole("img", {
     name: appConfig.brand.productName,
   });
-  // The mascot's own eyes, on the brand rose, below the heading.
-  expect(avatar.querySelector('svg[data-face="body"]')).not.toBeNull();
+  // The mascot boots in on the brand rose, below the heading, and settles to its own face.
+  expect(avatar.querySelector('svg[data-animation="boot"]')).not.toBeNull();
   expect((avatar as HTMLElement).style.backgroundColor).not.toBe("");
   expect(
     heading.compareDocumentPosition(avatar) & Node.DOCUMENT_POSITION_FOLLOWING,

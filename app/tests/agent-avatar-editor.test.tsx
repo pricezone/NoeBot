@@ -19,7 +19,8 @@ import type {
 import { createAgentRoutes } from "../../server/src/agents/routes";
 
 /**
- * Choosing a Bot's avatar in its dialog: Profile, a swatch or a face, and it is saved.
+ * Choosing a Bot's avatar in its dialog: Profile, a click on the avatar, a swatch or a face, and
+ * it is saved.
  *
  * The routes are the server's own, mounted behind `fetch` the way `agent-dialog-built-in-edit`
  * mounts them, so what a click sends is checked by the real parser and who may send it by the real
@@ -125,6 +126,14 @@ async function openProfile() {
   return { view, user };
 }
 
+/** The dialog on Profile with the chooser open: the avatar is the button that opens it. */
+async function openChooser() {
+  const { view, user } = await openProfile();
+  await user.click(await view.findByRole("button", { name: "Edit avatar" }));
+  await view.findByRole("group", { name: "Expression" });
+  return { view, user };
+}
+
 /** The large preview, which is the avatar announced as the Bot's. */
 function preview(view: ReturnType<typeof render>) {
   const avatar = view.getByRole("img", { name: "Expenses's avatar" });
@@ -136,7 +145,7 @@ function preview(view: ReturnType<typeof render>) {
 
 test("a colour is saved on the click, and the avatar takes it", async () => {
   serve();
-  const { view, user } = await openProfile();
+  const { view, user } = await openChooser();
 
   const blue = await view.findByRole("button", { name: "Blue" });
   expect(blue.getAttribute("aria-pressed")).toBe("false");
@@ -151,11 +160,21 @@ test("a colour is saved on the click, and the avatar takes it", async () => {
 
 test("an expression is saved on the click, and only the expression", async () => {
   serve({ avatarColor: "#16a34a" });
-  const { view, user } = await openProfile();
+  const { view, user } = await openChooser();
 
-  // Fifteen faces, each a labelled button.
+  // Every face the design draws, each a labelled button, in the design's six groups.
   const faces = view.getByRole("group", { name: "Expression" });
-  expect(faces.querySelectorAll("button")).toHaveLength(15);
+  expect(faces.querySelectorAll("button")).toHaveLength(55);
+  for (const group of [
+    "Original",
+    "Affection",
+    "Playful",
+    "Unwell",
+    "Distress",
+    "Relief",
+  ]) {
+    expect(faces.textContent).toContain(group);
+  }
   await user.click(view.getByRole("button", { name: "Happy" }));
 
   await waitFor(() => expect(choices).toEqual([{ avatarExpression: "happy" }]));
@@ -166,7 +185,7 @@ test("an expression is saved on the click, and only the expression", async () =>
 
 test("Reset hands both halves back to the seed", async () => {
   serve({ avatarColor: "#7c3aed", avatarExpression: "shy" });
-  const { view, user } = await openProfile();
+  const { view, user } = await openChooser();
 
   await user.click(await view.findByRole("button", { name: "Reset" }));
 
@@ -175,7 +194,10 @@ test("Reset hands both halves back to the seed", async () => {
   );
   // With nothing chosen there is nothing to reset.
   await waitFor(() =>
-    expect(view.queryByRole("button", { name: "Reset" })).toBeNull(),
+    expect(
+      (view.getByRole("button", { name: "Reset" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true),
   );
 });
 
@@ -187,6 +209,7 @@ test("somebody who may not change it is shown the avatar and why, and no swatche
     "Only its owner or an administrator can change how it looks.",
   );
   expect(view.getByRole("img", { name: "Expenses's avatar" })).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Edit avatar" })).toBeNull();
   expect(view.queryByRole("button", { name: "Blue" })).toBeNull();
   expect(view.queryByRole("group", { name: "Expression" })).toBeNull();
 });
@@ -198,7 +221,7 @@ test("an administrator may restyle a Bot the deployment ships, which nobody may 
     systemOwned: true,
     visibility: "public",
   });
-  const { view, user } = await openProfile();
+  const { view, user } = await openChooser();
 
   await user.click(await view.findByRole("button", { name: "Teal" }));
 

@@ -10,12 +10,14 @@
  * ONLY THE 16 GRID. The guide also draws a 24 grid for banners; the app does not use it, at any
  * size, so that Noë Bot is one drawing everywhere it appears.
  *
- * Transcribed from the guide's `terminal/noe-bot-16.txt` and `noe-bot-16-{name}.txt`, verbatim,
- * as the data below. The drawing is decoded into pixels at run time and drawn as SVG
- * rectangles, which is the only way the 16 grid survives a 16-pixel slot: as text it would need a
- * three-pixel font. The guide's rule that the mascot is never redrawn or given a face by hand is
- * kept by keeping the data verbatim and the decoder dumb.
+ * The expressions are the brand sheet's eighteen (00 original … 17 injured), by the sheet's own
+ * numbers and names, from the design's animation film (`anim/pixels.ts`). The guide's rule that
+ * the mascot is never redrawn or given a face by hand is kept by keeping the data verbatim and
+ * the decoder dumb. The 35 newer faces are hole grids rather than half-block rows and live with
+ * the rest of the animation data.
  */
+
+import { FACE_ROWS } from "./anim/pixels";
 
 export type HalfBlockDrawing = readonly string[];
 
@@ -29,134 +31,24 @@ export const GRID_16 = {
     " ████████████ ",
     "  ▀██▀▀▀▀██▀  ",
   ],
-  offline: [
-    "  ▄██▄▄▄▄██▄  ",
-    " ████████████ ",
-    "▄███▀▀██▀▀███▄",
-    "▀████████████▀",
-    " ████████████ ",
-    "  ▀██▀▀▀▀██▀  ",
-  ],
   expressions: {
-    neutral: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄████▀██▀████▄",
-      "▀████▄██▄████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    attentive: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▀▀████▀▀██▄",
-      "▀██▄▄████▄▄██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    surprised: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████▀██▀████ ",
-      "▄███  ██  ███▄",
-      "▀███  ██  ███▀",
-      " ████▄██▄████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    excited: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▀▄▀██▀▄▀██▄",
-      "▀██▄█▄██▄█▄██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    happy: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄███▀████▀███▄",
-      "▀██▄█▄██▄█▄██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    laughing: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▄ ▀██▀ ▄██▄",
-      "▀████▄██▄████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    angry: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄███ ▄██▄ ███▄",
-      "▀██▄██████▄██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    sad: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄████████████▄",
-      "▀███▀████▀███▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    scared: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▀▀████▀▀██▄",
-      "▀████▄██▄████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    suspicious: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ███▀████████ ",
-      "▄███▄▀███████▄",
-      "▀████▄██▀▀███▀",
-      " █████████▄██ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    confused: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████▀▀██ ",
-      "▄███▀▄███▄▄██▄",
-      "▀████████████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    curious: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▄▀▄██▄▀▄██▄",
-      "▀████████████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    proud: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄████████████▄",
-      "▀██▀▄████▄▀██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    shy: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄██▀▀▀██▀▀▀██▄",
-      "▀████████████▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
-    unimpressed: [
-      "  ▄██▄▄▄▄██▄  ",
-      " ████████████ ",
-      "▄████████████▄",
-      "▀██▄▀▄██▄▀▄██▀",
-      " ████████████ ",
-      "  ▀██▀▀▀▀██▀  ",
-    ],
+    original: FACE_ROWS.original,
+    neutral: FACE_ROWS.neutral,
+    attentive: FACE_ROWS.attentive,
+    surprised: FACE_ROWS.surprised,
+    excited: FACE_ROWS.excited,
+    happy: FACE_ROWS.happy,
+    laughing: FACE_ROWS.laughing,
+    angry: FACE_ROWS.angry,
+    sad: FACE_ROWS.sad,
+    scared: FACE_ROWS.scared,
+    suspicious: FACE_ROWS.suspicious,
+    confused: FACE_ROWS.confused,
+    curious: FACE_ROWS.curious,
+    proud: FACE_ROWS.proud,
+    shy: FACE_ROWS.shy,
+    unimpressed: FACE_ROWS.unimpressed,
+    sleepy: FACE_ROWS.sleepy,
+    injured: FACE_ROWS.injured,
   },
 } as const;

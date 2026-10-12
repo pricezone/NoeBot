@@ -37,13 +37,14 @@ export type AvatarScheme = (typeof AVATAR_COLORS)[number];
 export type AvatarColor = AvatarScheme["background"];
 
 /**
- * The brand guide's eye-only expressions, in the guide's order.
+ * Every face a Bot may wear: the design's catalogue, in its order.
  *
- * The order is load-bearing: a Bot with no expression chosen wears the one its seed hashes to by
- * index, so reordering this list would change the face of every such Bot. The app's drawings are
- * keyed by exactly these names, and a test holds the two to each other.
+ * The brand sheet's 18 (00 original … 17 injured), the film's dizzy and cool, then the 35 newer
+ * faces in their five groups. The app draws every one of these by exactly these names, and a test
+ * holds the two lists to each other.
  */
 export const AVATAR_EXPRESSIONS = [
+  "original",
   "neutral",
   "attentive",
   "surprised",
@@ -59,9 +60,74 @@ export const AVATAR_EXPRESSIONS = [
   "proud",
   "shy",
   "unimpressed",
+  "sleepy",
+  "injured",
+  "dizzy",
+  "cool",
+  "wink",
+  "in-love",
+  "star-struck",
+  "blowing-kiss",
+  "hug",
+  "angelic",
+  "zany",
+  "smirk",
+  "eye-roll",
+  "shush",
+  "salute",
+  "devilish",
+  "cowboy",
+  "sick",
+  "sneeze",
+  "hot",
+  "cold",
+  "woozy",
+  "mind-blown",
+  "melting",
+  "shaking",
+  "worried",
+  "pleading",
+  "holding-tears",
+  "sobbing",
+  "screaming",
+  "weary",
+  "yawning",
+  "huffing",
+  "pensive",
+  "relieved",
+  "joy",
+  "party",
+  "nerd",
+  "monocle",
 ] as const;
 
 export type AvatarExpression = (typeof AVATAR_EXPRESSIONS)[number];
+
+/**
+ * The faces a seed may pick, in the order it has always picked them.
+ *
+ * The order is load-bearing: a Bot with no expression chosen wears the one its seed hashes to by
+ * index, so reordering or lengthening this list would change the face of every such Bot. Fifteen
+ * names, the same fifteen the app shipped with; only the drawing under each name follows the brand
+ * sheet now.
+ */
+export const SEED_EXPRESSIONS = [
+  "neutral",
+  "attentive",
+  "surprised",
+  "excited",
+  "happy",
+  "laughing",
+  "angry",
+  "sad",
+  "scared",
+  "suspicious",
+  "confused",
+  "curious",
+  "proud",
+  "shy",
+  "unimpressed",
+] as const satisfies readonly AvatarExpression[];
 
 export function isAvatarColor(value: unknown): value is AvatarColor {
   return AVATAR_COLORS.some((scheme) => scheme.background === value);

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { AgentDialog } from "@/components/agents/agent-dialog";
+import { AvatarChooser } from "@/components/agents/avatar-chooser";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import { Tabs, TabsList, TabsPanel, TabsTrigger } from "@/components/ui/tabs";
 import { agentQueryOptions } from "@/lib/agents/queries";
@@ -119,7 +120,12 @@ export function BotPanel({
   );
 }
 
-/** The Bot at 60px, its name, and its title — or an invitation to give it one. */
+/**
+ * The Bot at 96px, its name, and its title — or an invitation to give it one.
+ *
+ * The avatar is where its look is changed: a pencil on hover, a click opens the chooser
+ * (`AvatarChooser`), for whoever the server says may. Until the profile is in, the seed's face.
+ */
 function BotHeader({ agentId, name }: { agentId: string; name: string }) {
   const [managing, setManaging] = useState(false);
   const agent = useQuery(agentQueryOptions(agentId));
@@ -127,14 +133,13 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
 
   return (
     <header className="flex flex-col items-center gap-1 text-center">
-      <brand.Avatar
-        className="mb-2"
-        color={agent.data?.avatarColor}
-        expression={agent.data?.avatarExpression}
-        name={name}
-        seed={agent.data?.avatarSeed ?? agentId}
-        size={60}
-      />
+      <div className="mb-2">
+        {agent.data ? (
+          <AvatarChooser agentId={agentId} profile={agent.data} size={96} />
+        ) : (
+          <brand.Avatar name={name} seed={agentId} size={96} />
+        )}
+      </div>
       <h2 className="w-full text-balance text-[18px] font-semibold leading-tight tracking-tight">
         {name}
       </h2>

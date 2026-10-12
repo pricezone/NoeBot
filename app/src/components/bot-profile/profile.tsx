@@ -1,7 +1,7 @@
 import { IconRoute } from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Fragment } from "react";
-import { AbstractAvatar } from "@/components/agents/abstract-avatar";
+import { AvatarChooser } from "@/components/agents/avatar-chooser";
 import { PageRows, PageSection } from "@/components/layout/page-shell";
 import {
   Item,
@@ -122,12 +122,11 @@ export function BotProfile({ agent }: { agent: AgentProfile }) {
   return (
     <>
       <div className="mt-6 flex items-center gap-3">
-        <AbstractAvatar
-          color={agent.avatarColor}
-          expression={agent.avatarExpression}
-          name={agent.name}
-          seed={agent.avatarSeed}
-          size={40}
+        <AvatarChooser
+          agentId={agent.id}
+          align="start"
+          profile={agent}
+          size={56}
         />
         <div className="min-w-0">
           <p className="truncate font-medium">{agent.title}</p>

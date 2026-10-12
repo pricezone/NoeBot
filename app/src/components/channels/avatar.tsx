@@ -3,7 +3,6 @@ import { memo, useCallback, useContext, useSyncExternalStore } from "react";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import type { AvatarChoice } from "@/components/noe-bot/pixel-art";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
-import { cn } from "@/lib/utils";
 
 /**
  * What a participant's face is drawn from: the Bot's avatar seed and the colour and expression a
@@ -61,9 +60,21 @@ export const ChannelAvatar = memo(function ChannelAvatar({
   const channelSize = participantIds?.length;
   const lookOf = useAvatarLooks();
 
+  /*
+   * A BUSY BOT THINKS ON ITS FACE. The brand sheet's "thinking" state is the curious face, so a
+   * Bot working on a reply wears it, ears up and blinking, instead of a badge of bouncing dots laid
+   * over its avatar — the face is the indicator. Still announced to a screen reader as working.
+   */
+  const working = typing
+    ? ({ live: true, animation: "face:curious" } as const)
+    : {};
   const avatar =
     channelSize === 1 ? (
-      <NoeBotAvatar {...lookOf(participantIds[0] ?? "")} size={size} />
+      <NoeBotAvatar
+        {...lookOf(participantIds[0] ?? "")}
+        {...working}
+        size={size}
+      />
     ) : (
       <div className="flex flex-row items-center size-full">
         {participantIds.slice(0, 3).map((c, i, shown) => (
@@ -76,40 +87,24 @@ export const ChannelAvatar = memo(function ChannelAvatar({
               transform: `translateX(${i * -75}%)`,
             }}
           >
-            <NoeBotAvatar {...lookOf(c)} size={size / (shown.length / 2)} />
+            <NoeBotAvatar
+              {...lookOf(c)}
+              {...working}
+              size={size / (shown.length / 2)}
+            />
           </div>
         ))}
       </div>
     );
 
   return (
-    <div className="relative" style={{ height: size, width: size }}>
+    <div
+      className="relative"
+      data-working={typing ? "true" : undefined}
+      style={{ height: size, width: size }}
+    >
       {avatar}
-      {typing ? <TypingBadge /> : null}
+      {typing ? <span className="sr-only">Working…</span> : null}
     </div>
   );
 });
-
-/**
- * Three bouncing dots in a small badge, ringed in the sidebar's own colour so it sits on the
- * avatar as a badge rather than floating over it. The staggered negative delays start each dot at
- * a different point in the same bounce, which is what makes the three read as one wave.
- */
-function TypingBadge() {
-  return (
-    <div className="absolute -bottom-0.5 -right-0.5 flex items-center gap-0.5 rounded-full bg-sidebar p-0.5 ring-2 ring-sidebar">
-      <span className="sr-only">Working…</span>
-      <Dot className="[animation-delay:-0.3s]" />
-      <Dot className="[animation-delay:-0.15s]" />
-      <Dot />
-    </div>
-  );
-}
-
-function Dot({ className }: { className?: string }) {
-  return (
-    <span
-      className={cn("size-1 rounded-full bg-primary animate-bounce", className)}
-    />
-  );
-}

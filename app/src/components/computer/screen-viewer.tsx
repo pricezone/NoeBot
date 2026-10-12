@@ -1,6 +1,7 @@
 import { IconArrowsMinimize } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { NoeBotFace } from "@/components/noe-bot/noe-bot-face";
 import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
@@ -82,6 +83,14 @@ export function NothingToSee({
         </>
       ) : problem ? (
         <>
+          {/* The computer is not answering: the mascot dozes, Z's and all, where its screen would be. */}
+          <NoeBotFace
+            className="mb-1 text-foreground"
+            face="sleepy"
+            mode="hd"
+            props
+            size={48}
+          />
           <span className="font-medium">
             You cannot see the screen right now
           </span>

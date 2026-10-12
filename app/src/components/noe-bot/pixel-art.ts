@@ -1,12 +1,14 @@
 import {
   AVATAR_COLORS,
-  AVATAR_EXPRESSIONS,
   type AvatarColor,
   type AvatarExpression,
   type AvatarScheme,
   avatarSchemeOf,
   isAvatarExpression,
+  SEED_EXPRESSIONS,
 } from "../../../../shared/avatar";
+import { FACES } from "./anim/exprs";
+import { COLS, type Px } from "./anim/pixels";
 import { GRID_16, type HalfBlockDrawing } from "./drawings";
 
 /**
@@ -26,11 +28,11 @@ import { GRID_16, type HalfBlockDrawing } from "./drawings";
  */
 export type Expression = AvatarExpression;
 
-/** What can be on the face: the mascot's own capsule eyes, an expression, or the offline eyes. */
+/** What can be on the face: the mascot's own capsule eyes, an expression, or offline. */
 export type Face = Expression | "body" | "offline";
 
-/** In the guide's order, which `expressionFor` indexes into; see `AVATAR_EXPRESSIONS`. */
-export const EXPRESSIONS: readonly Expression[] = AVATAR_EXPRESSIONS;
+/** The faces a seed picks from, in the order it has always picked them; see `SEED_EXPRESSIONS`. */
+export const EXPRESSIONS: readonly Expression[] = SEED_EXPRESSIONS;
 
 export type PixelGrid = {
   width: number;
@@ -89,17 +91,30 @@ export type FacePath = { width: number; height: number; path: string };
 
 const cache = new Map<Face, FacePath>();
 
-/** The drawing for a face, decoded once and kept. */
+/** The design's 168-cell array as rows, the shape the path builder reads. */
+export function gridFromPx(px: Px): PixelGrid {
+  const rows: boolean[][] = [];
+  for (let y = 0; y < px.length / COLS; y++) {
+    rows.push(Array.from({ length: COLS }, (_, x) => !!px[y * COLS + x]));
+  }
+  return { width: COLS, height: rows.length, rows };
+}
+
+/**
+ * The still drawing for a face, decoded once and kept.
+ *
+ * The mascot's own eyes come from the guide's half-block body; every expression from the design's
+ * pixels under that name; offline wears the unplugged state's face, the sad one.
+ */
 export function facePath(face: Face): FacePath {
   const known = cache.get(face);
   if (known) return known;
-  const drawing: HalfBlockDrawing =
+  const pixels =
     face === "body"
-      ? GRID_16.body
-      : face === "offline"
-        ? GRID_16.offline
-        : GRID_16.expressions[face];
-  const pixels = decodeHalfBlocks(drawing);
+      ? decodeHalfBlocks(GRID_16.body)
+      : gridFromPx(
+          FACES[face === "offline" ? "sad" : face] ?? FACES.neutral ?? [],
+        );
   const result = {
     width: pixels.width,
     height: pixels.height,
