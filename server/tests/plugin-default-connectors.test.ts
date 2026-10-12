@@ -15,6 +15,8 @@ import {
 function fixture(
   overrides: Partial<DefaultConnectorDeps> & {
     existing?: string[];
+    /** Who added each existing row; a row not named here was added by an administrator. */
+    owners?: Record<string, string>;
     vault?: { id: string; plaintext: string } | null;
     failing?: string[];
   } = {},
@@ -23,8 +25,10 @@ function fixture(
   const existing = new Set(overrides.existing ?? []);
   const failing = new Set(overrides.failing ?? []);
   let vault = overrides.vault ?? null;
+  const owners = overrides.owners ?? {};
   const created: string[] = [];
   const rotated: string[] = [];
+  const removed: string[] = [];
   const warnings: { key: string; reason: string }[] = [];
   const deps: DefaultConnectorDeps = {
     store: {
@@ -37,6 +41,12 @@ function fixture(
           offered: input.offeredToAllBots,
         });
         existing.add(input.key);
+      },
+      serverAddedBy: async (id) =>
+        existing.has(id) ? (owners[id] ?? "admin@example.com") : undefined,
+      removeServer: async (id) => {
+        removed.push(id);
+        existing.delete(id);
       },
     },
     credentials: {
@@ -59,7 +69,15 @@ function fixture(
     by: "deployment",
     warn: (detail) => warnings.push(detail),
   };
-  return { deps, added, created, rotated, warnings, vault: () => vault };
+  return {
+    deps,
+    added,
+    created,
+    rotated,
+    removed,
+    warnings,
+    vault: () => vault,
+  };
 }
 
 describe("default connectors", () => {
@@ -151,6 +169,50 @@ describe("default connectors", () => {
       { key: "parallel", outcome: "skipped", reason: "vendor down" },
       { key: "routines", outcome: "added" },
     ]);
+  });
+
+  test("retires the anonymous search it seeded once the deployment's key arrives", async () => {
+    const f = fixture({
+      keys: ["parallel-authenticated", "routines"],
+      bearers: { "parallel-authenticated": "pk-one" },
+      existing: ["parallel", "routines"],
+      owners: { parallel: "deployment", routines: "deployment" },
+    });
+    expect(await offerDefaultConnectors(f.deps)).toEqual([
+      { key: "parallel-authenticated", outcome: "added" },
+      { key: "routines", outcome: "present" },
+      { key: "parallel", outcome: "retired" },
+    ]);
+    expect(f.removed).toEqual(["parallel"]);
+  });
+
+  test("leaves an anonymous search an administrator added, or one the deployment still asks for", async () => {
+    const byAdmin = fixture({
+      keys: ["parallel-authenticated"],
+      bearers: { "parallel-authenticated": "pk-one" },
+      existing: ["parallel"],
+    });
+    await offerDefaultConnectors(byAdmin.deps);
+    expect(byAdmin.removed).toEqual([]);
+
+    const both = fixture({
+      keys: ["parallel", "parallel-authenticated"],
+      bearers: { "parallel-authenticated": "pk-one" },
+      existing: ["parallel"],
+      owners: { parallel: "deployment" },
+    });
+    await offerDefaultConnectors(both.deps);
+    expect(both.removed).toEqual([]);
+  });
+
+  test("keeps the anonymous search when the key it would give way to is not live", async () => {
+    const f = fixture({
+      keys: ["parallel-authenticated"],
+      existing: ["parallel"],
+      owners: { parallel: "deployment" },
+    });
+    await offerDefaultConnectors(f.deps);
+    expect(f.removed).toEqual([]);
   });
 
   test("files a bearer under one fixed key id", () => {

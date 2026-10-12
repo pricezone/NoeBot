@@ -66,11 +66,11 @@ import {
   personQuestionSchema,
   questionConversationBot,
 } from "./approvals/questions";
+import { requireSavedToolCall } from "./approvals/saved-call";
 import {
   type ApprovalResumeDependencies,
   createApprovalService,
 } from "./approvals/service";
-import { requireSavedToolCall } from "./approvals/saved-call";
 import { createApprovalStore } from "./approvals/store";
 import {
   ApprovalRefusedError,
@@ -159,7 +159,6 @@ import {
   resolveModelApiKey,
 } from "./credentials";
 import { createDatabase, probeDatabase } from "./db/client";
-import { startPoolWatchdog } from "./db/watchdog";
 import {
   channelAgents,
   channelMemberships,
@@ -169,6 +168,7 @@ import {
   routineRuns,
   workItems,
 } from "./db/schema";
+import { startPoolWatchdog } from "./db/watchdog";
 import { createDeliveryRouter, DELIVERY_WORK_KINDS } from "./delivery/router";
 import {
   configuredDeliveryProviders,
@@ -3230,7 +3230,14 @@ const app = createApp(
  * is the hosting platform's explicit instruction, not a template's default.
  */
 void offerDefaultConnectors({
-  store: pluginStore,
+  store: {
+    serverExists: (serverId) => pluginStore.serverExists(serverId),
+    addServer: (input) => pluginStore.addServer(input),
+    serverAddedBy: async (serverId) =>
+      (await pluginStore.listServers()).find((server) => server.id === serverId)
+        ?.addedBy,
+    removeServer: (serverId, by) => pluginStore.removeServer(serverId, by),
+  },
   credentials: {
     findLiveByKey: (key) => credentialStore.findLiveByKey(key),
     readPlaintext: async (id) => {
@@ -3255,7 +3262,8 @@ void offerDefaultConnectors({
 })
   .then((outcomes) => {
     const changed = outcomes.filter(
-      (outcome) => outcome.outcome === "added" || outcome.outcome === "rotated",
+      (outcome) =>
+        outcome.outcome !== "present" && outcome.outcome !== "skipped",
     );
     if (changed.length > 0)
       console.info(JSON.stringify({ type: "default-connectors", changed }));

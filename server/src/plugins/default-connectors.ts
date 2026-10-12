@@ -26,6 +26,9 @@ export type DefaultConnectorDeps = {
       credentialId?: string;
       offeredToAllBots?: boolean;
     }): Promise<unknown>;
+    /** Who added a server: undefined when there is no such row. */
+    serverAddedBy(serverId: string): Promise<string | null | undefined>;
+    removeServer(serverId: string, by: string): Promise<void>;
   };
   credentials: {
     findLiveByKey(key: {
@@ -63,9 +66,19 @@ export const BEARER_KEY_ID = "env";
 
 export type DefaultConnectorOutcome = {
   key: string;
-  outcome: "added" | "present" | "rotated" | "skipped";
+  outcome: "added" | "present" | "rotated" | "retired" | "skipped";
   reason?: string;
 };
+
+/**
+ * Apps another one replaces once it is live. The same vendor's tools under two entries give a Bot
+ * every search tool twice, so when a deployment that seeded anonymous Parallel later gains a key,
+ * the anonymous entry goes. Only a row the deployment itself added: one an administrator added is
+ * theirs to remove.
+ */
+const SUPERSEDES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  "parallel-authenticated": Object.freeze(["parallel"]),
+});
 
 export async function offerDefaultConnectors(
   deps: DefaultConnectorDeps,
@@ -126,6 +139,20 @@ export async function offerDefaultConnectors(
       outcomes.push({ key, outcome: "added" });
     } catch (error) {
       skip(key, error instanceof Error ? error.message : String(error));
+    }
+  }
+  const wanted = new Set(deps.keys);
+  for (const { key, outcome } of [...outcomes]) {
+    if (outcome === "skipped") continue;
+    for (const older of SUPERSEDES[key] ?? []) {
+      if (wanted.has(older)) continue;
+      try {
+        if ((await deps.store.serverAddedBy(older)) !== deps.by) continue;
+        await deps.store.removeServer(older, deps.by);
+        outcomes.push({ key: older, outcome: "retired" });
+      } catch (error) {
+        skip(older, error instanceof Error ? error.message : String(error));
+      }
     }
   }
   return outcomes;
