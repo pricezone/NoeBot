@@ -7,6 +7,8 @@ Start with the root [README](../README.md), then use these references:
 - [Development](development.md): local setup, migrations, ports, and quality checks.
 - [Coworkers](coworkers.md): durable Bot profiles, channels, visibility, deletion, and external AG-UI registration.
 - [Routines](routines.md): standing instructions a Bot runs on a schedule, the worker that fires them, and who they run as.
+- [Skills](skills.md): yours, the workspace's and the package's; why default skills are read-only; Record skill; the skills the Noë Bot package ships.
+- [Keys](keys.md): the Keys page — the model's key, replaced in place; connector keys and accounts; the deployment's credentials.
 - [Automatic Learning](automatic-learning.md): which Bots contribute conversations to a Learning container, and receive its published skills.
 - [Parallel research](parallel-research.md): public-web search and extraction through the Parallel Search connector.
 - Plugins, one connector per page — how a person connects it from the Marketplace, where its OAuth client comes from, and what the failures mean:

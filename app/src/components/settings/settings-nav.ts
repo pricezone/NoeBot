@@ -4,6 +4,7 @@ import {
   IconChecks,
   IconCreditCard,
   IconKey,
+  IconLock,
   IconPlug,
   IconRobot,
   IconSettings,
@@ -60,11 +61,13 @@ export const SETTINGS_NAV: ModalNavItem[] = [
     icon: IconCreditCard,
     to: "/settings/usage",
   },
+  /* The model's key, the keys you paste for connectors, and the accounts you sign in to. */
+  { id: "keys", label: "Keys", icon: IconKey, to: "/settings/keys" },
   /* Logins saved from a Bot's private sign-in form. */
   {
     id: "passwords",
     label: "Passwords",
-    icon: IconKey,
+    icon: IconLock,
     to: "/settings/passwords",
   },
   {

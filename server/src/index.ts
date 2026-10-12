@@ -6,6 +6,7 @@ import {
 } from "@copilotkit/runtime/v2";
 import { serve } from "bun";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import type { MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { COMPUTER_GUIDANCE } from "../../shared/bot-prompt";
 import { DICTATION_HTTP_IDLE_SECONDS } from "../../shared/dictation";
@@ -92,7 +93,7 @@ import {
   DEV_ACTOR,
   initializeDevActorUser,
 } from "./auth/dev-actor";
-import type { AuthService } from "./auth/guards";
+import type { AppVariables, AuthService } from "./auth/guards";
 import { createRequireUser, createRoleRepository } from "./auth/guards";
 import { createIdentityProviderStore } from "./auth/identity-provider-store";
 import { createOrganizationAuth } from "./auth/organization";
@@ -191,6 +192,7 @@ import { createLearningSettingsStore } from "./learning/settings";
 import { createMemoryIngestion } from "./memory/ingestion";
 import { createMemoryStore } from "./memory/store";
 import { memoryTools } from "./memory/tools";
+import { createModelKeyRoutes } from "./model-key/routes";
 import { createSignInNotifier, createSignInResumer } from "./passwords/resume";
 import { createSignInService } from "./passwords/service";
 import { createPasswordStore } from "./passwords/store";
@@ -2952,15 +2954,17 @@ const selfHostBannerIntelligence = createIntelligenceClient(
  * unclaimed `/api` path). The same `requireUser` the app builds, built the same way, so a
  * single-user deployment and one with no provider answer as the agent routes do.
  */
-const botTemplateRoutes = createTemplateRoutes({
-  templates: tenantPackage.templates,
-  store: agentProfileStore,
-  requireUser: config.singleUser
+const standaloneRequireUser: MiddlewareHandler<{ Variables: AppVariables }> =
+  config.singleUser
     ? createDevRequireUser()
     : auth && roleRepository
       ? createRequireUser(auth, roleRepository)
       : async (context) =>
-          context.json({ error: "No identity provider is configured." }, 503),
+          context.json({ error: "No identity provider is configured." }, 503);
+const botTemplateRoutes = createTemplateRoutes({
+  templates: tenantPackage.templates,
+  store: agentProfileStore,
+  requireUser: standaloneRequireUser,
   // On the package's authority: it wrote both the skill and the template that names it.
   grantSkill: (slug, agentId, by) =>
     pluginStore.grant("skill", slug, agentId, by),
@@ -2974,6 +2978,21 @@ const botTemplateRoutes = createTemplateRoutes({
       agent.endpoint === config.managedAgent?.endpoint?.toString(),
   }),
   auditStore: createAuditStore(database),
+});
+
+/*
+ * The Keys page's read of the model key: which key is in force and where it comes from, never
+ * the secret. Mounted through `createApp` like the templates. The key id is the package's
+ * `credential_secret_ref`, the same the runtime resolves under on every call.
+ */
+const modelKeyRoutes = createModelKeyRoutes({
+  requireUser: standaloneRequireUser,
+  model: runtimeModel,
+  keyId: tenantPackage.model.credentialSecretRef,
+  metered: Boolean(config.usage),
+  billingUrl: config.billingUrl ?? null,
+  store: credentialStore,
+  environment: process.env,
 });
 
 const app = createApp(
@@ -3144,6 +3163,7 @@ const app = createApp(
     teamBots,
     firstTurn,
     botTemplates: botTemplateRoutes,
+    modelKey: modelKeyRoutes,
     lifecycle: {
       lifecycle: createBotLifecycleStore(database),
       reset: createBotReset({

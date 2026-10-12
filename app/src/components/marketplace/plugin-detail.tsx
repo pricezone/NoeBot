@@ -7,6 +7,7 @@ import {
   IconRosetteDiscountCheck,
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import type * as React from "react";
 import { useEffect, useState } from "react";
 import { PluginAction } from "@/components/marketplace/plugin-action";
@@ -17,7 +18,7 @@ import {
   primaryCategory,
 } from "@/components/plugins/marketplace-catalogue";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import {
@@ -245,21 +246,30 @@ export function PluginDetail({
             </Fact>
           ) : null}
         </dl>
-        {mayRemove ? (
-          <Button
-            className="mt-3 text-destructive hover:text-destructive"
-            disabled={uninstall.isPending}
-            onClick={() => {
-              setError(null);
-              uninstall.mutate(plugin.id);
-            }}
-            size="sm"
-            type="button"
-            variant="ghost"
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* Where every key and account is managed in one place, for whoever asks "where do my keys live". */}
+          <Link
+            className={buttonVariants({ size: "sm", variant: "ghost" })}
+            to="/settings/keys"
           >
-            {uninstall.isPending ? "Removing…" : "Remove plugin"}
-          </Button>
-        ) : null}
+            Manage keys
+          </Link>
+          {mayRemove ? (
+            <Button
+              className="text-destructive hover:text-destructive"
+              disabled={uninstall.isPending}
+              onClick={() => {
+                setError(null);
+                uninstall.mutate(plugin.id);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              {uninstall.isPending ? "Removing…" : "Remove plugin"}
+            </Button>
+          ) : null}
+        </div>
       </section>
 
       {keyFor !== null ? (

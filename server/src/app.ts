@@ -428,6 +428,8 @@ export function createApp(
      * SPA fallback at the end of this function. See the mount below for why.
      */
     botTemplates?: Hono<{ Variables: AppVariables }>;
+    /** The Keys page's model-key read (`/api/settings/model-key`); mounted here for the same reason. */
+    modelKey?: Hono<{ Variables: AppVariables }>;
   },
   /**
    * Whether to offer help self-hosting, which also hides it from a deployment that pays for
@@ -1699,6 +1701,9 @@ export function createApp(
    */
   if (coworker?.botTemplates) {
     app.route("/api/bot-templates", coworker.botTemplates);
+  }
+  if (coworker?.modelKey) {
+    app.route("/api/settings/model-key", coworker.modelKey);
   }
 
   /*
