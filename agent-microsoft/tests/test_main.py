@@ -183,24 +183,24 @@ def test_a_run_reaches_the_model_the_setup_screen_chose(monkeypatch, provider, c
 
 
 def test_an_anthropic_key_uses_the_official_endpoint_when_compose_sets_a_blank_url(monkeypatch):
+    """Compose writes ANTHROPIC_BASE_URL="" when the model screen chose a plain Anthropic key; the
+    SDK only defaults an absent URL, so main must hand the client the official endpoint itself.
+
+    Checked at the client's construction rather than on the wire: the Anthropic SDK has changed how
+    it sends more than once (1.x no longer goes through httpx's transport or client `send`), and
+    a patch that misses lets the request reach api.anthropic.com for real. The run itself, through
+    a local provider, is covered by the parametrised run test above.
+    """
+    import agent_framework.anthropic as anthropic_clients
+
     seen = []
-    provider_seen = []
-    provider_app = _provider_app(provider_seen)
+    original_init = anthropic_clients.AnthropicClient.__init__
 
-    async def send(client, request, **kwargs):
-        seen.append(
-            (request.url.scheme, request.url.host, request.url.path, request.headers.get("x-api-key"))
-        )
-        async with httpx.ASGITransport(app=provider_app) as local_provider:
-            response = await local_provider.handle_async_request(request)
-        response.request = request
-        return response
+    def init(self, *args, **kwargs):
+        seen.append({"args": args, "base_url": kwargs.get("base_url"), "model": kwargs.get("model")})
+        original_init(self, *args, **kwargs)
 
-    # Keep the real framework and Anthropic clients; replace only where a request leaves the
-    # process. At the client's `send`, not the transport's `handle_async_request`: the Anthropic
-    # SDK (1.x) sends through its own transport, which the transport patch no longer reached, and
-    # the request went to api.anthropic.com for real.
-    monkeypatch.setattr(httpx.AsyncClient, "send", send)
+    monkeypatch.setattr(anthropic_clients.AnthropicClient, "__init__", init)
     monkeypatch.setenv("MANAGED_AGENT_TOKEN", TOKEN)
     monkeypatch.setenv("BOT_PROVIDER", "anthropic")
     monkeypatch.setenv("BOT_MODEL", "claude-sonnet-4-5")
@@ -213,16 +213,10 @@ def test_an_anthropic_key_uses_the_official_endpoint_when_compose_sets_a_blank_u
     from src import main
 
     main = importlib.reload(main)
-    response = TestClient(main.app).post(
-        "/", json=RUN, headers={"x-openbot-agent-token": TOKEN}
-    )
+    client = main._client()
 
-    assert seen == [("https", "api.anthropic.com", "/v1/messages", "test-key")]
-    assert provider_seen == [("anthropic", "claude-sonnet-4-5")]
-    assert response.status_code == 200
-    assert '"RUN_FINISHED"' in response.text
-    assert '"RUN_ERROR"' not in response.text
-    assert "hello" in response.text
+    assert isinstance(client, anthropic_clients.AnthropicClient)
+    assert seen == [{"args": (), "base_url": "https://api.anthropic.com", "model": "claude-sonnet-4-5"}]
 
 
 def test_an_openai_key_uses_the_official_endpoint_when_compose_sets_a_blank_url(monkeypatch):
