@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   DISABLED_FEATURES,
   desktopWindowArgs,
-  LAUNCH_ARGS,
+  launchArgs,
   PLAYWRIGHT_DISABLED_FEATURES,
-} from "../src/profiles";
+} from "../src/launch-args";
+
+const managed = launchArgs({ sandbox: false, localChrome: false });
 
 test("on a desktop the browser opens maximized, and is told nothing about windows without one", () => {
   expect(desktopWindowArgs(true)).toEqual([
@@ -20,7 +24,7 @@ test("on a desktop the browser opens maximized, and is told nothing about window
 });
 
 test("one --disable-features switch carries Playwright's list and the Client-Hints restarts", () => {
-  const switches = LAUNCH_ARGS.filter((arg) =>
+  const switches = managed.filter((arg) =>
     arg.startsWith("--disable-features="),
   );
   expect(switches).toHaveLength(1);
@@ -35,11 +39,24 @@ test("one --disable-features switch carries Playwright's list and the Client-Hin
 
 test("the browser speaks English, wherever the traffic leaves from", () => {
   // The browser's own language, and the one it asks every site for, whatever the machine's locale.
-  expect(LAUNCH_ARGS).toContain("--lang=en-US");
-  expect(LAUNCH_ARGS).toContain("--accept-lang=en-US,en");
+  expect(managed).toContain("--lang=en-US");
+  expect(managed).toContain("--accept-lang=en-US,en");
 });
 
-test("the list repeats what the installed Playwright switches off", async () => {
+test("a person's own Chrome keeps its language, its keychain and its sandbox", () => {
+  const local = launchArgs({ sandbox: true, localChrome: true });
+  expect(local).not.toContain("--lang=en-US");
+  expect(local).not.toContain("--password-store=basic");
+  expect(local).not.toContain("--no-sandbox");
+  expect(managed).toContain("--no-sandbox");
+});
+
+// The root CI install deliberately excludes this separately deployed package's dependencies.
+test.skipIf(
+  !existsSync(
+    join(import.meta.dir, "../node_modules/playwright-core/package.json"),
+  ),
+)("the list repeats what the installed Playwright switches off", async () => {
   const bundle = Bun.resolveSync(
     "playwright-core/package.json",
     import.meta.dir,

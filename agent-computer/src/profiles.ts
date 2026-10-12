@@ -42,6 +42,12 @@ import { homepageFromEnv, openStartPage } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
+import {
+  DISABLED_FEATURES,
+  desktopWindowArgs,
+  launchArgs,
+  PLAYWRIGHT_DISABLED_FEATURES,
+} from "./launch-args";
 import { chooseLivePage } from "./live-page";
 import {
   botIdsIn,
@@ -107,74 +113,15 @@ const LOCAL_CHROME = BROWSER_RUNTIME.backend === "local-chrome";
 // Native Chrome has no container boundary. Always retain its own process sandbox and OS keychain.
 const SANDBOX_ENABLED = LOCAL_CHROME || process.env.COMPUTER_SANDBOX === "on";
 
-/**
- * The Chromium features Playwright 1.62.1 switches off on every launch (`chromiumSwitches.ts` in
- * playwright-core, bundled and not importable). Repeated here because Chromium honours only the
- * LAST `--disable-features` switch on its command line: adding one of our own would otherwise throw
- * Playwright's away. Pinned to the `playwright` version in package.json; re-check on upgrade.
- */
-export const PLAYWRIGHT_DISABLED_FEATURES = [
-  "AvoidUnnecessaryBeforeUnloadCheckSync",
-  "BoundaryEventDispatchTracksNodeRemoval",
-  "DestroyProfileOnBrowserClose",
-  "DialMediaRouteProvider",
-  "GlobalMediaControls",
-  "HttpsUpgrades",
-  "LensOverlay",
-  "MediaRouter",
-  "PaintHolding",
-  "ThirdPartyStoragePartitioning",
-  "BlockOriginHeaderModificationOnRedirect",
-  "Translate",
-  "AutoDeElevate",
-  "OptimizationHints",
-  "msForceBrowserSignIn",
-  "msEdgeUpdateLaunchServicesPreferredVersion",
-] as const;
+// The window and feature switches live in the playwright-free launch-args.ts, where their test
+// reads them without pulling this module's browser driver in; re-exported so callers do not change.
+export { DISABLED_FEATURES, desktopWindowArgs, PLAYWRIGHT_DISABLED_FEATURES };
 
-/**
- * Playwright's list plus the two Client-Hints restarts.
- *
- * With proxy credentials (the egress filter's, which name the Bot) Playwright intercepts every
- * request to answer the proxy's challenge. Chromium restarts a navigation to add Client Hints when a
- * server asks for them: in the TLS handshake (an ALPS ACCEPT_CH frame, which Google and YouTube
- * send) or with a Critical-CH response header. The restarted request is paused under the same
- * network id, Playwright never continues it, and the page hangs until the navigation timeout —
- * every screenshot of that page hangs with it. Measured on a Fly machine: google.com never loaded;
- * with these two features off it loads in about a second. Client Hints carry nothing a Bot needs.
- */
-export const DISABLED_FEATURES = [
-  ...PLAYWRIGHT_DISABLED_FEATURES,
-  "AcceptCHFrame",
-  "CriticalClientHint",
-] as const;
+export const LAUNCH_ARGS = launchArgs({
+  sandbox: SANDBOX_ENABLED,
+  localChrome: LOCAL_CHROME,
+});
 
-export const LAUNCH_ARGS = [
-  ...(SANDBOX_ENABLED ? [] : ["--no-sandbox"]),
-  "--disable-dev-shm-usage",
-  ...(LOCAL_CHROME ? [] : ["--password-store=basic"]),
-  // Drop the automation signals Chromium sets for itself, so a real person who takes the wheel can
-  // sign in to a site that refuses obvious automation (Google among them). This is the flag, not a
-  // JS patch of `navigator.webdriver`: the flag turns the property off at the source, where spoofing
-  // it from a script leaves the other tells a detector cross-checks. It does not change what the Bot
-  // may do; the governed path is unchanged. Full Chromium is selected explicitly in both modes;
-  // headed mode also provides a window a person can use on the native desktop or virtual display.
-  "--disable-blink-features=AutomationControlled",
-  `--disable-features=${DISABLED_FEATURES.join(",")}`,
-  // English wherever the traffic leaves from: `--lang` for the browser's own words, `--accept-lang`
-  // for what it asks every site for (the Accept-Language header and `navigator.languages`, measured
-  // on Chromium 145). Google goes by address rather than by this, which is why the start page names
-  // `hl=en` (browser-request.ts). Not for a person's own Chrome, whose language is that person's.
-  ...(LOCAL_CHROME ? [] : ["--lang=en-US", "--accept-lang=en-US,en"]),
-];
-
-/**
- * How the browser window opens on a desktop, as Chromium switches. Nothing without one.
- *
- * Maximized: the browser is the screen while the Bot is browsing, and the dock, which hides from any
- * window that overlaps it, slides out of the way. Told to Chromium at launch rather than done
- * afterwards, so the first frame a person sees already has it in place.
- */
 /**
  * The browser this computer launches, for the warm-up launch at boot (see browser-warmup.ts). Null
  * for a person's own Chrome, which is theirs and already warm.
@@ -186,22 +133,6 @@ export function managedBrowserExecutable(): string | null {
   } catch {
     return null;
   }
-}
-
-export function desktopWindowArgs(
-  desktop: boolean,
-  { gpu = true }: { gpu?: boolean } = {},
-): readonly string[] {
-  if (!desktop) return [];
-  // `COMPUTER_BROWSER_GPU=off`: composite in software in the browser process instead of emulating a
-  // GPU, which on a machine with no GPU is the cheaper of two software paths.
-  return [
-    "--start-maximized",
-    // After an unclean exit Chrome offers to restore pages in a bubble over the page, which the Bot
-    // cannot read and the person did not ask for; the browser reopens on its start page instead.
-    "--hide-crash-restore-bubble",
-    ...(gpu ? [] : ["--disable-gpu"]),
-  ];
 }
 
 const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop, {
