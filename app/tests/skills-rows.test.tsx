@@ -40,6 +40,29 @@ let role: "user" | "admin";
 /** Every write the deployment received, as `method path`. */
 let writes: string[];
 let skills: PluginSkill[];
+/** The Bots the roster answers with; Record skill picks among the ones this person may use. */
+let agents: Record<string, unknown>[];
+
+const bot = (id: string, overrides: Record<string, unknown> = {}) => ({
+  id,
+  name: id,
+  title: "Title",
+  roleDescription: "Role",
+  avatarSeed: id,
+  avatarColor: null,
+  avatarExpression: null,
+  canEditAvatar: false,
+  visibility: "private",
+  endpoint: null,
+  builtIn: true,
+  hasAuth: false,
+  hasCallbackToken: false,
+  hidden: false,
+  mine: true,
+  pinned: false,
+  ownerUserId: "user-1",
+  ...overrides,
+});
 
 const skill = (
   overrides: Partial<PluginSkill> & { slug: string },
@@ -49,7 +72,7 @@ const skill = (
   title: overrides.slug,
   summary: "",
   instructions: "Do it.",
-  origin: "user",
+  origin: "yours",
   installedBy: null,
   pluginId: null,
   offeredToAllBots: false,
@@ -61,6 +84,7 @@ const skill = (
 beforeEach(() => {
   role = "user";
   writes = [];
+  agents = [bot("noe")];
   skills = [
     skill({ slug: "triage", title: "Triage", summary: "Sort the inbox." }),
     skill({ slug: "digest", title: "Digest" }),
@@ -77,7 +101,7 @@ beforeEach(() => {
       title: "Check a claim",
       summary: "Verify a statement.",
       ownerUserId: null,
-      origin: "package",
+      origin: "catalogue",
     }),
   ];
   global.fetch = Object.assign(
@@ -89,7 +113,9 @@ beforeEach(() => {
           status,
           headers: { "content-type": "application/json" },
         });
-      if (method !== "GET") writes.push(`${method} ${path}`);
+      if (method !== "GET") {
+        writes.push(`${method} ${path} ${String(init?.body ?? "")}`);
+      }
       if (path === "/api/me") {
         return json({
           user: {
@@ -116,7 +142,14 @@ beforeEach(() => {
         skills = skills.filter((candidate) => candidate.slug !== slug);
         return json({ removed: true });
       }
-      if (path === "/api/agents") return json({ agents: [] });
+      if (path === "/api/agents") return json({ agents });
+      if (path === "/api/channels") {
+        return json({ channels: [], nextCursor: null });
+      }
+      if (path === "/api/plugins/grants") return json({ granted: true });
+      if (/^\/api\/plugins\/skills\/[^/]+\/offer-to-all$/.test(path)) {
+        return json({ skill: {} });
+      }
       return new Response(null, { status: 404 });
     },
     { preconnect: originalFetch.preconnect },
@@ -218,30 +251,128 @@ test("deleting lives in the panel, names the skill, and closes the panel when do
   const user = userEvent.setup({ document: view.baseElement.ownerDocument });
   await user.click(await view.findByRole("button", { name: "Delete /triage" }));
   await waitFor(() => {
-    expect(writes).toContain("DELETE /api/plugins/skills/triage");
+    expect(writes.join("\n")).toContain("DELETE /api/plugins/skills/triage");
     expect(closed).toBe(1);
   });
 });
 
-test("a member opens a workspace skill to read it; an administrator gets the form", async () => {
+test("a default skill is read-only for everyone; an administrator gets its settings, not a form", async () => {
   const asMember = renderAlone(() => <EditSkill slug="check-a-claim" />);
   expect(
     await asMember.view.findByRole("heading", { name: "Check a claim" }),
   ).toBeTruthy();
-  expect(asMember.view.getByText(/A workspace skill/)).toBeTruthy();
+  expect(asMember.view.getByText(/Ships with Noë Bot/)).toBeTruthy();
   expect(asMember.view.getByText("Do it.")).toBeTruthy();
   expect(
     asMember.view.queryByRole("button", { name: "Save changes" }),
   ).toBeNull();
   expect(asMember.view.queryByRole("button", { name: /^Delete/ })).toBeNull();
+  expect(
+    asMember.view.queryByRole("region", { name: "Skill settings" }),
+  ).toBeNull();
   cleanup();
 
   role = "admin";
   const asAdmin = renderAlone(() => <EditSkill slug="check-a-claim" />);
   expect(
-    await asAdmin.view.findByRole("button", { name: "Save changes" }),
+    await asAdmin.view.findByRole("heading", { name: "Check a claim" }),
   ).toBeTruthy();
   expect(
-    asAdmin.view.getByRole("button", { name: "Delete /check-a-claim" }),
+    asAdmin.view.queryByRole("button", { name: "Save changes" }),
+  ).toBeNull();
+  expect(asAdmin.view.queryByRole("button", { name: /^Delete/ })).toBeNull();
+  // The settings are the administrator's: offered to every Bot, and which Bots carry it.
+  const settings = await asAdmin.view.findByRole("region", {
+    name: "Skill settings",
+  });
+  expect(
+    within(settings).getByRole("switch", {
+      name: "Offer Check a claim to every Bot",
+    }),
   ).toBeTruthy();
+  const user = userEvent.setup({
+    document: asAdmin.view.baseElement.ownerDocument,
+  });
+  await user.click(within(settings).getByRole("button", { name: "noe" }));
+  await waitFor(() => {
+    expect(writes.join("\n")).toContain("POST /api/plugins/grants");
+  });
+  expect(writes.join("\n")).toContain('"ref":"check-a-claim"');
+});
+
+test("an administrator's own workspace skill keeps its form and delete, with the settings under it", async () => {
+  role = "admin";
+  skills.push(
+    skill({
+      slug: "house-style",
+      title: "House style",
+      ownerUserId: null,
+      origin: "yours",
+    }),
+  );
+  const { view } = renderAlone(() => <EditSkill slug="house-style" />);
+  expect(
+    await view.findByRole("button", { name: "Save changes" }),
+  ).toBeTruthy();
+  expect(
+    view.getByRole("button", { name: "Delete /house-style" }),
+  ).toBeTruthy();
+  expect(view.getByRole("region", { name: "Skill settings" })).toBeTruthy();
+});
+
+/** The button is disabled until the roster has answered; a press before that does nothing. */
+async function recordSkillButton(view: ReturnType<typeof renderAlone>["view"]) {
+  const button = await view.findByRole("button", { name: "Record skill" });
+  await waitFor(() => {
+    expect(
+      view
+        .getByRole("button", { name: "Record skill" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+  return button;
+}
+
+test("Record skill goes to the one Bot's computer, full-window, ready to record", async () => {
+  const { view, router } = renderAlone(SkillsSections);
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(await recordSkillButton(view));
+  await waitFor(() => {
+    // No conversation with the Bot yet: the Bot's own screen, opened on its computer.
+    expect(router.state.location.pathname).toBe("/bot");
+    expect(router.state.location.search).toEqual({
+      agent: "noe",
+      panel: "computer",
+      record: true,
+    });
+  });
+});
+
+test("with several Bots, Record skill asks whose computer; with none it waits for one", async () => {
+  agents = [bot("noe"), bot("scout", { pinned: true })];
+  const { view, router } = renderAlone(SkillsSections);
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await recordSkillButton(view);
+  await user.click(view.getByRole("button", { name: "Record skill" }));
+  // Pinned first.
+  const items = await view.findAllByRole("menuitem");
+  expect(items.map((item) => item.textContent?.trim())).toEqual([
+    "scout",
+    "noe",
+  ]);
+  await user.click(items[1] as HTMLElement);
+  await waitFor(() => {
+    expect(router.state.location.search).toMatchObject({
+      agent: "noe",
+      record: true,
+    });
+  });
+  cleanup();
+
+  agents = [];
+  const none = renderAlone(SkillsSections);
+  const button = await none.view.findByRole("button", { name: "Record skill" });
+  await waitFor(() => {
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
 });

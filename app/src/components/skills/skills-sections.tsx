@@ -1,20 +1,129 @@
-import { IconBolt, IconPlus } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import {
+  IconBolt,
+  IconPlayerRecordFilled,
+  IconPlus,
+} from "@tabler/icons-react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { botLandingTarget } from "@/components/app-sidebar/bot-target";
 import { ACTION_CLASS } from "@/components/marketplace/plugin-action";
 import {
   MarketplaceGrid,
   MarketplaceSection,
   PluginRow,
 } from "@/components/marketplace/plugin-row";
+import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  type AgentProfile,
+  agentListQueryOptions,
+  isSharedWithYou,
+} from "@/lib/agents/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { channelListQueryOptions } from "@/lib/channels/queries";
 import {
   type PluginSkill,
   pluginsPageQueryOptions,
 } from "@/lib/plugins/queries";
 import { cn } from "@/lib/utils";
+
+/**
+ * "Record skill": the way to a Bot's screen with Record your steps in front of you — Grok Bot's
+ * "Teach a task", which also lives in the computer view. One Bot you may use and the button goes
+ * straight to its newest conversation (or a fresh one) with `panel=computer&record=true`, which
+ * opens the viewer full-window on arrival; several and it asks which Bot's computer records.
+ * Nothing is pressed for the person: taking over the Bot's browser stays their press.
+ */
+function RecordSkillButton() {
+  const navigate = useNavigate();
+  const agents = useQuery(agentListQueryOptions());
+  const roster = useInfiniteQuery(channelListQueryOptions());
+  const bots = (agents.data ?? [])
+    .filter((agent) => agent.mine || isSharedWithYou(agent))
+    .sort((left, right) => Number(right.pinned) - Number(left.pinned));
+
+  const record = (bot: AgentProfile) => {
+    const target = botLandingTarget(bot.id, roster.data, agents.data);
+    void navigate(
+      target.to === "/channel/new"
+        ? /*
+           * No conversation with the Bot yet. Its own screen rather than the composer: the
+           * composer would ask for a first message before any screen exists, and a recording is
+           * not a message.
+           */
+          {
+            to: "/bot",
+            search: { agent: bot.id, panel: "computer", record: true },
+          }
+        : {
+            to: target.to,
+            params: target.params,
+            search: { panel: "computer", record: true },
+          },
+    );
+  };
+
+  const label = (
+    <>
+      <IconPlayerRecordFilled aria-hidden="true" className="text-red-500" />
+      Record skill
+    </>
+  );
+  if (bots.length <= 1) {
+    const only = bots[0];
+    return (
+      <Button
+        disabled={only === undefined}
+        onClick={() => only && record(only)}
+        size="sm"
+        title={only === undefined ? "Create a Bot first" : undefined}
+        type="button"
+        variant="secondary"
+      >
+        {label}
+      </Button>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button size="sm" type="button" variant="secondary">
+            {label}
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          {bots.map((bot) => (
+            <DropdownMenuItem key={bot.id} onClick={() => record(bot)}>
+              <NoeBotAvatar
+                color={bot.avatarColor}
+                expression={bot.avatarExpression}
+                seed={bot.avatarSeed}
+                size={20}
+              />
+              {bot.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /**
  * Personal `/` skills, listed. They are instructions, not capabilities, and can only be granted to
@@ -96,20 +205,23 @@ export function SkillsSections({ query = "" }: { query?: string }) {
     <>
       <MarketplaceSection
         action={
-          <Button
-            render={(props) => (
-              <Link
-                search={{ ...search, new: true }}
-                to="/marketplace"
-                {...props}
-              />
-            )}
-            size="sm"
-            variant="secondary"
-          >
-            <IconPlus />
-            New skill
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              render={(props) => (
+                <Link
+                  search={{ ...search, new: true }}
+                  to="/marketplace"
+                  {...props}
+                />
+              )}
+              size="sm"
+              variant="secondary"
+            >
+              <IconPlus />
+              New skill
+            </Button>
+            <RecordSkillButton />
+          </div>
         }
         title="Your skills"
       >
@@ -134,6 +246,11 @@ export function SkillsSections({ query = "" }: { query?: string }) {
                   ? `No skills of yours match “${query.trim()}”.`
                   : "You don't have any skills yet."}
               </EmptyTitle>
+              {query.trim() ? null : (
+                <EmptyDescription>
+                  Write one, or record your steps on a Bot's computer.
+                </EmptyDescription>
+              )}
             </EmptyHeader>
           </Empty>
         ) : (

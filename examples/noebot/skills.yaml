@@ -317,3 +317,196 @@ skills:
       quotes in their words, interpretation labelled as yours. Never merge two different complaints
       into one theme to shorten the list.
     tools: []
+
+  # The skills behind the jobs Grok Bot's own guides describe — its welcome card (replies for the
+  # inbox, meeting prep, a morning brief, a postponed decision), its use-case roles (sales outbound,
+  # talent scout, paid media, expense manager, product performance, bug reproduction, account
+  # health, chief of staff) and its first tasks. Each says when it applies, what it needs, the
+  # sequence, how to check the result, what to return, and what needs the person's approval —
+  # Grok Bot's own checklist for a useful skill. None sends, enrols, changes or pays on its own.
+
+  - slug: prepare-inbox-replies
+    title: Prepare replies for what is waiting in my inbox
+    summary: Read what is waiting, sort it by what needs an answer, and draft each reply for approval.
+    instructions: >-
+      Use when the person asks what is waiting in their inbox or for replies to it. You need a
+      connected mailbox; without one, say so and offer to work from messages they paste. Read the
+      unanswered messages from the period asked for (today by default). Sort them into: needs a
+      reply from the person, can be answered with a fact you can verify, and needs no reply (say
+      why). For each that needs a reply, draft one in the person's voice, as short as the question
+      allows, with the one decision or question it turns on at the top. Return the sorted list
+      with each draft under its message, oldest first, and a line naming anything you could not
+      read. Never send a reply, archive or delete anything, or reply on the person's behalf; every
+      draft waits for them.
+    tools: []
+
+  - slug: prep-for-meetings
+    title: Prep me for tomorrow's meetings
+    summary: For each meeting coming up, who is in it, what was last said, and the one thing to decide.
+    instructions: >-
+      Use when the person asks to be prepared for their next meetings or a day of them. You need
+      the calendar for the period, and whatever notes, documents or threads the connected apps
+      hold about each meeting; say which were reachable. For each meeting in order: the people and
+      their roles as far as the sources say, the last thing said or decided with them, the open
+      items with an owner, and the one question the person most likely has to answer. Keep each
+      meeting to a screen. Where a source is missing, write "not found" rather than guessing an
+      agenda. Return the day as a list, soonest first. Never accept, decline, move or create a
+      meeting, and never message an attendee.
+    tools: []
+
+  - slug: morning-brief
+    title: Brief me every morning
+    summary: "A source-linked digest of what changed since yesterday: what matters, why, and the next step."
+    instructions: >-
+      Use for a daily brief, usually from a routine. Review what changed since the last brief
+      across the sources you can reach: messages, calendar, documents, tickets. Keep only items
+      tied to what the person said they care about, which they may have written down in a
+      planning note; ask once if nothing says. For each item give its source, why it matters, a
+      proposed next step, and whether a decision is owed and by whom. Say in one line what you
+      could not reach. Return the brief as a short list, most urgent first, with the sources
+      linked. Never send a message, reply or change a meeting on the person's behalf.
+    tools: []
+
+  - slug: research-a-decision
+    title: Research a decision I keep postponing
+    summary: Lay out the options, the evidence for each, and what it would take to decide.
+    instructions: >-
+      Use when the person names a decision they have been putting off. First state the decision
+      in one sentence and the options as you understand them, and ask once if they are wrong.
+      Then research each option: facts from the sources you can reach and the public web, with
+      the source for every claim. Give the strongest case for and against each, the cost of
+      deciding later, and the smallest thing that would settle it. End with a recommendation and
+      the reason, labelled as yours. Return it as a one-page brief. Never present your
+      recollection as a source, and never act on the decision.
+    tools:
+      - parallel/web_search
+      - parallel/web_fetch
+      - parallel-authenticated/web_search
+      - parallel-authenticated/web_fetch
+
+  - slug: research-accounts-and-outreach
+    title: Research accounts and draft outreach
+    summary: Score a list of accounts against the ideal profile and draft the first message to each.
+    instructions: >-
+      Use when the person gives a list of accounts (or a view of them) and wants outreach. You
+      need the ideal customer profile and a style example; ask for whichever is missing. For each
+      account: research it from the connected sources and the public web, score it against the
+      profile with the evidence, and pick up to three contacts with the reason for each. Skip any
+      contact already in an active sequence or conversation, and say so. Draft an email and a
+      short message per contact in the given style, each with one concrete reason to reply.
+      Return a table of accounts with score, evidence and contacts, then the drafts. Never send a
+      message, enrol anybody in a sequence, or edit the CRM.
+    tools:
+      - parallel/web_search
+      - parallel/web_fetch
+      - parallel-authenticated/web_search
+      - parallel-authenticated/web_fetch
+
+  - slug: source-candidates
+    title: Source candidates for a role
+    summary: Find people who meet the must-haves, show the evidence, and draft the first message.
+    instructions: >-
+      Use when the person gives a role description and wants candidates. Separate the must-have
+      criteria from the nice-to-haves first, and confirm them in one line. Search the sources you
+      can reach and the public web for people who meet every must-have, excluding anybody already
+      in the applicant tracker or already contacted. For each candidate quote the evidence for
+      each must-have, say which nice-to-haves are met, and draft a short personal message that
+      names why them. Return up to the number asked for (twenty by default), strongest first, with
+      a line on what you could not verify. Never contact a candidate, and never infer protected
+      characteristics.
+    tools:
+      - parallel/web_search
+      - parallel/web_fetch
+      - parallel-authenticated/web_search
+      - parallel-authenticated/web_fetch
+
+  - slug: review-campaign-spend
+    title: Review campaign spend against budget
+    summary: Compare spend and results per campaign with the budget and target, and recommend moves.
+    instructions: >-
+      Use for a spend review across campaigns. You need the current spend and results per
+      campaign, the monthly budget, and the target cost per acquisition; ask for what the
+      connected sources do not give. Compare each campaign's pace to budget and its cost to the
+      target, and flag the ones off by more than the tolerance the person set (ten percent if
+      none). Recommend reallocations with the numbers that justify each, and draft a short update
+      for the channel the team reads. Return a table, the recommendations, and the draft. Never
+      change a budget, pause or start a campaign, or post the update.
+    tools: []
+
+  - slug: reconcile-expenses
+    title: Reconcile this week's expenses
+    summary: Match receipts to expenses, flag what breaks policy or is missing, and draft the follow-ups.
+    instructions: >-
+      Use for a weekly expense pass. You need the expense list for the period, the receipts from
+      wherever they land (a mailbox or a folder), and the expense policy; say which you could not
+      reach. Match each receipt to its expense; list expenses without one and receipts without
+      one. Flag every item missing a category or outside policy, citing the policy line. Draft
+      one follow-up per owner listing only their items. Return the reconciled summary, the flags,
+      and the drafts. Never send a follow-up, approve, reject or change a reimbursement.
+    tools: []
+
+  - slug: investigate-a-regression
+    title: Investigate a performance regression
+    summary: Trace a slowdown to its likeliest cause from dashboards and traces, facts apart from guesses.
+    instructions: >-
+      Use when something got slower or started failing after a change. State the symptom with its
+      numbers and the window it began in. Read the dashboards, traces, logs and recent changes you
+      can reach for that window, and narrow to the highest-confidence hotspot, saying what rules
+      the others out. Keep facts (with their source and a screenshot or link) apart from
+      hypotheses, labelled as such. Return a short write-up: symptom, window, evidence, likeliest
+      cause, how to confirm it, and what to try first. Never change an alert, a dashboard, a
+      setting or production.
+    tools: []
+
+  - slug: reproduce-a-bug
+    title: Reproduce a bug
+    summary: Turn a bug report into exact steps, expected and actual behaviour, and the evidence.
+    instructions: >-
+      Use when the person gives a bug report. Reproduce it in a test or staging environment with a
+      test account, never with production customer data. Write the exact steps, what was expected,
+      what happened, the environment (build, browser, account), and attach the evidence:
+      screenshots, console or network notes, and the smallest input that triggers it. If it does
+      not reproduce, say exactly what you tried and what differed from the report. Return a
+      reproduction pack a developer can follow without the report. Never change code, data or
+      settings beyond the test environment.
+    tools: []
+
+  - slug: account-health-watchlist
+    title: Rank accounts at risk
+    summary: Combine usage, escalations, renewal timing and activity into a ranked watch list.
+    instructions: >-
+      Use for a portfolio review. For each account, gather what the connected sources say about
+      usage, open escalations, renewal date and recent stakeholder activity; say which signals were
+      reachable. Rank the accounts by risk and by expansion opportunity, separately, with the
+      evidence and the reason for each place on the list. Suggest one next step per account.
+      Return the two ranked lists with evidence. Never contact a customer, edit the CRM, or change
+      a renewal.
+    tools: []
+
+  - slug: summarise-a-document
+    title: Summarise a document
+    summary: Five bullets, then every date, decision and open question, each with where it is in the document.
+    instructions: >-
+      Use when the person hands you a document or names one you can reach. Read all of it. Return
+      five bullets that say what it is and what it concludes, then three sections: every date,
+      every decision, and every open question, each with the page or section it comes from. Quote
+      rather than paraphrase where a number or a commitment is concerned. Say what the document
+      does not answer. Never change the source document.
+    tools:
+      - google-drive/search_files
+      - google-drive/read_file_content
+      - notion/notion-search
+      - notion/notion-fetch
+
+  - slug: pull-the-weekly-report
+    title: Pull the weekly report
+    summary: Gather this week's numbers from the usual sources into the agreed format, with changes marked.
+    instructions: >-
+      Use for a recurring report. The first time, ask for the format and the sources, and keep
+      to them after. Pull each number from its source for the period, note the period and the
+      time of each read, and compare with the previous period, marking what moved by more than
+      the tolerance the person set. Where a source is unreachable, leave the line and say so
+      rather than carrying last week's number forward. Return the report in the agreed format with
+      a short "changes" section and a "decisions needed" section at the end. Never publish or send
+      the report, and never change the source data.
+    tools: []

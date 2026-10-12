@@ -261,16 +261,31 @@ export function createPluginRoutes(
     return owner === actor.id ? null : `${slug} is somebody else's skill.`;
   }
 
-  /** The sentence that keeps a plugin's skill with its plugin, for a save or a delete by anybody. */
-  async function pluginSkillRefusal(
+  /**
+   * The sentence that keeps a shipped skill as it shipped, for a save or a delete by anybody — an
+   * administrator included.
+   *
+   * A plugin's skill goes with its plugin. A package skill is the package's: every boot writes
+   * the package's words back over it and re-seeds it when deleted (`synchronizeTenantPackage`), so
+   * an edit here was never honoured past a restart — it is refused up front now, with the way to
+   * change it named. Grants, the offer-to-every-Bot switch and the per-Bot toggles are not edits
+   * and are not refused here.
+   */
+  async function pinnedSkillRefusal(
     context: { var: AppVariables },
     slug: string,
   ): Promise<string | null> {
     const existing = (await store.listSkills(skillActor(context))).find(
       (skill) => skill.slug === slug,
     );
-    if (!existing?.pluginId) return null;
-    return `${slug} was installed from a Marketplace plugin, so it is replaced or removed with the plugin, not on its own.`;
+    if (!existing) return null;
+    if (existing.pluginId) {
+      return `${slug} was installed from a Marketplace plugin, so it is replaced or removed with the plugin, not on its own.`;
+    }
+    if (existing.origin === "catalogue") {
+      return `/${slug} ships with this deployment's package. It cannot be edited or removed here; change it in the package, or write a new skill.`;
+    }
+    return null;
   }
 
   /** Everything the Plugins page draws: the catalogue, what is added, and the skills. */
@@ -2837,7 +2852,7 @@ export function createPluginRoutes(
     const refusal = await skillRefusal(context, body.slug);
     if (refusal) return context.json({ error: refusal }, 403);
     // A plugin's skill is the plugin's: pinned to its commit, and replaced only with the plugin.
-    const pinned = await pluginSkillRefusal(context, body.slug);
+    const pinned = await pinnedSkillRefusal(context, body.slug);
     if (pinned) return context.json({ error: pinned }, 409);
 
     /*
@@ -2894,7 +2909,7 @@ export function createPluginRoutes(
     const slug = context.req.param("slug");
     const refusal = await skillRefusal(context, slug);
     if (refusal) return context.json({ error: refusal }, 403);
-    const pinned = await pluginSkillRefusal(context, slug);
+    const pinned = await pinnedSkillRefusal(context, slug);
     if (pinned) return context.json({ error: pinned }, 409);
 
     await store.uninstallSkill(slug, actorEmail(context));

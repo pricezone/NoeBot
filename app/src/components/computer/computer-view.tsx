@@ -146,6 +146,14 @@ type Props = {
    * side panel is not a turn and has nothing to remember.
    */
   toolCallId?: string;
+  /**
+   * Open the full-window viewer on mount, as a click on the card would. The Skills tab's "Record
+   * skill" arrives with it, so the person lands with Record your steps in front of them. Nothing
+   * is pressed for them: taking over the Bot's browser stays their press.
+   */
+  openExpanded?: boolean;
+  /** Called once when `openExpanded` has opened the viewer, so the caller can forget the request. */
+  onExpandedOnce?: () => void;
 };
 
 /** How often a desktop preview nobody is driving asks for a frame. */
@@ -165,6 +173,8 @@ export function ComputerView({
   page,
   finished,
   toolCallId,
+  openExpanded = false,
+  onExpandedOnce,
 }: Props) {
   const [shot, setShot] = useState<Screenshot | null>(null);
   /**
@@ -176,7 +186,17 @@ export function ComputerView({
    */
   const [desktop, setDesktop] = useState<Desktop | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(openExpanded);
+  /*
+   * The request to open is honoured once, on the render it arrives with, and reported back so the
+   * address forgets it. A later true (the same address re-entered) opens the viewer again, which
+   * is what re-entering it asks for.
+   */
+  useEffect(() => {
+    if (!openExpanded) return;
+    setExpanded(true);
+    onExpandedOnce?.();
+  }, [openExpanded, onExpandedOnce]);
   /**
    * A finished turn is history, and history is not polled.
    *

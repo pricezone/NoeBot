@@ -1082,6 +1082,36 @@ describe("skills a package ships", () => {
     ).toEqual([]);
   });
 
+  test("the Noë Bot package ships the skills behind Grok Bot's jobs, each a valid entry", async () => {
+    const skillsYaml = await Bun.file(
+      new URL("../../examples/noebot/skills.yaml", import.meta.url),
+    ).text();
+    const { skills } = validateTenantPackage({ ...base, skills: skillsYaml });
+    expect(skills).toHaveLength(28);
+    const slugs = skills.map((skill) => skill.slug);
+    for (const slug of [
+      "prepare-inbox-replies",
+      "prep-for-meetings",
+      "morning-brief",
+      "research-a-decision",
+      "research-accounts-and-outreach",
+      "source-candidates",
+      "review-campaign-spend",
+      "reconcile-expenses",
+      "investigate-a-regression",
+      "reproduce-a-bug",
+      "account-health-watchlist",
+      "summarise-a-document",
+      "pull-the-weekly-report",
+    ]) {
+      expect(slugs).toContain(slug);
+    }
+    // Every new one names what it must never do on its own.
+    for (const skill of skills.slice(15)) {
+      expect(skill.instructions).toMatch(/Never /);
+    }
+  });
+
   test("a skill carries its declared tools through unaltered", () => {
     const { skills } = validateTenantPackage({
       ...base,

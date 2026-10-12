@@ -9,6 +9,7 @@ import {
   PageSection,
   PageShell,
 } from "@/components/layout/page-shell";
+import { SkillBots } from "@/components/skills/skill-bots";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -32,12 +33,9 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import { useBotNames } from "@/lib/agents/bot-names";
-import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
-  setPluginGrantMutationOptions,
 } from "@/lib/plugins/mutations";
 import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
 
@@ -59,8 +57,6 @@ const EMPTY_DRAFT = { slug: "", title: "", summary: "", instructions: "" };
 function RouteComponent() {
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
-  const { data: agents } = useQuery(agentListQueryOptions());
-  const nameFor = useBotNames();
 
   const [error, setError] = useState<string | null>(null);
   const [writing, setWriting] = useState(false);
@@ -75,15 +71,7 @@ function RouteComponent() {
     ...removeSkillMutationOptions(queryClient),
     ...report,
   });
-  const setGrant = useMutation({
-    ...setPluginGrantMutationOptions(queryClient),
-    ...report,
-  });
 
-  const bots = (agents ?? []).map((agent: { id: string }) => ({
-    id: agent.id,
-    name: nameFor(agent.id),
-  }));
   const skills = plugins.data?.skills ?? [];
 
   return (
@@ -128,45 +116,39 @@ function RouteComponent() {
                         /{skill.slug}
                       </code>{" "}
                       {skill.title}
+                      {/*
+                       * A default skill — the package's, or a plugin's — is read-only here and
+                       * everywhere: the package rewrites its own on every boot, and a plugin's
+                       * goes with the plugin. Said on the row, so Remove is not offered and
+                       * refused.
+                       */}
+                      {skill.origin !== "yours" ? (
+                        <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Default
+                        </span>
+                      ) : null}
                     </ItemTitle>
                     <ItemDescription>{skill.summary}</ItemDescription>
                     {/* A set, so it wraps onto its own line rather than crowding the title. */}
                     <ItemFooter>
-                      <div className="flex flex-wrap gap-2">
-                        {bots.map((bot) => {
-                          const held = skill.grantedTo.includes(bot.id);
-                          return (
-                            <Button
-                              key={bot.id}
-                              onClick={() =>
-                                setGrant.mutate({
-                                  agentId: bot.id,
-                                  granted: !held,
-                                  kind: "skill",
-                                  ref: skill.slug,
-                                })
-                              }
-                              size="sm"
-                              type="button"
-                              variant={held ? "default" : "outline"}
-                            >
-                              {bot.name}
-                            </Button>
-                          );
-                        })}
-                      </div>
+                      <SkillBots
+                        grantedTo={skill.grantedTo}
+                        slug={skill.slug}
+                      />
                     </ItemFooter>
                   </ItemContent>
-                  <ItemActions>
-                    <Button
-                      onClick={() => removeSkill.mutate(skill.slug)}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Remove
-                    </Button>
-                  </ItemActions>
+                  {skill.origin === "yours" ? (
+                    <ItemActions>
+                      <Button
+                        onClick={() => removeSkill.mutate(skill.slug)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Remove
+                      </Button>
+                    </ItemActions>
+                  ) : null}
                 </Item>
                 {index !== skills.length - 1 && <Separator />}
               </React.Fragment>

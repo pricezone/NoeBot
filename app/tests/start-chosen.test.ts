@@ -114,3 +114,21 @@ test("a new channel asked to open on the Computer tab says so in its search", ()
     panel: "computer",
   });
 });
+
+test("a new channel asked to record opens the Computer tab full-window, and the route keeps both", () => {
+  const target = startedChannelTarget("channel_1", {
+    panel: "computer",
+    record: true,
+  });
+  expect(target.search).toEqual({ panel: "computer", record: true });
+  expect(botPanelSearchSchema.parse(target.search)).toEqual({
+    panel: "computer",
+    record: true,
+  });
+  // `record` without a panel is nothing to open: the option is only read with one.
+  expect(startedChannelTarget("channel_1", { record: true })).toEqual({
+    params: { channelId: "channel_1" },
+    replace: true,
+    to: "/channel/$channelId",
+  });
+});

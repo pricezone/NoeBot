@@ -25,7 +25,7 @@ const skill = (over: Partial<PluginSkill> = {}): PluginSkill => ({
   title: "Check a claim against a source",
   summary: "Take a statement and check it against the documents.",
   instructions: "You are checking a claim, not answering a question.",
-  origin: "package",
+  origin: "catalogue",
   installedBy: null,
   pluginId: null,
   offeredToAllBots: false,

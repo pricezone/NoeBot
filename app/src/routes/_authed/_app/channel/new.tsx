@@ -97,13 +97,28 @@ function isOn(value: unknown): boolean {
  *   asked is who the conversation is with, rather than the default Bot answering for the person.
  * - `group`: the field starts as a list of Bots for a group conversation; `/group/new` lands here.
  */
-type ChannelNewSearch = { agent?: string; compose?: 1; group?: 1 };
+/*
+ * - `panel` / `record`: carried into the conversation once it exists. The Skills tab's "Record
+ *   skill" lands here with a Bot that has no conversation yet and `panel=computer&record=true`,
+ *   and the new channel opens on the Bot's screen, full-window, ready to record.
+ */
+type ChannelNewSearch = {
+  agent?: string;
+  compose?: 1;
+  group?: 1;
+  panel?: "computer";
+  record?: true;
+};
 
 export const Route = createFileRoute("/_authed/_app/channel/new")({
   validateSearch: (search: Record<string, unknown>): ChannelNewSearch => ({
     ...(typeof search.agent === "string" ? { agent: search.agent } : {}),
     ...(isOn(search.compose) ? { compose: 1 as const } : {}),
     ...(isOn(search.group) ? { group: 1 as const } : {}),
+    ...(search.panel === "computer" ? { panel: "computer" as const } : {}),
+    ...(search.record === true || search.record === "true"
+      ? { record: true as const }
+      : {}),
   }),
   component: RouteComponent,
 });
@@ -125,7 +140,7 @@ function BotRowContent({ bot }: { bot: AgentProfile }) {
 }
 
 function RouteComponent() {
-  const { agent, compose, group } = Route.useSearch();
+  const { agent, compose, group, panel, record } = Route.useSearch();
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
   const { startChosen, pending } = useStartChannel();
@@ -476,7 +491,10 @@ function RouteComponent() {
               await startChosen(
                 recipient.id,
                 draft.text,
-                firstRun ? { panel: "computer" } : undefined,
+                // The screen opens on a first run, or when the address asked for it (a recording).
+                firstRun || panel === "computer"
+                  ? { panel: "computer", ...(record ? { record: true } : {}) }
+                  : undefined,
               );
             }
           } catch (caught) {

@@ -164,7 +164,7 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
    * a provider this app does not mount.
    */
   const stopped = useStoppedTurn(agentId);
-  const { panel } = Route.useSearch();
+  const { panel, record } = Route.useSearch();
   const navigate = Route.useNavigate();
   const setPanel = useCallback(
     (tab: BotPanelTab | undefined) =>
@@ -174,6 +174,15 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
     [navigate],
   );
   const botPanel = useBotPanel({ computerAgentId: agentId, panel, setPanel });
+  /* `?record` is spent the moment the viewer opens: Back and a reload must not reopen it. */
+  const onComputerOpened = useCallback(
+    () =>
+      void navigate({
+        replace: true,
+        search: (previous) => ({ ...previous, record: undefined }),
+      }),
+    [navigate],
+  );
 
   return (
     <DetailPanel
@@ -187,7 +196,9 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
         <BotPanel
           agentId={agentId}
           name={name}
+          onComputerOpened={onComputerOpened}
           onTabChange={botPanel.setTab}
+          openComputer={record === true}
           tab={botPanel.tab}
         />
       }

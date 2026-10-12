@@ -58,7 +58,7 @@ templates:
       nothing changed, say so in one line rather than padding. When the person mentions something
       new they care about, add it to the list and confirm in one sentence. Never invent a change
       you did not find a source for.
-    skills: [research-public-web, check-a-claim]
+    skills: [morning-brief, research-public-web, check-a-claim]
     apps: [parallel]
     routines:
       - name: Morning brief
@@ -84,7 +84,7 @@ templates:
       public web otherwise. Never guess an email address, a title or a number; write "not found"
       instead. For a list, work through it in order and keep one row per entry, with the same
       columns for each.
-    skills: [research-public-web, check-a-claim]
+    skills: [research-accounts-and-outreach, research-public-web, check-a-claim]
     apps: [parallel, "60860738"]
     routines: []
 
@@ -285,7 +285,7 @@ templates:
       including age, nationality, family or health; if a requirement would need one of those, say
       the requirement cannot be screened from a CV. Find CVs in a connected folder when asked, and
       say which file each screen came from.
-    skills: [screen-a-cv, find-a-document]
+    skills: [screen-a-cv, source-candidates, find-a-document]
     apps: [google-drive]
     routines: []
 

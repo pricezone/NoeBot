@@ -10,15 +10,23 @@ import { ComputerView } from "@/components/computer/computer-view";
  * sized by the panel rather than by its own minimums, so a 320px panel gets a 16:10 card that
  * fits. `paused` stops the frame polling while another tab is in front: the panel keeps this
  * mounted so a switch back is instant, and a hidden card must not keep a request a second going.
+ *
+ * `openExpanded` opens the viewer without the click — the Skills tab's "Record skill" arrives
+ * that way, so the person lands with Record your steps in front of them — and `onOpened` says
+ * when it has, so the page can drop the request from its address.
  */
 export function ComputerTab({
   agentId,
   name,
   paused,
+  openExpanded,
+  onOpened,
 }: {
   agentId: string;
   name: string;
   paused: boolean;
+  openExpanded?: boolean;
+  onOpened?: () => void;
 }) {
   return (
     <section aria-label="Computer sidebar" className="flex flex-col gap-6">
@@ -30,6 +38,8 @@ export function ComputerTab({
         minHeight={0}
         minWidth={0}
         name={name}
+        onExpandedOnce={onOpened}
+        openExpanded={openExpanded}
         paused={paused}
       />
       <div>

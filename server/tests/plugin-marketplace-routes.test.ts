@@ -629,6 +629,34 @@ describe("a plugin's parts stay with the plugin", () => {
     ).toBe(404);
   });
 
+  test("a package skill is read-only for an administrator too; narrowing it is not an edit", async () => {
+    const { calls, request } = harness({
+      role: "admin",
+      skills: [skillRecord("check-a-claim", null)],
+    });
+    const saved = await request(
+      "/skills",
+      json({
+        slug: "check-a-claim",
+        title: "Mine now",
+        instructions: "Replaced.",
+      }),
+    );
+    expect(saved.status).toBe(409);
+    expect((await saved.json()).error).toContain(
+      "ships with this deployment's package",
+    );
+    expect(
+      (await request("/skills/check-a-claim", { method: "DELETE" })).status,
+    ).toBe(409);
+    const narrowed = await request(
+      "/skills/check-a-claim/offer-to-all",
+      json({ on: false }),
+    );
+    expect(narrowed.status).toBe(200);
+    expect(calls.skillOffers).toEqual([{ slug: "check-a-claim", on: false }]);
+  });
+
   test("the skill switch is an administrator's", async () => {
     const { request } = harness({
       skills: [skillRecord("treg-treg", TREG.id)],

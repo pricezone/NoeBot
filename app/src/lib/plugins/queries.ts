@@ -130,7 +130,13 @@ export type PluginSkill = {
   title: string;
   summary: string;
   instructions: string;
-  origin: string;
+  /**
+   * Where it came from: `yours` for one somebody here wrote (a person's own, or an
+   * administrator's for everybody), `catalogue` for one the deployment's package ships, `plugin`
+   * for one a Marketplace plugin brought. Only `yours` is editable here; the other two are
+   * rewritten by what shipped them.
+   */
+  origin: "yours" | "catalogue" | "plugin";
   installedBy: string | null;
   /** The Marketplace plugin this skill came with, and null for every other origin. */
   pluginId: string | null;

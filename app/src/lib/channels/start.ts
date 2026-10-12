@@ -39,6 +39,12 @@ export type StartChannelOptions = {
    * that tab's screenshot poll is what starts the Bot's browser.
    */
   panel?: BotPanelTab;
+  /**
+   * Open the Bot's screen full-window on arrival, for a recording. Carried through from
+   * `/channel/new?record=true`, which is where the Skills tab's "Record skill" lands when the Bot
+   * has no conversation yet. Only meaningful with `panel: "computer"`.
+   */
+  record?: boolean;
 };
 
 /**
@@ -53,7 +59,14 @@ export function startedChannelTarget(
     params: { channelId },
     replace: true,
     to: "/channel/$channelId",
-    ...(options.panel ? { search: { panel: options.panel } } : {}),
+    ...(options.panel
+      ? {
+          search: {
+            panel: options.panel,
+            ...(options.record ? { record: true } : {}),
+          },
+        }
+      : {}),
   } as const;
 }
 

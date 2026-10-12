@@ -76,6 +76,13 @@ export const botPanelSearchShape = {
   panel: z.enum(BOT_PANEL_TABS).optional(),
   settings: z.boolean().optional(),
   watch: z.boolean().optional(),
+  /**
+   * Open the Bot's screen full-window on arrival, with Record your steps in reach: the Skills
+   * tab's "Record skill" lands here with `panel=computer&record=true`. Consumed once — the page
+   * drops it from the address as soon as the viewer has opened, so Back and a reload do not
+   * reopen it.
+   */
+  record: z.boolean().optional(),
 };
 
 type LegacyPanelSearch = {

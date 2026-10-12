@@ -4,7 +4,7 @@ import { AgentDialog } from "@/components/agents/agent-dialog";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import { Tabs, TabsList, TabsPanel, TabsTrigger } from "@/components/ui/tabs";
 import { agentQueryOptions } from "@/lib/agents/queries";
-import { type BotPanelTab, BOT_PANEL_TABS } from "@/lib/bot-panel";
+import { BOT_PANEL_TABS, type BotPanelTab } from "@/lib/bot-panel";
 import { brand } from "@/lib/brand";
 import { ComputerTab } from "./computer-tab";
 import { DetailsTab, ParticipantsTab } from "./details-tab";
@@ -36,6 +36,8 @@ export function BotPanel({
   tab,
   onTabChange,
   participants,
+  openComputer,
+  onComputerOpened,
 }: {
   agentId: string;
   name: string;
@@ -43,6 +45,10 @@ export function BotPanel({
   onTabChange: (tab: BotPanelTab) => void;
   /** The Bots in a group; given, the panel is the group's and shows Details only. */
   participants?: BotPanelParticipant[];
+  /** Open the Bot's screen full-window as soon as it mounts (`?record=true`). */
+  openComputer?: boolean;
+  /** Called once the full-window viewer has opened for `openComputer`, so the page can forget it. */
+  onComputerOpened?: () => void;
 }) {
   const isGroup = participants !== undefined;
   const tabs: readonly BotPanelTab[] = isGroup ? ["details"] : BOT_PANEL_TABS;
@@ -101,6 +107,8 @@ export function BotPanel({
               <ComputerTab
                 agentId={agentId}
                 name={name}
+                onOpened={onComputerOpened}
+                openExpanded={openComputer}
                 paused={shown !== "computer"}
               />
             </TabsPanel>

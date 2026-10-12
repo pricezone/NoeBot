@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_authed/_app/channel/$channelId")({
 
 function RouteComponent() {
   const { channelId } = Route.useParams();
-  const { panel } = Route.useSearch();
+  const { panel, record } = Route.useSearch();
   const channel = useQuery(channelQueryOptions(channelId));
   const navigate = Route.useNavigate();
   /** Channel routing currently supports one coworker. */
@@ -86,6 +86,15 @@ function RouteComponent() {
     [navigate],
   );
   const botPanel = useBotPanel({ computerAgentId: agentId, panel, setPanel });
+  /* `?record` is spent the moment the viewer opens: Back and a reload must not reopen it. */
+  const onComputerOpened = useCallback(
+    () =>
+      void navigate({
+        replace: true,
+        search: (previous) => ({ ...previous, record: undefined }),
+      }),
+    [navigate],
+  );
 
   return (
     <DetailPanel
@@ -101,7 +110,9 @@ function RouteComponent() {
             agentId={agentId}
             key={agentId}
             name={name}
+            onComputerOpened={onComputerOpened}
             onTabChange={botPanel.setTab}
+            openComputer={record === true}
             tab={botPanel.tab}
           />
         )
