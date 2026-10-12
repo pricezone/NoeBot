@@ -412,3 +412,37 @@ test("a failed REFETCH on / with explore empty shows it as empty, not broken", a
     ),
   ).toBeNull();
 });
+
+test("a failed templates read offers Try again, and the retry draws the templates", async () => {
+  let attempts = 0;
+  serving({
+    templates: [
+      template({
+        id: "retry-1",
+        name: "retry",
+        title: "Back after a retry",
+        featured: true,
+      }),
+    ],
+  });
+  const servingFetch = global.fetch;
+  // The first templates read is the one a stalled server answers with nothing; `client()` turns
+  // a bare 500 into the fallback sentence. Everything after it is served.
+  global.fetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(request);
+    if (url.startsWith("/api/bot-templates") && init?.method !== "POST") {
+      attempts += 1;
+      if (attempts === 1) return new Response(null, { status: 500 });
+    }
+    return servingFetch(request, init);
+  }) as unknown as typeof fetch;
+  const { view } = renderMarket(failingQueryClient());
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  expect(
+    await view.findByText("Bot templates could not be loaded."),
+  ).toBeTruthy();
+  await user.click(view.getByRole("button", { name: "Try again" }));
+  expect(await view.findByTestId("featured-retry-1")).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+  expect(attempts).toBe(2);
+});

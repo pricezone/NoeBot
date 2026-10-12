@@ -244,9 +244,20 @@ export function TemplateMarket({
           <Skeleton className="mt-6 h-[180px]" />
         ) : templates.isError && !templates.data ? (
           /* In the read's own words, so what went wrong can be read off the screen. */
-          <p className="mt-6 text-destructive text-sm" role="alert">
-            {templates.error?.message || "Bot templates couldn't be loaded."}
-          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <p className="text-destructive text-sm" role="alert">
+              {templates.error?.message || "Bot templates couldn't be loaded."}
+            </p>
+            <Button
+              disabled={templates.isFetching}
+              onClick={() => void templates.refetch()}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Try again
+            </Button>
+          </div>
         ) : (
           <>
             {featured.length > 0 ? (

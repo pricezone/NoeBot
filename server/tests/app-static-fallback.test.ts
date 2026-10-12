@@ -24,11 +24,12 @@ async function appServingBuiltFiles() {
   const botTemplates = new Hono().get("/", (context) =>
     context.json({ templates: [] }),
   );
-  // createApp takes positional dependencies; `coworker` is the second-to-last parameter, before
-  // `selfHostBanner`. Placed by the function's own arity so an appended parameter cannot shift it.
+  // createApp takes positional dependencies; `coworker` is the third-to-last parameter, before
+  // `selfHostBanner` and `health`. Placed by the function's own arity so an appended parameter
+  // cannot shift it.
   const args: never[] = Array.from({ length: createApp.length }) as never[];
   args[0] = loadConfig(testEnvironment({ APP_DIST_DIR: root })) as never;
-  args[createApp.length - 2] = { botTemplates } as never;
+  args[createApp.length - 3] = { botTemplates } as never;
   return createApp(...args);
 }
 

@@ -157,7 +157,8 @@ import {
   createCredentialStore,
   resolveModelApiKey,
 } from "./credentials";
-import { createDatabase } from "./db/client";
+import { createDatabase, probeDatabase } from "./db/client";
+import { startPoolWatchdog } from "./db/watchdog";
 import {
   channelAgents,
   channelMemberships,
@@ -339,6 +340,28 @@ clearLearningRevisionFallback();
 // `serverPort` in config.ts for what `process.env.PORT ?? …` did with `PORT=` instead.
 const port = config.port;
 const database = createDatabase(config.databaseUrl);
+/*
+ * A pool that stops answering ends the process, and the supervisor's restart policy starts a fresh
+ * one. Every image this server ships in restarts it (Docker's `--restart unless-stopped`, Fly's
+ * machine policy, s6 in the all-in-one image); what none of them can do is notice a process that
+ * accepts connections and never answers from the database, which is what this notices. See
+ * db/watchdog.ts for the incident.
+ */
+const poolWatchdog = startPoolWatchdog({
+  pooled: () => database.execute(sql`select 1`),
+  fresh: () => probeDatabase(config.databaseUrl),
+  log: (line) => console.error(JSON.stringify(line)),
+  onWedged: ({ strikes }) => {
+    console.error(
+      JSON.stringify({
+        type: "database-pool-wedged-exit",
+        strikes,
+        note: "The database pool stopped answering while a fresh connection still reaches the database. Exiting so the supervisor starts a fresh process.",
+      }),
+    );
+    process.exit(1);
+  },
+});
 // Every dispatch point asks this database whether its person paused the Bot. See agents/lifecycle.ts.
 configureBotLifecycle({ database });
 const learningSettings = createLearningSettingsStore(database, config.learning);
@@ -2978,9 +3001,13 @@ const botTemplateRoutes = createTemplateRoutes({
   // On the package's authority: it wrote both the skill and the template that names it.
   grantSkill: (slug, agentId, by) =>
     pluginStore.grant("skill", slug, agentId, by),
-  appInstalled: async (key) =>
-    (await pluginStore.serverExists(key)) ||
-    (await pluginStore.listPlugins()).some((plugin) => plugin.id === key),
+  installedApps: async () => {
+    const [serverIds, plugins] = await Promise.all([
+      pluginStore.listServerIds(),
+      pluginStore.listPlugins(),
+    ]);
+    return new Set([...serverIds, ...plugins.map((plugin) => plugin.id)]);
+  },
   dto: (actor, agent) => ({
     ...agentDto(actor, agent),
     builtIn:
@@ -3191,6 +3218,12 @@ const app = createApp(
     enabled: config.selfHostBanner,
     entitlements: () => selfHostBannerIntelligence.getRuntimeEntitlements(),
   }),
+  // `/health`: ok until the watchdog's first check says otherwise, so a boot is not a 503 for its
+  // first fifteen seconds.
+  () => {
+    const state = poolWatchdog.state();
+    return { ok: state === "ok" || state === "unknown", database: state };
+  },
 );
 
 /**
@@ -3436,6 +3469,7 @@ if (config.singleUser) {
 // so a watch-mode restart does not leave two behind on every reload.
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
+    poolWatchdog.stop();
     responsibilitySweep.stop();
     wakeUpSweep.stop();
     wakeUpReaper.stop();

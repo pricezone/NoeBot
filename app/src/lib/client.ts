@@ -28,6 +28,42 @@ export type ClientOptions = {
   signal?: AbortSignal;
 };
 
+/**
+ * A signal that aborts after `ms` with `message` as its reason, or as soon as `outer` aborts.
+ *
+ * For a read that must not hold a skeleton forever. A server whose database pool has stopped
+ * answering accepts the connection and never writes a byte, and a fetch with no deadline then
+ * waits as long as the browser will, which is minutes; the query behind it stays pending, and the
+ * tab stays a skeleton with nothing to press. With this, the read fails in the sentence the caller
+ * chose, TanStack's retry gets its turn, and the page can offer to try again. `fetch` rejects with
+ * the signal's reason, which is why the reason is an Error carrying the sentence and not a
+ * DOMException carrying a generic one.
+ */
+export function withTimeout(
+  ms: number,
+  message: string,
+  outer?: AbortSignal,
+): AbortSignal {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(message)), ms);
+  // Node and Bun timers hold the event loop open; a browser's are numbers.
+  (timer as { unref?: () => void }).unref?.();
+  if (outer?.aborted) {
+    clearTimeout(timer);
+    controller.abort(outer.reason);
+  } else {
+    outer?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        controller.abort(outer.reason);
+      },
+      { once: true },
+    );
+  }
+  return controller.signal;
+}
+
 /** Every request in this app is authenticated, and every one of them is JSON or nothing. */
 async function send(path: string, options: ClientOptions): Promise<Response> {
   return fetch(path, {

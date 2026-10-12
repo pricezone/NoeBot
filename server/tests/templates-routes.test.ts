@@ -78,7 +78,7 @@ function harness(input: { grantFails?: string } = {}) {
       if (slug === input.grantFails) throw new Error("skill is gone");
       granted.push({ slug, agentId, by });
     },
-    appInstalled: async (key) => key === "parallel",
+    installedApps: async () => new Set(["parallel"]),
     dto: (_actor, agent) => ({ id: agent.id, name: agent.name, builtIn: true }),
   });
   const app = new Hono().route("/api/bot-templates", routes);

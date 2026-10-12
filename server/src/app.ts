@@ -437,12 +437,26 @@ export function createApp(
    * resolver still answers from `config.selfHostBanner` rather than asking the network.
    */
   selfHostBanner?: SelfHostBanner,
+  /**
+   * What `/health` answers from. Absent, the route says ok whenever the process answers — what it
+   * said before the pool watchdog (`db/watchdog.ts`) existed, and what a test without one still
+   * wants. Present, a pool that has stopped answering or a database nobody can reach is a 503, so a
+   * supervisor's health check learns what the person at the screen already knows.
+   */
+  health?: () => { ok: boolean; database: string },
 ) {
   const app = new Hono<{ Variables: AppVariables }>();
   mountDesktopConnectionFailure(app, desktopHostToken);
   mountProviderOAuthProxy(app, modelProviderProxy);
 
-  app.get("/health", (context) => context.json({ status: "ok" }));
+  app.get("/health", (context) => {
+    const report = health?.();
+    if (!report) return context.json({ status: "ok" });
+    return context.json(
+      { status: report.ok ? "ok" : "degraded", database: report.database },
+      report.ok ? 200 : 503,
+    );
+  });
   // Projected, never the raw runtime. config.runtime carries the Intelligence contract, including
   // INTELLIGENCE_API_KEY and the licence token, and this endpoint is reachable by anyone. Returning
   // the object wholesale would serve deployment secrets to the browser. Add fields here explicitly.

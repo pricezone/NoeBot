@@ -27,6 +27,8 @@ Regenerate it with `bun run diagram` after changing anything it shows.
 
 The compose file also defines optional SPIRE services. `start.sh` does not start them.
 
+`server` answers `GET /health` for whoever supervises it. It is not only "the process is up": a watchdog (`server/src/db/watchdog.ts`) runs a trivial query through the database pool every fifteen seconds, and once that query stops answering, `/health` is a 503 that says why — `wedged` when a connection of its own still reaches the database (the pool will never answer again; the process exits after the second such check and the supervisor's restart policy starts a fresh one), or `unreachable` when nothing reaches it (the process stays, since a restart would not bring the database back). Both images carry a `HEALTHCHECK` on that route.
+
 ## Runtime flow
 
 1. The app opens a channel or direct Bot session.

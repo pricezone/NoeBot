@@ -146,3 +146,22 @@ export function createDatabase(
 }
 
 export type Database = ReturnType<typeof createDatabase>;
+
+/**
+ * One query on a connection of its own, opened for the question and closed after it.
+ *
+ * For the pool watchdog (`watchdog.ts`): when the shared pool stops answering, this is what tells
+ * a pool that has wedged from a database that nobody can reach. It takes the address rather than
+ * the pool on purpose, and `createDatabase` has already removed `$DATABASE_URL` from the
+ * environment, so the parts are what reach Bun here as well.
+ */
+export async function probeDatabase(databaseUrl: string): Promise<void> {
+  const client = new SQL({ ...addressOf(databaseUrl), max: 1 });
+  try {
+    await client`select 1`;
+  } finally {
+    // Bounded: a close that waits on a connection the server has stopped answering would otherwise
+    // hold the check open, and the check is what decides whether the process is still useful.
+    await client.close({ timeout: 2 }).catch(() => undefined);
+  }
+}

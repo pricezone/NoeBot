@@ -44,8 +44,13 @@ export type TemplateRouteDeps = {
    * package may seed skills onto its stock coworkers at all. The same reasoning, one Bot later.
    */
   grantSkill: (slug: string, agentId: string, by: string) => Promise<void>;
-  /** Whether an app is already here: a server row for a catalogue key, or an installed plugin. */
-  appInstalled: (key: string) => Promise<boolean>;
+  /**
+   * The keys of every app already here — server rows for catalogue keys, and installed plugins —
+   * read ONCE per listing. This used to be a per-key lookup, and the listing ran it for every app of
+   * every template at the same time: forty-two queries for fourteen templates, racing the
+   * Marketplace's other reads on every open of the Agents tab. One read answers the lot.
+   */
+  installedApps: () => Promise<ReadonlySet<string>>;
   /** The Bot as `/api/agents` answers it, so a template's Bot is the same shape as any other. */
   dto: (actor: AgentActor, agent: AgentProfile) => Record<string, unknown>;
   auditStore?: AuditStore;
@@ -54,14 +59,14 @@ export type TemplateRouteDeps = {
 export function createTemplateRoutes(deps: TemplateRouteDeps) {
   const routes = new Hono<{ Variables: AppVariables }>();
 
-  const appFor = async (key: string): Promise<TemplateApp> => {
+  const appFor = (key: string, installed: ReadonlySet<string>): TemplateApp => {
     const entry = catalogueEntry(key);
     if (entry) {
       return {
         key,
         title: entry.title,
         logoUrl: null,
-        installed: await deps.appInstalled(key),
+        installed: installed.has(key),
         kind: "catalogue",
       };
     }
@@ -70,30 +75,29 @@ export function createTemplateRoutes(deps: TemplateRouteDeps) {
       key,
       title: plugin?.displayName ?? key,
       logoUrl: plugin?.logoUrl ?? null,
-      installed: await deps.appInstalled(key),
+      installed: installed.has(key),
       kind: "plugin",
     };
   };
 
   /** Every template, with its skills and apps expanded to what the page draws. */
   routes.get("/", deps.requireUser, async (context) => {
-    const templates = await Promise.all(
-      deps.templates.map(async (template) => ({
-        id: template.id,
-        name: template.name,
-        title: template.title,
-        creator: template.creator,
-        categories: template.categories,
-        summary: template.summary,
-        description: template.description,
-        instructions: template.instructions,
-        avatar: template.avatar,
-        skills: template.skills,
-        apps: await Promise.all(template.apps.map(appFor)),
-        routines: template.routines,
-        featured: template.featured,
-      })),
-    );
+    const installed = await deps.installedApps();
+    const templates = deps.templates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      title: template.title,
+      creator: template.creator,
+      categories: template.categories,
+      summary: template.summary,
+      description: template.description,
+      instructions: template.instructions,
+      avatar: template.avatar,
+      skills: template.skills,
+      apps: template.apps.map((key) => appFor(key, installed)),
+      routines: template.routines,
+      featured: template.featured,
+    }));
     return context.json({ templates });
   });
 

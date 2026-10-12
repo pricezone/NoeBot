@@ -4958,6 +4958,14 @@ export function createPluginStore(options: PluginStoreOptions) {
      * ({@link GrantOnWithdrawnTool}), held and not offered, because what a vendor advertises today
      * is not what somebody decided yesterday. A grant naming no app at all is not that state.
      */
+    /** Every server's id, for a caller that would otherwise ask `serverExists` many times at once. */
+    async listServerIds(): Promise<string[]> {
+      const rows = await database
+        .select({ id: mcpServers.id })
+        .from(mcpServers);
+      return rows.map((row) => row.id);
+    },
+
     async serverExists(serverId: string): Promise<boolean> {
       if (!serverId) return false;
       const [row] = await database

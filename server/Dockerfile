@@ -6,7 +6,7 @@
 #
 # Multi-stage so the build's dependencies do not ship. Non-root because nothing here needs to be.
 
-FROM oven/bun:1.3.14 AS deps
+FROM oven/bun:1.4.2 AS deps
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ COPY examples examples
 RUN bun run --cwd app build
 
 
-FROM oven/bun:1.3.14 AS runtime
+FROM oven/bun:1.4.2 AS runtime
 
 # Not root. The API opens a socket and talks to Postgres; neither needs privileges, and a Chromium
 # container is a separate image with its own reasons.
@@ -66,6 +66,12 @@ ENV PORT=3001
 EXPOSE 3001
 
 WORKDIR /app/server
+
+# `/health` answers 503 once the pool watchdog (src/db/watchdog.ts) finds the database pool wedged or
+# the database unreachable, so `docker ps` says unhealthy before anybody opens the app. The watchdog
+# itself ends the process on a wedge; the supervisor's restart policy is what starts a fresh one.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD bun -e "const r = await fetch('http://127.0.0.1:' + (process.env.PORT ?? 3001) + '/health'); process.exit(r.ok ? 0 : 1)"
 
 # Migrations are a release step, not a start step: two replicas starting together would race, and a
 # failed migration should stop a deploy rather than leave a half-migrated database serving.

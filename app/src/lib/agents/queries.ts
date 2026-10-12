@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import type { TemplateCategory } from "../../../../shared/templates";
-import { client, tryClient } from "@/lib/client";
+import { client, tryClient, withTimeout } from "@/lib/client";
 
 export type AgentVisibility = "public" | "private";
 
@@ -119,12 +119,20 @@ export const templateKeys = {
   all: ["bot-templates"] as const,
 };
 
+/** How long the Agents tab waits for the templates before it says so and offers to try again. */
+const TEMPLATES_TIMEOUT_MS = 20_000;
+
 export function templateListQueryOptions() {
   return queryOptions({
     queryKey: templateKeys.all,
-    queryFn: (): Promise<BotTemplate[]> =>
+    queryFn: ({ signal }): Promise<BotTemplate[]> =>
       client("/api/bot-templates", "templates", {
         fallback: "Bot templates could not be loaded.",
+        signal: withTimeout(
+          TEMPLATES_TIMEOUT_MS,
+          "Bot templates took too long to load.",
+          signal,
+        ),
       }),
   });
 }
