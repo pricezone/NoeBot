@@ -148,3 +148,96 @@ test("a change goes to the server's gate even when nothing about approvals has l
     global.fetch = originalFetch;
   }
 });
+
+/**
+ * A gate that says no, or cannot answer, is a RESULT for the Bot, not a thrown handler.
+ *
+ * Thrown, the SDK ends the turn with nothing persisted and the person sees a step that was never
+ * completed. Returned with `ok: false`, the transcript draws the reason and the Bot can say so, try
+ * again, or ask. A 503 (the conversation service did not answer) is tried once more before that.
+ */
+test("a refused or unavailable gate comes back as a failed result, after one retry on 503", async () => {
+  const answers = [
+    {
+      status: 503,
+      body: { error: "The conversation service did not answer." },
+    },
+    {
+      status: 400,
+      body: {
+        error: "That unanswered tool call is not saved in this conversation.",
+      },
+    },
+  ];
+  const posted: string[] = [];
+  const originalFetch = global.fetch;
+  global.fetch = Object.assign(
+    async (path: Parameters<typeof fetch>[0]) => {
+      posted.push(String(path));
+      const answer = answers.shift() ?? {
+        status: 500,
+        body: { error: "unexpected" },
+      };
+      return Response.json(answer.body, { status: answer.status });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Tools />
+      </QueryClientProvider>,
+    );
+    const tool = registered.find((entry) => entry.name === "computer_click");
+    const toolCall = {
+      id: "click-call-2",
+      type: "function" as const,
+      function: {
+        name: "computer_click",
+        arguments: '{"ref":"e8","snapshotId":4}',
+      },
+    };
+    const subscribers: {
+      onRunInitialized?: (input: { input: unknown }) => void;
+    }[] = [];
+    const agent = {
+      threadId: "thread",
+      state: {},
+      messages: [
+        { id: "u1", role: "user", content: "Open it" },
+        { id: "a1", role: "assistant", content: "", toolCalls: [toolCall] },
+      ],
+      subscribe: (subscriber: (typeof subscribers)[number]) => {
+        subscribers.push(subscriber);
+        return { unsubscribe: () => undefined };
+      },
+    };
+    const stop = observeApprovalAgent(agent as never);
+    for (const subscriber of subscribers)
+      subscriber.onRunInitialized?.({
+        input: {
+          runId: "run-2",
+          threadId: "thread",
+          messages: agent.messages,
+          tools: [],
+          context: [],
+          state: {},
+          forwardedProps: {},
+        },
+      });
+    const result = await tool?.handler?.({ ref: "e8", snapshotId: 4 }, {
+      agent,
+      toolCall,
+    } as never);
+    stop();
+    expect(posted).toHaveLength(2);
+    expect(result).toEqual({
+      ok: false,
+      reason: "That unanswered tool call is not saved in this conversation.",
+      retryable: false,
+    });
+    expect(direct).toEqual([]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

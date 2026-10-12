@@ -134,6 +134,12 @@ COPY --from=deps /src/agent-computer/node_modules agent-computer/node_modules
 COPY server server
 COPY shared shared
 COPY examples examples
+# The routines worker: the loop that fires scheduled routines. Its manifest was always in the
+# install above; its source never shipped, so a routine created in this image was saved, scheduled
+# and never run. It imports the server's own modules and resolves its packages from the server's
+# tree, so nothing else is needed for `worker/run` to start it.
+COPY worker/src worker/src
+COPY worker/package.json worker/package.json
 COPY agent-computer/src agent-computer/src
 COPY agent-computer/package.json agent-computer/package.json
 

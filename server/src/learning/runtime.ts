@@ -153,24 +153,20 @@ export function createLearningRuntime(options: {
         throw new Error("Learning Thread assignment requires a verified user.");
       const target = selectLearningTarget(await store.read(), input.agentId);
       if (!target) return undefined;
-      let exists = false;
-      try {
-        await client.getThread({
-          threadId: input.threadId,
-          userId: input.userId,
-        });
-        exists = true;
-      } catch (error) {
-        if (
-          !(
-            error instanceof Error &&
-            error.name === "PlatformRequestError" &&
-            "status" in error &&
-            error.status === 404
-          )
-        )
-          throw error;
-      }
+      /*
+       * Whether the Thread already exists, asked of the platform. A 404 is the expected answer for
+       * a new conversation. Anything else is the platform's trouble, not this conversation's: tried
+       * once more a moment later, and then answered "no container this turn" rather than thrown.
+       *
+       * Thrown, this is what the runtime turned into "Failed to resolve Learning Container" and a
+       * failed turn, before the run had even asked for the Thread: a 502 from the platform ended
+       * every turn on the deployment for the two minutes it lasted, in the name of a feature that is
+       * best-effort by design. Not bound, deliberately: the binding is insert-once, so writing null
+       * here would exclude the Thread from Learning for good, while leaving it unbound lets the next
+       * turn bind it if the Thread was never created.
+       */
+      const exists = await threadExists(client, input, 1);
+      if (exists === undefined) return undefined;
       const containerId = await store.bindThread({
         userId: input.userId,
         threadId: input.threadId,
@@ -201,4 +197,53 @@ export function createLearningRuntime(options: {
     ) => client.getInspectorLearning(input),
   };
 }
+/**
+ * Whether the platform knows the Thread: true, false (a 404), or undefined when it could not say.
+ *
+ * `retries` more attempts follow a failure that is the platform's (a 5xx, an error it marks
+ * retryable, a malformed answer, the network), 300 ms apart. A 4xx other than 404 is not retried:
+ * the platform understood the question and refused it, and asking again changes nothing.
+ */
+async function threadExists(
+  client: Pick<CopilotKitIntelligence, "getThread">,
+  input: Pick<LearningThread, "threadId" | "userId" | "agentId">,
+  retries: number,
+): Promise<boolean | undefined> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await client.getThread({
+        threadId: input.threadId,
+        userId: input.userId,
+      });
+      return true;
+    } catch (error) {
+      const platform =
+        error instanceof Error && error.name === "PlatformRequestError"
+          ? (error as { status?: unknown; retryable?: unknown })
+          : undefined;
+      if (platform?.status === 404) return false;
+      const transient =
+        platform === undefined ||
+        platform.retryable === true ||
+        (typeof platform.status === "number" && platform.status >= 500);
+      if (transient && attempt < retries) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        continue;
+      }
+      console.warn({
+        error: "learning_thread_lookup_failed",
+        context: {
+          agentId: input.agentId,
+          threadId: input.threadId,
+          attempts: attempt + 1,
+          status: typeof platform?.status === "number" ? platform.status : null,
+          name: error instanceof Error ? error.name : "unknown",
+        },
+        timestamp: new Date().toISOString(),
+      });
+      return undefined;
+    }
+  }
+}
+
 export type LearningRuntime = ReturnType<typeof createLearningRuntime>;

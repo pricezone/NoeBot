@@ -29,7 +29,51 @@ export function stoppedReason(reported: unknown): string {
       : typeof reported === "string"
         ? reported
         : "";
-  return said.trim() || "The Bot stopped without saying why.";
+  return plainSentence(said.trim()) || "The Bot stopped without saying why.";
+}
+
+/**
+ * What the runtime answers when a turn cannot start, as the person should read it.
+ *
+ * The SDK reports a run request the server refused as `REST run request failed: <body>`, and the
+ * body is the runtime's own JSON: `{"error":"Failed to resolve Learning Container"}` on a wobble of
+ * the conversation service, `Failed to initialize thread` when the service is down, `Thread lock
+ * denied` while another run holds the conversation. Each is a thing the person can act on, and none
+ * of them reads as one in the raw. Anything without that prefix is somebody's own sentence already
+ * (the stall watchdog's, a refusal's) and goes through untouched.
+ */
+const RUN_REQUEST_FAILED = /^REST (?:run|connect) request failed: ([\s\S]*)$/;
+const SERVICE_SENTENCES: readonly [RegExp, string][] = [
+  [
+    /Failed to resolve Learning Container|Failed to initialize thread/,
+    "The conversation service did not answer, so this turn could not start. Try again in a moment.",
+  ],
+  [
+    /Thread lock denied/,
+    "Another run is still in progress on this conversation. Wait for it to finish, then try again.",
+  ],
+];
+
+export function plainSentence(said: string): string {
+  const match = RUN_REQUEST_FAILED.exec(said);
+  if (!match) return said;
+  const body = match[1] ?? "";
+  let error = body;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "error" in parsed &&
+      typeof parsed.error === "string"
+    )
+      error = parsed.error;
+  } catch {
+    // Not JSON: a proxy's HTML page, or an empty answer. The generic sentence below covers it.
+  }
+  for (const [pattern, sentence] of SERVICE_SENTENCES)
+    if (pattern.test(error)) return sentence;
+  return "The Bot could not start this turn. Try again in a moment.";
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stoppedReason } from "../src/lib/copilot/stopped-turn";
+import { plainSentence, stoppedReason } from "../src/lib/copilot/stopped-turn";
 
 /**
  * What a person is told when a turn ends and no answer came.
@@ -37,5 +37,43 @@ describe("the reason a turn ended", () => {
     expect(stoppedReason({ message: "not a string or an Error" })).toBe(
       "The Bot stopped without saying why.",
     );
+  });
+});
+
+describe("a run request the runtime refused", () => {
+  test("names the conversation service when it did not answer", () => {
+    for (const body of [
+      '{"error":"Failed to resolve Learning Container"}',
+      '{"error":"Failed to initialize thread"}',
+    ])
+      expect(stoppedReason(`REST run request failed: ${body}`)).toBe(
+        "The conversation service did not answer, so this turn could not start. Try again in a moment.",
+      );
+  });
+
+  test("says another run holds the conversation", () => {
+    expect(
+      stoppedReason('REST run request failed: {"error":"Thread lock denied"}'),
+    ).toBe(
+      "Another run is still in progress on this conversation. Wait for it to finish, then try again.",
+    );
+  });
+
+  test("falls back to one plain sentence for anything else the runtime answered", () => {
+    expect(
+      stoppedReason(
+        "REST run request failed: <html><head><title>502 Bad Gateway</title></head></html>",
+      ),
+    ).toBe("The Bot could not start this turn. Try again in a moment.");
+    expect(
+      stoppedReason('REST connect request failed: {"error":"something new"}'),
+    ).toBe("The Bot could not start this turn. Try again in a moment.");
+  });
+
+  test("leaves a sentence somebody wrote alone", () => {
+    expect(plainSentence("The Bot declined: policy")).toBe(
+      "The Bot declined: policy",
+    );
+    expect(plainSentence("")).toBe("");
   });
 });

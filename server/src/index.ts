@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 import {
   CopilotKitIntelligence,
   IntelligenceAgentRunner,
@@ -71,6 +70,7 @@ import {
   type ApprovalResumeDependencies,
   createApprovalService,
 } from "./approvals/service";
+import { requireSavedToolCall } from "./approvals/saved-call";
 import { createApprovalStore } from "./approvals/store";
 import {
   ApprovalRefusedError,
@@ -155,6 +155,7 @@ import {
 import {
   createCredentialAdminService,
   createCredentialStore,
+  decryptSecret,
   resolveModelApiKey,
 } from "./credentials";
 import { createDatabase, probeDatabase } from "./db/client";
@@ -202,6 +203,7 @@ import { createPeopleStore } from "./people/store";
 import { useRoutineTools } from "./plugins/builtin-routines";
 import { useComposioClient } from "./plugins/composio";
 import { createComposioClient } from "./plugins/composio-adapter";
+import { offerDefaultConnectors } from "./plugins/default-connectors";
 import { backfillComposioLogos } from "./plugins/logos";
 import { redirectUriFor, registerDynamicClient } from "./plugins/oauth";
 import { createPluginStore } from "./plugins/store";
@@ -593,37 +595,30 @@ const approvalService = createApprovalService(
       throw new ApprovalRefusedError(
         "That conversation is no longer available to this Bot and person.",
       );
-    // Intelligence saves a streaming run's messages a moment behind the stream, and the browser runs
-    // the tool as soon as the call arrives. A call that is not saved yet is waited for briefly; one
-    // that never appears is refused below.
-    let history = await routineIntelligence.getThreadMessages({
-      threadId: snapshot.threadId,
-      userId: ownerUserId,
+    /*
+     * Intelligence saves a streaming run's messages a moment behind the stream, and the browser runs
+     * the tool as soon as the call arrives. A call that is not saved yet is waited for briefly; one
+     * that never appears is refused; and a service that cannot be read at all answers "unavailable",
+     * never a refusal (see saved-call.ts for why that distinction was worth a module).
+     */
+    await requireSavedToolCall({
+      toolCallId: snapshot.toolCallId,
+      toolName: snapshot.toolName,
+      args: snapshot.args,
+      read: () =>
+        routineIntelligence.getThreadMessages({
+          threadId: snapshot.threadId,
+          userId: ownerUserId,
+        }),
+      warn: (detail) => {
+        // The failure's status or name only: a body from the service is HTML or JSON nobody asked for.
+        console.warn({
+          error: "approval_history_unavailable",
+          context: { botId, threadId: snapshot.threadId, ...detail },
+          timestamp: new Date().toISOString(),
+        });
+      },
     });
-    const findCall = () =>
-      history.messages
-        .flatMap((message) => message.toolCalls ?? [])
-        .find((call) => call.id === snapshot.toolCallId);
-    for (let attempt = 0; !findCall() && attempt < 10; attempt++) {
-      await Bun.sleep(500);
-      history = await routineIntelligence.getThreadMessages({
-        threadId: snapshot.threadId,
-        userId: ownerUserId,
-      });
-    }
-    const canonicalCall = findCall();
-    if (
-      !canonicalCall ||
-      canonicalCall.name !== snapshot.toolName ||
-      !isDeepStrictEqual(JSON.parse(canonicalCall.args), snapshot.args) ||
-      history.messages.some(
-        (message) =>
-          message.role === "tool" && message.toolCallId === snapshot.toolCallId,
-      )
-    )
-      throw new ApprovalRefusedError(
-        "That unanswered tool call is not saved in this conversation.",
-      );
     const tools = await approvalComputerTools(
       ownerUserId,
       botId,
@@ -3032,16 +3027,17 @@ const modelKeyRoutes = createModelKeyRoutes({
   environment: process.env,
 });
 
+const credentialAdmin = createCredentialAdminService(
+  config.keyEncryptionKey,
+  credentialStore,
+  createAuditStore(database),
+);
 const app = createApp(
   config,
   auth,
   roleRepository,
   createAuditReader(database),
-  createCredentialAdminService(
-    config.keyEncryptionKey,
-    credentialStore,
-    createAuditStore(database),
-  ),
+  credentialAdmin,
   createPackageStatusReader(database),
   // The runtime call: the model, per-actor agent loading, and the two identity
   // functions are how a run is attributed to a person.
@@ -3225,6 +3221,54 @@ const app = createApp(
     return { ok: state === "ok" || state === "unknown", database: state };
   },
 );
+
+/*
+ * Apps offered to every Bot by configuration (`OPENBOT_DEFAULT_CONNECTORS`), seeded once the app is
+ * built and nothing waits on it: a connector appearing a second after boot is fine, a boot that
+ * waits on a vendor is not. Idempotent, and an administrator's narrowing survives it; see
+ * plugins/default-connectors.ts. "Nothing is seeded here" above still holds for the package: this
+ * is the hosting platform's explicit instruction, not a template's default.
+ */
+void offerDefaultConnectors({
+  store: pluginStore,
+  credentials: {
+    findLiveByKey: (key) => credentialStore.findLiveByKey(key),
+    readPlaintext: async (id) => {
+      const row = await credentialStore.readSecret(id);
+      return row && !row.revokedAt
+        ? decryptSecret(config.keyEncryptionKey, row.encryptedValue)
+        : null;
+    },
+    create: (input) => credentialAdmin.create(input),
+    rotate: (input) => credentialAdmin.rotate(input),
+  },
+  keys: config.defaultConnectors,
+  bearers: config.connectorBearers,
+  by: "deployment",
+  warn: (detail) => {
+    console.warn({
+      error: "default_connector_skipped",
+      context: detail,
+      timestamp: new Date().toISOString(),
+    });
+  },
+})
+  .then((outcomes) => {
+    const changed = outcomes.filter(
+      (outcome) => outcome.outcome === "added" || outcome.outcome === "rotated",
+    );
+    if (changed.length > 0)
+      console.info(JSON.stringify({ type: "default-connectors", changed }));
+  })
+  .catch((error: unknown) => {
+    console.error({
+      error: "default_connectors_failed",
+      context: {
+        message: error instanceof Error ? error.message : String(error),
+      },
+      timestamp: new Date().toISOString(),
+    });
+  });
 
 /**
  * The live screen, proxied.

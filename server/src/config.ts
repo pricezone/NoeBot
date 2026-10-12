@@ -303,6 +303,22 @@ export type DeploymentConfig = {
    */
   pluginOauthClients: Readonly<Record<string, { clientId: string }>>;
   /**
+   * Catalogue apps this deployment offers to every Bot from its first boot, by key:
+   * `OPENBOT_DEFAULT_CONNECTORS=parallel,routines`. What a person pressing Enable in the Marketplace
+   * does, done by the deployment's configuration instead, so a hosted instance searches the web the
+   * moment it exists. Only apps that need no credential, or whose key is in `connectorBearers`,
+   * are taken; an administrator's later narrowing of one survives every boot. Empty where unset.
+   */
+  defaultConnectors: readonly string[];
+  /**
+   * One token this deployment holds for a `deployment-bearer` catalogue app, by catalogue key:
+   * `OPENBOT_CONNECTOR_BEARER_PARALLEL_AUTHENTICATED=<key>`. Kept in the vault at boot, under the
+   * key encryption key like every other credential, and the server row pointed at it; a changed
+   * value rotates it. A variable naming an app of any other kind refuses to start, as a platform
+   * OAuth client for the wrong app does.
+   */
+  connectorBearers: Readonly<Record<string, string>>;
+  /**
    * The platform's token endpoint, which holds the secret for those clients, and the bearer it
    * admits this deployment on.
    *
@@ -742,6 +758,47 @@ function commaSeparated(environment: Environment, name: string): string[] {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+const CONNECTOR_BEARER_PREFIX = "OPENBOT_CONNECTOR_BEARER_";
+
+/**
+ * The tokens a deployment holds for catalogue apps reached on one key of its own.
+ *
+ * Read off the catalogue, like the OAuth clients: every `deployment-bearer` entry may be named, and
+ * a variable under this prefix that names anything else refuses to start, so a misspelt key or an
+ * app that takes no key is found at boot rather than searched for on the Plugins page later. The
+ * value is the token itself: the deployment keeps it, in its vault, which is what the kind means.
+ */
+function connectorBearers(
+  environment: Environment,
+): Readonly<Record<string, string>> {
+  const bearers: Record<string, string> = {};
+  const claimed = new Set<string>();
+  const bearerKeys = CATALOGUE.filter(
+    (entry) => entry.auth.kind === "deployment-bearer",
+  ).map((entry) => entry.key);
+  for (const key of bearerKeys) {
+    const name = `${CONNECTOR_BEARER_PREFIX}${pluginOauthEnvironmentKey(key)}`;
+    claimed.add(name);
+    const bearer = optional(environment, name);
+    if (bearer) bearers[key] = bearer;
+  }
+  const unclaimed = Object.keys(environment)
+    .filter(
+      (name) =>
+        name.startsWith(CONNECTOR_BEARER_PREFIX) &&
+        !claimed.has(name) &&
+        optional(environment, name) !== undefined,
+    )
+    .sort();
+  if (unclaimed.length > 0) {
+    const offered = bearerKeys.map(pluginOauthEnvironmentKey).join(", ");
+    throw new Error(
+      `${unclaimed.join(", ")}: not an app this deployment reaches on a key of its own. ${CONNECTOR_BEARER_PREFIX}<KEY> takes one of: ${offered}.`,
+    );
+  }
+  return bearers;
 }
 
 const PLUGIN_OAUTH_CLIENT_PREFIX = "OPENBOT_PLUGIN_OAUTH_CLIENT_";
@@ -1559,6 +1616,11 @@ export function loadConfig(
     pluginOauthRedirectUrl: pluginOauthRedirect,
     pluginOauthClients: platformOauth.clients,
     pluginOauthTokenProxy: platformOauth.tokenProxy,
+    defaultConnectors: commaSeparated(
+      environment,
+      "OPENBOT_DEFAULT_CONNECTORS",
+    ),
+    connectorBearers: connectorBearers(environment),
     tenantPackageDirectory:
       optional(environment, "TENANT_PACKAGE_DIR") ?? "../examples/noebot",
     runtime: runtimeCapabilities(environment),

@@ -53,6 +53,7 @@ mkdir -p "$CONTENV"
 chmod 0700 "$CONTENV"
 
 sh "$S6_SCRIPTS/computer-token.sh"
+sh "$S6_SCRIPTS/worker-secret.sh"
 sh "$S6_SCRIPTS/postgres-init.sh"
 
 for file in "$CONTENV"/*; do
@@ -88,12 +89,15 @@ fi
 
 start computer
 start api
+# The routines worker, after the API it hands runs to. Its death is not the container's: the Routines
+# page says when no worker has checked in, which is the right place to learn of it.
+start worker
 
 # Fly stops a machine with SIGTERM; pass it on and let Postgres shut down cleanly before leaving.
 shutdown() {
   trap - TERM INT
-  kill -TERM ${api_pid:-} ${computer_pid:-} 2>/dev/null || true
-  wait ${api_pid:-} ${computer_pid:-} 2>/dev/null || true
+  kill -TERM ${api_pid:-} ${computer_pid:-} ${worker_pid:-} 2>/dev/null || true
+  wait ${api_pid:-} ${computer_pid:-} ${worker_pid:-} 2>/dev/null || true
   if [ -n "${postgres_pid:-}" ]; then
     kill -TERM "$postgres_pid" 2>/dev/null || true
     wait "$postgres_pid" 2>/dev/null || true

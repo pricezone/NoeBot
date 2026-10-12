@@ -50,6 +50,58 @@ function fixture() {
   };
 }
 
+const platformError = (status: number, retryable = false) => {
+  const error = new Error(`Intelligence platform error ${status}`);
+  error.name = "PlatformRequestError";
+  Object.assign(error, { status, retryable });
+  return error;
+};
+
+describe("the Thread lookup a Learning assignment starts with", () => {
+  const thread = { userId: "person", threadId: "thread-1", agentId: "bot" };
+
+  test("answers no container, and binds nothing, when the platform cannot be read", async () => {
+    const f = fixture();
+    let calls = 0;
+    f.client.getThread = async () => {
+      calls++;
+      throw platformError(502);
+    };
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    await expect(runtime.containerForThread(thread)).resolves.toBeUndefined();
+    // Once, then once more a moment later: a 502 is the platform's trouble, not the Thread's.
+    expect(calls).toBe(2);
+    expect(f.bindings.size).toBe(0);
+  });
+
+  test("binds on the second read when the first was the platform's hiccup", async () => {
+    const f = fixture();
+    let calls = 0;
+    f.client.getThread = async () => {
+      calls++;
+      if (calls === 1) throw new SyntaxError("Unexpected token <");
+      throw platformError(404);
+    };
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    await expect(runtime.containerForThread(thread)).resolves.toBe("openbot");
+    expect(calls).toBe(2);
+    expect(f.bindings.size).toBe(1);
+  });
+
+  test("asks once and answers no container when the platform refused the question", async () => {
+    const f = fixture();
+    let calls = 0;
+    f.client.getThread = async () => {
+      calls++;
+      throw platformError(401);
+    };
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    await expect(runtime.containerForThread(thread)).resolves.toBeUndefined();
+    expect(calls).toBe(1);
+    expect(f.bindings.size).toBe(0);
+  });
+});
+
 describe("Automatic Learning runtime", () => {
   test("disabled and excluded agents make no delivery request", async () => {
     const f = fixture();

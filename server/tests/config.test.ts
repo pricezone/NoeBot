@@ -613,6 +613,32 @@ describe("deployment configuration", () => {
 
   // A turn that is ended is a turn somebody loses, so an unset variable leaves every stream alone
   // rather than acquiring a timeout the deployment never asked for. `.env.example` ships a value.
+  test("offers no connector by default, and reads the ones named the way somebody writes them", () => {
+    expect(loadConfig(baseEnvironment).defaultConnectors).toEqual([]);
+    expect(loadConfig(baseEnvironment).connectorBearers).toEqual({});
+    const config = loadConfig({
+      ...baseEnvironment,
+      OPENBOT_DEFAULT_CONNECTORS: " parallel-authenticated, routines ,",
+      OPENBOT_CONNECTOR_BEARER_PARALLEL_AUTHENTICATED: "pk-platform",
+    });
+    expect(config.defaultConnectors).toEqual([
+      "parallel-authenticated",
+      "routines",
+    ]);
+    expect(config.connectorBearers).toEqual({
+      "parallel-authenticated": "pk-platform",
+    });
+  });
+
+  test("refuses a bearer for an app that is not reached on a deployment key", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnvironment,
+        OPENBOT_CONNECTOR_BEARER_PARALLEL: "pk-platform",
+      }),
+    ).toThrow("OPENBOT_CONNECTOR_BEARER_PARALLEL: not an app");
+  });
+
   test("leaves the stall watchdog off when nothing is configured", () => {
     expect(loadConfig(baseEnvironment).agentStallTimeoutMs).toBe(0);
   });

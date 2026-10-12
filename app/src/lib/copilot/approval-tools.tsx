@@ -69,10 +69,24 @@ export function useFrontendTool<T extends Record<string, unknown>>(
             // run it when nothing asks, and says why when something does.
             return tool.handler?.(args, context);
           }
-          const response = await tryClient(
-            `/api/approvals/computer/${encodeURIComponent(bot.current)}`,
-            { method: "POST", body: snapshot, signal: context.signal },
-          );
+          const path = `/api/approvals/computer/${encodeURIComponent(bot.current)}`;
+          let response = await tryClient(path, {
+            method: "POST",
+            body: snapshot,
+            signal: context.signal,
+          });
+          /*
+           * 503 is the gate saying the conversation service did not answer, which is a moment's
+           * trouble more often than not. One more try, a second later, before the Bot is told.
+           */
+          if (response.status === 503 && !context.signal?.aborted) {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            response = await tryClient(path, {
+              method: "POST",
+              body: snapshot,
+              signal: context.signal,
+            });
+          }
           const payload: unknown = await response.json();
           if (response.status === 202) {
             if (!context.agent)
@@ -84,15 +98,25 @@ export function useFrontendTool<T extends Record<string, unknown>>(
             void queryClient.invalidateQueries({ queryKey: ["approvals"] });
             return { waiting: true };
           }
+          /*
+           * A refusal or a failure is RETURNED, not thrown. A thrown handler ends the turn with
+           * nothing persisted: the person sees a step that was never completed and the Bot never
+           * learns what happened. A result with `ok: false` is what every other computer failure
+           * looks like, so the transcript draws "didn't work" with the reason, and the Bot can say
+           * so, try again, or ask the person.
+           */
           if (!response.ok)
-            throw new Error(
-              payload &&
+            return {
+              ok: false,
+              reason:
+                payload &&
                 typeof payload === "object" &&
                 "error" in payload &&
                 typeof payload.error === "string"
-                ? payload.error
-                : "The computer action could not be approved.",
-            );
+                  ? payload.error
+                  : "The computer action could not be approved.",
+              retryable: response.status === 503,
+            };
           if (!payload || typeof payload !== "object" || !("result" in payload))
             throw new Error("The computer action returned no result.");
           return payload.result;

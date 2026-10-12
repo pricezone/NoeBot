@@ -1,0 +1,20 @@
+#!/command/with-contenv sh
+# The routines worker: the loop that fires scheduled routines, beside the API that runs them.
+#
+# `EMBEDDED_WORKER=on` is the default, because one container that just works is what this image is
+# for. Off, this exits 0 and s6 leaves it alone, the way `postgres` and `computer` do, for a
+# deployment that runs the sweep as a CronJob of its own.
+#
+# As apiuser, never pwuser: the worker holds DATABASE_URL, which the Bot's shell must not see, and
+# the shell runs as pwuser in this same container.
+#
+# `with-contenv` hands it the container environment: the database URL the embedded Postgres wrote,
+# and the shared secret `worker-secret.sh` generated, which the API reads from the same place.
+set -eu
+if [ "${EMBEDDED_WORKER:-on}" != "on" ]; then
+  exec /bin/true
+fi
+cd /app/worker
+export HOME=/home/apiuser
+export SERVER_INTERNAL_URL="${SERVER_INTERNAL_URL:-http://127.0.0.1:${PORT:-3001}}"
+exec s6-setuidgid apiuser /usr/local/bin/bun src/index.ts

@@ -14,6 +14,16 @@ describe("COMPUTER_GUIDANCE", () => {
     }
   });
 
+  test("names every tool a Bot holds and would otherwise not reach for", () => {
+    for (const tool of [
+      "computer_run_command",
+      "computer_request_sign_in",
+      "computer_key",
+      "computer_scroll",
+    ])
+      expect(COMPUTER_GUIDANCE).toContain(tool);
+  });
+
   test("still contains the full instruction text, unchanged in wording", () => {
     expect(COMPUTER_GUIDANCE).toContain(
       "You are a Bot with your own computer, a real web browser the person can watch you use.",

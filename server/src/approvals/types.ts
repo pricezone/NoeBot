@@ -236,6 +236,17 @@ export class ApprovalRefusedError extends Error {
     this.name = "ApprovalRefusedError";
   }
 }
+/**
+ * The gate could not reach what it needs to decide: the saved conversation, held by the
+ * conversation service, did not answer. Nothing was refused and nothing was done; the same request
+ * a moment later may well go through, which is why this is answered as 503 rather than 400.
+ */
+export class ApprovalUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalUnavailableError";
+  }
+}
 export class ApprovalNotFoundError extends Error {
   constructor() {
     super("This approval could not be found.");
