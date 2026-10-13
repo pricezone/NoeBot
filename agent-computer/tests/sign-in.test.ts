@@ -290,8 +290,9 @@ describe.skipIf(!asked)(
       await code.close();
       const framed = await open("/framed");
       await framed.frames()[1]?.waitForLoadState();
+      // A login in a frame is a login for the frame's origin: the host the person must be shown.
       expect(await probeSignIn(framed)).toMatchObject({
-        origin,
+        origin: otherOrigin,
         form: "login",
       });
       await framed.close();
@@ -320,11 +321,24 @@ describe.skipIf(!asked)(
       await tab.close();
     });
 
-    test("a login inside a frame from another origin is filled there", async () => {
+    test("a login inside a frame from another origin is reported, untouched, and filled only for that origin", async () => {
       const tab = await open("/framed");
       await tab.frames()[1]?.waitForLoadState();
-      const result = await fillSignIn(tab, {
+      const moved = await fillSignIn(tab, {
         origin,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(moved).toMatchObject({
+        submitted: false,
+        movedTo: { origin: otherOrigin, form: "login" },
+      });
+      expect(
+        await tab.frames()[1]?.locator("input[type=password]").inputValue(),
+      ).toBe("");
+      // Asked again for the frame's own origin, the login goes in there.
+      const result = await fillSignIn(tab, {
+        origin: otherOrigin,
         username: "a@example.test",
         password: PASSWORD,
       });

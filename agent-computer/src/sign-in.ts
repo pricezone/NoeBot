@@ -17,6 +17,10 @@
  * Refusals, before anything is typed:
  *  - the page must be on the exact origin the person was asked to sign in to, so a login cannot be
  *    carried to a page that redirected somewhere else (or that the Bot navigated to afterwards);
+ *  - the login is typed only into a frame whose own origin is exactly that one. A page on the right
+ *    origin can embed a frame from any other, and a fake login in it must never receive the
+ *    password: a form found only in another origin's frame is reported (`movedTo`) instead, so the
+ *    server asks the person again, naming that host;
  *  - there must be a login form on it;
  *  - a login that moves to another origin between steps (a username page sending you on to an
  *    identity provider) is not typed into there: the answer says where it went (`movedTo`), and the
@@ -1072,27 +1076,51 @@ async function send(
   return next;
 }
 
-type FrameScan = { frame: Frame; scan: PageScan };
+/** One frame read, with the origin the browser gives it. */
+type FrameScan = { frame: Frame; scan: PageScan; origin: string };
 
-/** Every frame of the page read, the main frame first. Frames that cannot be read are skipped. */
+/**
+ * A frame's origin as the browser knows it, never as the page says it: a page's script can replace
+ * `window.origin` with any string it likes. From the frame's address, then: an http(s) address is
+ * its origin; `about:srcdoc` is the document its parent wrote, so its parent's origin; a `blob:`
+ * address names the origin that made it. Anything else (`about:blank`, `data:`) has no origin this
+ * trusts, since another frame can navigate a frame there, and gets none: nothing is typed into it.
+ */
+function frameOrigin(frame: Frame): string {
+  const url = frame.url();
+  if (url === "about:srcdoc") {
+    const parent = frame.parentFrame();
+    return parent ? frameOrigin(parent) : "";
+  }
+  return originOfUrl(url.startsWith("blob:") ? url.slice(5) : url);
+}
+
+/**
+ * Every frame of the page read, the main frame first. Frames that cannot be read are skipped. A
+ * ticked "remember this device" box is unticked only in frames of `uncheckOn`, the approved origin:
+ * nothing is changed in any other.
+ */
 async function scanFrames(
   page: Page,
-  options: { uncheckRemember?: boolean; challenge?: boolean } = {},
+  options: { uncheckOn?: string; challenge?: boolean } = {},
 ): Promise<FrameScan[]> {
   if (page.isClosed()) return [];
   const main = page.mainFrame();
   const scans: FrameScan[] = [];
   for (const frame of [main, ...page.frames().filter((f) => f !== main)]) {
     try {
+      const origin = frameOrigin(frame);
       scans.push({
         frame,
         scan: await frame.evaluate(scanPage, {
           attribute: LOGIN_ATTRIBUTE,
           words: SIGN_IN_WORDS,
-          uncheckRemember: options.uncheckRemember ?? false,
+          uncheckRemember:
+            options.uncheckOn !== undefined && origin === options.uncheckOn,
           challenge: (options.challenge ?? false) && frame === main,
           around: false,
         }),
+        origin,
       });
     } catch {
       // A frame mid-navigation or detached: not this one.
@@ -1114,7 +1142,18 @@ export type SignInPageSummary = {
   rememberDevice: boolean;
 };
 
-function summarise(scans: FrameScan[]): SignInPageSummary {
+/**
+ * Read together: the main frame, frames of its own origin, and frames of the approved origin. Another
+ * origin's frame (an advert, a widget) does not get to say the login failed, or that it waits on the
+ * person's phone.
+ */
+function summarise(all: FrameScan[], approved?: string): SignInPageSummary {
+  const mainOrigin = all[0]?.origin;
+  const scans = all.filter(
+    ({ origin }, index) =>
+      index === 0 ||
+      (origin !== "" && (origin === mainOrigin || origin === approved)),
+  );
   const main = scans[0]?.scan;
   const withMessage = scans.find(({ scan }) => scan.message)?.scan;
   return {
@@ -1176,9 +1215,9 @@ export function classifySignInPage(
  */
 const icons = new Map<string, string | undefined>();
 
-async function pageIcon(page: Page): Promise<string | undefined> {
+async function pageIcon(frame: Frame): Promise<string | undefined> {
   try {
-    const href = await page.evaluate(() => {
+    const href = await frame.evaluate(() => {
       const link = document.querySelector<HTMLLinkElement>(
         'link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]',
       );
@@ -1186,7 +1225,7 @@ async function pageIcon(page: Page): Promise<string | undefined> {
     });
     if (!/^https?:/.test(href)) return undefined;
     if (icons.has(href)) return icons.get(href);
-    const icon = await fetchIcon(page, href);
+    const icon = await fetchIcon(frame.page(), href);
     if (icons.size >= 64) icons.delete(icons.keys().next().value ?? "");
     icons.set(href, icon);
     return icon;
@@ -1215,26 +1254,38 @@ async function fetchIcon(page: Page, href: string) {
 }
 
 /** What the Bot's page asks for right now. Reads and marks fields; types nothing. */
+/**
+ * What the Bot's page asks for right now. Reads and marks fields; types nothing.
+ *
+ * The origin is the one of the frame holding the form (the main frame's when it has one), because
+ * that is where a login would go and so the host the person must be shown: a login in an embedded
+ * frame from another origin is a login for that origin.
+ */
 export async function probeSignIn(page: Page): Promise<SignInProbe> {
   const url = page.url();
-  const origin = originOfUrl(url);
+  const scans = await scanFrames(page, { challenge: true });
+  const usable = scans.filter(({ origin }) => origin !== "");
+  const login = usable.find(({ scan }) => scan.password || scan.username);
+  const code = usable.find(({ scan }) => scan.code);
+  const form: SignInProbe["form"] = login
+    ? login.scan.password
+      ? "login"
+      : "username"
+    : code
+      ? "code"
+      : "none";
+  const holder = login ?? code;
+  const origin = holder?.origin ?? originOfUrl(url);
   let host = "";
   try {
     host = origin ? new URL(origin).host : "";
   } catch {
     host = "";
   }
-  const scans = await scanFrames(page, { challenge: true });
-  const login = scans.find(({ scan }) => scan.password || scan.username);
-  const form: SignInProbe["form"] = login
-    ? login.scan.password
-      ? "login"
-      : "username"
-    : scans.some(({ scan }) => scan.code)
-      ? "code"
-      : "none";
-  const check = classifySignInPage(summarise(scans), "login");
-  const icon = origin ? await pageIcon(page) : undefined;
+  const check = classifySignInPage(summarise(scans, origin), "login");
+  const icon = origin
+    ? await pageIcon(holder?.frame ?? page.mainFrame())
+    : undefined;
   return { url, origin, host, form, check, ...(icon ? { icon } : {}) };
 }
 
@@ -1391,18 +1442,22 @@ async function afterUsername(
   opener: Page | null,
   before: ReadonlySet<Page>,
   earlierMessage: string | undefined,
+  approved: string,
 ): Promise<{ page: Page; login?: FrameScan; check?: SignInCheck }> {
   const deadline = Date.now() + STEP_TIMEOUT_MS;
   let live = page;
   for (;;) {
     live = pageAfter(live, opener, before);
     const scans = await scanFrames(live, {
-      uncheckRemember: true,
+      uncheckOn: approved,
       challenge: true,
     });
-    const login = scans.find(({ scan }) => scan.password);
+    // The approved origin's password field first; any other is only ever reported, never typed into.
+    const login =
+      scans.find(({ scan, origin }) => scan.password && origin === approved) ??
+      scans.find(({ scan }) => scan.password);
     if (login) return { page: live, login };
-    const summary = summarise(scans);
+    const summary = summarise(scans, approved);
     const fresh =
       summary.message !== undefined && summary.message !== earlierMessage;
     if (
@@ -1433,12 +1488,32 @@ export async function fillSignIn(
     url: live.url(),
     error,
   });
-  if (originOfUrl(page.url()) !== input.origin)
-    return answer(
-      `The Bot's browser is not on ${input.origin}. Ask it to open that site's sign-in page and try again.`,
-    );
-  const opener = await page.opener().catch(() => null);
   let remembered = false;
+  const rememberedFlag = () =>
+    remembered ? { rememberDeviceLeftUnchecked: true } : {};
+  /**
+   * A form only another origin holds: nothing typed, and where it is reported for the server to ask
+   * the person about. A frame with no origin this trusts is no destination at all.
+   */
+  const elsewhere = (
+    found: FrameScan,
+    form: "login" | "code",
+    submitted: boolean,
+    passwordFieldVisible = false,
+  ): SignInFillResult =>
+    found.origin
+      ? {
+          submitted,
+          passwordFieldVisible,
+          url: live.url(),
+          movedTo: { origin: found.origin, form },
+          ...rememberedFlag(),
+        }
+      : answer(
+          "The sign-in form is in a part of the page whose site cannot be told. Take over the browser to sign in there.",
+          submitted,
+        );
+  const opener = await page.opener().catch(() => null);
   const answered = (
     summary: SignInPageSummary,
     check: SignInCheck,
@@ -1448,22 +1523,34 @@ export async function fillSignIn(
     url: live.url(),
     outcome: check.outcome,
     ...(check.pageMessage ? { pageMessage: check.pageMessage } : {}),
-    ...(remembered ? { rememberDeviceLeftUnchecked: true } : {}),
+    ...rememberedFlag(),
   });
   const readAnswer = async (sent: "username" | "login" | "code") => {
-    const summary = summarise(await scanFrames(live, { challenge: true }));
+    const summary = summarise(
+      await scanFrames(live, { challenge: true }),
+      input.origin,
+    );
     return { summary, check: classifySignInPage(summary, sent) };
   };
   const codeGone = (found: FrameScan) => async () =>
     (await codeField(found).count()) === 0;
+  const approved = ({ origin }: FrameScan) => origin === input.origin;
   try {
+    const first = await scanFrames(live, { uncheckOn: input.origin });
+    // The page, or a frame of it, must be on the approved origin before anything else is asked.
+    if (originOfUrl(page.url()) !== input.origin && !first.some(approved))
+      return answer(
+        `The Bot's browser is not on ${input.origin}. Ask it to open that site's sign-in page and try again.`,
+      );
     if (!input.password) {
       // A one-time code on a page of its own, sent after the login (an SMS confirmation, say).
-      const found = (await scanFrames(live, { uncheckRemember: true })).find(
-        ({ scan }) => scan.code,
-      );
-      if (!found)
-        return answer("There is no code field on the page the Bot has open.");
+      const found = first.find((scan) => approved(scan) && scan.scan.code);
+      if (!found) {
+        const other = first.find(({ scan }) => scan.code);
+        return other
+          ? elsewhere(other, "code", false)
+          : answer("There is no code field on the page the Bot has open.");
+      }
       remembered = found.scan.rememberDevice;
       await typeCode(found, input.code ?? "");
       live = await send(
@@ -1478,10 +1565,15 @@ export async function fillSignIn(
       const { summary, check } = await readAnswer("code");
       return answered(summary, check);
     }
-    const first = await scanFrames(live, { uncheckRemember: true });
-    let login = first.find(({ scan }) => scan.password || scan.username);
-    if (!login)
-      return answer("There is no sign-in form on the page the Bot has open.");
+    let login = first.find(
+      (scan) => approved(scan) && (scan.scan.password || scan.scan.username),
+    );
+    if (!login) {
+      const other = first.find(({ scan }) => scan.password || scan.username);
+      return other
+        ? elsewhere(other, "login", false)
+        : answer("There is no sign-in form on the page the Bot has open.");
+    }
     remembered = login.scan.rememberDevice;
     // Masked like the password: "never shown to your Bot" covers the username too, and a username
     // field is not a type the snapshot hides on its own.
@@ -1504,11 +1596,12 @@ export async function fillSignIn(
         live,
         opener,
         before,
-        summarise(first).message,
+        summarise(first, input.origin).message,
+        input.origin,
       );
       live = next.page;
       if (next.check) {
-        const summary = summarise(await scanFrames(live));
+        const summary = summarise(await scanFrames(live), input.origin);
         return answered(summary, next.check);
       }
       if (!next.login)
@@ -1516,21 +1609,9 @@ export async function fillSignIn(
           "The site did not ask for a password after the username.",
           true,
         );
-      const now = originOfUrl(live.url());
-      if (now !== input.origin) {
-        if (!now)
-          return answer(
-            "The sign-in moved to another page. Take over the browser to finish signing in there.",
-            true,
-          );
-        return {
-          submitted: true,
-          passwordFieldVisible: true,
-          url: live.url(),
-          movedTo: { origin: now, form: "login" },
-          ...(remembered ? { rememberDeviceLeftUnchecked: true } : {}),
-        };
-      }
+      // The password field on another origin, as the whole page or a frame in it: typed nowhere.
+      if (!approved(next.login))
+        return elsewhere(next.login, "login", true, true);
       login = next.login;
       remembered ||= login.scan.rememberDevice;
     }
@@ -1549,25 +1630,12 @@ export async function fillSignIn(
       ({ summary, check } = await readAnswer("login"));
     }
     if (input.code && !codeHere && check.outcome === "code-requested") {
-      const now = originOfUrl(live.url());
-      if (now !== input.origin) {
-        if (!now)
-          return answer(
-            "The sign-in moved to another page before the code was asked for. Take over the browser to finish.",
-            true,
-          );
-        return {
-          submitted: true,
-          passwordFieldVisible: summary.password,
-          url: live.url(),
-          movedTo: { origin: now, form: "code" },
-          ...(remembered ? { rememberDeviceLeftUnchecked: true } : {}),
-        };
-      }
-      const found = (await scanFrames(live, { uncheckRemember: true })).find(
-        ({ scan }) => scan.code,
-      );
-      if (found) {
+      const scans = await scanFrames(live, { uncheckOn: input.origin });
+      const found = scans.find((scan) => approved(scan) && scan.scan.code);
+      if (!found) {
+        const other = scans.find(({ scan }) => scan.code);
+        if (other) return elsewhere(other, "code", true, summary.password);
+      } else {
         remembered ||= found.scan.rememberDevice;
         await typeCode(found, input.code);
         live = await send(

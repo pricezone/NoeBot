@@ -165,6 +165,16 @@ beforeAll(async () => {
           return html(
             `<iframe src="${idpOrigin}/framed-password" width="500" height="300"></iframe>`,
           );
+        // The approved origin's page, carrying a frame from another origin with a fake login in it.
+        case "/with-intruder":
+          return html(
+            `<h1>Account</h1><iframe src="${idpOrigin}/fake-login" width="500" height="300"></iframe>`,
+          );
+        // The page's own login, and the same intruder frame beside it.
+        case "/login-and-intruder":
+          return html(
+            `${login("/session")}<iframe src="${idpOrigin}/fake-login" width="500" height="300"></iframe>`,
+          );
         case "/push":
           return html(login("/push-session"));
         case "/push-session":
@@ -215,6 +225,10 @@ beforeAll(async () => {
           return form?.get("password") === PASSWORD
             ? html("<h1>Signed in at the identity provider</h1>")
             : html(`<p role="alert">Wrong password</p>`);
+        // A fake login that also claims, to any script that asks, to be the approved origin.
+        case "/fake-login":
+          return html(`${login("/stolen")}
+            <script>Object.defineProperty(window, 'origin', { value: '${origin}' });</script>`);
         case "/framed-password":
           return html(`<form method="post" action="/framed-session">
             <input name="password" type="password"><button>Sign in</button></form>`);
@@ -483,11 +497,23 @@ describe.skipIf(!asked)("two steps", () => {
     await tab.close();
   });
 
-  test("a password step drawn inside a frame is waited for in the frame", async () => {
+  test("a password step drawn inside another origin's frame is waited for there, and reported, untouched", async () => {
     const tab = await open("/frame-step-one");
-    const result = await fillSignIn(tab, {
+    const moved = await fillSignIn(tab, {
       origin,
       username: "a@example.test",
+      password: PASSWORD,
+    });
+    expect(moved).toMatchObject({
+      submitted: true,
+      movedTo: { origin: idpOrigin, form: "login" },
+    });
+    expect(
+      await tab.frames()[1]?.locator("input[type=password]").inputValue(),
+    ).toBe("");
+    // The server continues for the frame's origin (here the same host, so the same site).
+    const result = await fillSignIn(tab, {
+      origin: idpOrigin,
       password: PASSWORD,
     });
     expect(result).toMatchObject({ submitted: true, outcome: "signed-in" });
@@ -495,6 +521,52 @@ describe.skipIf(!asked)("two steps", () => {
     await tab.close();
   });
 });
+
+describe.skipIf(!asked)(
+  "a frame from another origin never gets the login",
+  () => {
+    test("a fake login in an intruder's frame on the approved page is reported, never typed into, whatever it claims", async () => {
+      const tab = await open("/with-intruder");
+      await tab.frames()[1]?.waitForLoadState();
+      const result = await fillSignIn(tab, {
+        origin,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result).toMatchObject({
+        submitted: false,
+        movedTo: { origin: idpOrigin, form: "login" },
+      });
+      const intruder = tab.frames()[1];
+      expect(await intruder?.locator("input[type=password]").inputValue()).toBe(
+        "",
+      );
+      expect(await intruder?.locator("input[type=email]").inputValue()).toBe(
+        "",
+      );
+      // The probe names the intruder's host, so the person would be asked about that host.
+      expect(await probeSignIn(tab)).toMatchObject({ origin: idpOrigin });
+      await tab.close();
+    });
+
+    test("beside the page's own login, the intruder's frame stays empty", async () => {
+      const tab = await open("/login-and-intruder");
+      await tab.frames()[1]?.waitForLoadState();
+      const intruder = tab.frames()[1];
+      const result = await fillSignIn(tab, {
+        origin,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result).toMatchObject({
+        outcome: "signed-in",
+        url: `${origin}/home`,
+      });
+      expect(intruder?.isDetached()).toBe(true);
+      await tab.close();
+    });
+  },
+);
 
 describe.skipIf(!asked)("what the page says after the login", () => {
   test("a wrong password is an error, quoting the site's alert", async () => {
