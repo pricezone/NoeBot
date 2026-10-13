@@ -127,6 +127,7 @@ jobs:
       - run: >-
           bun test tests/sign-in.test.ts tests/session-cookies.test.ts tests/follows-popup.test.ts
           tests/demonstration-live.test.ts tests/webrtc-proxy.test.ts tests/saved-tabs.test.ts
+          tests/browser-acting.test.ts tests/acting-http.test.ts
         working-directory: agent-computer
         env:
           OPENBOT_COMPUTER_BROWSER: '1'

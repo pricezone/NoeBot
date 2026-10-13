@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { tryClient } from "@/lib/client";
 import { onComputerActivity } from "@/lib/copilot/computer-activity";
 
 /**
@@ -204,7 +205,37 @@ export function useConversationActivity(
   useEffect(() => {
     if (turnBusy) noteComputerActivity(botId);
   }, [turnBusy, botId]);
-  return useCallback(() => noteComputerActivity(botId), [botId]);
+  // Opening the conversation is a sign the Bot may need its browser: start it now, not on the first step.
+  useEffect(() => {
+    warmComputer(botId);
+  }, [botId]);
+  return useCallback(() => {
+    noteComputerActivity(botId);
+    warmComputer(botId);
+  }, [botId]);
+}
+
+/** When each Bot's browser was last asked to start, so typing does not send a request per key. */
+const warmedAt = new Map<string, number>();
+const WARM_EVERY_MS = 60_000;
+
+/**
+ * Start the Bot's browser if it is stopped, without opening anything (`POST …/warm`).
+ *
+ * A cold browser costs the first step of a turn a launch and the restore of its saved tabs. Asked
+ * when the person opens the conversation or types, the launch happens while they are still writing.
+ * At most once a minute per Bot, and never fatal: a deployment without a computer answers 404 and a
+ * failed warm-up only means the first step starts the browser as it always did.
+ */
+export function warmComputer(botId: string, now = Date.now()): boolean {
+  if (!botId) return false;
+  const last = warmedAt.get(botId);
+  if (last !== undefined && now - last < WARM_EVERY_MS) return false;
+  warmedAt.set(botId, now);
+  void tryClient(`/api/computers/${encodeURIComponent(botId)}/warm`, {
+    method: "POST",
+  }).catch(() => undefined);
+  return true;
 }
 
 /**

@@ -39,6 +39,11 @@ const writes = new Set([
   "computer_click",
   "computer_type",
   "computer_key",
+  "computer_fill",
+  "computer_select",
+  "computer_check",
+  "computer_upload",
+  "computer_dialog",
   "computer_run_command",
   "computer_write_file",
 ]);
