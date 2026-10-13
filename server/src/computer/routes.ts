@@ -14,6 +14,9 @@ import {
   ElementNotFoundError,
   HandoffRequestError,
   HumanHasControlError,
+  isDialogOpenError,
+  isElementStateError,
+  isSiteError,
   NavigationRefusedError,
   NavigationTimeoutError,
   StaleSnapshotError,
@@ -25,6 +28,7 @@ import {
 import type { PageFrameStore } from "./page-frames";
 import { dryRunAgainstHistory, REPLAYABLE_EVENT_TYPES } from "./policy-dry-run";
 import { type PolicyStore, parseActionPolicy } from "./policy-store";
+import type { FillField, FillInput } from "./schema";
 import { showScreen } from "./show-screen";
 
 /**
@@ -244,6 +248,39 @@ export function createComputerRoutes(
     }
   }
 
+  /**
+   * The frame a navigation keeps, taken after its answer has gone back rather than before.
+   *
+   * It was awaited, which put a status call and a screenshot (hundreds of milliseconds on a
+   * small machine) on every navigation the Bot made. It still has to be of the page the navigation
+   * opened, so the capture is chained per Bot and the next call for that Bot (an action, a
+   * snapshot, the frame's own route) waits for it first: nothing can move the page in between.
+   */
+  const framing = new Map<string, Promise<void>>();
+  const frameLater = (
+    botId: string,
+    toolCallId: string,
+    url: string,
+    title: string,
+  ) => {
+    const before = framing.get(botId) ?? Promise.resolve();
+    const capture = before
+      .then(() => keepFrameOf(botId, toolCallId, url, title))
+      .catch(() => undefined);
+    framing.set(botId, capture);
+    void capture.then(() => {
+      if (framing.get(botId) === capture) framing.delete(botId);
+    });
+  };
+  const untilFramed = async (botId: string | undefined) => {
+    if (botId) await framing.get(botId);
+  };
+  /** `act`, after any frame still being taken of this Bot's page. */
+  const acting = (
+    context: ComputerContext,
+    handler: Parameters<typeof act>[1],
+  ) => act(context, handler, untilFramed);
+
   routes.post("/:botId/navigate", async (context) => {
     const body = (await context.req.json().catch(() => null)) as {
       url?: unknown;
@@ -261,6 +298,7 @@ export function createComputerRoutes(
 
     try {
       const botId = context.req.param("botId") ?? "default";
+      await untilFramed(botId);
       const result = await gateway.navigate(
         botId,
         {
@@ -272,7 +310,7 @@ export function createComputerRoutes(
         body.url.trim(),
         toolCallId || undefined,
       );
-      await keepFrameOf(botId, toolCallId, result.url, result.title);
+      frameLater(botId, toolCallId, result.url, result.title);
       return context.json(result);
     } catch (error) {
       if (error instanceof ActionRefusedError) {
@@ -290,6 +328,7 @@ export function createComputerRoutes(
 
   routes.post("/:botId/snapshot", async (context) => {
     try {
+      await untilFramed(context.req.param("botId"));
       return context.json(await gateway.snapshot(context.req.param("botId")));
     } catch (error) {
       return context.json(errorBody(error), statusFor(error));
@@ -303,7 +342,7 @@ export function createComputerRoutes(
    * of its own beyond the shape of the request. Where a decision gets made is a single place.
    */
   routes.post("/:botId/click", (context) =>
-    act(context, (botId, actor, body, signal) => {
+    acting(context, (botId, actor, body, signal) => {
       const ref = asRef(body);
       if (!ref) return badRef;
       return gateway.click(botId, actor, ref, signal);
@@ -311,7 +350,7 @@ export function createComputerRoutes(
   );
 
   routes.post("/:botId/type", (context) =>
-    act(context, (botId, actor, body, signal) => {
+    acting(context, (botId, actor, body, signal) => {
       const ref = asRef(body);
       if (!ref) return badRef;
       if (typeof body?.text !== "string") {
@@ -331,7 +370,7 @@ export function createComputerRoutes(
   );
 
   routes.post("/:botId/key", (context) =>
-    act(context, (botId, actor, body, signal) => {
+    acting(context, (botId, actor, body, signal) => {
       if (typeof body?.key !== "string" || !body.key) {
         return { error: "A key name is required, such as Enter or Tab." };
       }
@@ -349,13 +388,150 @@ export function createComputerRoutes(
   );
 
   routes.post("/:botId/scroll", (context) =>
-    act(context, (botId, actor, body) => {
+    acting(context, (botId, actor, body, signal) => {
       if (!usableDeltaY(body?.deltaY)) return badDeltaY;
-      return gateway.scroll(botId, actor, {
-        ...(typeof body?.deltaY === "number" ? { deltaY: body.deltaY } : {}),
-      });
+      // With a ref: into view, or inside the panel it is in. Its snapshotId is required with it.
+      const ref = body?.ref === undefined ? undefined : asRef(body);
+      if (body?.ref !== undefined && !ref) return badRef;
+      return gateway.scroll(
+        botId,
+        actor,
+        {
+          ...(typeof body?.deltaY === "number" ? { deltaY: body.deltaY } : {}),
+          ...(ref ?? {}),
+        },
+        signal,
+      );
     }),
   );
+
+  routes.post("/:botId/select", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const ref = asRef(body);
+      if (!ref) return badRef;
+      if (typeof body?.option !== "string" || !body.option.trim())
+        return { error: "Say which option to choose, by its label or value." };
+      return gateway.select(
+        botId,
+        actor,
+        { ...ref, option: body.option },
+        signal,
+      );
+    }),
+  );
+
+  routes.post("/:botId/check", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const ref = asRef(body);
+      if (!ref) return badRef;
+      if (typeof body?.checked !== "boolean")
+        return {
+          error: "Say whether it should be ticked: checked true or false.",
+        };
+      return gateway.check(
+        botId,
+        actor,
+        { ...ref, checked: body.checked },
+        signal,
+      );
+    }),
+  );
+
+  routes.post("/:botId/upload", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const ref = asRef(body);
+      if (!ref) return badRef;
+      if (typeof body?.path !== "string" || !body.path.trim())
+        return { error: "Say which workspace file to upload, by its path." };
+      return gateway.upload(
+        botId,
+        actor,
+        { ...ref, path: body.path.trim() },
+        signal,
+      );
+    }),
+  );
+
+  routes.post("/:botId/hover", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const ref = asRef(body);
+      if (!ref) return badRef;
+      return gateway.hover(botId, actor, ref, signal);
+    }),
+  );
+
+  routes.post("/:botId/dialog", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      if (typeof body?.accept !== "boolean")
+        return {
+          error:
+            "Say whether to accept the dialog (OK) or dismiss it (Cancel).",
+        };
+      if (body.text !== undefined && typeof body.text !== "string")
+        return { error: "A prompt's answer must be text." };
+      return gateway.dialog(
+        botId,
+        actor,
+        {
+          accept: body.accept,
+          ...(typeof body.text === "string" ? { text: body.text } : {}),
+        },
+        signal,
+      );
+    }),
+  );
+
+  routes.post("/:botId/tabs", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const action = body?.action;
+      if (action !== "list" && action !== "switch" && action !== "close")
+        return {
+          error: "Say what to do with the tabs: list, switch or close.",
+        };
+      if (
+        action !== "list" &&
+        (typeof body?.index !== "number" || !Number.isInteger(body.index))
+      )
+        return { error: "Say which tab, by its index from the list." };
+      return gateway.tabs(
+        botId,
+        actor,
+        {
+          action,
+          ...(typeof body?.index === "number" ? { index: body.index } : {}),
+        },
+        signal,
+      );
+    }),
+  );
+
+  routes.post("/:botId/back", (context) =>
+    acting(context, (botId, actor, _body, signal) =>
+      gateway.back(botId, actor, signal),
+    ),
+  );
+
+  routes.post("/:botId/fill", (context) =>
+    acting(context, (botId, actor, body, signal) => {
+      const input = asFill(body);
+      if ("error" in input) return input;
+      return gateway.fill(botId, actor, input, signal);
+    }),
+  );
+
+  /**
+   * Start the Bot's browser now, without going anywhere: the app asks the moment a conversation
+   * with the Bot opens, so the cold launch happens while the person types. Not an action, so
+   * nothing is decided or recorded; locating the computer is what wakes a suspended one, which is
+   * the point.
+   */
+  routes.post("/:botId/warm", async (context) => {
+    try {
+      return context.json(await gateway.warm(context.req.param("botId")));
+    } catch (error) {
+      return context.json(errorBody(error), statusFor(error));
+    }
+  });
 
   /**
    * Who has the wheel. Polled by the surface next to the screen, so the person sees the Bot ask for
@@ -375,7 +551,7 @@ export function createComputerRoutes(
   });
 
   routes.post("/:botId/control/request", (context) =>
-    act(context, (botId, actor, body) =>
+    acting(context, (botId, actor, body) =>
       gateway.requestHelp(
         botId,
         actor,
@@ -430,12 +606,12 @@ export function createComputerRoutes(
 
   /** Stop the browser, keep the logins. */
   routes.post("/:botId/computers/stop", (context) =>
-    act(context, (botId, actor) => gateway.stopComputer(botId, actor)),
+    acting(context, (botId, actor) => gateway.stopComputer(botId, actor)),
   );
 
   /** Delete the profile. Every login goes with it, which is the point and also the danger. */
   routes.post("/:botId/computers/reset", (context) =>
-    act(context, (botId, actor) => gateway.resetComputer(botId, actor)),
+    acting(context, (botId, actor) => gateway.resetComputer(botId, actor)),
   );
 
   /**
@@ -443,30 +619,30 @@ export function createComputerRoutes(
    * computer restarts, so this is a person's button and never something a wake does to a busy one.
    */
   routes.post("/:botId/computers/update", (context) =>
-    act(context, (botId, actor) => gateway.updateComputer(botId, actor)),
+    acting(context, (botId, actor) => gateway.updateComputer(botId, actor)),
   );
 
   routes.post("/:botId/control/take", (context) =>
-    act(context, (botId, actor, body) =>
+    acting(context, (botId, actor, body) =>
       gateway.takeControl(botId, actor, handoffId(body)),
     ),
   );
 
   routes.post("/:botId/control/release", (context) =>
-    act(context, (botId, actor, body) =>
+    acting(context, (botId, actor, body) =>
       gateway.releaseControl(botId, actor, handoffId(body)),
     ),
   );
 
   routes.post("/:botId/control/cancel", (context) =>
-    act(context, (botId, actor, body) =>
+    acting(context, (botId, actor, body) =>
       gateway.cancelControl(botId, actor, handoffId(body)),
     ),
   );
 
   /** The Bot asking for a value it must not be told. */
   routes.post("/:botId/control/secret", (context) =>
-    act(context, (botId, actor, body) => {
+    acting(context, (botId, actor, body) => {
       if (typeof body?.ref !== "string" || !body.ref) {
         return {
           error:
@@ -498,7 +674,7 @@ export function createComputerRoutes(
    * this server returns exactly one place.
    */
   routes.post("/:botId/human/secret", (context) =>
-    act(context, (botId, actor, body) => {
+    acting(context, (botId, actor, body) => {
       if (typeof body?.text !== "string" || !body.text) {
         return { error: "A value is required." };
       }
@@ -508,7 +684,7 @@ export function createComputerRoutes(
 
   /** A person declining to enter the value: the Bot is told it was cancelled, not that it was entered. */
   routes.post("/:botId/human/secret/cancel", (context) =>
-    act(context, (botId, actor) => gateway.cancelSecret(botId, actor)),
+    acting(context, (botId, actor) => gateway.cancelSecret(botId, actor)),
   );
 
   /**
@@ -606,6 +782,8 @@ export function createComputerRoutes(
     if (botId.length > 200 || toolCallId.length > 200) {
       return context.json({ error: "A Bot and a turn are required." }, 400);
     }
+    // A navigation that has just answered may still be taking its frame.
+    await untilFramed(botId);
     const stored = await pageFrames.load(botId, toolCallId);
     return context.json({ frame: stored });
   });
@@ -637,7 +815,7 @@ export function createComputerRoutes(
   });
 
   routes.post("/:botId/files/list", (context) =>
-    act(context, (botId, actor, body) =>
+    acting(context, (botId, actor, body) =>
       gateway.listFiles(botId, actor, {
         ...(typeof body?.path === "string" && body.path.trim()
           ? { path: body.path.trim() }
@@ -647,7 +825,7 @@ export function createComputerRoutes(
   );
 
   routes.post("/:botId/files/read", (context) =>
-    act(context, (botId, actor, body) => {
+    acting(context, (botId, actor, body) => {
       if (typeof body?.path !== "string" || !body.path.trim()) {
         return { error: "A file path is required." };
       }
@@ -693,7 +871,7 @@ export function createComputerRoutes(
    * computer as a RangeError 500 or a run that outlasts the transport backstop.
    */
   routes.post("/:botId/exec", (context) =>
-    act(context, (botId, actor, body, signal) => {
+    acting(context, (botId, actor, body, signal) => {
       if (typeof body?.command !== "string" || !body.command.trim()) {
         return { error: "A command is required." };
       }
@@ -728,7 +906,7 @@ export function createComputerRoutes(
   );
 
   routes.post("/:botId/files/write", (context) =>
-    act(context, (botId, actor, body) => {
+    acting(context, (botId, actor, body) => {
       if (typeof body?.path !== "string" || !body.path.trim()) {
         return { error: "A file path is required." };
       }
@@ -781,6 +959,9 @@ export function createComputerRoutes(
         503,
       );
     }
+    // In force on this server at once, not when the gateway's few-second cache runs out. Optional
+    // only for a router mounted without a gateway behind it, as the policy tests do.
+    gateway.invalidatePolicy?.();
     // Echoed back so a caller can see exactly what is now in force rather than assuming its request
     // was stored verbatim.
     return context.json({ policy: policyStore.get() });
@@ -912,11 +1093,14 @@ async function act(
      */
     signal: AbortSignal,
   ) => Promise<unknown> | BadRequest,
+  /** Waited for first: a frame still being taken of this Bot's page. */
+  before?: (botId: string) => Promise<void>,
 ) {
   // Always present on these routes, which all declare `:botId`. The fallback exists because this
   // helper is typed against a generic context that cannot know that, and a thrown "undefined bot"
   // would be a worse outcome than naming the one shared computer.
   const botId = context.req.param("botId") ?? "default";
+  await before?.(botId);
   const record = context.var.actor;
   const body = (await context.req.json().catch(() => null)) as Record<
     string,
@@ -999,6 +1183,65 @@ function asRef(
   return { ref: body.ref, snapshotId: body.snapshotId };
 }
 
+/**
+ * A fill request, shaped: the fields (each a ref and exactly one of text, checked, option or file),
+ * the optional `then`, and the snapshotId the refs came from. The computer checks the same again.
+ */
+function asFill(body: Record<string, unknown> | null): FillInput | BadRequest {
+  if (
+    typeof body?.snapshotId !== "number" ||
+    !Number.isInteger(body.snapshotId)
+  )
+    return badRef;
+  if (
+    !Array.isArray(body.fields) ||
+    body.fields.length === 0 ||
+    body.fields.length > 60
+  )
+    return { error: "A fill needs between 1 and 60 fields." };
+  const fields: FillField[] = [];
+  for (const [index, raw] of body.fields.entries()) {
+    const field = (raw ?? {}) as Record<string, unknown>;
+    if (typeof field.ref !== "string" || !field.ref)
+      return { error: `Field ${index} needs a ref.` };
+    const given = (["text", "checked", "option", "file"] as const).filter(
+      (key) => field[key] !== undefined,
+    );
+    const [kind] = given;
+    if (given.length !== 1 || !kind)
+      return {
+        error: `Field ${index} (${field.ref}) needs exactly one of text, checked, option or file.`,
+      };
+    const value = field[kind];
+    if (
+      kind === "checked"
+        ? typeof value !== "boolean"
+        : typeof value !== "string"
+    )
+      return {
+        error: `Field ${index} (${field.ref}): ${kind} must be ${kind === "checked" ? "true or false" : "text"}.`,
+      };
+    fields.push({ ref: field.ref, [kind]: value });
+  }
+  const then = body.then as Record<string, unknown> | undefined;
+  if (then === undefined) return { fields, snapshotId: body.snapshotId };
+  if (typeof then?.click === "string" && then.click)
+    return {
+      fields,
+      // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+      then: { click: then.click },
+      snapshotId: body.snapshotId,
+    };
+  if (then?.submit === true)
+    return {
+      fields,
+      // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+      then: { submit: true },
+      snapshotId: body.snapshotId,
+    };
+  return { error: 'then is either { "click": ref } or { "submit": true }.' };
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong.";
 }
@@ -1038,6 +1281,24 @@ function errorBody(error: unknown): Record<string, unknown> {
     ...(error instanceof HandoffRequestError
       ? { controlRequestError: true }
       : {}),
+    // What is wrong with the element, and the tool or option that fits, for the Bot's next step.
+    ...(isElementStateError(error)
+      ? {
+          problem: error.problem,
+          ...(error.useTool ? { useTool: error.useTool } : {}),
+          ...(error.options ? { options: error.options } : {}),
+          ...(error.coveredBy ? { coveredBy: error.coveredBy } : {}),
+        }
+      : {}),
+    ...(isSiteError(error)
+      ? {
+          siteError: {
+            problem: error.problem,
+            ...(error.code ? { code: error.code } : {}),
+          },
+        }
+      : {}),
+    ...(isDialogOpenError(error) ? { dialog: error.dialog } : {}),
   };
 }
 
@@ -1053,8 +1314,14 @@ function handoffId(body: Record<string, unknown> | null): string {
 
 function statusFor(
   error: unknown,
-): 400 | 403 | 404 | 409 | 413 | 500 | 503 | 504 {
+): 400 | 403 | 404 | 409 | 413 | 422 | 500 | 502 | 503 | 504 {
   if (error instanceof HandoffRequestError) return error.status;
+  // The element is there and would not take the action. Not stale (409), not the computer (503).
+  if (isElementStateError(error)) return 422;
+  // The site failed, not the computer: 502, the gateway's answer for an upstream that said no.
+  if (isSiteError(error)) return 502;
+  // The page is paused on a dialog: answer it first. The same "do something else first" as below.
+  if (isDialogOpenError(error)) return 409;
   // The site did not answer in time. The computer is fine, which 503 would deny.
   if (error instanceof NavigationTimeoutError) return 504;
   if (error instanceof StaleSnapshotError) return 409;

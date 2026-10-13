@@ -62,8 +62,17 @@ export type SnapshotStore = {
    * record before the refs it describes are handed to the model and can come back on another replica.
    */
   save: (computerId: string, snapshot: StoredSnapshot) => Promise<void>;
-  /** The live snapshot for a computer, or undefined when none has been taken. */
-  load: (computerId: string) => Promise<StoredSnapshot | undefined>;
+  /**
+   * The live snapshot for a computer, or undefined when none has been taken.
+   *
+   * `wanted` is the generation the caller's ref came from, when it has one. A store that keeps a
+   * copy in this process answers from it only when the copy is that generation; anything else is
+   * read from the database, because another replica may have taken a newer snapshot since.
+   */
+  load: (
+    computerId: string,
+    wanted?: number,
+  ) => Promise<StoredSnapshot | undefined>;
   /**
    * Forget a computer's snapshot, because the page it described is gone.
    *
@@ -210,4 +219,116 @@ function elementsFromObject(
   object: Record<string, SnapshotElement>,
 ): Map<string, SnapshotElement> {
   return new Map(Object.entries(object));
+}
+
+/** How many times a background write is tried before it is reported as lost. */
+const WRITE_ATTEMPTS = 3;
+
+/**
+ * The database store with this process's own copy in front of it, written through.
+ *
+ * Every acting call now stores the snapshot of the page it produced, so a Postgres round trip on
+ * the way out and another on the way in was the slowest part of a click. Here a save updates the
+ * copy at once and the row in the background, in order per computer and retried, so it is still
+ * durable; a load answers from the copy when the caller's ref is from that very snapshot (the
+ * common case: the click after the snapshot, on the replica that took it), and from the table
+ * otherwise, which is what keeps another replica's newer snapshot authoritative.
+ *
+ * What that costs: a click that lands on a second replica within the few milliseconds the write is
+ * in flight reads the older row and is refused as stale ("take a fresh snapshot"), which fails
+ * closed. `saveNow` is the durable save, for the explicit snapshot a Bot asks for, which is rarer
+ * now and the one most likely to be followed by a click on another replica. A reset (`clear`)
+ * waits for the writes ahead of it, so a late save cannot put a wiped page back.
+ *
+ * Applied by the gateway to whichever store it is given, so a deployment gets it without wiring.
+ */
+export type WriteThroughSnapshotStore = SnapshotStore & {
+  /** Save and wait for the row, for a snapshot another replica is about to resolve against. */
+  saveNow: (computerId: string, snapshot: StoredSnapshot) => Promise<void>;
+  /** Every write queued so far, landed. For shutdown and for tests. */
+  flush: () => Promise<void>;
+};
+
+export function withWriteThrough(
+  store: SnapshotStore,
+  report: (message: string) => void = (message) => console.warn(message),
+): WriteThroughSnapshotStore {
+  const copies = new Map<string, StoredSnapshot>();
+  const queues = new Map<string, Promise<void>>();
+
+  const enqueue = (computerId: string, work: () => Promise<void>) => {
+    const ahead = queues.get(computerId) ?? Promise.resolve();
+    const next = ahead.then(work, work);
+    queues.set(computerId, next);
+    const settled = () => {
+      if (queues.get(computerId) === next) queues.delete(computerId);
+    };
+    // Both ways, so a failed write is not also an unhandled rejection here.
+    void next.then(settled, settled);
+    return next;
+  };
+
+  const durably = async (computerId: string, snapshot: StoredSnapshot) => {
+    for (let attempt = 1; attempt <= WRITE_ATTEMPTS; attempt += 1) {
+      try {
+        await store.save(computerId, snapshot);
+        return;
+      } catch (error) {
+        if (attempt === WRITE_ATTEMPTS) {
+          report(
+            `[computer] the snapshot of ${computerId} could not be stored after ${WRITE_ATTEMPTS} attempts: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+      }
+    }
+  };
+
+  const keep = (computerId: string, snapshot: StoredSnapshot) => {
+    // The same forward-only rule the table applies, so the copy and the row agree on who won.
+    const held = copies.get(computerId);
+    const sameSession = held?.session === snapshot.session;
+    if (!(held && sameSession && held.snapshotId >= snapshot.snapshotId))
+      copies.set(computerId, snapshot);
+  };
+
+  return {
+    async save(computerId, snapshot) {
+      keep(computerId, snapshot);
+      void enqueue(computerId, () => durably(computerId, snapshot));
+    },
+
+    async saveNow(computerId, snapshot) {
+      keep(computerId, snapshot);
+      await enqueue(computerId, () => store.save(computerId, snapshot));
+    },
+
+    async load(computerId, wanted) {
+      const copy = copies.get(computerId);
+      if (copy && wanted !== undefined && copy.snapshotId === wanted)
+        return copy;
+      const row = await store.load(computerId, wanted);
+      // The newer of the two within a session: the row may be one this replica's write has not
+      // reached yet, or another replica's newer page.
+      if (
+        copy &&
+        row &&
+        copy.session === row.session &&
+        copy.snapshotId > row.snapshotId
+      )
+        return copy;
+      if (row) copies.set(computerId, row);
+      return row ?? copy;
+    },
+
+    async clear(computerId) {
+      copies.delete(computerId);
+      await enqueue(computerId, () => store.clear(computerId));
+    },
+
+    async flush() {
+      await Promise.allSettled([...queues.values()]);
+    },
+  };
 }

@@ -25,7 +25,9 @@ import {
   type ComputerGateway,
   HumanHasControlError,
 } from "./gateway";
+import type { PageFrameStore } from "./page-frames";
 import type { ControlState } from "./schema";
+import { showScreen } from "./show-screen";
 
 /** Client tools supplied by OpenBot when the caller has no browser. */
 export type HeadlessTool = {
@@ -380,8 +382,14 @@ export function createHeadlessComputerTools(options: {
   auditStore?: AuditStore;
   /** The private sign-in request. Absent leaves the Bot with help and secret requests only. */
   signIn?: HeadlessSignInRequester;
+  /**
+   * Where `computer_show_screen` keeps its picture: the gateway's own store unless one is given.
+   * With neither, the tool says it cannot show one.
+   */
+  pageFrames?: PageFrameStore;
 }): HeadlessTool[] {
   const { gateway, botId, actor, auditStore, signIn } = options;
+  const pageFrames = options.pageFrames ?? gateway.pageFrames;
   const snapshotId = z.number().int().positive();
   const ref = z.string().min(1);
   const text = z.string().min(1);
@@ -430,22 +438,37 @@ export function createHeadlessComputerTools(options: {
         : {}),
     });
   }
+  /**
+   * A challenge on the page an action produced opens the same takeover a navigation's does, so
+   * the unattended turn waits for the person instead of acting on a CAPTCHA.
+   */
+  function unlessChallenged<T extends { challenge?: unknown }>(result: T): T {
+    const challenge = result.challenge as
+      | { reason: string; requestId: string; kind: string }
+      | undefined;
+    if (challenge)
+      throw new HeadlessToolSuspension(challenge.reason, {
+        kind: "computer_handoff",
+        botId,
+        requestId: challenge.requestId,
+        source: challenge.kind,
+      });
+    return result;
+  }
+  const acted = async <T extends { challenge?: unknown }>(
+    result: Promise<T>,
+  ) => ({ ok: true, ...unlessChallenged(await result) });
+  const optionalRef = z.strictObject({
+    ref: ref.optional(),
+    snapshotId: snapshotId.optional(),
+  }).shape;
   const tools = [
     tool(
       "computer_navigate",
-      "Open a web page and return its title and readable text. Use the returned content to answer.",
+      "Open a web page. Returns its title, readable text and `page`: the elements with refs you can act on straight away, and the HTTP status.",
       z.strictObject({ url: text }),
-      async ({ url }, { toolCallId }) => {
-        const result = await gateway.navigate(botId, actor, url, toolCallId);
-        if (result.challenge)
-          throw new HeadlessToolSuspension(result.challenge.reason, {
-            kind: "computer_handoff",
-            botId,
-            requestId: result.challenge.requestId,
-            source: result.challenge.kind,
-          });
-        return { ok: true, ...result };
-      },
+      async ({ url }, { toolCallId }) =>
+        acted(gateway.navigate(botId, actor, url, toolCallId)),
     ),
     tool(
       "computer_read",
@@ -455,7 +478,7 @@ export function createHeadlessComputerTools(options: {
     ),
     tool(
       "computer_snapshot",
-      "List fields, buttons and links with refs. Call before clicking or typing and pass the returned snapshotId with every ref. If refs are stale take a fresh snapshot.",
+      "List the page's fields, buttons and links with refs. Acting tools already return `page`; call this for the full list when `page.changed` shows only what changed, or refs are stale.",
       noArgs,
       async () => ({ ok: true, ...(await gateway.snapshot(botId)) }),
     ),
@@ -467,26 +490,89 @@ export function createHeadlessComputerTools(options: {
     ),
     tool(
       "computer_click",
-      "Click an element using its ref and snapshotId from the latest snapshot.",
+      "Click an element by ref, with the snapshotId from the latest `page` or snapshot. Returns the page after the click.",
       z.strictObject({ ref, snapshotId }),
-      async (input, { signal }) => ({
-        ok: true,
-        ...(await gateway.click(botId, actor, input, signal)),
-      }),
+      async (input, { signal }) =>
+        acted(gateway.click(botId, actor, input, signal)),
     ),
     tool(
       "computer_type",
-      "Replace a field's contents using its ref and snapshotId. Set submit to press Enter afterwards.",
+      "Replace a field's text by ref and snapshotId; submit presses Enter after. For a whole form use computer_fill.",
       z.strictObject({
         ref,
         snapshotId,
         text: z.string(),
         submit: z.boolean().optional(),
       }),
-      async (input, { signal }) => ({
-        ok: true,
-        ...(await gateway.type(botId, actor, input, signal)),
+      async (input, { signal }) =>
+        acted(gateway.type(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_fill",
+      "Fill a whole form in one call: each field is a ref with exactly one of text, checked, option (a drop-down's label or value) or file (a workspace path). then clicks a ref or submits the form. Stops at the first field that fails and says why.",
+      z.strictObject({
+        fields: z
+          .array(
+            z
+              .strictObject({
+                ref,
+                text: z.string().optional(),
+                checked: z.boolean().optional(),
+                option: z.string().optional(),
+                file: z.string().optional(),
+              })
+              .refine(
+                (field) =>
+                  [field.text, field.checked, field.option, field.file].filter(
+                    (value) => value !== undefined,
+                  ).length === 1,
+                {
+                  message:
+                    "Each field needs exactly one of text, checked, option or file.",
+                },
+              ),
+          )
+          .min(1)
+          .max(60),
+        // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+        then: z
+          .union([
+            z.strictObject({ click: ref }),
+            z.strictObject({ submit: z.literal(true) }),
+          ])
+          .optional(),
+        snapshotId,
       }),
+      async (input, { signal }) =>
+        acted(gateway.fill(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_select",
+      "Choose an option in a drop-down (native or custom) by its visible label or value.",
+      z.strictObject({ ref, option: text, snapshotId }),
+      async (input, { signal }) =>
+        acted(gateway.select(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_check",
+      "Tick (checked true) or untick a checkbox, radio button or switch.",
+      z.strictObject({ ref, checked: z.boolean(), snapshotId }),
+      async (input, { signal }) =>
+        acted(gateway.check(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_upload",
+      "Upload a file from your workspace (path relative to it) into a file input or upload button.",
+      z.strictObject({ ref, path: text, snapshotId }),
+      async (input, { signal }) =>
+        acted(gateway.upload(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_hover",
+      "Move the pointer over an element, to open a menu or show a tooltip.",
+      z.strictObject({ ref, snapshotId }),
+      async (input, { signal }) =>
+        acted(gateway.hover(botId, actor, input, signal)),
     ),
     tool(
       "computer_key",
@@ -500,19 +586,68 @@ export function createHeadlessComputerTools(options: {
         .refine((input) => !input.ref || input.snapshotId !== undefined, {
           message: "A snapshotId is required when a ref is given.",
         }),
-      async (input, { signal }) => ({
-        ok: true,
-        ...(await gateway.key(botId, actor, input, signal)),
-      }),
+      async (input, { signal }) =>
+        acted(gateway.key(botId, actor, input, signal)),
     ),
     tool(
       "computer_scroll",
-      "Scroll down by pixels, or up with a negative deltaY. Defaults to 600.",
-      z.strictObject({ deltaY: z.number().optional() }),
-      async (input) => ({
-        ok: true,
-        ...(await gateway.scroll(botId, actor, input)),
-      }),
+      "Scroll the page by deltaY pixels (negative is up; default 600). With a ref: scroll it into view, or with deltaY too, scroll inside the panel it is in.",
+      z
+        .strictObject({ deltaY: z.number().optional(), ...optionalRef })
+        .refine((input) => !input.ref || input.snapshotId !== undefined, {
+          message: "A snapshotId is required when a ref is given.",
+        }),
+      async (input, { signal }) =>
+        acted(gateway.scroll(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_dialog",
+      "Answer the alert, confirm or prompt the page is showing (`page.dialog`): accept true for OK, false for Cancel; text answers a prompt.",
+      z.strictObject({ accept: z.boolean(), text: z.string().optional() }),
+      async (input, { signal }) =>
+        acted(gateway.dialog(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_tabs",
+      "List the browser's tabs, switch to one, or close one, by index from the list.",
+      z
+        .strictObject({
+          action: z.enum(["list", "switch", "close"]),
+          index: z.number().int().min(0).optional(),
+        })
+        .refine(
+          (input) => input.action === "list" || input.index !== undefined,
+          {
+            message: "Say which tab, by its index from the list.",
+          },
+        ),
+      async (input, { signal }) =>
+        acted(gateway.tabs(botId, actor, input, signal)),
+    ),
+    tool(
+      "computer_back",
+      "Go back to the previous page in this tab.",
+      noArgs,
+      async (_input, { signal }) => acted(gateway.back(botId, actor, signal)),
+    ),
+    tool(
+      "computer_show_screen",
+      "Show the person a picture of your screen in this conversation, before an irreversible submit or whenever a picture says more. You do not see it. Never rebuild a page as a generated interface to show it.",
+      z.strictObject({ caption: z.string().optional() }),
+      async (_input, { toolCallId }) => {
+        const shown = await showScreen(
+          { gateway, pageFrames },
+          botId,
+          toolCallId,
+        );
+        return shown.ok
+          ? {
+              ok: true,
+              url: shown.url,
+              shown: "The person now sees a picture of this page in the chat.",
+            }
+          : shown;
+      },
     ),
     tool(
       "computer_list_files",

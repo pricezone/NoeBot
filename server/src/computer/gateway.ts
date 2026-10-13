@@ -18,7 +18,11 @@
  * The refs are opaque to the caller precisely so that the server holds the mapping.
  */
 
-import { type ApprovalGate, currentApprovalContext } from "../approvals/types";
+import {
+  type ApprovalGate,
+  type ApprovalPermit,
+  currentApprovalContext,
+} from "../approvals/types";
 import {
   type AuditInitiator,
   type AuditStore,
@@ -39,6 +43,9 @@ export {
   ElementNotFoundError,
   HandoffRequestError,
   HumanHasControlError,
+  isDialogOpenError,
+  isElementStateError,
+  isSiteError,
   NavigationRefusedError,
   NavigationTimeoutError,
   StaleSnapshotError,
@@ -59,16 +66,22 @@ import {
 import type { ComputerProvider, ComputerUpdate } from "./provider";
 import type {
   ActionResult,
+  CheckInput,
   ClickInput,
   ComputerStatus,
   ControlState,
+  DialogInput,
   DownloadFileInput,
+  FillInput,
+  FillResult,
+  HoverInput,
   HumanInput,
   HumanInputResult,
   KeyInput,
   ListFilesInput,
   ListFilesResult,
   NavigateResult,
+  PageReport,
   ReadFileInput,
   ReadFileResult,
   ReadResult,
@@ -78,12 +91,16 @@ import type {
   ScrollInput,
   SecretRequest,
   SecretResult,
+  SelectInput,
   SignInFillInput,
   SignInFillResult,
   SignInProbe,
   SnapshotElement,
   SnapshotResult,
+  TabsInput,
   TypeInput,
+  UploadInput,
+  WarmResult,
   WriteFileInput,
   WriteFileResult,
 } from "./schema";
@@ -91,6 +108,7 @@ import {
   createInMemorySnapshotStore,
   type SnapshotStore,
   type StoredSnapshot,
+  withWriteThrough,
 } from "./snapshot-store";
 
 export class ActionRefusedError extends Error {
@@ -141,10 +159,19 @@ export type ComputerGatewayOptions = {
    * this deployment makes in as many words.
    */
   pageFrames?: PageFrameStore;
+  /**
+   * How long a located address is reused before the provider is asked again. Zero asks on every
+   * call, as the gateway always did. See `locate`.
+   */
+  locateCacheMs?: number;
+  /** How long the policy read for a Bot is reused. Zero reads it on every action. */
+  policyCacheMs?: number;
 };
 
 export interface ComputerGateway {
   readonly provider: ComputerProvider;
+  /** Where frames of pages are kept, when the deployment keeps them (`computer_show_screen`). */
+  readonly pageFrames?: PageFrameStore;
   locate(botId: string): Promise<string>;
   /**
    * `browser: true` also says whether the Bot's browser is running (`ComputerStatus.browser`), for
@@ -188,7 +215,68 @@ export interface ComputerGateway {
     botId: string,
     actor: ActionActor,
     input: ScrollInput,
+    signal?: AbortSignal,
   ): Promise<ActionResult>;
+  /** Choose an option in a drop-down, native or custom, by its label or value. */
+  select(
+    botId: string,
+    actor: ActionActor,
+    input: SelectInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  /** Tick or untick a checkbox, radio button or switch. */
+  check(
+    botId: string,
+    actor: ActionActor,
+    input: CheckInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  /** Put a workspace file into an upload control. Governed with the file's path. */
+  upload(
+    botId: string,
+    actor: ActionActor,
+    input: UploadInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  hover(
+    botId: string,
+    actor: ActionActor,
+    input: HoverInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  /** Accept or dismiss the JavaScript dialog the page is paused on. */
+  dialog(
+    botId: string,
+    actor: ActionActor,
+    input: DialogInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  tabs(
+    botId: string,
+    actor: ActionActor,
+    input: TabsInput,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  back(
+    botId: string,
+    actor: ActionActor,
+    signal?: AbortSignal,
+  ): Promise<ActionResult>;
+  /**
+   * A whole page of fields in one call. Each field is decided and recorded exactly as the
+   * single-field tool would be (type, select, check, upload; the `then` as a click or an Enter);
+   * a refused field stops the batch there, and the result says which and why.
+   */
+  fill(
+    botId: string,
+    actor: ActionActor,
+    input: FillInput,
+    signal?: AbortSignal,
+  ): Promise<FillResult>;
+  /** Start the Bot's browser if it is stopped, without navigating. Not an action: nothing is recorded. */
+  warm(botId: string): Promise<WarmResult>;
+  /** Forget the policy read for a Bot (or every Bot), because the policy changed. */
+  invalidatePolicy(botId?: string): void;
   readFile(
     botId: string,
     actor: ActionActor,
@@ -307,8 +395,52 @@ export function createComputerGateway(
    * was touched. The store puts it in Postgres, and the generation carried on every action keeps a
    * ref from a superseded page from resolving to whatever now holds it. See snapshot-store.ts.
    */
-  const snapshots = options.snapshots ?? createInMemorySnapshotStore();
+  const snapshots = withWriteThrough(
+    options.snapshots ?? createInMemorySnapshotStore(),
+  );
   const pageFrames = options.pageFrames;
+
+  /**
+   * Where each Bot's computer was last found, kept for {@link LOCATE_CACHE_MS}.
+   *
+   * Every call used to locate first, and on the supervisor that is an `/ensure` round trip before
+   * each screenshot the panel polls, each page read and each page-level action. The answer is the
+   * same address for as long as the computer stays up, so it is kept briefly and dropped whenever
+   * it may have changed: on stop, reset and update here, and on any call that found nothing
+   * answering there (which is then asked again once, when the request never connected and so
+   * cannot have done anything).
+   *
+   * Not for anything resolved against a run (an action citing a ref, a snapshot, a fill): there the
+   * locate is also how the supervisor reports a replaced container, so those locate afresh.
+   */
+  const locateCacheMs = options.locateCacheMs ?? LOCATE_CACHE_MS;
+  const located = new Map<string, { address: string; at: number }>();
+  const forgetLocation = (botId: string) => {
+    located.delete(botId);
+  };
+
+  /**
+   * The policy for a Bot, kept for at most {@link POLICY_CACHE_MS} and never past a change.
+   *
+   * A changed policy is taken at once, never served stale: the policy store replaces its object on
+   * every change (a save here, a reset, another server's change arriving through the listener), so
+   * an object that is not the one kept is a change, and `invalidatePolicy` drops it outright. A
+   * boundary an administrator has just tightened must not wait out a cache. What is kept is the
+   * read itself, for a source that is not a free in-memory getter.
+   */
+  const policyCacheMs = options.policyCacheMs ?? POLICY_CACHE_MS;
+  const policies = new Map<
+    string,
+    { policy: ActionPolicy | undefined; at: number }
+  >();
+  const policyFor = (botId: string): ActionPolicy | undefined => {
+    const policy = options.policy();
+    const held = policies.get(botId);
+    if (held && held.policy === policy && Date.now() - held.at < policyCacheMs)
+      return held.policy;
+    if (policyCacheMs > 0) policies.set(botId, { policy, at: Date.now() });
+    return policy;
+  };
 
   /**
    * Where this Bot's computer is, checked before anything is sent to it.
@@ -321,13 +453,49 @@ export function createComputerGateway(
    * Not the navigation check. That one refuses private hosts, which is the right answer for where a
    * Bot may browse and the wrong one here, where loopback is the normal case.
    */
-  async function locate(botId: string): Promise<string> {
+  async function locateFresh(botId: string): Promise<string> {
     const address = await provider.locate(botId);
     const verdict = checkComputerAddress(address);
     if (!verdict.allowed) {
+      forgetLocation(botId);
       throw new ComputerUnavailableError(verdict.reason);
     }
+    if (locateCacheMs > 0)
+      located.set(botId, { address: verdict.url, at: Date.now() });
     return verdict.url;
+  }
+
+  async function locate(botId: string): Promise<string> {
+    const held = located.get(botId);
+    if (held && Date.now() - held.at < locateCacheMs) return held.address;
+    return locateFresh(botId);
+  }
+
+  /**
+   * Send to the computer, and when a remembered address turns out to have nothing behind it, drop
+   * it, locate again and resend once. Only when the request never connected: one that reached the
+   * computer and then failed may have done something, and is not sent twice.
+   */
+  async function viaComputer<T>(
+    botId: string,
+    send: (address: string) => Promise<T>,
+    address?: string,
+  ): Promise<T> {
+    const remembered = located.get(botId)?.address;
+    const target = address ?? (await locate(botId));
+    try {
+      return await send(target);
+    } catch (error) {
+      if (
+        error instanceof ComputerUnavailableError &&
+        !(error instanceof ComputerStoppedError)
+      ) {
+        forgetLocation(botId);
+        if (error.neverConnected && target === remembered)
+          return send(await locateFresh(botId));
+      }
+      throw error;
+    }
   }
 
   async function get<T>(
@@ -335,12 +503,8 @@ export function createComputerGateway(
     path: string,
     signal?: AbortSignal,
   ): Promise<T> {
-    return transport.call<T>(
-      await locate(botId),
-      botId,
-      path,
-      undefined,
-      signal,
+    return viaComputer(botId, (address) =>
+      transport.call<T>(address, botId, path, undefined, signal),
     );
   }
 
@@ -359,13 +523,11 @@ export function createComputerGateway(
     timeoutMs?: number,
     address?: string,
   ): Promise<T> {
-    return transport.post<T>(
-      address ?? (await locate(botId)),
+    return viaComputer(
       botId,
-      path,
-      payload,
-      signal,
-      timeoutMs,
+      (target) =>
+        transport.post<T>(target, botId, path, payload, signal, timeoutMs),
+      address,
     );
   }
 
@@ -377,9 +539,12 @@ export function createComputerGateway(
    * decision; throwing here would take the action off the trail entirely. So a failure answers
    * "unknown", which leaves the generation check where it was and leaves the address to the attempt.
    */
-  async function locateForAction(botId: string): Promise<string | undefined> {
+  async function locateForAction(
+    botId: string,
+    fresh = false,
+  ): Promise<string | undefined> {
     try {
-      return await locate(botId);
+      return fresh ? await locateFresh(botId) : await locate(botId);
     } catch {
       return undefined;
     }
@@ -457,7 +622,12 @@ export function createComputerGateway(
    * on the store.
    */
   async function snapshot(botId: string): Promise<SnapshotResult> {
-    const base = await locate(botId);
+    /*
+     * Located afresh, not from the cache: the run asked below is the one the last locate reported
+     * on the supervisor, and a snapshot stored under a run that has since been replaced would be
+     * refused at the next click, and the snapshot after it, for as long as the cache held.
+     */
+    const base = await locateFresh(botId);
     /*
      * Which run this is, asked before the page is drawn rather than after it.
      *
@@ -472,13 +642,16 @@ export function createComputerGateway(
      * allowed to fail in.
      */
     const run = await sessionOf(botId);
-    const result = await transport.call<SnapshotResult>(
-      base,
+    const result = await viaComputer(
       botId,
-      "/snapshot",
-      { method: "POST" },
+      (address) =>
+        transport.call<SnapshotResult>(address, botId, "/snapshot", {
+          method: "POST",
+        }),
+      base,
     );
-    await snapshots.save(botId, {
+    // Durable before the refs are handed out: the click that uses them may land on another replica.
+    await snapshots.saveNow(botId, {
       snapshotId: result.snapshotId,
       url: result.url,
       elements: new Map(
@@ -580,13 +753,15 @@ export function createComputerGateway(
       command?: string;
       /** The person's Stop, on its way to the browser. See the acting methods below. */
       signal?: AbortSignal;
+      /**
+       * The action answers with the page it produced, whose snapshot is stored for the next refs,
+       * so it needs this computer's run even without a ref of its own.
+       */
+      page?: boolean;
     },
-    run: (address?: string) => Promise<T>,
+    run: (address: string | undefined, context: GovernedRun) => Promise<T>,
   ): Promise<T> {
     const { ref, filePath, snapshotId } = subject;
-    // Loaded from the store, not this process's memory: the snapshot these refs belong to was very
-    // likely taken by another replica, and resolving against a local map would find nothing there.
-    const stored = await snapshots.load(botId);
     /*
      * LOCATE FIRST, THEN ASK WHICH RUN THAT WAS. The order is the check.
      *
@@ -594,18 +769,33 @@ export function createComputerGateway(
      * action has made its own, the last one belongs to the action before it. Asking first compared
      * the stored snapshot against the previous action's run, which is the same run on every action
      * but the first one after a replacement — exactly the action the check exists to catch. The
-     * click after a replaced container was allowed and the one after that refused, which is a
-     * guarantee arriving one action too late. The shared provider has no `/ensure` to read back, so
-     * there it is a live `/run` call of its own — one extra round trip per ref-citing action —
+     * shared provider has no `/ensure` to read back, so there it is a live `/run` call of its own,
      * which asks after `locate` for the same reason even though `locate` there is a string.
      *
-     * Only for an action that cites a ref. Nothing else is resolved against a snapshot, so nothing
-     * else needs the run, and a scroll or a file read should not have to reach the supervisor before
-     * the policy has even seen it. The address that comes back is the one the attempt then uses, so
-     * on the supervisor this costs no extra call for the actions that do need it.
+     * The snapshot is loaded beside that, from the store rather than this process's memory: the
+     * snapshot these refs belong to was very likely taken by another replica. The two reads do not
+     * depend on each other, so neither waits for the other.
+     *
+     * Only for a browser action. A file read or a shell call is not resolved against a page, and
+     * should not have to reach the supervisor before the policy has even seen it.
      */
-    const address = ref ? await locateForAction(botId) : undefined;
-    const { session } = ref ? await sessionOf(botId) : { session: undefined };
+    const browser = Boolean(ref) || subject.page === true;
+    const [stored, address] = await Promise.all([
+      snapshots.load(botId, ref ? snapshotId : undefined),
+      /*
+       * Afresh for a ref, from the cache otherwise. A ref is resolved against the run, and on the
+       * supervisor the run is what this locate's `/ensure` reports: a remembered address would
+       * compare the stored snapshot against the run before a replacement, and the first click after
+       * the container was replaced would go through. Everything else only needs the address.
+       */
+      browser
+        ? locateForAction(botId, Boolean(ref))
+        : Promise.resolve(undefined),
+    ]);
+    const asked = browser
+      ? sessionOf(botId)
+      : Promise.resolve<{ session?: string }>({});
+    const { session } = ref ? await asked : { session: undefined };
     const element = resolve(stored, ref, snapshotId, session);
     // For a navigation the relevant page is the one being opened, not the one already loaded. Using
     // the stored URL would mean `page.host == "..."` could never match the destination, which is the
@@ -613,54 +803,21 @@ export function createComputerGateway(
     const pageUrl = subject.targetUrl ?? stored?.url ?? "";
 
     const intent = intentOf(toolName, subject.key);
-
-    /*
-     * Every field is bound, present or not.
-     *
-     * A missing one is not an absent field to CEL, it is an unknown identifier, and cel-js throws on
-     * those. A thrown deny rule counts as a match, on purpose, so that a mistyped deny refuses rather
-     * than quietly permitting. Together those two correct behaviours produced a wrong one: a rule
-     * naming a field this action does not have refused the action.
-     *
-     * `deny: contains(command, "rm -rf")` is the example the docs give, and while `command` was
-     * spread in only for a shell call, that rule threw on every click, keypress, navigation and file
-     * read in the deployment and refused all of them. So did any rule naming `key`, `file` or
-     * `element` from an action that has none.
-     *
-     * Neutral rather than absent: `contains("", "rm -rf")` is false, which is the honest answer to
-     * "is this click running rm -rf". The audit row below still omits what did not happen, because a
-     * trail should not claim a click had a command.
-     */
-    const context: PolicyContext = {
-      tool: { name: toolName },
-      bot: { id: botId },
-      actor: { id: actor.id },
-      page: { url: pageUrl, host: hostOf(pageUrl) },
-      ...(intent ? { intent } : {}),
-      key: subject.key ?? "",
-      element: element
-        ? {
-            ref: element.ref,
-            role: element.role,
-            name: element.name,
-            type: element.type ?? "",
-          }
-        : { ref: "", role: "", name: "", type: "" },
-      file: filePath
-        ? describeFile(filePath)
-        : { path: "", name: "", extension: "" },
-      command: subject.command ?? "",
-      initiator: policyInitiator(actor.initiator),
-      // Neutral, like the fields above: this is not an MCP call, but a `deny: mcp.effect == "write"`
-      // names `mcp`, and cel-js throws on an unbound identifier — which fails closed and would refuse
-      // every browser action the moment an operator wrote a rule about their tools. Empty server and
-      // tool and an empty effect match no MCP rule, so a boundary drawn around MCP leaves the browser
-      // alone. The MCP context carries the browser fields empty for the mirror of this reason.
-      mcp: { server: "", tool: "", effect: "" },
-    };
-
-    const decision = evaluateActionPolicy(options.policy(), context);
-    await write(auditStore, {
+    const decision = evaluateActionPolicy(
+      policyFor(botId),
+      policyContext({
+        toolName,
+        botId,
+        actor,
+        pageUrl,
+        intent,
+        element,
+        key: subject.key,
+        filePath,
+        command: subject.command,
+      }),
+    );
+    const decisionRow = write(auditStore, {
       toolName,
       botId,
       actor,
@@ -672,91 +829,104 @@ export function createComputerGateway(
       pageUrl,
       decision,
     });
+    /*
+     * A citation that was made and could not be honoured is refused, not carried out.
+     *
+     * `resolve` answering undefined leaves the element half of the context all-empty, and empty is
+     * the honest neutral value for an action that names no element: it is what stops a rule about
+     * one action surface throwing on another. It is the wrong answer for an action that named a ref
+     * and did not get one. Every element-keyed rule then evaluates against empty strings, so a deny
+     * that exists to stop this exact click does not match, the shipped default permits, and the
+     * click lands on whatever that ref is now. The rule did not decline to match. It was never
+     * shown the element.
+     *
+     * The computer's own staleness check does not make this safe. It compares the citation against
+     * its own counter, so it catches the cases where the two disagree; the case that matters is the
+     * one where the computer is content and only this server is out of step, which is what a
+     * computer restarting its generation counter under a stored row leaves behind.
+     *
+     * Only a cited ref, and only against a snapshot this server actually holds. A computer this
+     * server has no snapshot for at all is a different situation: there is no page here to judge
+     * the citation against, the computer is the only party that can, and refusing locally would
+     * take its answer away, including the one that says a person has taken the wheel.
+     *
+     * Thrown from inside the attempt, after the decision row, on purpose: an action whose ref
+     * resolves to nothing is still an action somebody tried to take, and refusing it before the row
+     * was written would be a way to act without appearing on the trail.
+     */
+    const stale = Boolean(ref && stored && !element);
+    /*
+     * The approval gate's reads go out beside the decision row's write. Both are awaited before
+     * anything is sent to the computer, so nothing acts without its row; they only stop queueing
+     * behind each other. Its failure is observed below, after the row has landed.
+     */
+    const continuation = currentApprovalContext();
+    const gating: Promise<ApprovalPermit | undefined> | undefined =
+      decision.forward && !stale
+        ? options.approvalGate?.({
+            actorId: actor.id,
+            botId,
+            toolRef: toolName,
+            effect: ["activate", "type", "write_file", "run_command"].includes(
+              intent ?? "",
+            )
+              ? "write"
+              : "read",
+            scope: filePath
+              ? filePath.split("/").slice(0, -1).join("/") || "workspace"
+              : subject.command
+                ? "workspace"
+                : hostOf(pageUrl) || "browser",
+            args: continuation?.args ?? {
+              ...subject,
+              signal: undefined,
+              page: undefined,
+            },
+            target: {
+              pageUrl,
+              ...(element ? { element, snapshotId } : {}),
+              ...(filePath ? { filePath } : {}),
+            },
+            continuation,
+          })
+        : undefined;
+    gating?.catch(() => undefined);
+    await decisionRow;
     if (!decision.forward) {
       throw new ActionRefusedError(decision.reason, decision.matched);
     }
 
     let result: T;
     try {
-      /*
-       * A citation that was made and could not be honoured is refused, not carried out.
-       *
-       * `resolve` answering undefined leaves the element half of the context all-empty, and empty is
-       * the honest neutral value for an action that names no element: it is what stops a rule about
-       * one action surface throwing on another. It is the wrong answer for an action that named a ref
-       * and did not get one. Every element-keyed rule then evaluates against empty strings, so a deny
-       * that exists to stop this exact click does not match, the shipped default permits, and the
-       * click lands on whatever that ref is now. The rule did not decline to match. It was never
-       * shown the element.
-       *
-       * The computer's own staleness check does not make this safe. It compares the citation against
-       * its own counter, so it catches the cases where the two disagree; the case that matters is the
-       * one where the computer is content and only this server is out of step, which is what a
-       * computer restarting its generation counter under a stored row leaves behind.
-       *
-       * Only a cited ref, and only against a snapshot this server actually holds. Scroll, a
-       * page-level keypress, a shell call and a file read name no element, so they have nothing to
-       * have failed to resolve. A computer this server has no snapshot for at all is a different
-       * situation: there is no page here to judge the citation against, the computer is the only
-       * party that can, and refusing locally would take its answer away, including the one that says
-       * a person has taken the wheel. What is refused here is a citation this server can see is stale.
-       *
-       * Thrown from inside the attempt, after the decision row, on purpose: an action whose ref
-       * resolves to nothing is still an action somebody tried to take, and refusing it before the row
-       * was written would be a way to act without appearing on the trail. The failure row beside it is
-       * what stops the trail claiming a permitted action was carried out when nothing was sent.
-       */
-      if (ref && stored && !element) {
+      if (stale) {
         throw new StaleSnapshotError(
           `${ref} is not on the page this computer is showing, so nothing can be checked against it before acting. Take a fresh snapshot and use the refs it returns.`,
         );
       }
-      const continuation = currentApprovalContext();
-      const approval = await options.approvalGate?.({
-        actorId: actor.id,
-        botId,
-        toolRef: toolName,
-        effect: ["activate", "type", "write_file", "run_command"].includes(
-          intent ?? "",
-        )
-          ? "write"
-          : "read",
-        scope: filePath
-          ? filePath.split("/").slice(0, -1).join("/") || "workspace"
-          : subject.command
-            ? "workspace"
-            : hostOf(pageUrl) || "browser",
-        args: continuation?.args ?? { ...subject, signal: undefined },
-        target: {
-          pageUrl,
-          ...(element ? { element, snapshotId } : {}),
-          ...(filePath ? { filePath } : {}),
-        },
-        continuation,
-      });
+      const approval = await gating;
       result =
         approval && "replay" in approval
           ? (approval.replay as T)
-          : await run(address);
+          : await run(address, {
+              session: async () => (await asked).session,
+            });
       await approval?.complete(result);
     } catch (error) {
       if (error instanceof HeadlessToolSuspension) throw error;
+      if (
+        error instanceof ComputerUnavailableError &&
+        !(error instanceof ComputerStoppedError)
+      )
+        forgetLocation(botId);
       /**
        * A permitted action that did not happen gets its own row.
        *
        * Without this the trail lies by omission. The row above says the policy allowed the call, and
        * a reader takes "allowed" to mean "it happened".
        *
-       * Writing the decision before acting is still right, because an allowed action may have partial
-       * effects before failing. The failure row records the outcome separately from the policy
-       * decision.
-       *
        * It carries the same subject the decision row did, and for the same reasons: a shell call
        * that failed part-way is the row somebody most needs to name the command from, and a keypress
-       * that failed is still the difference between a submitted form and a typed letter. Leaving
-       * them off also chose the wrong element branch below, because "this action never had an
-       * element" is decided by the command and the file path — so a failed command claimed a
-       * snapshot lookup that never happened.
+       * that failed is still the difference between a submitted form and a typed letter.
        */
       await write(auditStore, {
         toolName,
@@ -785,8 +955,303 @@ export function createComputerGateway(
       : result;
   }
 
+  /**
+   * Store the snapshot of the page an action produced, so the refs in its lines resolve for the
+   * next action on any replica, and take the full list off before the model sees the result.
+   *
+   * Written through (snapshot-store.ts): the row follows in the background, in order.
+   */
+  async function keepPage<T>(
+    botId: string,
+    result: T,
+    context: GovernedRun,
+  ): Promise<T> {
+    if (!result || typeof result !== "object" || !("page" in result))
+      return result;
+    const page = (result as { page?: unknown }).page as
+      | (PageReport & {
+          snapshot?: { elements?: SnapshotElement[]; truncated?: boolean };
+        })
+      | undefined;
+    if (!page || typeof page !== "object") return result;
+    const { snapshot, ...shown } = page;
+    if (
+      snapshot &&
+      Array.isArray(snapshot.elements) &&
+      typeof page.snapshotId === "number"
+    ) {
+      const session = await context.session();
+      await snapshots.save(botId, {
+        snapshotId: page.snapshotId,
+        url: page.url,
+        elements: new Map(
+          snapshot.elements.map((element) => [element.ref, element]),
+        ),
+        ...(session ? { session } : {}),
+      });
+    }
+    return { ...result, page: shown };
+  }
+
+  /** One acting call that answers with a page: governed, sent, its page kept and marked. */
+  function pageAction<R>(
+    toolName: string,
+    path: string,
+    botId: string,
+    actor: ActionActor,
+    subject: Parameters<typeof govern>[3],
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<R> {
+    return govern(
+      toolName,
+      botId,
+      actor,
+      { ...subject, page: true, ...(signal ? { signal } : {}) },
+      async (address, context) =>
+        keepPage(
+          botId,
+          await post<R>(botId, path, payload, signal, undefined, address),
+          context,
+        ),
+    ).then((result) => markPage(result));
+  }
+
+  /**
+   * A whole page of fields in one call, each decided and recorded as its own tool would be.
+   *
+   * A text field is decided as `computer_type`, a drop-down as `computer_select`, a box as
+   * `computer_check`, a file as `computer_upload` (with its path), and `then` as the click or the
+   * Enter it is. So a rule about typing into a field, ticking "I agree" or sending a file applies
+   * inside a fill exactly as outside one, and the trail has a row per field, written before
+   * anything is sent. The first refused field stops the batch: the fields before it are sent, it
+   * and everything after are not, and the result says which field and why.
+   *
+   * One request to the computer for all of it, and one question to the approval gate for the
+   * whole fill: a person asked to approve a form approves the form, not each box on it.
+   */
+  async function fill(
+    botId: string,
+    actor: ActionActor,
+    input: FillInput,
+    signal?: AbortSignal,
+  ): Promise<FillResult> {
+    const [stored, address] = await Promise.all([
+      snapshots.load(botId, input.snapshotId),
+      // Afresh, for the run its refs are resolved against. See `govern`.
+      locateForAction(botId, true),
+    ]);
+    const asked = sessionOf(botId);
+    const { session } = await asked;
+    const pageUrl = stored?.url ?? "";
+    const policy = policyFor(botId);
+
+    type Step = {
+      index: number | "then";
+      ref: string;
+      toolName: string;
+      key?: string;
+      filePath?: string;
+    };
+    const fields: Step[] = input.fields.map((field, index) => ({
+      index,
+      ref: field.ref,
+      ...(field.file !== undefined
+        ? { toolName: "computer_upload", filePath: field.file }
+        : field.option !== undefined
+          ? { toolName: "computer_select" }
+          : field.checked !== undefined
+            ? { toolName: "computer_check" }
+            : { toolName: "computer_type" }),
+    }));
+    const last = input.fields.at(-1)?.ref;
+    const after: Step | undefined = !input.then
+      ? undefined
+      : "click" in input.then
+        ? { index: "then", ref: input.then.click, toolName: "computer_click" }
+        : last
+          ? { index: "then", ref: last, toolName: "computer_key", key: "Enter" }
+          : undefined;
+
+    // Decided and recorded in order, each row written before the next is decided.
+    const decided: Array<{
+      step: Step;
+      element: SnapshotElement | undefined;
+      decision: PolicyDecision;
+    }> = [];
+    for (const step of after ? [...fields, after] : fields) {
+      const element = resolve(stored, step.ref, input.snapshotId, session);
+      const decision = evaluateActionPolicy(
+        policy,
+        policyContext({
+          toolName: step.toolName,
+          botId,
+          actor,
+          pageUrl,
+          intent: intentOf(step.toolName, step.key),
+          element,
+          key: step.key,
+          filePath: step.filePath,
+          command: undefined,
+        }),
+      );
+      await write(auditStore, {
+        toolName: step.toolName,
+        botId,
+        actor,
+        element,
+        ref: step.ref,
+        ...(step.key ? { key: step.key } : {}),
+        filePath: step.filePath,
+        pageUrl,
+        decision,
+      });
+      decided.push({ step, element, decision });
+      if (!decision.forward) break;
+    }
+    const refusal = decided.find((entry) => !entry.decision.forward);
+    const allowed = decided.filter((entry) => entry.decision.forward);
+    const fieldsSent = allowed.filter(
+      (entry) => entry.step.index !== "then",
+    ).length;
+    const thenSent = allowed.some((entry) => entry.step.index === "then");
+    const label = (entry: (typeof decided)[number]) =>
+      entry.element ? `"${entry.element.name}"` : entry.step.ref;
+    if (refusal && allowed.length === 0)
+      throw new ActionRefusedError(
+        `${refusal.step.index === "then" ? "The final step" : `Field ${refusal.step.index}`} (${label(refusal)}) was refused, so nothing was filled in: ${refusal.decision.reason}`,
+        refusal.decision.matched,
+      );
+
+    /** A permitted step that did not happen, recorded as such. See `govern`. */
+    const failed = async (
+      entries: typeof decided,
+      failure: string,
+      stopped = false,
+    ) => {
+      for (const entry of entries)
+        await write(auditStore, {
+          toolName: entry.step.toolName,
+          botId,
+          actor,
+          element: entry.element,
+          ref: entry.step.ref,
+          ...(entry.step.key ? { key: entry.step.key } : {}),
+          filePath: entry.step.filePath,
+          pageUrl,
+          decision: entry.decision,
+          failure,
+          ...(stopped ? { stopped: true } : {}),
+        });
+    };
+
+    let raw: FillResult;
+    try {
+      // The same refusal `govern` makes for a ref the stored page does not have. See there.
+      const unresolved = stored
+        ? allowed.find((entry) => !entry.element)
+        : undefined;
+      if (unresolved)
+        throw new StaleSnapshotError(
+          `${unresolved.step.ref} is not on the page this computer is showing, so nothing can be checked against it before acting. Take a fresh snapshot and use the refs it returns.`,
+        );
+      const continuation = currentApprovalContext();
+      const approval = await options.approvalGate?.({
+        actorId: actor.id,
+        botId,
+        toolRef: "computer_fill",
+        effect: "write",
+        scope: hostOf(pageUrl) || "browser",
+        args: continuation?.args ?? { ...input },
+        target: {
+          pageUrl,
+          snapshotId: input.snapshotId,
+          elements: allowed.flatMap((entry) =>
+            entry.element ? [entry.element] : [],
+          ),
+        },
+        continuation,
+      });
+      const payload = {
+        snapshotId: input.snapshotId,
+        fields: input.fields.slice(0, fieldsSent),
+        // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+        ...(thenSent && input.then ? { then: input.then } : {}),
+      };
+      raw =
+        approval && "replay" in approval
+          ? (approval.replay as FillResult)
+          : await keepPage(
+              botId,
+              await post<FillResult>(
+                botId,
+                "/fill",
+                payload,
+                signal,
+                FILL_BACKSTOP_MS,
+                address,
+              ),
+              { session: async () => (await asked).session },
+            );
+      await approval?.complete(raw);
+    } catch (error) {
+      if (error instanceof HeadlessToolSuspension) throw error;
+      if (
+        error instanceof ComputerUnavailableError &&
+        !(error instanceof ComputerStoppedError)
+      )
+        forgetLocation(botId);
+      await failed(
+        allowed,
+        error instanceof Error ? error.message : "The fill failed.",
+        error instanceof ComputerStoppedError,
+      );
+      throw error;
+    }
+
+    // The field the computer could not fill, and every step after it, did not happen.
+    if (raw.failed) {
+      const at = raw.failed.index;
+      const from = allowed.findIndex((entry) => entry.step.index === at);
+      if (from >= 0)
+        await failed(
+          allowed.slice(from),
+          `${raw.failed.error}${from + 1 < allowed.length ? " (later fields were not attempted)" : ""}`,
+        );
+    }
+    const labelled = (raw.filled ?? []).map((field) => {
+      const element = decided[field.index]?.element;
+      return element
+        ? { ...field, element: { role: element.role, name: element.name } }
+        : field;
+    });
+    return markPage({
+      ...raw,
+      filled: labelled,
+      ...(refusal
+        ? {
+            refused: {
+              index: refusal.step.index,
+              ref: refusal.step.ref,
+              ...(refusal.element
+                ? {
+                    element: {
+                      role: refusal.element.role,
+                      name: refusal.element.name,
+                    },
+                  }
+                : {}),
+              reason: `${refusal.step.index === "then" ? "The final step" : `Field ${refusal.step.index}`} (${label(refusal)}) was refused and nothing from it on was done: ${refusal.decision.reason}`,
+              rule: refusal.decision.matched,
+            },
+          }
+        : {}),
+    });
+  }
+
   return {
     provider,
+    ...(pageFrames ? { pageFrames } : {}),
     locate,
     screenshot,
     desktopScreenshot,
@@ -899,6 +1364,7 @@ export function createComputerGateway(
      * tried.
      */
     async stopComputer(botId: string, actor: ActionActor) {
+      forgetLocation(botId);
       const result = await provider.stop(botId);
       await writeControlEvent(auditStore, "computer.stopped", {
         botId,
@@ -928,6 +1394,7 @@ export function createComputerGateway(
           `The ${provider.name} computer provider has no computer image of its own to update.`,
         );
       }
+      forgetLocation(botId);
       const result = await provider.update(botId);
       await writeControlEvent(auditStore, "computer.updated", {
         botId,
@@ -942,6 +1409,7 @@ export function createComputerGateway(
     },
 
     async resetComputer(botId: string, actor: ActionActor) {
+      forgetLocation(botId);
       const result = await provider.reset(botId);
       /*
        * The row goes in HERE, before the two deletes below, because this line is the point of no
@@ -1076,10 +1544,23 @@ export function createComputerGateway(
         "computer_navigate",
         botId,
         actor,
-        { targetUrl: url },
-        async () =>
-          transport.navigate(await locate(botId), botId, url, toolCallId),
-      ).then((result) => withUntrustedNotice(result, "web page", PAGE_FIELDS));
+        { targetUrl: url, page: true },
+        async (address, context) =>
+          keepPage(
+            botId,
+            await viaComputer(
+              botId,
+              (target) => transport.navigate(target, botId, url, toolCallId),
+              address,
+            ),
+            context,
+          ),
+      ).then((result) =>
+        withUntrustedNotice(result, "web page", [
+          ...PAGE_FIELDS,
+          ...(result.page ? (["page"] as const) : []),
+        ]),
+      );
     },
 
     click(
@@ -1088,24 +1569,14 @@ export function createComputerGateway(
       input: ClickInput,
       signal?: AbortSignal,
     ) {
-      return govern(
+      return pageAction<ActionResult>(
         "computer_click",
+        "/click",
         botId,
         actor,
-        {
-          ref: input.ref,
-          snapshotId: input.snapshotId,
-          ...(signal ? { signal } : {}),
-        },
-        (address) =>
-          post<ActionResult>(
-            botId,
-            "/click",
-            input,
-            signal,
-            undefined,
-            address,
-          ),
+        { ref: input.ref, snapshotId: input.snapshotId },
+        input,
+        signal,
       );
     },
 
@@ -1115,8 +1586,9 @@ export function createComputerGateway(
       input: TypeInput,
       signal?: AbortSignal,
     ) {
-      return govern(
+      return pageAction<ActionResult>(
         "computer_type",
+        "/type",
         botId,
         actor,
         {
@@ -1131,10 +1603,9 @@ export function createComputerGateway(
            * not that the form was sent.
            */
           ...(input.submit ? { key: "Enter" } : {}),
-          ...(signal ? { signal } : {}),
         },
-        (address) =>
-          post<ActionResult>(botId, "/type", input, signal, undefined, address),
+        input,
+        signal,
       );
     },
 
@@ -1144,27 +1615,170 @@ export function createComputerGateway(
       input: KeyInput,
       signal?: AbortSignal,
     ) {
-      return govern(
+      // The key is part of the subject, so a rule can tell Enter from a letter. Form submission can
+      // happen through a keypress as well as a click, so the policy context carries the key.
+      return pageAction<ActionResult>(
         "computer_key",
+        "/key",
         botId,
         actor,
-        // The key is part of the subject, so a rule can tell Enter from a letter. Form submission can
-        // happen through a keypress as well as a click, so the policy context carries the key.
-        {
-          ref: input.ref,
-          snapshotId: input.snapshotId,
-          key: input.key,
-          ...(signal ? { signal } : {}),
-        },
-        (address) =>
-          post<ActionResult>(botId, "/key", input, signal, undefined, address),
+        { ref: input.ref, snapshotId: input.snapshotId, key: input.key },
+        input,
+        signal,
       );
     },
 
-    scroll(botId: string, actor: ActionActor, input: ScrollInput) {
-      return govern("computer_scroll", botId, actor, {}, () =>
-        post<ActionResult>(botId, "/scroll", input),
+    scroll(
+      botId: string,
+      actor: ActionActor,
+      input: ScrollInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_scroll",
+        "/scroll",
+        botId,
+        actor,
+        input.ref ? { ref: input.ref, snapshotId: input.snapshotId } : {},
+        input,
+        signal,
       );
+    },
+
+    select(
+      botId: string,
+      actor: ActionActor,
+      input: SelectInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_select",
+        "/select",
+        botId,
+        actor,
+        { ref: input.ref, snapshotId: input.snapshotId },
+        input,
+        signal,
+      );
+    },
+
+    check(
+      botId: string,
+      actor: ActionActor,
+      input: CheckInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_check",
+        "/check",
+        botId,
+        actor,
+        { ref: input.ref, snapshotId: input.snapshotId },
+        input,
+        signal,
+      );
+    },
+
+    /**
+     * A workspace file sent to a website. Governed with the file's path as well as the element, so a
+     * rule about which files may leave the workspace (`file.path`, `file.extension`) applies to an
+     * upload as it does to a download.
+     */
+    upload(
+      botId: string,
+      actor: ActionActor,
+      input: UploadInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_upload",
+        "/upload",
+        botId,
+        actor,
+        { ref: input.ref, snapshotId: input.snapshotId, filePath: input.path },
+        input,
+        signal,
+      );
+    },
+
+    hover(
+      botId: string,
+      actor: ActionActor,
+      input: HoverInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_hover",
+        "/hover",
+        botId,
+        actor,
+        { ref: input.ref, snapshotId: input.snapshotId },
+        input,
+        signal,
+      );
+    },
+
+    dialog(
+      botId: string,
+      actor: ActionActor,
+      input: DialogInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_dialog",
+        "/dialog",
+        botId,
+        actor,
+        // Accepting is pressing the dialog's OK; the trail says which it was.
+        { key: input.accept ? "Enter" : "Escape" },
+        input,
+        signal,
+      );
+    },
+
+    tabs(
+      botId: string,
+      actor: ActionActor,
+      input: TabsInput,
+      signal?: AbortSignal,
+    ) {
+      return pageAction<ActionResult>(
+        "computer_tabs",
+        "/tabs",
+        botId,
+        actor,
+        {},
+        input,
+        signal,
+      );
+    },
+
+    back(botId: string, actor: ActionActor, signal?: AbortSignal) {
+      return pageAction<ActionResult>(
+        "computer_back",
+        "/back",
+        botId,
+        actor,
+        {},
+        {},
+        signal,
+      );
+    },
+
+    fill: (
+      botId: string,
+      actor: ActionActor,
+      input: FillInput,
+      signal?: AbortSignal,
+    ) => fill(botId, actor, input, signal),
+
+    warm(botId: string) {
+      return post<WarmResult>(botId, "/warm", {}, undefined, WARM_BACKSTOP_MS);
+    },
+
+    invalidatePolicy(botId?: string) {
+      if (botId) policies.delete(botId);
+      else policies.clear();
     },
 
     /**
@@ -1280,6 +1894,80 @@ export function createComputerGateway(
   };
 }
 
+/** What an action's run is handed beside the address: this computer's run, asked once. */
+type GovernedRun = { session: () => Promise<string | undefined> };
+
+/**
+ * The policy context for one action.
+ *
+ * Every field is bound, present or not.
+ *
+ * A missing one is not an absent field to CEL, it is an unknown identifier, and cel-js throws on
+ * those. A thrown deny rule counts as a match, on purpose, so that a mistyped deny refuses rather
+ * than quietly permitting. Together those two correct behaviours produced a wrong one: a rule
+ * naming a field this action does not have refused the action.
+ *
+ * `deny: contains(command, "rm -rf")` is the example the docs give, and while `command` was spread
+ * in only for a shell call, that rule threw on every click, keypress, navigation and file read in
+ * the deployment and refused all of them. So did any rule naming `key`, `file` or `element` from an
+ * action that has none.
+ *
+ * Neutral rather than absent: `contains("", "rm -rf")` is false, which is the honest answer to "is
+ * this click running rm -rf". The audit row still omits what did not happen, because a trail should
+ * not claim a click had a command.
+ */
+function policyContext(input: {
+  toolName: string;
+  botId: string;
+  actor: ActionActor;
+  pageUrl: string;
+  intent: PolicyContext["intent"];
+  element: SnapshotElement | undefined;
+  key: string | undefined;
+  filePath: string | undefined;
+  command: string | undefined;
+}): PolicyContext {
+  const { element } = input;
+  return {
+    tool: { name: input.toolName },
+    bot: { id: input.botId },
+    actor: { id: input.actor.id },
+    page: { url: input.pageUrl, host: hostOf(input.pageUrl) },
+    ...(input.intent ? { intent: input.intent } : {}),
+    key: input.key ?? "",
+    element: element
+      ? {
+          ref: element.ref,
+          role: element.role,
+          name: element.name,
+          type: element.type ?? "",
+        }
+      : { ref: "", role: "", name: "", type: "" },
+    file: input.filePath
+      ? describeFile(input.filePath)
+      : { path: "", name: "", extension: "" },
+    command: input.command ?? "",
+    initiator: policyInitiator(input.actor.initiator),
+    // Neutral, like the fields above: this is not an MCP call, but a `deny: mcp.effect == "write"`
+    // names `mcp`, and cel-js throws on an unbound identifier — which fails closed and would refuse
+    // every browser action the moment an operator wrote a rule about their tools. Empty server and
+    // tool and an empty effect match no MCP rule, so a boundary drawn around MCP leaves the browser
+    // alone. The MCP context carries the browser fields empty for the mirror of this reason.
+    mcp: { server: "", tool: "", effect: "" },
+  };
+}
+
+/** An acting result's page is whatever the page says it is, so it is marked like a page read. */
+function markPage<T>(result: T): T {
+  if (!result || typeof result !== "object" || !("page" in result))
+    return result;
+  return withUntrustedNotice(
+    result as T & object,
+    "web page",
+    ACTION_PAGE_FIELDS,
+  ) as T;
+}
+
 /**
  * Split a path into the parts a rule wants to match on.
  *
@@ -1338,7 +2026,20 @@ export function intentOf(
 ): PolicyContext["intent"] {
   switch (toolName) {
     case "computer_click":
+    // Ticking a box is a click on it, and accepting a dialog is pressing its OK.
+    case "computer_check":
+    case "computer_dialog":
       return "activate";
+    // Choosing an option, filling a form or sending a file puts a value into the page, as typing does.
+    case "computer_select":
+    case "computer_fill":
+    case "computer_upload":
+      return "type";
+    case "computer_back":
+      return "navigate";
+    case "computer_hover":
+    case "computer_tabs":
+      return "read";
     case "computer_key":
     // A type carrying `submit` ends in Enter, and the same reasoning applies to it: what the
     // keypress does is press whatever the form activates, whichever tool asked for it.
@@ -1518,6 +2219,21 @@ const SNAPSHOT_FIELDS = ["title", "elements"] as const;
 
 /** A two-step login can take two page loads and a code; this outlasts the computer's own waits. */
 const SIGN_IN_BACKSTOP_MS = 75_000;
+
+/** A fill is many fields, each with its own action timeout, in one request. */
+const FILL_BACKSTOP_MS = 180_000;
+
+/** A cold browser launch on a small machine, and then some. */
+const WARM_BACKSTOP_MS = 90_000;
+
+/** How long a located computer address is reused. See `locate` in the gateway. */
+const LOCATE_CACHE_MS = 30_000;
+
+/** How long the policy read for a Bot is reused. */
+const POLICY_CACHE_MS = 5_000;
+
+/** The fields of an acting result that come from the page itself. */
+const ACTION_PAGE_FIELDS = ["page", "tabs", "dialog"] as const;
 
 export function hostOf(url: string): string {
   try {

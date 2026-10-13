@@ -18,7 +18,14 @@ export class NavigationTimeoutError extends Error {
 
 /** The computer did not accept or answer a request. */
 export class ComputerUnavailableError extends Error {
-  constructor(reason: string) {
+  constructor(
+    reason: string,
+    /**
+     * Nothing answered at the address at all (the connection was refused), so the request cannot
+     * have done anything there and asking the provider again and resending is safe.
+     */
+    readonly neverConnected = false,
+  ) {
     super(reason);
     this.name = "ComputerUnavailableError";
   }
@@ -46,6 +53,122 @@ export class ElementNotFoundError extends Error {
     super(reason);
     this.name = "ElementNotFoundError";
   }
+}
+
+/**
+ * Why an action on an element that IS on the page did not work.
+ *
+ * Covered (and by what), disabled, not a field you can type into, hidden, off-screen, slow, no such
+ * option, no dialog to answer: each has its own next step, which the message says, and none of them
+ * is "take a fresh snapshot", which is what every one of them used to be told. Answered 422 by the
+ * routes: the request was understood and the page would not take it.
+ */
+export type ElementStateError = Error & {
+  name: "ElementStateError";
+  /** The computer's word for it: `covered`, `disabled`, `wrong_tool`, ... */
+  problem: string;
+  /** The tool that fits the element, when the Bot used the wrong one. */
+  useTool?: string;
+  /** A drop-down's options, so the Bot can choose one. */
+  options?: string[];
+  /** What is in front of the element, with the refs of its buttons where the snapshot has them. */
+  coveredBy?: {
+    label: string;
+    consent: boolean;
+    buttons: Array<{ name: string; ref?: string }>;
+  };
+};
+
+export function elementStateError(
+  reason: string,
+  problem: string,
+  extra: Pick<ElementStateError, "useTool" | "options" | "coveredBy"> = {},
+): ElementStateError {
+  return Object.assign(new Error(reason), {
+    name: "ElementStateError" as const,
+    problem,
+    ...extra,
+  });
+}
+
+export function isElementStateError(
+  error: unknown,
+): error is ElementStateError {
+  return error instanceof Error && error.name === "ElementStateError";
+}
+
+/**
+ * The site, not the computer, failed: its name does not resolve, it refused the connection, its
+ * certificate is bad, the network rules blocked it. The computer is fine, so this is never an
+ * unavailable computer (503), which sent the Bot waiting for a repair that was never coming.
+ */
+export type SiteError = Error & {
+  name: "SiteError";
+  problem: string;
+  code?: string;
+};
+
+export function siteError(
+  reason: string,
+  problem: string,
+  code?: string,
+): SiteError {
+  return Object.assign(new Error(reason), {
+    name: "SiteError" as const,
+    problem,
+    ...(code ? { code } : {}),
+  });
+}
+
+export function isSiteError(error: unknown): error is SiteError {
+  return error instanceof Error && error.name === "SiteError";
+}
+
+/** What a page paused on a JavaScript dialog is showing. */
+export type PageDialog = {
+  type: "alert" | "confirm" | "prompt" | "beforeunload";
+  message: string;
+  defaultValue?: string;
+  dismissed?: true;
+};
+
+/**
+ * The page is paused on a dialog, so nothing else can run until `computer_dialog` answers it.
+ * Answered 409, like the other "do something else first" conditions, with the dialog in the body.
+ */
+export type DialogOpenError = Error & {
+  name: "DialogOpenError";
+  dialog: PageDialog;
+};
+
+export function dialogOpenError(
+  reason: string,
+  dialog: PageDialog,
+): DialogOpenError {
+  return Object.assign(new Error(reason), {
+    name: "DialogOpenError" as const,
+    dialog,
+  });
+}
+
+export function isDialogOpenError(error: unknown): error is DialogOpenError {
+  return error instanceof Error && error.name === "DialogOpenError";
+}
+
+/**
+ * A computer's error as one plain sentence: no Playwright "Call log", no colour codes.
+ *
+ * The computer already summarises its own errors; this is for one that has not been redeployed, so
+ * the raw log never reaches the model or a person reading the transcript.
+ */
+export function summariseComputerError(detail: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: colour codes are control characters.
+  let text = detail.replace(/\u001b\[[0-9;]*m/g, "");
+  const log = text.search(/\n\s*(?:Call log:|=+ logs =+)/i);
+  if (log >= 0) text = text.slice(0, log);
+  return text
+    .replace(/^(?:locator|page|frame|elementHandle)\.[A-Za-z]+:\s*/, "")
+    .trim();
 }
 
 /** The navigation target is not permitted. */
@@ -245,10 +368,14 @@ export function createComputerTransport(
       if (caller?.aborted) {
         throw new ComputerStoppedError("The action was stopped.");
       }
+      const refused =
+        (error as { code?: unknown } | null)?.code === "ConnectionRefused" ||
+        /ECONNREFUSED|ConnectionRefused|Unable to connect/i.test(String(error));
       throw new ComputerUnavailableError(
         error instanceof Error && error.name === "TimeoutError"
           ? "The assistant's computer did not respond in time."
           : "The assistant's computer is not running.",
+        refused,
       );
     }
     return response;
@@ -362,13 +489,22 @@ function throwMappedError(
   status: number,
   body: Record<string, unknown> | null,
 ): never {
-  const detail =
-    typeof body?.error === "string" ? body.error : `HTTP ${status}`;
+  const raw = typeof body?.error === "string" ? body.error : `HTTP ${status}`;
   if (
     body?.controlRequestError === true &&
     (status === 400 || status === 404 || status === 409)
   )
-    throw new HandoffRequestError(detail, status);
+    throw new HandoffRequestError(raw, status);
+  /*
+   * A navigation that missed its deadline, read before the call log is cut away: it is the log that
+   * says "page.goto". Not a missing element (nothing about refs is wrong) and not an unavailable
+   * computer (the computer answered; the site did not).
+   */
+  if (/^page\.goto: Timeout \d+ms exceeded/i.test(raw))
+    throw new NavigationTimeoutError(
+      "The page did not load in time. Try it again, or try another page.",
+    );
+  const detail = summariseComputerError(raw);
   if (status === 409) {
     // The computer says which kind of 409 this is. Absent, it is the ordinary one.
     if (body?.humanHasControl === true) {
@@ -380,7 +516,36 @@ function throwMappedError(
           : undefined,
       );
     }
+    if (body?.dialog && typeof body.dialog === "object")
+      throw dialogOpenError(detail, body.dialog as PageDialog);
     throw new StaleSnapshotError(detail, body?.snapshotRequired === true);
+  }
+  if (status === 422) {
+    throw elementStateError(
+      detail,
+      typeof body?.problem === "string" ? body.problem : "unusable",
+      {
+        ...(typeof body?.useTool === "string" ? { useTool: body.useTool } : {}),
+        ...(Array.isArray(body?.options)
+          ? {
+              options: (body.options as unknown[]).filter(
+                (option): option is string => typeof option === "string",
+              ),
+            }
+          : {}),
+        ...(body?.coveredBy && typeof body.coveredBy === "object"
+          ? { coveredBy: body.coveredBy as ElementStateError["coveredBy"] }
+          : {}),
+      },
+    );
+  }
+  if (body?.siteError && typeof body.siteError === "object") {
+    const site = body.siteError as { problem?: unknown; code?: unknown };
+    throw siteError(
+      detail,
+      typeof site.problem === "string" ? site.problem : "network",
+      typeof site.code === "string" ? site.code : undefined,
+    );
   }
   if (status === 403) {
     throw new WorkspaceRefusedError(detail);
@@ -395,19 +560,47 @@ function throwMappedError(
     throw new WorkspaceTooLargeError(detail);
   }
   /*
-   * An action that timed out WAITING FOR AN ELEMENT: the ref is not on the page. Only that. A
-   * navigation that missed its deadline says "Timeout ... exceeded" too, and was told to the Bot as
-   * a missing element, which sent it taking snapshot after snapshot of a page that was simply slow.
+   * An older computer's raw Playwright error about an element. The call log says which case it is:
+   * a ref that never resolved is not on the page (take a fresh snapshot); one that resolved and then
+   * could not be acted on is on the page and blocked, which a fresh snapshot does not fix.
    */
-  if (/waiting for locator|aria-ref=/i.test(detail)) {
-    const ref = detail.match(/aria-ref=([A-Za-z0-9_-]+)/)?.[1];
-    throw new ElementNotFoundError(
-      `${ref ? `Element ${ref} is` : "That element is"} not on the page any more. Take a fresh snapshot and use the refs from it.`,
+  if (/waiting for locator|aria-ref=/i.test(raw)) {
+    const ref = raw.match(/aria-ref=([A-Za-z0-9_-]+)/)?.[1];
+    const named = ref ? `Element ${ref}` : "That element";
+    if (
+      !/locator resolved to/i.test(raw) ||
+      /not attached|detached|not connected/i.test(raw)
+    )
+      throw new ElementNotFoundError(
+        `${named} is not on the page any more. Take a fresh snapshot and use the refs from it.`,
+      );
+    const covering = raw.match(
+      /(<[a-z][^>]{0,120}>)[^\n]{0,80}?intercepts pointer events/i,
+    );
+    if (covering)
+      throw elementStateError(
+        `${named} is covered by ${covering[1]}, so a click would land on that instead. Close or answer what is in front of it, then try again.`,
+        "covered",
+      );
+    if (/element is not enabled|element is disabled/i.test(raw))
+      throw elementStateError(
+        `${named} is disabled. It usually becomes available once the form's required fields are filled in.`,
+        "disabled",
+      );
+    if (/element is not editable/i.test(raw))
+      throw elementStateError(
+        `${named} cannot be typed into. If it is a drop-down use computer_select; if it is a checkbox use computer_check.`,
+        "not_editable",
+      );
+    if (/element is not visible/i.test(raw))
+      throw elementStateError(
+        `${named} is on the page but hidden. It may appear once a menu, tab or section is opened.`,
+        "not_visible",
+      );
+    throw elementStateError(
+      `${named} did not become ready in time. Read the page or take a screenshot to see what it is waiting for.`,
+      "timeout",
     );
   }
-  if (/^page\.goto: Timeout \d+ms exceeded/i.test(detail))
-    throw new NavigationTimeoutError(
-      "The page did not load in time. Try it again, or try another page.",
-    );
   throw new ComputerUnavailableError(detail);
 }
