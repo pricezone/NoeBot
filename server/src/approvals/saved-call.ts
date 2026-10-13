@@ -77,13 +77,23 @@ function describeFailure(error: unknown): string {
 export async function requireSavedToolCall(
   input: SavedToolCallCheck,
 ): Promise<void> {
-  const attempts = input.attempts ?? 11;
+  /*
+   * About 24 seconds in all, backing off from half a second to two. Eleven reads half a second apart
+   * (5.5 s) was shorter than the conversation service sometimes takes to save a call: on 2026-10-13
+   * a gov.gr run had its "Είσοδος στην υπηρεσία" click refused twice while the service was answering
+   * 404 and 502 that hour, and the person saw a click "not saved" that they never had a hand in.
+   */
+  const attempts = input.attempts ?? 16;
   const delayMs = input.delayMs ?? 500;
+  const delayFor = (attempt: number) =>
+    input.delayMs !== undefined
+      ? delayMs
+      : Math.min(2_000, delayMs * Math.ceil(attempt / 2));
   const sleep = input.sleep ?? pause;
   let reads = 0;
   let failures = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(delayMs);
+    if (attempt > 0) await sleep(delayFor(attempt));
     let history: SavedHistory;
     try {
       history = await input.read();

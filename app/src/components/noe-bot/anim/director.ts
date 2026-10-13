@@ -12,7 +12,7 @@
 import { type AnimationId, type Lang, labelFor } from "./catalog";
 import { classifyIntent, type Intent, languageOf, reactionFor } from "./intent";
 import { TIMING } from "./rules";
-import { animationForTool } from "./tool-map";
+import { animationForTool, toolIsKnown } from "./tool-map";
 
 export type Phase =
   | "idle"
@@ -184,13 +184,20 @@ const desiredAnimation = (
   }
 };
 
-const labelOf = (phase: Phase, animation: AnimationId, lang: Lang): string => {
+const labelOf = (
+  phase: Phase,
+  animation: AnimationId,
+  lang: Lang,
+  tool?: string | null,
+): string => {
   switch (phase) {
     case "idle":
       return "";
     case "thinking":
       return labelFor("phase:thinking", lang) ?? "Thinking";
     case "working":
+      if (tool && !toolIsKnown(tool))
+        return labelFor("phase:working", lang) ?? "Working…";
       return (
         labelFor(animation, lang) ??
         labelFor("phase:working", lang) ??
@@ -304,7 +311,7 @@ export const reduceDirector = (
     }
   }
 
-  const label = labelOf(phase, next.animation, next.lang);
+  const label = labelOf(phase, next.animation, next.lang, signal.runningTool);
   if (next.label !== label || !next.visible) {
     next = { ...next, label, visible: true };
   }

@@ -281,3 +281,23 @@ describe("the indicator's state machine", () => {
     expect(s?.visible).toBe(false);
   });
 });
+
+test("an unknown tool is drawn working, not labelled as writing code", async () => {
+  const { reduceDirector, INITIAL_DIRECTOR } = await import(
+    "@/components/noe-bot/anim/director"
+  );
+  const signal = {
+    busy: true,
+    waitingOnFirstToken: false,
+    runningTool: "zzz_unmapped_tool",
+    browsing: false,
+    streaming: false,
+    stopped: null,
+    pendingText: "κάνε κάτι",
+  };
+  let state = reduceDirector(INITIAL_DIRECTOR, signal, 0);
+  for (let t = 0.5; t <= 4; t += 0.5) state = reduceDirector(state, signal, t);
+  expect(state.phase).toBe("working");
+  expect(state.animation).toBe("action:type");
+  expect(state.label).toBe("Δουλεύω…");
+});

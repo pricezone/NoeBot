@@ -82,3 +82,11 @@ export const animationForTool = (name: string): ToolVerdict => {
   const rule = RULES.find((r) => r.test.test(name));
   return rule ? rule.verdict : "action:type";
 };
+
+/**
+ * Whether a rule names this tool. An unknown tool is drawn typing, but its label must not claim
+ * "Writing code…" for a step that is nothing of the kind (a connector's tool, a server tool): it says
+ * "Working…" instead.
+ */
+export const toolIsKnown = (name: string): boolean =>
+  RULES.some((r) => r.test.test(name));

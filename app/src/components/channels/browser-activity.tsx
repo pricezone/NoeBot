@@ -66,10 +66,16 @@ export function browserStepDetails(step: BrowserStep) {
   } catch {
     /* A partial streaming URL is not a link yet. */
   }
+  // A fresh snapshot after a person handed the browser back is the safety rule working, not a step
+  // that went wrong: the Bot looks again and carries on. It is shown, but not counted as an issue.
+  const resnapshot =
+    typeof result.reason === "string" &&
+    /fresh browser snapshot after handback/i.test(result.reason);
   const failed =
-    result.ok === false ||
-    result.refused === true ||
-    step.result?.startsWith("Error:") === true;
+    !resnapshot &&
+    (result.ok === false ||
+      result.refused === true ||
+      step.result?.startsWith("Error:") === true);
   return {
     label: labels[step.toolCall.function.name],
     href: url?.href,
@@ -97,6 +103,9 @@ export function BrowserActivity({
   }));
   const pages = steps.filter((step) => step.visited).length;
   const issues = steps.filter((step) => step.failed).length;
+  const firstIssue = steps
+    .find((step) => step.failed && step.reason)
+    ?.reason?.slice(0, 120);
   const running = active && steps.some((step) => step.pending);
   // The folded line draws its own steps, so a waiting approval gets its card beside it, not inside.
   return (
@@ -110,7 +119,13 @@ export function BrowserActivity({
               : "Browser activity"
         }
         detail={
-          issues ? `${issues} ${issues === 1 ? "issue" : "issues"}` : undefined
+          // The first issue's own sentence on the folded line, so what went wrong is read without
+          // opening it ("1 issue" alone hid a refused click and a page that never loaded).
+          issues
+            ? `${issues} ${issues === 1 ? "issue" : "issues"}${
+                firstIssue ? `: ${firstIssue}` : ""
+              }`
+            : undefined
         }
         running={running}
       >
