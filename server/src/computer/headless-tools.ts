@@ -11,6 +11,7 @@ import {
 } from "@ag-ui/client";
 import { Observable, type Subscription } from "rxjs";
 import { z } from "zod";
+import { SIGN_IN_TOOL_DESCRIPTION } from "../../../shared/sign-in-guidance";
 import {
   currentApprovalContext,
   withApprovalContext,
@@ -369,8 +370,7 @@ export type HeadlessSignInRequester = {
 };
 
 /** Shared by the headless tool and the browser's registration, so both promise the same thing. */
-export const SIGN_IN_TOOL_DESCRIPTION =
-  "Ask the person you work for to sign you in to a website: Taxisnet and gov.gr, a bank, any login. They get a private Secure Form in this conversation (or take over the browser), and what they type goes straight into your browser by the computer. You never see the username, password or code, so do not refuse a login as too personal and never ask for credentials any other way. Open the site's sign-in page first (click its Sign in or Είσοδος button and wait for the login fields), then call this with the site's address and a short title such as 'Σύνδεση Taxisnet'. For a code that arrives later on a page of its own (an SMS confirmation), call this again on that page: it asks for the code alone. This turn pauses until they answer; you are then told only whether it worked.";
+export { SIGN_IN_TOOL_DESCRIPTION };
 
 /** Shipped browser/file/command tools, with identity bound before the model supplies arguments. */
 export function createHeadlessComputerTools(options: {

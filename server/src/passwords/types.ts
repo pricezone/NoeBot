@@ -4,8 +4,9 @@
  * The rule the whole module is built around: a credential goes from the person's form to the Bot's
  * browser and nowhere else. It is never a tool argument, never a tool result, never a transcript row,
  * never an AG-UI event, never an audit payload and never a log line. The model is told only whether
- * the sign-in worked.
+ * the sign-in worked, and how the page answered (`SignInAttempt`).
  */
+import type { SignInAttempt } from "../../../shared/sign-in-guidance";
 
 export type SignInStatus =
   | "pending"
@@ -37,6 +38,11 @@ export type SignInRequestRecord = {
   resolvedAt: Date | null;
   /** While `filling`: when the attempt is given up on as abandoned (a server that died mid-fill). */
   fillingUntil: Date | null;
+  /**
+   * How the page answered the last thing the computer sent. Not a column: kept in memory beside the
+   * row, and put on the record handed to `onResolved`, so the tool result can say it.
+   */
+  attempt?: SignInAttempt;
 };
 
 /** What a route may return about a request. No continuation, which carries the conversation. */
@@ -60,6 +66,8 @@ export type SignInRequestView = Omit<
   usernameLabel?: string;
   passwordLabel?: string;
   codeLabel?: string;
+  /** While a site waits for the person to approve the sign-in on their phone: until when it waits. */
+  approvalUntil?: string;
 };
 
 export type SavedLoginRecord = {
@@ -90,13 +98,15 @@ export type PasswordStore = {
       | "createdAt"
       | "resolvedAt"
       | "fillingUntil"
+      | "attempt"
     >,
   ): Promise<SignInRequestRecord>;
   request(ownerUserId: string, id: string): Promise<SignInRequestRecord | null>;
   pendingRequests(ownerUserId: string): Promise<SignInRequestRecord[]>;
   /**
    * Move a request on, only from one of `from`. Returns null when it was not in one of them, which is
-   * how two submits racing each other end with exactly one sign-in.
+   * how two submits racing each other end with exactly one sign-in. `origin` moves only while the
+   * login is being entered and went on to another origin with it (an identity provider).
    */
   transition(
     ownerUserId: string,
@@ -105,6 +115,7 @@ export type PasswordStore = {
     to: Partial<
       Pick<
         SignInRequestRecord,
+        | "origin"
         | "status"
         | "method"
         | "outcome"

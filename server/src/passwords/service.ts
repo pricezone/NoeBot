@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  type SignInAttempt,
+  signInResultForBot,
+} from "../../../shared/sign-in-guidance";
 import { type AuditStore, recordAuditEvent } from "../audit";
 import type { ActionActor, ComputerGateway } from "../computer/gateway";
 import type { SignInFillResult } from "../computer/schema";
@@ -29,6 +33,18 @@ import {
  *  - takeover: the person takes the Bot's browser and signs in by hand;
  *  - cancel.
  *
+ * The computer says how the page answered a typed login (`SignInFillResult.outcome`), and each answer
+ * has its own path here:
+ *  - signed-in: the request is signed in;
+ *  - error: the site refused it. The request reopens, so the person can correct a mistyped password
+ *    in the form that is still open, which shows the site's own message;
+ *  - code-requested: the login went in and the site now wants a one-time code. The request ends, and
+ *    the Bot is told to ask again on that page, where the form asks for the code alone;
+ *  - push-approval: the site waits for the person to approve it on their phone. The request waits
+ *    with it (up to five minutes), reading the page through the probe until it moves on, and the
+ *    person's Continue reads it at once;
+ *  - captcha: a security check only a person can pass. The person is handed the browser.
+ *
  * Whatever happens, the Bot is told the outcome and never the credential. The audit rows say which
  * site, which request and how it was answered; they carry no username, password or code.
  */
@@ -55,9 +71,15 @@ export type SignInServiceDependencies = {
   onResolved?: (request: SignInRequestRecord) => Promise<void>;
   /** How long a request stays open. */
   ttlMs?: number;
+  /** How long a site's approval on the person's phone is waited for. */
+  approvalWaitMs?: number;
+  /** How often the page is read while it waits for that approval. */
+  approvalPollMs?: number;
 };
 
 const DEFAULT_TTL_MS = 15 * 60_000;
+const APPROVAL_WAIT_MS = 5 * 60_000;
+const APPROVAL_POLL_MS = 3_000;
 const OPEN: readonly SignInStatus[] = ["pending", "taken_over"];
 /**
  * How long one attempt may hold a request in `filling`. Past the computer's own sign-in backstop
@@ -71,6 +93,8 @@ const FINAL: readonly SignInStatus[] = [
   "cancelled",
   "expired",
 ];
+/** How many origins a login may move on through (a site, then its identity provider, then one more). */
+const MAX_MOVES = 2;
 
 export function isFinalSignIn(status: SignInStatus) {
   return FINAL.includes(status);
@@ -78,29 +102,11 @@ export function isFinalSignIn(status: SignInStatus) {
 
 /**
  * What the Bot is told when a request ends. The only thing about a sign-in that reaches a model.
+ * Built in `shared/sign-in-guidance.ts`, so the open chat tells it the same.
  */
 export function signInToolResult(request: SignInRequestRecord) {
-  const signedIn = request.status === "signed_in";
-  return {
-    ok: signedIn,
-    signedIn,
-    site: request.origin,
-    status: request.status,
-    ...(request.method ? { method: METHOD_WORDS[request.method] } : {}),
-    result:
-      request.outcome ??
-      (signedIn
-        ? `Signed in to ${request.origin}.`
-        : `The sign-in to ${request.origin} did not complete.`),
-    note: "You were not told the credentials and must never ask for them another way.",
-  };
+  return signInResultForBot(request);
 }
-
-const METHOD_WORDS: Record<SignInMethod, string> = {
-  typed: "the person entered a login in a private form",
-  saved: "the person confirmed one of their saved logins",
-  takeover: "the person took over the browser and signed in themselves",
-};
 
 /**
  * A string with every credential it could contain removed.
@@ -115,30 +121,46 @@ function scrub(text: string, secrets: (string | undefined)[]): string {
   return out.slice(0, 500);
 }
 
+/** What the person reads when the site refused what they typed. */
+function refusedWords(pageMessage: string | undefined) {
+  return pageMessage
+    ? `Wrong password or code. The site says: “${pageMessage}”`
+    : "Wrong password or code. The site did not accept it.";
+}
+
+function hostOf(origin: string) {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
+}
+
 export function createSignInService(deps: SignInServiceDependencies) {
   const { store, gateway, auditStore } = deps;
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
+  const approvalWaitMs = deps.approvalWaitMs ?? APPROVAL_WAIT_MS;
+  const approvalPollMs = deps.approvalPollMs ?? APPROVAL_POLL_MS;
   const managerOn = async (owner: string) =>
     deps.passwordManagerEnabled ? deps.passwordManagerEnabled(owner) : true;
   /**
    * What the probe read for each open request: which fields the page wants, the site's icon, and the
-   * site the Bot named when the form was elsewhere. In memory only, beside the row rather than in it:
-   * it is presentation, it expires with the request, and losing it on a restart only means the
-   * form shows its default fields and a globe.
+   * site the Bot named when the form was elsewhere; and, once something was sent, how the page
+   * answered. In memory only, beside the row rather than in it: it is presentation, it expires with
+   * the request, and losing it on a restart only means the form shows its default fields and a globe.
    */
-  const probed = new Map<
-    string,
-    {
-      form?: "login" | "username" | "code";
-      icon?: string;
-      requestedOrigin?: string;
-      title?: string;
-      usernameLabel?: string;
-      passwordLabel?: string;
-      codeLabel?: string;
-      until: number;
-    }
-  >();
+  type Remembered = {
+    form?: "login" | "username" | "code";
+    icon?: string;
+    requestedOrigin?: string;
+    title?: string;
+    usernameLabel?: string;
+    passwordLabel?: string;
+    codeLabel?: string;
+    attempt?: SignInAttempt;
+    until: number;
+  };
+  const probed = new Map<string, Remembered>();
   const probeOf = (id: string) => {
     const entry = probed.get(id);
     if (entry && entry.until < Date.now()) {
@@ -147,6 +169,14 @@ export function createSignInService(deps: SignInServiceDependencies) {
     }
     return entry;
   };
+  const remember = (id: string, patch: Partial<Remembered>) => {
+    probed.set(id, {
+      ...(probeOf(id) ?? { until: Date.now() + ttlMs }),
+      ...patch,
+    });
+  };
+  /** Requests whose site waits for approval on the person's phone, and until when. */
+  const approvals = new Map<string, { owner: string; until: number }>();
 
   async function audit(
     eventType:
@@ -182,6 +212,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
       request.fillingUntil !== null &&
       request.fillingUntil <= new Date()
     ) {
+      approvals.delete(id);
       const reopened = await store.transition(owner, id, ["filling"], {
         status: "pending",
         fillingUntil: null,
@@ -206,9 +237,11 @@ export function createSignInService(deps: SignInServiceDependencies) {
   }
 
   async function resolved(request: SignInRequestRecord) {
+    approvals.delete(request.id);
     if (!deps.onResolved) return;
+    const attempt = probeOf(request.id)?.attempt;
     try {
-      await deps.onResolved(request);
+      await deps.onResolved({ ...request, ...(attempt ? { attempt } : {}) });
     } catch (error) {
       // The outcome is recorded either way; a turn that could not be resumed is reported, not hidden.
       console.error(
@@ -233,7 +266,9 @@ export function createSignInService(deps: SignInServiceDependencies) {
       ownerUserId: _owner,
       ...rest
     } = request;
-    const probe = probeOf(request.id);
+    const { until: _until, ...probe }: Partial<Remembered> =
+      probeOf(request.id) ?? {};
+    const approval = approvals.get(request.id);
     return {
       ...rest,
       passwordManager,
@@ -241,20 +276,215 @@ export function createSignInService(deps: SignInServiceDependencies) {
         id: login.id,
         username: login.username,
       })),
-      ...(probe
-        ? Object.fromEntries(
-            Object.entries(probe).filter(
-              ([key, value]) => key !== "until" && value !== undefined,
-            ),
-          )
+      ...Object.fromEntries(
+        Object.entries(probe).filter(([, value]) => value !== undefined),
+      ),
+      ...(approval && request.status === "filling"
+        ? { approvalUntil: new Date(approval.until).toISOString() }
         : {}),
     };
+  }
+
+  /** Save a login the site accepted, when the person asked to. */
+  async function saveAccepted(
+    owner: string,
+    id: string,
+    actor: ActionActor,
+    origin: string,
+    credential: { username?: string; password?: string },
+  ) {
+    if (!credential.username || !credential.password) return;
+    const saved = await store.saveLogin({
+      ownerUserId: owner,
+      origin,
+      username: credential.username,
+      encryptedPassword: await encryptSecret(
+        deps.encryptionKey,
+        credential.password,
+      ),
+    });
+    await audit("password.saved", actor, "password", saved.id, {
+      site: origin,
+      login: saved.id,
+      request: id,
+    });
+  }
+
+  /** A security check after the login: the person is handed the browser to pass it. */
+  async function handOver(
+    owner: string,
+    id: string,
+    actor: ActionActor,
+    request: SignInRequestRecord,
+  ) {
+    const state = await gateway.requestHelp(
+      request.botId,
+      actor,
+      `Pass the security check on ${hostOf(request.origin)} to finish signing in`,
+      request.toolCallId ?? undefined,
+    );
+    return store.transition(owner, id, ["filling"], {
+      status: "taken_over",
+      fillingUntil: null,
+      controlRequestId: state.request?.id ?? null,
+      outcome:
+        "The site showed a security check after the login. Pass it in the Bot's browser, then say you are done.",
+    });
+  }
+
+  /** The login went in and the site now asks for a one-time code: the Bot asks again for it. */
+  async function codeNext(owner: string, id: string, method: SignInMethod) {
+    const current = await store.request(owner, id);
+    const done = await store.transition(owner, id, ["filling"], {
+      status: "failed",
+      method,
+      fillingUntil: null,
+      outcome: `The login for ${current?.origin ?? "the site"} went in, and the site now asks for a one-time code. Call computer_request_sign_in again on this page now: the person will be asked for the code alone.`,
+      resolvedAt: new Date(),
+    });
+    if (done) await resolved(done);
+    return done;
+  }
+
+  /** Signed in: recorded, audited, and the Bot told. */
+  async function signedIn(
+    owner: string,
+    id: string,
+    actor: ActionActor,
+    method: SignInMethod,
+    page: string | undefined,
+    extra: Record<string, unknown> = {},
+  ) {
+    const current = await store.request(owner, id);
+    const done = await store.transition(owner, id, ["filling"], {
+      status: "signed_in",
+      method,
+      fillingUntil: null,
+      outcome: `Signed in to ${current?.origin ?? "the site"}${page ? `; the page is now ${page}` : ""}.`,
+      resolvedAt: new Date(),
+    });
+    if (!done) return null;
+    await audit("computer.sign_in_completed", actor, "computer", done.botId, {
+      bot: done.botId,
+      request: id,
+      site: done.origin,
+      method,
+      ...extra,
+    });
+    await resolved(done);
+    return done;
+  }
+
+  /**
+   * Read the page of a request whose site waits for approval on the person's phone, and settle the
+   * request once it has moved on: signed in, refused (back to the form), a code next, or a security
+   * check. Past the wait, it ends with the approval that never came. Null while it still waits.
+   *
+   * The background watch and the person's Continue both call this; the transitions only ever move a
+   * request out of `filling` once, so a race between them settles it once.
+   */
+  async function readApproval(
+    owner: string,
+    id: string,
+    actor: ActionActor,
+  ): Promise<SignInRequestRecord | null> {
+    const waiting = approvals.get(id);
+    const request = await store.request(owner, id);
+    if (!waiting || !request || request.status !== "filling") {
+      approvals.delete(id);
+      return request;
+    }
+    let check: Awaited<
+      ReturnType<NonNullable<typeof gateway.probeSignIn>>
+    >["check"];
+    try {
+      check = (await gateway.probeSignIn?.(request.botId))?.check;
+    } catch {
+      check = undefined;
+    }
+    const method = request.method ?? "typed";
+    const outcome = check?.outcome;
+    if (!outcome || outcome === "push-approval") {
+      if (Date.now() < waiting.until) return null;
+      approvals.delete(id);
+      const done = await store.transition(owner, id, ["filling"], {
+        status: "failed",
+        fillingUntil: null,
+        outcome: `${request.origin} asked the person to approve the sign-in on their phone or in an app, and no approval came within ${Math.round(approvalWaitMs / 60_000)} minutes. Tell them, and offer to ask again.`,
+        resolvedAt: new Date(),
+      });
+      if (done) {
+        await audit("computer.sign_in_failed", actor, "computer", done.botId, {
+          bot: done.botId,
+          request: id,
+          site: done.origin,
+          failure: "No approval arrived on the person's phone in time.",
+        });
+        await resolved(done);
+      }
+      return done ?? (await store.request(owner, id));
+    }
+    approvals.delete(id);
+    // The credential is long gone, so nothing could scrub a page's message of it: none is kept.
+    remember(id, {
+      attempt: {
+        ...probeOf(id)?.attempt,
+        outcome,
+      },
+    });
+    if (outcome === "signed-in")
+      return (
+        (await signedIn(owner, id, actor, method, undefined, {
+          approved: true,
+        })) ?? (await store.request(owner, id))
+      );
+    if (outcome === "code-requested")
+      return (await codeNext(owner, id, method)) ?? store.request(owner, id);
+    if (outcome === "captcha")
+      return (
+        (await handOver(owner, id, actor, request).catch(() => null)) ??
+        (await store.transition(owner, id, ["filling"], {
+          status: "pending",
+          fillingUntil: null,
+          outcome:
+            "The site showed a security check. Sign in by hand to pass it.",
+        })) ??
+        (await store.request(owner, id))
+      );
+    const reopened = await store.transition(owner, id, ["filling"], {
+      status: "pending",
+      fillingUntil: null,
+      outcome: refusedWords(undefined),
+    });
+    return reopened ?? (await store.request(owner, id));
+  }
+
+  /** Read the page again and again while its site waits for the person's approval. */
+  function watchApproval(owner: string, id: string, actor: ActionActor) {
+    approvals.set(id, { owner, until: Date.now() + approvalWaitMs });
+    const tick = async () => {
+      if (!approvals.has(id)) return;
+      try {
+        const settled = await readApproval(owner, id, actor);
+        if (settled && settled.status !== "filling") return;
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            type: "sign-in-approval-check-failed",
+            request: id,
+            error: error instanceof Error ? error.name : "UnknownError",
+          }),
+        );
+      }
+      if (approvals.has(id)) setTimeout(tick, approvalPollMs).unref?.();
+    };
+    setTimeout(tick, approvalPollMs).unref?.();
   }
 
   /**
    * Type a login into the Bot's browser, and record how it went.
    *
-   * The credential lives in this function's arguments and the one request to the computer. It is not
+   * The credential lives in this function's arguments and the requests to the computer. It is not
    * put on the row, the audit payload, the outcome or any thrown error.
    */
   async function fill(
@@ -292,19 +522,66 @@ export function createSignInService(deps: SignInServiceDependencies) {
         409,
       );
     const secrets = [credential.password, credential.username, credential.code];
+    const fields = (form: "login" | "code") =>
+      form === "code"
+        ? { ...(credential.code ? { code: credential.code } : {}) }
+        : {
+            ...(credential.username ? { username: credential.username } : {}),
+            ...(credential.password ? { password: credential.password } : {}),
+            ...(credential.code ? { code: credential.code } : {}),
+          };
+    let origin = claimed.origin;
     let result: SignInFillResult | undefined;
     let failure: string | undefined;
     try {
       result = await gateway.signIn(claimed.botId, {
-        origin: claimed.origin,
-        ...(credential.username ? { username: credential.username } : {}),
-        ...(credential.password ? { password: credential.password } : {}),
-        ...(credential.code ? { code: credential.code } : {}),
+        origin,
+        ...fields("login"),
       });
-      if (result.error) failure = scrub(result.error, secrets);
+      /*
+       * THE SAME LOGIN, ONE ORIGIN ON. A username step that sent the browser on to an identity
+       * provider on another origin used to end in "take over the browser". The computer types
+       * nothing on an origin it was not given, and reports where the login went instead. The person
+       * typed this login for this sign-in, and the move came straight from sending its username in
+       * the Bot's own tab, so it continues there, exactly as a request already moves to where the form
+       * is when it is made: the request now names that origin, which the form shows and the audit
+       * records. A saved login never follows: it is typed only into the site it was saved for.
+       */
+      for (
+        let moves = 0;
+        result.movedTo && !result.error && moves < MAX_MOVES;
+        moves++
+      ) {
+        const to = originOf(result.movedTo.origin);
+        if (!probeOf(id)?.requestedOrigin)
+          remember(id, { requestedOrigin: origin });
+        await store.transition(owner, id, ["filling"], { origin: to });
+        origin = to;
+        if (method === "saved") break;
+        result = await gateway.signIn(claimed.botId, {
+          origin,
+          ...fields(result.movedTo.form),
+        });
+      }
+      if (result.movedTo)
+        failure =
+          method === "saved"
+            ? `The sign-in went on to ${hostOf(origin)}. A saved login is only typed into the site it was saved for: enter the login for ${hostOf(origin)}, or sign in by hand.`
+            : "The sign-in kept moving to other sites. Sign in by hand to finish.";
+      else if (result.error) failure = scrub(result.error, secrets);
       else if (!result.submitted)
         failure = "The sign-in form could not be submitted.";
-      else if (credential.password && result.passwordFieldVisible)
+      else if (result.outcome === "error")
+        failure = refusedWords(
+          result.pageMessage
+            ? scrub(result.pageMessage, secrets).slice(0, 200)
+            : undefined,
+        );
+      else if (
+        !result.outcome &&
+        credential.password &&
+        result.passwordFieldVisible
+      )
         failure =
           "The site still shows a password field, so the login was probably not accepted.";
     } catch (error) {
@@ -316,7 +593,26 @@ export function createSignInService(deps: SignInServiceDependencies) {
       );
     }
     const page = result?.url ? scrub(result.url, secrets) : undefined;
+    const pageMessage = result?.pageMessage
+      ? scrub(result.pageMessage, secrets).slice(0, 200)
+      : undefined;
+    const rememberDevice = result?.rememberDeviceLeftUnchecked
+      ? { rememberDeviceLeftUnchecked: true }
+      : {};
+    const moved =
+      origin !== claimed.origin ? { movedFrom: claimed.origin } : {};
     if (failure) {
+      if (
+        result?.outcome === "error" ||
+        (!result?.outcome && result?.passwordFieldVisible)
+      )
+        remember(id, {
+          attempt: {
+            outcome: "error",
+            ...(pageMessage ? { pageMessage } : {}),
+            ...rememberDevice,
+          },
+        });
       // Back to pending, so the person can correct a mistyped password. The Bot keeps waiting.
       const reopened = await store.transition(owner, id, ["filling"], {
         status: "pending",
@@ -326,54 +622,83 @@ export function createSignInService(deps: SignInServiceDependencies) {
       await audit("computer.sign_in_failed", actor, "computer", claimed.botId, {
         bot: claimed.botId,
         request: id,
-        site: claimed.origin,
+        site: origin,
         method,
+        ...moved,
         ...(extra.loginId ? { savedLogin: extra.loginId } : {}),
         failure,
       });
       throw new SignInRefusedError(failure, reopened ? 409 : 400);
     }
+    const outcome = result?.outcome ?? "signed-in";
+    remember(id, { attempt: { outcome, ...rememberDevice } });
     if (method === "saved" && extra.loginId)
       await store.touchLogin(owner, extra.loginId);
     /*
-     * Signed in is recorded, and the Bot told, BEFORE the optional save. The site accepted the login
-     * either way; a save that fails afterwards must not leave the request stuck in `filling` with the
-     * turn waiting on it.
+     * The site accepted the password when it signed in, asked for a code next, or waits for an
+     * approval on the phone, so that is when a requested save happens. Recorded, and the Bot told,
+     * BEFORE the save: a save that fails afterwards must not leave the request stuck with the turn
+     * waiting on it.
      */
-    const done = await store.transition(owner, id, ["filling"], {
-      status: "signed_in",
-      method,
-      fillingUntil: null,
-      outcome: `Signed in to ${claimed.origin}${page ? `; the page is now ${page}` : ""}.`,
-      resolvedAt: new Date(),
-    });
+    let done: SignInRequestRecord | null;
+    if (outcome === "captcha") {
+      done = await handOver(owner, id, actor, claimed).catch(() => null);
+      if (!done) {
+        const reopened = await store.transition(owner, id, ["filling"], {
+          status: "pending",
+          fillingUntil: null,
+          outcome:
+            "The site showed a security check. Sign in by hand to pass it.",
+        });
+        if (reopened) done = reopened;
+      }
+    } else if (outcome === "code-requested") {
+      done = await codeNext(owner, id, method);
+    } else if (outcome === "push-approval") {
+      // Still being entered, for as long as the site waits for the person's phone.
+      done = await store.transition(owner, id, ["filling"], {
+        method,
+        fillingUntil: new Date(Date.now() + approvalWaitMs + 60_000),
+        outcome:
+          "Waiting for the person to approve the sign-in on their phone.",
+      });
+      if (done) {
+        if (gateway.probeSignIn) watchApproval(owner, id, actor);
+        else {
+          // Nothing can read the page while it waits, so the Bot is told now.
+          done =
+            (await store.transition(owner, id, ["filling"], {
+              status: "failed",
+              fillingUntil: null,
+              outcome: `${done.origin} asks the person to approve the sign-in on their phone. Wait for them, take a snapshot, and carry on once the page has moved on.`,
+              resolvedAt: new Date(),
+            })) ?? done;
+          if (isFinalSignIn(done.status)) await resolved(done);
+        }
+      }
+    } else {
+      done = await signedIn(owner, id, actor, method, page, {
+        ...moved,
+        ...(extra.loginId ? { savedLogin: extra.loginId } : {}),
+      });
+    }
     if (!done)
       throw new Error(
         "The sign-in request changed while it was being entered.",
       );
-    await audit("computer.sign_in_completed", actor, "computer", done.botId, {
-      bot: done.botId,
-      request: id,
-      site: done.origin,
-      method,
-      ...(extra.loginId ? { savedLogin: extra.loginId } : {}),
-    });
-    await resolved(done);
-    if (saving && credential.username && credential.password) {
+    if (outcome === "code-requested")
+      await audit("computer.sign_in_failed", actor, "computer", done.botId, {
+        bot: done.botId,
+        request: id,
+        site: done.origin,
+        method,
+        ...moved,
+        failure: "The site asks for a one-time code next.",
+      });
+    // A security check can stand in front of a password the site has not checked yet: no save then.
+    if (saving && outcome !== "captcha") {
       try {
-        const saved = await store.saveLogin({
-          ownerUserId: owner,
-          origin: claimed.origin,
-          username: credential.username,
-          encryptedPassword: await encryptSecret(
-            deps.encryptionKey,
-            credential.password,
-          ),
-        });
-        await audit("password.saved", actor, "password", saved.id, {
-          site: claimed.origin,
-          login: saved.id,
-        });
+        await saveAccepted(owner, id, actor, done.origin, credential);
       } catch (error) {
         console.error(
           JSON.stringify({
@@ -383,8 +708,8 @@ export function createSignInService(deps: SignInServiceDependencies) {
           }),
         );
         throw new SignInRefusedError(
-          "You are signed in, but the login could not be saved. Save it again from Passwords.",
-          // The request has moved on (it is signed in); only the optional save did not happen.
+          "Your login went in, but it could not be saved. Save it again from Passwords.",
+          // The request has moved on; only the optional save did not happen.
           409,
         );
       }
@@ -417,9 +742,9 @@ export function createSignInService(deps: SignInServiceDependencies) {
        * LOOK BEFORE ASKING. A Bot that asks on a page with no form on it (still on the service's
        * description page, before its "Sign in" button) had the person type a password into a form
        * that could only fail. The computer reads the page first: no form, and the Bot is told to open
-       * the sign-in page and ask again; a form on another origin than the one named (gov.gr sends
-       * Taxisnet to oauth2.gsis.gr), and the request is for where the form really is, which is the
-       * host the person is shown before typing. A computer that cannot be asked leaves today's
+       * the sign-in page and ask again; a form on another origin than the one named (a site that sends
+       * its logins to an identity provider), and the request is for where the form really is, which
+       * is the host the person is shown before typing. A computer that cannot be asked leaves today's
        * behaviour: the named origin, checked again at fill time.
        */
       let probe:
@@ -434,7 +759,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
       }
       if (probe?.form === "none")
         throw new SignInRefusedError(
-          `There is no sign-in form on ${probe.host || "the page you have open"} yet. Open the site's sign-in page first (its "Sign in", "Log in" or "Είσοδος" button), wait for the login fields to show, then ask again.`,
+          `There is no sign-in form on ${probe.host || "the page you have open"} yet. Open the site's sign-in page first (its own "Sign in" or "Log in" button, in whatever language the site uses), wait for the login fields to show, then ask again.`,
           409,
         );
       if (probe?.origin) origin = probe.origin;
@@ -568,6 +893,21 @@ export function createSignInService(deps: SignInServiceDependencies) {
       );
     },
 
+    /**
+     * The person saying they approved the sign-in on their phone: the page is read now rather than
+     * at the next poll. A page still waiting leaves the request waiting.
+     */
+    async continueApproval(owner: string, id: string, actor: ActionActor) {
+      const request = await load(owner, id);
+      if (request.status !== "filling" || !approvals.has(id))
+        throw new SignInRefusedError(
+          "This sign-in is not waiting for an approval.",
+          409,
+        );
+      await readApproval(owner, id, actor);
+      return view(await load(owner, id));
+    },
+
     /** Sign in by hand instead: hand the person the Bot's browser. */
     async takeOver(owner: string, id: string, actor: ActionActor) {
       const request = await load(owner, id);
@@ -620,8 +960,13 @@ export function createSignInService(deps: SignInServiceDependencies) {
 
     async cancel(owner: string, id: string, actor: ActionActor) {
       const current = await load(owner, id);
-      const done = await store.transition(owner, id, OPEN, {
+      // A request waiting on the person's phone can be declined too; one being typed cannot.
+      const from: readonly SignInStatus[] = approvals.has(id)
+        ? [...OPEN, "filling"]
+        : OPEN;
+      const done = await store.transition(owner, id, from, {
         status: "cancelled",
+        fillingUntil: null,
         outcome: `The person chose not to sign in to ${current.origin}. Do not ask for the login another way.`,
         resolvedAt: new Date(),
       });

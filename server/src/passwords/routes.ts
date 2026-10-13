@@ -140,6 +140,17 @@ export function createSignInRoutes(
     );
   });
 
+  /** The person saying they approved the sign-in on their phone: read the page now. */
+  routes.post("/:id/continue", async (context) =>
+    context.json(
+      await service.continueApproval(
+        context.var.actor.id,
+        context.req.param("id"),
+        actorOf(context),
+      ),
+    ),
+  );
+
   routes.post("/:id/take-over", async (context) =>
     context.json(
       await service.takeOver(
