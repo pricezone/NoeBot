@@ -1,5 +1,5 @@
 /**
- * What a Bot has been doing on its computer, other than browsing.
+ * What a Bot has been doing on its computer: its commands and files, and its browsing steps.
  *
  * The screen answers "what is it looking at" and nothing answered "what is it doing". A shell
  * command rendered in the transcript as one grey line, `Ran a command  rg --version`, with the output
@@ -21,11 +21,27 @@ export type ComputerActivity = {
   id: string;
   /** When it happened, for the timestamp beside it. */
   at: number;
-  kind: "command" | "read_file" | "write_file" | "list_files";
-  /** The command, or the path. What the line says it acted on. */
+  kind:
+    | "command"
+    | "read_file"
+    | "write_file"
+    | "list_files"
+    // Browsing steps (browsing-steps.ts): a page opened, a click, a field filled in, a sign-in the
+    // computer typed, and something in the way. Never what was typed.
+    | "page"
+    | "click"
+    | "type"
+    | "sign_in"
+    | "issue";
+  /** The command, the path, the page, the element. What the line says it acted on. */
   subject: string;
-  /** What came back. Empty when a command printed nothing, which is worth showing as itself. */
+  /**
+   * What came back. Empty when a command printed nothing, which is worth showing as itself. For a
+   * browsing step, nothing, or why something got in the way.
+   */
   output: string;
+  /** A second line for a browsing step: the host under a page's title. */
+  detail?: string;
   /** Present for a command. Non-zero is drawn as a failure. */
   exitCode?: number;
   /** A boundary refused it. Drawn differently from a command that ran and failed. */

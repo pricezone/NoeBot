@@ -408,4 +408,12 @@ export type ComputerStatus = {
    * page the Bot has open. The panel reads it to pick the frame it polls and the shape it reserves.
    */
   desktop?: { width: number; height: number };
+  /**
+   * Whether this Bot's browser is running, read without starting it.
+   *
+   * The panel draws a computer whose browser has stopped (closed by the computer's idle sweep, or
+   * never started) as asleep, rather than asking it for a screenshot, which would start it again.
+   * Absent when it cannot be told without waking something, which the panel treats as unknown.
+   */
+  browser?: "running" | "stopped";
 };

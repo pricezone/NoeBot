@@ -49,6 +49,7 @@ export function NoeBotAvatar({
   live,
   animation,
   then,
+  props,
 }: {
   seed: string;
   /** The colour a person chose, as the profile carries it. Null or absent draws the seed's. */
@@ -66,6 +67,11 @@ export function NoeBotAvatar({
   animation?: AnimationId;
   /** What follows a finite `animation` (boot, rest). */
   then?: AnimationId;
+  /**
+   * Draw the face's props and effects (the sleepy face's Z's among them); default from the size,
+   * from 48 px. Off for a caller that draws its own, like the sleeping computer's card.
+   */
+  props?: boolean;
 }) {
   const look = avatarLook({ seed, color, expression });
   const [hovered, setHovered] = useState(false);
@@ -97,7 +103,7 @@ export function NoeBotAvatar({
       face={face ?? look.expression}
       mode={large ? "hd" : "terminal"}
       palette={THEMED_PALETTE}
-      props={large}
+      props={props ?? large}
       ref={eyeRef}
       size={size}
       stillBelow={16}

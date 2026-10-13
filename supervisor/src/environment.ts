@@ -9,8 +9,17 @@ export function environmentFor(
   botId: string,
   env: Record<string, string | undefined> = process.env,
 ): string[] {
-  const passthrough = Object.entries(env).filter(([key]) =>
-    key.startsWith("EGRESS_PROXY"),
+  /*
+   * The browser's language: the deployment's, and this Bot's own (the computer reads
+   * `COMPUTER_BROWSER_LANG_<BOT>` ahead of `COMPUTER_BROWSER_LANG`, by the rule `EGRESS_PROXY_<BOT>`
+   * uses). Only this Bot's, not every Bot's; the computer checks the value is a language tag.
+   */
+  const ownLanguage = `COMPUTER_BROWSER_LANG_${botId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}`;
+  const passthrough = Object.entries(env).filter(
+    ([key]) =>
+      key.startsWith("EGRESS_PROXY") ||
+      key === "COMPUTER_BROWSER_LANG" ||
+      key === ownLanguage,
   );
   const computerToken = env.COMPUTER_TOKEN?.trim() || undefined;
   const spireSocketVolume = env.SPIRE_AGENT_SOCKET_VOLUME;

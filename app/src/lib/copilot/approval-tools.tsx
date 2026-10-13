@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { InlineApproval } from "@/components/approvals/inline-approval";
 import { tryClient } from "@/lib/client";
+import { observeToolCall } from "@/lib/computers/browsing-steps";
 import { useActiveBotHolder } from "./active-bot";
 import { frontendApprovalSnapshot } from "./approval-context";
 
@@ -40,6 +41,17 @@ export function useFrontendTool<T extends Record<string, unknown>>(
   const queryClient = useQueryClient();
   const bot = useActiveBotHolder();
   const render = tool.render;
+  type Handler = NonNullable<ReactFrontendTool<T>["handler"]>;
+  /*
+   * EVERY COMPUTER TOOL, HOWEVER IT IS CARRIED OUT. A click or a typed field is run by the server's
+   * gate below and never reaches the tool's own handler, so this is the one place that sees each
+   * computer call once: it wakes a sleeping computer view as the call is made, and puts the call's
+   * browsing steps in the Activity list (`observeToolCall`).
+   */
+  const observed =
+    (run: Handler): Handler =>
+    (args, context) =>
+      observeToolCall(bot.current, tool.name, args, () => run(args, context));
   useSDKFrontendTool({
     ...tool,
     ...(writes.has(tool.name)
@@ -59,7 +71,7 @@ export function useFrontendTool<T extends Record<string, unknown>>(
         }
       : {}),
     handler: tool.handler
-      ? async (args, context) => {
+      ? observed(async (args, context) => {
           if (!writes.has(tool.name)) return tool.handler?.(args, context);
           let snapshot: ReturnType<typeof frontendApprovalSnapshot>;
           try {
@@ -120,7 +132,7 @@ export function useFrontendTool<T extends Record<string, unknown>>(
           if (!payload || typeof payload !== "object" || !("result" in payload))
             throw new Error("The computer action returned no result.");
           return payload.result;
-        }
+        })
       : undefined,
   });
 }

@@ -43,6 +43,7 @@ import { browserRuntimeFromEnv } from "./browser-runtime";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
 import {
+  browserLanguageFor,
   DISABLED_FEATURES,
   desktopWindowArgs,
   launchArgs,
@@ -56,6 +57,7 @@ import {
   lastUsedProfile,
 } from "./profile-listing";
 import { withProfilePreferences } from "./profile-preferences";
+import { reopenTabs, saveTabs, tabsToSave, takeSavedTabs } from "./saved-tabs";
 import {
   type SessionCookieKeeper,
   sessionCookieKeeper,
@@ -117,10 +119,17 @@ const SANDBOX_ENABLED = LOCAL_CHROME || process.env.COMPUTER_SANDBOX === "on";
 // reads them without pulling this module's browser driver in; re-exported so callers do not change.
 export { DISABLED_FEATURES, desktopWindowArgs, PLAYWRIGHT_DISABLED_FEATURES };
 
-export const LAUNCH_ARGS = launchArgs({
-  sandbox: SANDBOX_ENABLED,
-  localChrome: LOCAL_CHROME,
-});
+/**
+ * The switches one Bot's browser launches with. Per Bot because the language is: see
+ * `browserLanguageFor` (`COMPUTER_BROWSER_LANG_<BOT>`, then `COMPUTER_BROWSER_LANG`, then English).
+ */
+export function launchArgsFor(botId: string): readonly string[] {
+  return launchArgs({
+    sandbox: SANDBOX_ENABLED,
+    localChrome: LOCAL_CHROME,
+    language: browserLanguageFor(botId, process.env),
+  });
+}
 
 /**
  * The browser this computer launches, for the warm-up launch at boot (see browser-warmup.ts). Null
@@ -140,12 +149,16 @@ const DESKTOP_WINDOW_ARGS = desktopWindowArgs(BROWSER_RUNTIME.desktop, {
 });
 
 /**
- * The page every browser this computer launches opens on, and the Home button's page on a desktop.
- * One value, read once, so the Home button, a fresh browser and the dock's Chrome button all agree.
+ * The page a Bot's browser opens on, and the Home button's page on a desktop. One answer per Bot, so
+ * the Home button, a fresh browser and the dock's Chrome button all agree; it differs between Bots
+ * only when their browser languages do (`homepageFromEnv`).
  */
-export const START_PAGE = homepageFromEnv(
-  process.env.COMPUTER_DESKTOP_HOMEPAGE,
-);
+export function startPageFor(botId: string): string {
+  return homepageFromEnv(
+    process.env.COMPUTER_DESKTOP_HOMEPAGE,
+    browserLanguageFor(botId, process.env),
+  );
+}
 
 /**
  * WebRTC kept inside the proxy, written into the profile before Chromium reads it.
@@ -377,12 +390,70 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     profileDirectoryFor(root, botId);
 
   /**
+   * Write down the tabs a browser has open, for its next launch to open again (saved-tabs.ts).
+   *
+   * Read off what Playwright already holds, so a browser that will not answer cannot hold the close
+   * open, and never fatal: a list that is not written is the start page next time, which is what
+   * every close did before. Not for a person's own Chrome, which restores its own session.
+   */
+  const keepOpenTabs = async (
+    botId: string,
+    running: LiveBrowser,
+  ): Promise<void> => {
+    if (LOCAL_CHROME) return;
+    const notSaved = (error: unknown) =>
+      console.info(
+        JSON.stringify({
+          type: "computer-tabs-not-saved",
+          botId,
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    let tabs: string[];
+    try {
+      running.retarget();
+      const open = running.context
+        .pages()
+        .filter((page) => !page.isClosed())
+        .map((page) => page.url());
+      tabs = tabsToSave(
+        open,
+        running.page.isClosed() ? undefined : running.page.url(),
+      );
+    } catch (error) {
+      notSaved(error);
+      return;
+    }
+    await settleWithin(
+      saveTabs(directoryFor(botId), tabs).then(() => {
+        if (tabs.length === 0) return;
+        console.info(
+          JSON.stringify({
+            type: "computer-tabs-saved",
+            botId,
+            count: tabs.length,
+          }),
+        );
+      }, notSaved),
+      ANNOUNCE_BUDGET_MS,
+    );
+  };
+
+  /**
    * Close one Bot's browser and forget it.
    *
    * Gracefully, so Chromium flushes the profile: the whole point of closing one is that the Bot's
    * logins survive and its next request starts where it left off.
+   *
+   * `keepTabs` for the closes nobody asked for, the idle sweep and the cap: the tabs are written
+   * down first and the next launch opens them again, so a Bot's computer that went to sleep wakes on
+   * the pages it had. A stop or a reset is somebody asking for the browser to go, and does not.
    */
-  const evict = async (botId: string, reason: string): Promise<boolean> => {
+  const evict = async (
+    botId: string,
+    reason: string,
+    { keepTabs = false }: { keepTabs?: boolean } = {},
+  ): Promise<boolean> => {
     const running = live.get(botId);
     if (!running) return false;
     live.delete(botId);
@@ -397,6 +468,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     // on it. The close is the thing that must happen; being told about it is best effort.
     await whileClosing(botId, async () => {
       await settleWithin(Promise.resolve(onClosed(botId)), ANNOUNCE_BUDGET_MS);
+      if (keepTabs) await keepOpenTabs(botId, running);
       await keepSessionCookies(running);
       await closeAndWait(running.context).catch(() => undefined);
     });
@@ -411,7 +483,9 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
    */
   const enforceCap = async (): Promise<void> => {
     for (const botId of chooseEvictions(live.entries(), MAX_LIVE_BROWSERS)) {
-      await evict(botId, "the cap on running browsers was reached");
+      await evict(botId, "the cap on running browsers was reached", {
+        keepTabs: true,
+      });
     }
   };
 
@@ -427,7 +501,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
       IDLE_TIMEOUT_MS,
       Date.now(),
     )) {
-      await evict(botId, "it had been idle");
+      await evict(botId, "it had been idle", { keepTabs: true });
     }
   };
 
@@ -552,7 +626,9 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         if (!LOCAL_CHROME) {
           await sweepLocks(dir);
           await keepWebRtcInsideProxy(dir, {
-            ...(BROWSER_RUNTIME.desktop ? { homepage: START_PAGE } : {}),
+            ...(BROWSER_RUNTIME.desktop
+              ? { homepage: startPageFor(botId) }
+              : {}),
           });
         }
         const proxy = egressFor(botId, process.env);
@@ -563,7 +639,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
           args: [
-            ...LAUNCH_ARGS,
+            ...launchArgsFor(botId),
             ...DESKTOP_WINDOW_ARGS,
             // Chromium's own warnings, to `chrome_debug.log` in the profile: what a browser that
             // quits leaves behind to say why (read by `chromiumLogTail` when one goes).
@@ -620,9 +696,29 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
          * refuse to read (navigation.ts) until the Bot navigates somewhere.
          */
         if (!LOCAL_CHROME) {
-          await openStartPage(page, START_PAGE, (failure) =>
-            console.warn(JSON.stringify({ ...failure, botId })),
-          );
+          /*
+           * The tabs it had when the idle sweep or the cap put it away, instead of the start page,
+           * so it wakes where it left off (saved-tabs.ts). Taken as they are read: a page that
+           * brings the browser down does it once.
+           */
+          const saved = await takeSavedTabs(dir);
+          if (saved.length > 0) {
+            const reopened = await reopenTabs(context, page, saved, (failure) =>
+              console.warn(JSON.stringify({ ...failure, botId })),
+            );
+            console.info(
+              JSON.stringify({
+                type: "computer-tabs-reopened",
+                botId,
+                saved: saved.length,
+                reopened,
+              }),
+            );
+          } else {
+            await openStartPage(page, startPageFor(botId), (failure) =>
+              console.warn(JSON.stringify({ ...failure, botId })),
+            );
+          }
         }
         const record: LiveBrowser = {
           context,
@@ -653,6 +749,12 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           opened.on("close", () => record.retarget());
         });
         page.on("close", () => record.retarget());
+        // Reopened tabs came before these listeners: each falls back the same way when it closes,
+        // and the newest of them, the page the Bot was on, is the live one from the start.
+        for (const reopened of context.pages()) {
+          if (reopened !== page) reopened.on("close", () => record.retarget());
+        }
+        record.retarget();
         // Said, because nothing else is: a person closing the window ends the browser without any
         // call here, and the next request finds it half-dead.
         context.once("close", () => {
@@ -776,7 +878,12 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           settleWithin(Promise.resolve(onClosed(botId)), ANNOUNCE_BUDGET_MS),
         ),
       );
-      // Written before the close, so a pod deleted by a suspend or an image update keeps its sign-ins.
+      /*
+       * Written before the close, so a pod deleted by a suspend or an image update keeps its sign-ins,
+       * and its tabs: a suspended computer is the idle sweep of a deployment with a computer per Bot,
+       * and it should wake on the pages it had as one closed by the sweep does.
+       */
+      await Promise.all(entries.map(([botId, c]) => keepOpenTabs(botId, c)));
       await Promise.all(entries.map(([, c]) => keepSessionCookies(c)));
       await Promise.all(entries.map(([, c]) => closeAndWait(c.context)));
     },

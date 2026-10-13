@@ -220,21 +220,34 @@ export async function raiseBrowserWindow(page: Page): Promise<void> {
  * what the browser asks for, and the computers run in Germany, so a plain google.com greeted people
  * in German (measured: with `--accept-lang=en-US,en` alone it still answered in the local language).
  * `hl=en` settles it, and a search from that page stays English because Google's form carries `hl`
- * along. Every other site gets English from the browser itself (`LAUNCH_ARGS` in profiles.ts).
+ * along. Every other site gets English from the browser itself (`launchArgs` in launch-args.ts).
  */
 export const DEFAULT_HOMEPAGE = "https://www.google.com/?hl=en";
 
-/** The start page, from `COMPUTER_DESKTOP_HOMEPAGE` when it is an http(s) address. */
-export function homepageFromEnv(value: string | undefined): string {
+/**
+ * The start page, from `COMPUTER_DESKTOP_HOMEPAGE` when it is an http(s) address.
+ *
+ * Otherwise Google, in the browser's language: a deployment that set `COMPUTER_BROWSER_LANG=el-GR`
+ * gets `hl=el`, for the same reason English names `hl=en` above.
+ */
+export function homepageFromEnv(
+  value: string | undefined,
+  language?: string,
+): string {
+  const base = language?.split("-")[0]?.toLowerCase();
+  const fallback =
+    base && /^[a-z]{2,3}$/.test(base) && base !== "en"
+      ? `https://www.google.com/?hl=${base}`
+      : DEFAULT_HOMEPAGE;
   const trimmed = value?.trim();
-  if (!trimmed) return DEFAULT_HOMEPAGE;
+  if (!trimmed) return fallback;
   try {
     const url = new URL(trimmed);
     return url.protocol === "https:" || url.protocol === "http:"
       ? url.href
-      : DEFAULT_HOMEPAGE;
+      : fallback;
   } catch {
-    return DEFAULT_HOMEPAGE;
+    return fallback;
   }
 }
 

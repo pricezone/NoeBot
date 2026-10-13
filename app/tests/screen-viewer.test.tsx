@@ -14,6 +14,7 @@ import { ComputerView } from "@/components/computer/computer-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { agentKeys } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
+import { computerSleep } from "@/lib/computers/use-computer-sleep";
 import { useComputerControl } from "@/lib/computers/use-control";
 import { queryClient } from "@/query-client";
 import { settleReactWork } from "./settle-react-work";
@@ -121,6 +122,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   queryClient.clear();
+  computerSleep.reset();
   holder = "bot";
   requested = false;
   recordings = [];
@@ -165,6 +167,7 @@ function preview() {
           minHeight={0}
           minWidth={0}
           name="Noë"
+          sleeps
         />
       </TooltipProvider>
     </QueryClientProvider>,
@@ -251,6 +254,32 @@ test("Minimize closes the viewer and the backdrop does not", async () => {
   expect(
     view.getByRole("button", { name: "Open the assistant's screen full size" }),
   ).toBeTruthy();
+});
+
+test("a computer that falls asleep under the viewer shows the Bot dozing there, and the card does too", async () => {
+  const { view } = preview();
+  const { viewer } = await open(view);
+
+  await act(async () => computerSleep.sleep(BOT));
+  // The viewer keeps whose screen it is and its Minimize; where the screen was, the Bot dozes.
+  expect(viewer.getByText("Computer is asleep")).toBeTruthy();
+  expect(viewer.getByRole("button", { name: "Wake" })).toBeTruthy();
+  expect(viewer.queryByText(/You cannot see the screen right now/)).toBeNull();
+
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+  await waitFor(() => expect(viewerOpen(view)).toBe(false));
+  // Minimizing is a click in the viewer, which is somebody using the computer: it is awake again.
+  expect(
+    view.getByRole("button", { name: "Open the assistant's screen full size" }),
+  ).toBeTruthy();
+
+  await act(async () => computerSleep.sleep(BOT));
+  expect(view.getByText("Computer is asleep")).toBeTruthy();
+  expect(
+    view.queryByRole("button", {
+      name: "Open the assistant's screen full size",
+    }),
+  ).toBeNull();
 });
 
 test("Escape minimizes, but not while Name this workflow is open over it", async () => {

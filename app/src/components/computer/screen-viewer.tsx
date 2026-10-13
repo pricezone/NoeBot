@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
 import type { ControlState } from "@/lib/computers/control";
+import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
 import { LiveScreen } from "./live-screen";
 import { RecordStepsButton } from "./record-steps-button";
@@ -151,6 +152,14 @@ type Props = {
   problem: string | null;
   blankBrowser: boolean;
   page?: { url?: string; title?: string } | undefined;
+  /**
+   * The computer is asleep (`use-computer-sleep.ts`): no live stream, the Bot dozing where the screen
+   * would be, and `onWake` to wake it. Only for a view that sleeps; absent, never asleep.
+   */
+  asleep?: boolean;
+  onWake?: () => void;
+  /** A click or a key anywhere in the viewer, which keeps a sleeping computer's timer from running out. */
+  onActivity?: () => void;
 };
 
 /**
@@ -183,6 +192,9 @@ export function ScreenViewer({
   problem,
   blankBrowser,
   page,
+  asleep = false,
+  onWake,
+  onActivity,
 }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const agent = useQuery(agentQueryOptions(computerId));
@@ -239,6 +251,9 @@ export function ScreenViewer({
       aria-label="The assistant's screen"
       tabIndex={-1}
       className="fixed inset-0 z-50 flex flex-col bg-black/85 text-white outline-none backdrop-blur-sm"
+      // In the capture phase, so a live screen that keeps its events to itself still counts.
+      onClickCapture={onActivity}
+      onKeyDownCapture={onActivity}
     >
       <header className="flex h-14 shrink-0 items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2.5">
@@ -320,6 +335,9 @@ export function ScreenViewer({
               className="absolute inset-0 h-full w-full object-contain"
               src={frameSource(drawn)}
             />
+          ) : asleep && onWake ? (
+            /* Asleep: no stream, which is the point, and the Bot dozing where the screen would be. */
+            <ComputerAsleep botId={computerId} large onWake={onWake} />
           ) : showLiveScreen ? (
             <>
               <LiveScreen

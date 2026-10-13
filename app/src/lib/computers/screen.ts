@@ -21,33 +21,57 @@ export type Screenshot = {
 /** The screen a computer draws, when it is a desktop rather than a page. */
 export type Desktop = { width: number; height: number };
 
+/** What `/status` tells the panel, read without starting the browser. */
+export type ComputerStatusRead = {
+  /** The desktop it draws, or `null` for a page (and for a computer that could not be asked). */
+  desktop: Desktop | null;
+  /**
+   * Whether the Bot's browser is running. `undefined` when the computer could not say, which is
+   * never read as stopped: only a computer that said so is drawn asleep.
+   */
+  browser?: "running" | "stopped";
+};
+
 /**
- * Whether this computer shows a desktop, and how big it is.
+ * Whether this computer shows a desktop and whether its browser is running.
  *
  * Asked once per computer, not polled: a computer does not grow a desktop while somebody is
- * watching it. Unreachable, or without one, is `null`, and the panel shows the page as it always
- * has.
+ * watching it, and the browser's state matters only for whether the panel opens asleep. A READ THAT
+ * STARTS NOTHING, which is the point: a screenshot starts the browser, so a panel that asked one to
+ * find out whether the browser was asleep would wake it. Unreachable is `{ desktop: null }`, and
+ * the panel shows the page as it always has.
  */
-export async function readDesktop(computerId: string): Promise<Desktop | null> {
+export async function readComputerStatus(
+  computerId: string,
+): Promise<ComputerStatusRead> {
   try {
     const response = await tryClient(`/api/computers/${computerId}/status`);
-    if (!response.ok) return null;
+    if (!response.ok) return { desktop: null };
     const body = (await response.json().catch(() => null)) as {
       desktop?: { width?: unknown; height?: unknown };
+      browser?: unknown;
     } | null;
+    const browser =
+      body?.browser === "running" || body?.browser === "stopped"
+        ? body.browser
+        : undefined;
     const { width, height } = body?.desktop ?? {};
-    if (
-      typeof width !== "number" ||
-      typeof height !== "number" ||
-      !(width > 0) ||
-      !(height > 0)
-    ) {
-      return null;
-    }
-    return { width, height };
+    const desktop =
+      typeof width === "number" &&
+      typeof height === "number" &&
+      width > 0 &&
+      height > 0
+        ? { width, height }
+        : null;
+    return { desktop, ...(browser ? { browser } : {}) };
   } catch {
-    return null;
+    return { desktop: null };
   }
+}
+
+/** Whether this computer shows a desktop, and how big it is. See `readComputerStatus`. */
+export async function readDesktop(computerId: string): Promise<Desktop | null> {
+  return (await readComputerStatus(computerId)).desktop;
 }
 
 /**

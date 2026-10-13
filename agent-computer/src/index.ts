@@ -50,7 +50,7 @@ import {
   createProfiles,
   managedBrowserExecutable,
   numberFromEnv,
-  START_PAGE,
+  startPageFor,
 } from "./profiles";
 import {
   parseExecTimeout,
@@ -384,7 +384,7 @@ const BROWSER_REQUESTS = DESKTOP
       const page = await currentPage(botId);
       // A browser launched for this click is on the start page already (profiles.ts); this is for one
       // still blank because its start page did not load. The window comes forward while Google loads.
-      await openStartPage(page, START_PAGE);
+      await openStartPage(page, startPageFor(botId));
       await raiseBrowserWindow(page);
     })
   : null;

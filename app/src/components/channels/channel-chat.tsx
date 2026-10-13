@@ -41,6 +41,7 @@ import {
   type ChannelSummary,
   channelKeys,
 } from "@/lib/channels/queries";
+import { useConversationActivity } from "@/lib/computers/use-computer-sleep";
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { observeApprovalAgent } from "@/lib/copilot/approval-context";
 import { ConversationProvider } from "@/lib/copilot/conversation";
@@ -658,6 +659,15 @@ export function ChannelChat({
   const turnsRef = useRef(0);
   const [runsInFlight, setRunsInFlight] = useState(0);
 
+  /*
+   * A turn starting, and the person typing or sending, is somebody using the Bot: its computer view
+   * wakes if it was asleep, or stays awake (`use-computer-sleep.ts`).
+   */
+  const conversationUsed = useConversationActivity(
+    runtimeAgentId,
+    agent.isRunning || turnsInFlight > 0 || rosterBusy,
+  );
+
   /**
    * Tell the roster what was just said. Failures here must not block the conversation.
    */
@@ -1024,7 +1034,11 @@ export function ChannelChat({
         answers={answersRef.current.answers}
         ask={askFromComponent}
       >
-        <div className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col"
+          // Typing to this Bot is using it: its computer wakes, or stays awake.
+          onInputCapture={conversationUsed}
+        >
           <VoiceCallWidget
             call={call}
             name={conversationBot?.name ?? channel.name}
@@ -1140,6 +1154,7 @@ export function ChannelChat({
                   Boolean(instruction),
                 );
 
+              conversationUsed();
               await say(draft.text, skillInstructions, draft.attachments);
             }}
             /**

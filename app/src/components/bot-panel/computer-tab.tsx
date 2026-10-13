@@ -1,5 +1,6 @@
 import { ActivityLog } from "@/components/computer/activity-log";
 import { ComputerView } from "@/components/computer/computer-view";
+import { noteComputerActivity } from "@/lib/computers/use-computer-sleep";
 
 /**
  * The Bot's screen, live, with what it has been doing underneath.
@@ -14,6 +15,11 @@ import { ComputerView } from "@/components/computer/computer-view";
  * `openExpanded` opens the viewer without the click — the Skills tab's "Record skill" arrives
  * that way, so the person lands with Record your steps in front of them — and `onOpened` says
  * when it has, so the page can drop the request from its address.
+ *
+ * The card SLEEPS when nobody is using the computer (`sleeps`, see `use-computer-sleep.ts`): it
+ * stops asking for frames and shows the Bot dozing with a Wake button. A click or a key anywhere in
+ * this tab is somebody using it, and so is the viewer it opens, which is inside this tree for React
+ * events even though it is portalled to the body.
  */
 export function ComputerTab({
   agentId,
@@ -28,8 +34,14 @@ export function ComputerTab({
   openExpanded?: boolean;
   onOpened?: () => void;
 }) {
+  const used = () => noteComputerActivity(agentId);
   return (
-    <section aria-label="Computer sidebar" className="flex flex-col gap-6">
+    <section
+      aria-label="Computer sidebar"
+      className="flex flex-col gap-6"
+      onClickCapture={used}
+      onKeyDownCapture={used}
+    >
       <ComputerView
         active
         caption={`${name}'s screen`}
@@ -41,6 +53,7 @@ export function ComputerTab({
         onExpandedOnce={onOpened}
         openExpanded={openExpanded}
         paused={paused}
+        sleeps
       />
       <div>
         <h3 className="mb-2 font-medium text-sm">Activity</h3>

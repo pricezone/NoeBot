@@ -94,9 +94,10 @@ export function createComputerRoutes(
     await next();
   });
 
+  // With the browser: the panel draws a stopped one as asleep rather than starting it for a picture.
   routes.get("/:botId/status", async (context) => {
     const botId = context.req.param("botId");
-    return context.json(await gateway.status(botId));
+    return context.json(await gateway.status(botId, { browser: true }));
   });
 
   routes.get("/:botId/screenshot", async (context) => {

@@ -249,9 +249,18 @@ export function createSharedComputerProvider(
       try {
         const health = (await call("/health", "GET", botId)) as {
           desktop?: unknown;
+          browser?: unknown;
         } | null;
         const desktop = desktopOf(health?.desktop);
-        return { botId, state: "ready", ...(desktop ? { desktop } : {}) };
+        return {
+          botId,
+          state: "ready",
+          ...(desktop ? { desktop } : {}),
+          // This Bot's browser, which `/health` reports for the Bot in the header without starting it.
+          ...(typeof health?.browser === "boolean"
+            ? { browser: health.browser ? "running" : "stopped" }
+            : {}),
+        };
       } catch (error) {
         return {
           botId,

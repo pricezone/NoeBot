@@ -10,13 +10,18 @@ import { Button } from "@/components/ui/button";
 import { supplySecret } from "@/lib/computers/control";
 import {
   type Desktop,
-  readDesktop,
+  readComputerStatus,
   readPageFrame,
   readScreenshot,
   type Screenshot,
 } from "@/lib/computers/screen";
+import {
+  sleepComputerIfQuiet,
+  useComputerSleep,
+} from "@/lib/computers/use-computer-sleep";
 import { useComputerControl } from "@/lib/computers/use-control";
 import { ChannelAvatar } from "../channels/avatar";
+import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
 import { useElementVisible, usePageVisible } from "./preview-visibility";
 import { frameSource, NothingToSee, ScreenViewer } from "./screen-viewer";
@@ -154,6 +159,16 @@ type Props = {
   openExpanded?: boolean;
   /** Called once when `openExpanded` has opened the viewer, so the caller can forget the request. */
   onExpandedOnce?: () => void;
+  /**
+   * Whether this card goes to sleep when nobody is using the computer (`use-computer-sleep.ts`).
+   *
+   * The bot panel's card does, and so does the viewer it opens: asleep, neither asks the computer
+   * for anything, not a screenshot and not the live stream, and both show the Bot dozing with a way
+   * to wake it. It also opens asleep when the computer says the browser has stopped and nothing has
+   * happened here, rather than starting the browser for a picture of it. Off for a transcript tile,
+   * where a running turn is somebody using the computer and a finished one polls nothing anyway.
+   */
+  sleeps?: boolean;
 };
 
 /** How often a desktop preview nobody is driving asks for a frame. */
@@ -175,6 +190,7 @@ export function ComputerView({
   toolCallId,
   openExpanded = false,
   onExpandedOnce,
+  sleeps = false,
 }: Props) {
   const [shot, setShot] = useState<Screenshot | null>(null);
   /**
@@ -248,6 +264,26 @@ export function ComputerView({
   const secretPending = Boolean(control?.secretWanted);
   const secretPendingRef = useRef(false);
   secretPendingRef.current = secretPending;
+
+  const sleep = useComputerSleep(computerId, { enabled: sleeps && !settled });
+  const wake = sleep.wake;
+  /*
+   * NEVER ASLEEP IN FRONT OF SOMEBODY WHO IS NEEDED, or already driving: a hand-off, a secret, a
+   * change of control on its way. Each of those wakes it, so the timer starts again from there.
+   */
+  const needsPerson =
+    driving ||
+    secretPending ||
+    Boolean(control?.requested) ||
+    Boolean(control?.transitioning);
+  useEffect(() => {
+    if (sleep.asleep && needsPerson) wake();
+  }, [sleep.asleep, needsPerson, wake]);
+  const asleep = sleep.asleep && !needsPerson;
+  // Arriving to record a skill is somebody about to use the computer.
+  useEffect(() => {
+    if (openExpanded && sleeps) wake();
+  }, [openExpanded, sleeps, wake]);
   // Held in a ref so a slow response cannot overwrite a newer frame after the component moved on.
   const generation = useRef(0);
   /** Force a short watch window after non-Bot actions such as secret entry. */
@@ -267,6 +303,7 @@ export function ComputerView({
   const liveInViewer =
     expanded &&
     !settled &&
+    !asleep &&
     (driving || (shot !== null && !isBlankBrowser(shot)));
 
   /*
@@ -311,6 +348,10 @@ export function ComputerView({
     if (!visualVisible) return;
     // The full-window viewer is showing the live stream: polling under it is the same screen twice.
     if (liveInViewer) return;
+    // Asleep asks for nothing: on the shared computer a screenshot is what keeps a browser running.
+    if (asleep) return;
+    // Nor before the status is in, for a card that may open asleep: the first frame starts the browser.
+    if (sleeps && desktop === undefined) return;
     const mine = ++generation.current;
     let timer: ReturnType<typeof setTimeout>;
     // Consecutive identical frames observed during post-action settling.
@@ -369,20 +410,28 @@ export function ComputerView({
     visualVisible,
     desktop,
     liveInViewer,
+    asleep,
+    sleeps,
   ]);
 
-  // Which screen this computer has. A finished turn shows its kept frame and never asks.
+  /*
+   * Which screen this computer has, and whether its browser is running. A finished turn shows its
+   * kept frame and never asks. A browser that has stopped (the computer's idle sweep closed it) opens
+   * asleep unless something has just happened here, rather than being started for a picture.
+   */
   useEffect(() => {
     if (settled) return;
     let current = true;
     setDesktop(undefined);
-    void readDesktop(computerId).then((found) => {
-      if (current) setDesktop(found);
+    void readComputerStatus(computerId).then(({ desktop: found, browser }) => {
+      if (!current) return;
+      if (sleeps && browser === "stopped") sleepComputerIfQuiet(computerId);
+      setDesktop(found);
     });
     return () => {
       current = false;
     };
-  }, [computerId, settled]);
+  }, [computerId, settled, sleeps]);
 
   // Always render the card frame; help/secret controls live below the conditional picture.
   /*
@@ -419,7 +468,7 @@ export function ComputerView({
    * gets the live socket whatever is on it, because once a person is driving the stream is the truth
    * about the page and a placeholder over it would be the view arguing with them.
    */
-  const showLiveScreen = !settled && (showScreen || driving);
+  const showLiveScreen = !settled && !asleep && (showScreen || driving);
   /**
    * Whether the wheel in somebody's hands is the wheel THIS tile is showing.
    *
@@ -481,48 +530,55 @@ export function ComputerView({
       <figure ref={previewRef} className="flex flex-col gap-2">
         <div className="overflow-hidden rounded-2xl border">
           {/* Inline preview remains in transcript; click opens the full-window viewer. */}
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            /*
-             * Opens whether or not there is a picture in it. It used to be disabled without one, and
-             * the wheel is in there: a blank browser, a screen that had not arrived yet, or a
-             * computer that could not be reached left a person with no way to take control at all —
-             * the states where they most want it. With nothing to draw the viewer shows these same
-             * words, and the wheel above them.
-             */
-            className="relative block w-full cursor-pointer bg-muted"
-            style={frameStyle}
-            aria-label="Open the assistant's screen full size"
-          >
-            {polledScreen}
+          {asleep ? (
+            /* Asleep: the Bot dozing where its screen would be. A click anywhere on it wakes it. */
+            <div className="relative block w-full bg-muted" style={frameStyle}>
+              <ComputerAsleep botId={computerId} onWake={wake} />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              /*
+               * Opens whether or not there is a picture in it. It used to be disabled without one, and
+               * the wheel is in there: a blank browser, a screen that had not arrived yet, or a
+               * computer that could not be reached left a person with no way to take control at all —
+               * the states where they most want it. With nothing to draw the viewer shows these same
+               * words, and the wheel above them.
+               */
+              className="relative block w-full cursor-pointer bg-muted"
+              style={frameStyle}
+              aria-label="Open the assistant's screen full size"
+            >
+              {polledScreen}
 
-            {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
-            {name || wheelHere ? (
-              <span className="absolute right-2 bottom-2 flex items-center gap-1.5">
-                {name ? (
-                  <span className="flex items-center gap-1.5 rounded-full bg-black/60 py-1 pr-2.5 pl-1.5 font-medium text-white text-xs backdrop-blur-sm">
-                    <ChannelAvatar participantIds={[computerId]} size={16} />
-                    {name}
-                  </span>
-                ) : null}
-                {wheelHere ? (
-                  <span className="rounded-full bg-white px-2.5 py-1 font-medium text-black text-xs shadow-sm">
-                    You have control
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
+              {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
+              {name || wheelHere ? (
+                <span className="absolute right-2 bottom-2 flex items-center gap-1.5">
+                  {name ? (
+                    <span className="flex items-center gap-1.5 rounded-full bg-black/60 py-1 pr-2.5 pl-1.5 font-medium text-white text-xs backdrop-blur-sm">
+                      <ChannelAvatar participantIds={[computerId]} size={16} />
+                      {name}
+                    </span>
+                  ) : null}
+                  {wheelHere ? (
+                    <span className="rounded-full bg-white px-2.5 py-1 font-medium text-black text-xs shadow-sm">
+                      You have control
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
 
-            {showScreen ? null : (
-              <NothingToSee
-                blankBrowser={blankBrowser}
-                page={knownPage}
-                problem={problem}
-                settled={settled}
-              />
-            )}
-          </button>
+              {showScreen ? null : (
+                <NothingToSee
+                  blankBrowser={blankBrowser}
+                  page={knownPage}
+                  problem={problem}
+                  settled={settled}
+                />
+              )}
+            </button>
+          )}
 
           {/* The request reason appears above the always-available ownership controls. */}
           {!driving && !settled && control?.requested ? (
@@ -664,6 +720,7 @@ export function ComputerView({
       {expanded && typeof document !== "undefined"
         ? createPortal(
             <ScreenViewer
+              asleep={asleep}
               blankBrowser={blankBrowser}
               computerId={computerId}
               control={control}
@@ -675,6 +732,7 @@ export function ComputerView({
               onKeepControlChange={setKeepControl}
               onMinimize={minimize}
               onTakeControl={onTakeControl}
+              {...(sleeps ? { onActivity: wake, onWake: wake } : {})}
               page={knownPage}
               problem={problem}
               settled={settled}

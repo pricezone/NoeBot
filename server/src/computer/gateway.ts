@@ -146,7 +146,15 @@ export type ComputerGatewayOptions = {
 export interface ComputerGateway {
   readonly provider: ComputerProvider;
   locate(botId: string): Promise<string>;
-  status(botId: string): Promise<ComputerStatus>;
+  /**
+   * `browser: true` also says whether the Bot's browser is running (`ComputerStatus.browser`), for
+   * the panel. Off by default: on a computer per Bot it is one more call, and the other callers only
+   * want to know whether the computer is up.
+   */
+  status(
+    botId: string,
+    options?: { browser?: boolean },
+  ): Promise<ComputerStatus>;
   screenshot(botId: string): Promise<ScreenshotResult>;
   /** The whole desktop, for a computer that draws one. The computer answers 404 without one. */
   desktopScreenshot(botId: string): Promise<ScreenshotResult>;
@@ -393,6 +401,40 @@ export function createComputerGateway(
    * link. Five minutes is a backstop, not a size limit.
    */
   const DOWNLOAD_BACKSTOP_MS = 300_000;
+
+  /**
+   * Whether a Bot's browser is running, asked without starting anything.
+   *
+   * A computer that is not up has no browser running, and a computer that cannot be reached is not
+   * known either way. A computer that is up is asked its `/health`, which reports the browser of the
+   * Bot in the header and starts nothing; locating a computer that is already up is the same address
+   * every action uses, and wakes nothing. Bounded, because this is for drawing a panel.
+   */
+  async function browserOf(
+    botId: string,
+    status: ComputerStatus,
+  ): Promise<ComputerStatus["browser"]> {
+    if (status.state === "absent" || status.state === "starting")
+      return "stopped";
+    if (status.state !== "ready") return undefined;
+    try {
+      const health = await transport.call<{ browser?: unknown } | null>(
+        await locate(botId),
+        botId,
+        "/health",
+        undefined,
+        undefined,
+        5_000,
+      );
+      return typeof health?.browser === "boolean"
+        ? health.browser
+          ? "running"
+          : "stopped"
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   /** Read-only, so it passes straight through. Nothing has changed and there is nothing to decide. */
   async function screenshot(botId: string): Promise<ScreenshotResult> {
@@ -751,8 +793,14 @@ export function createComputerGateway(
     snapshot,
     read,
 
-    status(botId: string): Promise<ComputerStatus> {
-      return provider.status(botId);
+    async status(
+      botId: string,
+      options?: { browser?: boolean },
+    ): Promise<ComputerStatus> {
+      const status = await provider.status(botId);
+      if (!options?.browser || status.browser) return status;
+      const browser = await browserOf(botId, status);
+      return browser ? { ...status, browser } : status;
     },
 
     /**

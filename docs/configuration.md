@@ -593,7 +593,8 @@ is still the record.
 | `AGENT_COMPUTER_URL`                 | Shared computer URL. If absent, computer routes are not mounted.                          |
 | `COMPUTER_TOKEN`                     | Secret every computer request must present. The computer refuses to start without it.     |
 | `COMPUTER_MAX_BROWSERS`              | How many Bots may hold a running browser at once. `8` by default; the least recently used is closed past it. |
-| `COMPUTER_BROWSER_IDLE_MS`           | How long an untouched browser is kept. 30 minutes by default; `0` keeps them resident.    |
+| `COMPUTER_BROWSER_IDLE_MS`           | How long an untouched browser is kept. 30 minutes by default; `0` keeps them resident. A browser closed this way, or by `COMPUTER_MAX_BROWSERS`, reopens its tabs (up to ten web pages) on its next start. |
+| `COMPUTER_BROWSER_LANG`              | The managed browser's language, as a language tag such as `el-GR`: its own words, the `Accept-Language` it sends (followed by English), and the start page's Google language. `en-US` by default. `COMPUTER_BROWSER_LANG_<BOT>` (named like `EGRESS_PROXY_<BOT>`) sets one Bot's. A person's own Chrome keeps its own. |
 | `COMPUTER_BROWSER_BACKEND`           | `managed` by default (full bundled Chromium); `local-chrome` opts into installed Chrome with dedicated profiles and a loopback API. |
 | `COMPUTER_BROWSER_MODE`              | Managed defaults to `headless` (full Chromium's new headless mode). `headed` uses Xvfb on Linux and a native window on macOS/Windows. Local Chrome requires `headed`. |
 | `COMPUTER_DESKTOP`                   | `on` draws a whole desktop (XFCE) on the virtual display: a wallpaper, a dock of Chrome, Terminal and File Manager, and the browser maximized over it; the live screen shows the display. Implies `headed`; Linux only. Off by default. |
@@ -606,6 +607,17 @@ is still the record.
 | `AGENT_COMPUTER_POLICY`              | JSON action policy: `{"mode":"enforce","deny":[...],"allow":[...]}`.                      |
 | `COMPUTER_RUNTIME`                   | Set to `runsc` to run supervised computers under gVisor.                                  |
 | `COMPUTER_SANDBOX`                   | Set to `on` to enable Chromium's own sandbox where the host permits user namespaces. Which way it went is printed at start-up. |
+
+The supervisor passes `COMPUTER_BROWSER_LANG`, and each Bot's own `COMPUTER_BROWSER_LANG_<BOT>`, to
+that Bot's computer, which reads them when its browser next starts. A value that is not a language
+tag is ignored.
+
+The bot panel's screen goes to sleep after ten minutes in which nobody uses that Bot's computer: no
+computer call, no message to the Bot, no click or key in the panel or the screen viewer. Asleep it
+asks the computer for nothing, which lets the browser's own idle close (`COMPUTER_BROWSER_IDLE_MS`)
+happen while the panel is open; Wake, or any of those, resumes it, and a browser that was closed
+starts again on the tabs it had. `VITE_COMPUTER_SLEEP_MINUTES`, set when the app is built, changes the
+ten minutes for development and testing.
 
 `COMPUTER_SANDBOX` is not the cluster sandbox provider. A Kubernetes deployment can instead run each
 computer as a sandboxed pod, selected by `COMPUTER_SANDBOX_NAMESPACE` with `COMPUTER_SANDBOX_IDLE_AFTER`

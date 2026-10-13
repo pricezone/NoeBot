@@ -48,16 +48,77 @@ export const DISABLED_FEATURES = [
   "CriticalClientHint",
 ] as const;
 
+/** The browser's language unless the deployment names another. */
+export const DEFAULT_BROWSER_LANGUAGE = "en-US";
+
+/**
+ * The environment variable naming one Bot's browser language, by the rule `EGRESS_PROXY_<BOT>`
+ * uses: `sales-bot` reads `COMPUTER_BROWSER_LANG_SALES_BOT`.
+ */
+export function browserLanguageVariableFor(botId: string): string {
+  return `COMPUTER_BROWSER_LANG_${botId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase()}`;
+}
+
+/** A language tag in its canonical spelling (`el-gr` is `el-GR`), or null when it is not one. */
+function canonicalLanguage(raw: string | undefined): string | null {
+  const value = raw?.trim();
+  // Letters, digits and hyphens only: this goes onto a command line.
+  if (!value || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$/.test(value))
+    return null;
+  try {
+    return Intl.getCanonicalLocales(value)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which language a Bot's browser speaks: `COMPUTER_BROWSER_LANG_<BOT>` for that Bot, else
+ * `COMPUTER_BROWSER_LANG` for every Bot, else English. A value that is not a language tag is
+ * passed over rather than put on Chromium's command line.
+ */
+export function browserLanguageFor(
+  botId: string | undefined,
+  env: Record<string, string | undefined>,
+): string {
+  return (
+    (botId
+      ? canonicalLanguage(env[browserLanguageVariableFor(botId)])
+      : null) ??
+    canonicalLanguage(env.COMPUTER_BROWSER_LANG) ??
+    DEFAULT_BROWSER_LANGUAGE
+  );
+}
+
+/**
+ * What the browser asks every site for, most wanted first: the language, its base language, and
+ * English after both when it is not English, the way a Greek desktop Chrome asks for
+ * `el-GR,el,en-US,en` so a site with no Greek answers in English rather than its own default.
+ */
+export function acceptLanguages(language: string): string {
+  const base = language.split("-")[0] ?? language;
+  return [
+    ...new Set([
+      language,
+      base,
+      ...(base.toLowerCase() === "en" ? [] : ["en-US", "en"]),
+    ]),
+  ].join(",");
+}
+
 /**
  * The switches every launch carries. `sandbox` is whether Chromium keeps its own process sandbox;
- * `localChrome` is a person's own Chrome, which keeps its language, its keychain and its sandbox.
+ * `localChrome` is a person's own Chrome, which keeps its language, its keychain and its sandbox;
+ * `language` is the managed browser's language (`browserLanguageFor`), English unless set.
  */
 export function launchArgs({
   sandbox,
   localChrome,
+  language = DEFAULT_BROWSER_LANGUAGE,
 }: {
   sandbox: boolean;
   localChrome: boolean;
+  language?: string;
 }): readonly string[] {
   return [
     ...(sandbox ? [] : ["--no-sandbox"]),
@@ -72,12 +133,14 @@ export function launchArgs({
     // virtual display.
     "--disable-blink-features=AutomationControlled",
     `--disable-features=${DISABLED_FEATURES.join(",")}`,
-    // English wherever the traffic leaves from: `--lang` for the browser's own words, `--accept-lang`
-    // for what it asks every site for (the Accept-Language header and `navigator.languages`,
-    // measured on Chromium 145). Google goes by address rather than by this, which is why the start
-    // page names `hl=en` (browser-request.ts). Not for a person's own Chrome, whose language is that
-    // person's.
-    ...(localChrome ? [] : ["--lang=en-US", "--accept-lang=en-US,en"]),
+    // English wherever the traffic leaves from, unless the deployment chose another language:
+    // `--lang` for the browser's own words, `--accept-lang` for what it asks every site for (the
+    // Accept-Language header and `navigator.languages`, measured on Chromium 145). Google goes by
+    // address rather than by this, which is why the start page names `hl` (browser-request.ts). Not
+    // for a person's own Chrome, whose language is that person's.
+    ...(localChrome
+      ? []
+      : [`--lang=${language}`, `--accept-lang=${acceptLanguages(language)}`]),
   ];
 }
 
