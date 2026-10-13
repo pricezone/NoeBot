@@ -1,8 +1,11 @@
 import { IconPointer } from "@tabler/icons-react";
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod";
 import { ToolLine } from "@/components/channels/tool-line";
+import {
+  RecoveryLine,
+  useBotScreen,
+} from "@/components/chat-cards/recovery-card";
 import {
   PILL_CLASS,
   SecureField,
@@ -30,9 +33,11 @@ import {
   runNavigation,
 } from "@/lib/computers/handoff";
 import { showScreen } from "@/lib/computers/screen";
+import { type UiStrings, useUiStrings } from "@/lib/i18n/strings";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
 import { useComputerAvailable } from "./computer-available";
+import { useConversation } from "./conversation";
 
 /**
  * Frontend registrations for computer tools, including inline rendering and policy-refusal display.
@@ -961,19 +966,99 @@ export function ComputerTools() {
 }
 
 /** A label the Bot wrote ("the code sent to your phone"), as a row title. */
-function titleOf(label: string): string {
+function titleOf(label: string, fallback: string): string {
   const trimmed = label.trim();
   return trimmed
     ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
-    : "A value";
+    : fallback;
 }
 
 const CODE_LIKE = /code|otp|pin|κωδικ|sms/i;
+
+/** A result string as an object, or nothing: the runtime may hand back text that is not JSON. */
+function resultObject(result: string | undefined): Record<string, unknown> {
+  if (!result) return {};
+  try {
+    const parsed: unknown = JSON.parse(result);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * "Ask again" for a request that ended without what the Bot needed: a short message from the
+ * person, sent through the conversation, so the Bot hears it the way it hears anything they type.
+ *
+ * Only while nothing else is running here: a turn in flight would refuse the message, and a pill
+ * that does nothing is worse than none. Pressed once it is gone; a message that could not be sent
+ * brings it back.
+ */
+function useAskAgain(message: string): (() => void) | undefined {
+  const conversation = useConversation();
+  const [asked, setAsked] = useState(false);
+  if (!conversation || conversation.turnActive === true || asked)
+    return undefined;
+  return () => {
+    setAsked(true);
+    void Promise.resolve(conversation.ask(message)).then(
+      (sent) => {
+        if (sent === false) setAsked(false);
+      },
+      () => setAsked(false),
+    );
+  };
+}
+
+/** How a one-value request ended, read from its result, and the sentence the person is told. */
+function secretEnding(
+  result: string | undefined,
+  ui: UiStrings,
+): { state: SecureFormState; reason?: string } {
+  const outcome = resultObject(result);
+  switch (outcome.outcome) {
+    case "supplied":
+      return { state: "submitted" };
+    case "expired":
+      return { state: "expired", reason: ui.secretExpired };
+    case "cancelled":
+      return {
+        state: "cancelled",
+        // The computer's record says the person declined; a stopped run says the request was cancelled.
+        reason:
+          typeof outcome.result === "string" &&
+          outcome.result.startsWith("The person declined")
+            ? ui.secretDeclined
+            : ui.secretCancelled,
+      };
+    case "field-gone":
+      return { state: "failed", reason: ui.secretFieldGone };
+    case undefined:
+      // No outcome: the request never reached the person (refused, or the computer was not there).
+      // Drawn as not completed, in the call's own words, rather than as Submitted.
+      return outcome.ok === false
+        ? {
+            state: "failed",
+            reason:
+              typeof outcome.reason === "string"
+                ? outcome.reason
+                : ui.secretNotCompleted,
+          }
+        : { state: "submitted" };
+    default:
+      return { state: "failed", reason: ui.secretNotCompleted };
+  }
+}
 
 /**
  * One value the Bot must not see, asked for in the conversation: a secure form row, and a dialog with
  * the single masked field. What is typed goes to the computer's own route and into the field the Bot
  * named, never into the conversation.
+ *
+ * Ended without the value, the row says why (nobody entered it in time, it was declined, the field
+ * had gone) and offers Ask again, which tells the Bot to ask once more.
  */
 export function SecretCard({
   computerId,
@@ -986,32 +1071,35 @@ export function SecretCard({
   running: boolean;
   result?: string;
 }) {
+  const ui = useUiStrings();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  let outcome: string | undefined;
-  try {
-    outcome = result
-      ? (JSON.parse(result) as { outcome?: string }).outcome
-      : undefined;
-  } catch {
-    outcome = undefined;
-  }
-  const state: SecureFormState = running
-    ? "open"
-    : outcome === "supplied" || outcome === undefined
-      ? "submitted"
-      : outcome === "cancelled"
-        ? "cancelled"
-        : outcome === "expired"
-          ? "expired"
-          : "failed";
-  const title = titleOf(label);
+  const ending = running
+    ? { state: "open" as const, reason: undefined }
+    : secretEnding(result, ui);
+  const title = titleOf(label, ui.aValue);
   const kind = CODE_LIKE.test(label) ? "code" : "password";
+  const askAgain = useAskAgain(
+    kind === "code"
+      ? ui.askAgainForCode
+      : ui.askAgainForValue(label.trim() || ui.aValue.toLowerCase()),
+  );
   return (
-    <>
-      <SecureFormRow onOpen={() => setOpen(true)} state={state} title={title} />
+    <div data-request-card="secret">
+      <SecureFormRow
+        onOpen={() => setOpen(true)}
+        state={ending.state}
+        title={title}
+      >
+        {ending.reason ? (
+          <RecoveryLine
+            reason={ending.reason}
+            {...(askAgain ? { onAskAgain: askAgain } : {})}
+          />
+        ) : null}
+      </SecureFormRow>
       <SecureFormDialog
         onOpenChange={setOpen}
         open={open && running}
@@ -1058,7 +1146,7 @@ export function SecretCard({
               type="button"
               variant="ghost"
             >
-              Decline
+              {ui.decline}
             </Button>
             <Button
               className={PILL_CLASS}
@@ -1066,18 +1154,38 @@ export function SecretCard({
               type="submit"
               variant="secondary"
             >
-              {sending ? "Sending…" : "Continue"}
+              {sending ? ui.sending : ui.continue}
             </Button>
           </div>
         </form>
       </SecureFormDialog>
-    </>
+    </div>
   );
+}
+
+/** How a takeover request ended, read from its result, and the sentence the person is told. */
+function helpEnding(
+  result: string | undefined,
+  ui: UiStrings,
+): { state: SecureFormState; reason?: string } {
+  const outcome = resultObject(result);
+  if (outcome.ok !== false) return { state: "submitted" };
+  if (outcome.handoffStatus === "expired")
+    return { state: "expired", reason: ui.nobodyTookOver };
+  if (outcome.handoffStatus === "cancelled")
+    return { state: "cancelled", reason: ui.helpCancelled };
+  if (outcome.stopped === true)
+    return { state: "cancelled", reason: ui.helpStopped };
+  return { state: "failed", reason: ui.helpNotCompleted };
 }
 
 /**
  * The Bot asking the person to take over its browser (a CAPTCHA, a step only a person can do): the
- * same row as a secure form, whose Open goes to the Bot's screen with the wheel offered.
+ * same row as a secure form, whose Open opens the Bot's screen beside this conversation with the
+ * wheel offered.
+ *
+ * Ended without a handback, the row says why (nobody took over in time, it was cancelled, the Bot
+ * stopped waiting) and offers Ask again.
  */
 export function HelpCard({
   computerId,
@@ -1090,27 +1198,30 @@ export function HelpCard({
   running: boolean;
   result?: string;
 }) {
-  const navigate = useNavigate();
-  let ok: boolean | undefined;
-  try {
-    ok = result ? (JSON.parse(result) as { ok?: boolean }).ok : undefined;
-  } catch {
-    ok = undefined;
-  }
+  const ui = useUiStrings();
+  const { openScreen } = useBotScreen(computerId, false);
+  const ending = running
+    ? { state: "open" as const, reason: undefined }
+    : helpEnding(result, ui);
+  const askAgain = useAskAgain(ui.askAgainToTakeOver);
   return (
-    <SecureFormRow
-      doneLabel="Handed back"
-      fallbackIcon={<IconPointer className="size-5" />}
-      onOpen={() =>
-        void navigate({
-          to: "/bot",
-          search: { agent: computerId, watch: true },
-        })
-      }
-      openLabel="Open screen"
-      state={running ? "open" : ok === false ? "failed" : "submitted"}
-      subtitle="Take over the browser"
-      title={reason || "Your Bot needs you on its screen"}
-    />
+    <div data-request-card="help">
+      <SecureFormRow
+        doneLabel={ui.handedBack}
+        fallbackIcon={<IconPointer className="size-5" />}
+        onOpen={openScreen}
+        openLabel={ui.openScreen}
+        state={ending.state}
+        subtitle={ui.takeOverBrowser}
+        title={reason || ui.helpDefaultTitle}
+      >
+        {ending.reason ? (
+          <RecoveryLine
+            reason={ending.reason}
+            {...(askAgain ? { onAskAgain: askAgain } : {})}
+          />
+        ) : null}
+      </SecureFormRow>
+    </div>
   );
 }

@@ -6,8 +6,6 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "@/components/ui/button";
-import { supplySecret } from "@/lib/computers/control";
 import {
   type Desktop,
   readComputerStatus,
@@ -20,6 +18,7 @@ import {
   useComputerSleep,
 } from "@/lib/computers/use-computer-sleep";
 import { useComputerControl } from "@/lib/computers/use-control";
+import { useUiStrings } from "@/lib/i18n/strings";
 import { ChannelAvatar } from "../channels/avatar";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
@@ -95,8 +94,28 @@ const SETTLED_FRAMES = 3;
 /** Hard cap for post-action polling on pages that never settle. */
 const SETTLE_TIMEOUT_MS = 30_000;
 
-/** Short confirmation window after a secret is sent to the page. */
-const SECRET_CONFIRM_MS = 6_000;
+/**
+ * Take the person to the card in the conversation that answers what the Bot is asking for.
+ *
+ * THE CARD IS THE ONE PLACE TO ANSWER. The screen card used to draw its own password box and an
+ * amber "The assistant needs you." bar, so a secret request appeared twice, in two designs, with two
+ * submit paths; the Secure Form row in the chat (`SecretCard`, `HelpCard`) is now the only one, and
+ * this finds it. A secret's row is opened straight away, since answering it is the point; a takeover
+ * row is scrolled to and focused, its Open being a choice. Answers whether a card was found, so a
+ * caller with somewhere else to send the person (the viewer, for a takeover) can.
+ */
+export function answerInChat(kind: "secret" | "help"): boolean {
+  if (typeof document === "undefined") return false;
+  const row = document.querySelector<HTMLElement>(
+    `[data-request-card="${kind}"] [data-slot="secure-form-row"][data-state="open"]`,
+  );
+  if (!row) return false;
+  row.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  const open = row.querySelector<HTMLButtonElement>("button");
+  if (kind === "secret") open?.click();
+  else open?.focus();
+  return true;
+}
 
 type Props = {
   /** Which computer to watch. One shared computer unless each Bot has been given its own. */
@@ -243,16 +262,12 @@ export function ComputerView({
   const [, setFrameArrived] = useState(0);
 
   const settled = !active && (finished || Boolean(knownPage));
+  const ui = useUiStrings();
   const {
     control,
     busy: changingControl,
     change: changeControl,
-    refresh: refreshControl,
   } = useComputerControl(computerId, !settled);
-  /** Held only until it is sent. Never lifted into a URL, a log, or anything that outlives this form. */
-  const [secret, setSecret] = useState("");
-  const [secretProblem, setSecretProblem] = useState<string | null>(null);
-  const [sendingSecret, setSendingSecret] = useState(false);
   const pageVisible = usePageVisible();
   const [previewRef, previewIntersecting] = useElementVisible<HTMLElement>();
   const driving = control?.holder === "human" && !control.transitioning;
@@ -286,8 +301,6 @@ export function ComputerView({
   }, [openExpanded, sleeps, wake]);
   // Held in a ref so a slow response cannot overwrite a newer frame after the component moved on.
   const generation = useRef(0);
-  /** Force a short watch window after non-Bot actions such as secret entry. */
-  const watchUntil = useRef(0);
 
   const visualVisible =
     pageVisible && (expanded || (previewIntersecting && !paused));
@@ -364,7 +377,6 @@ export function ComputerView({
       if (active) return true;
       if (drivingRef.current) return true;
       if (secretPendingRef.current) return true;
-      if (Date.now() < watchUntil.current) return true;
       if (Date.now() - graceStartedAt > SETTLE_TIMEOUT_MS) return false;
       return unchanged < SETTLED_FRAMES;
     };
@@ -580,117 +592,69 @@ export function ComputerView({
             </button>
           )}
 
-          {/* The request reason appears above the always-available ownership controls. */}
-          {!driving && !settled && control?.requested ? (
-            <div className="flex items-start justify-between gap-3 border-t bg-amber-500/10 px-3 py-2 text-sm">
-              <span>
-                <strong className="font-medium">
-                  The assistant needs you.
-                </strong>{" "}
-                {control.reason}
+          {/*
+           * WHAT THE BOT IS ASKING FOR, AND WHERE TO ANSWER IT: one muted line, and a link to the
+           * card in the conversation that answers it. A takeover with no card in sight (the panel
+           * opened on its own, say) opens the viewer instead, where the wheel is.
+           */}
+          {!settled &&
+          !driving &&
+          (control?.secretWanted || control?.requested) ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t px-3 py-2 text-sm"
+              data-slot="request-pointer"
+            >
+              <span className="min-w-0 text-muted-foreground">
+                {control.secretWanted
+                  ? ui.botNeedsValue(control.secretWanted)
+                  : control.reason
+                    ? `${ui.botNeedsYou} ${control.reason}`
+                    : ui.botNeedsYou}
               </span>
-              {/* Without a wheel of its own, the card points at the viewer, where the wheel is. */}
-              {controls ? null : (
-                <Button
-                  className="shrink-0"
-                  onClick={() => setExpanded(true)}
-                  size="sm"
-                  variant="outline"
+              <span className="flex shrink-0 items-center gap-3">
+                <button
+                  className="font-medium text-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    const kind = control.secretWanted ? "secret" : "help";
+                    if (!answerInChat(kind) && kind === "help")
+                      setExpanded(true);
+                  }}
+                  type="button"
                 >
-                  Open screen
-                </Button>
-              )}
-            </div>
-          ) : null}
-
-          {!settled && control?.requested ? (
-            <div className="px-3 pb-2 text-sm">
-              <button
-                type="button"
-                className="underline"
-                disabled={changingControl}
-                onClick={() => void changeControl?.("cancel")}
-              >
-                Cancel request
-              </button>
+                  {ui.answerInChat}
+                </button>
+                {control.requested ? (
+                  <button
+                    className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    disabled={changingControl}
+                    onClick={() => void changeControl?.("cancel")}
+                    type="button"
+                  >
+                    {ui.cancelRequest}
+                  </button>
+                ) : null}
+              </span>
             </div>
           ) : null}
           {!settled && control?.transitioning ? (
-            <p className="px-3 py-2 text-sm">
-              Finishing the assistant's current action before giving you
-              control…
-            </p>
+            <p className="px-3 py-2 text-sm">{ui.finishingBeforeHandover}</p>
           ) : null}
           {!settled && control?.request?.status === "interrupted" ? (
             <p className="px-3 py-2 text-sm">
-              The browser was interrupted. {control.request.interruption} Open
-              the screen and take control again to check it.
+              {ui.browserInterrupted(control.request.interruption)}
             </p>
-          ) : null}
-          {/*
-          Secret values go directly to the page path and are never included in the conversation.
-          Audit records that a secret was supplied, not the value.
-        */}
-          {control?.secretWanted ? (
-            <form
-              className="border-t bg-muted/40 px-3 py-2 text-sm"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                if (!secret || sendingSecret) return;
-                setSendingSecret(true);
-                watchUntil.current = Date.now() + SECRET_CONFIRM_MS;
-                const result = await supplySecret(computerId, secret);
-                setSendingSecret(false);
-                // Clear even on failure so plaintext is not left in the DOM.
-                setSecret("");
-                setSecretProblem(result.ok ? null : (result.error ?? null));
-                await refreshControl?.();
-              }}
-            >
-              <label className="block" htmlFor="openbot-secret">
-                <span className="font-medium">The assistant needs </span>
-                <span>{control.secretWanted}</span>
-              </label>
-              <div className="mt-1.5 flex gap-2">
-                <input
-                  id="openbot-secret"
-                  type="password"
-                  value={secret}
-                  onChange={(event) => setSecret(event.target.value)}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  placeholder="Typed here, never shown to the assistant"
-                  className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
-                />
-                <button
-                  type="submit"
-                  disabled={!secret || sendingSecret}
-                  className="shrink-0 rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground disabled:opacity-50"
-                >
-                  {sendingSecret ? "Sending…" : "Send to the page"}
-                </button>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                This goes straight to the page. It is not shown in the
-                conversation and the assistant never receives it.
-              </p>
-              {secretProblem ? (
-                <p className="mt-1 text-xs text-destructive">{secretProblem}</p>
-              ) : null}
-            </form>
           ) : null}
 
           {!settled && controls ? (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
               <span className="text-xs text-muted-foreground">
                 {!control
-                  ? "Checking who has control…"
+                  ? ui.checkingControl
                   : control.transitioning
-                    ? "Finishing the current action…"
+                    ? ui.finishingAction
                     : driving
-                      ? "You have control. Open the screen to click and type."
-                      : "The assistant has control."}
+                      ? ui.youHaveControl
+                      : ui.botHasControl}
               </span>
               {/*
                 While the person holds control this reads "Open screen": the card has no minimize,

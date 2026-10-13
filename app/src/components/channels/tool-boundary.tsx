@@ -1,17 +1,23 @@
-import { Component, type ReactNode } from "react";
+import { Component, Fragment, type ReactNode } from "react";
+import { RecoveryCard } from "@/components/chat-cards/recovery-card";
+import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
  * A component that throws must not take the conversation with it.
  *
  * Browser-authored components render in the transcript from model-supplied arguments, sometimes
  * while a tool call is still streaming. A render failure is isolated to the component card and shown
- * as a user-readable failure line; stacks stay in the developer console.
+ * as a recovery card; stacks stay in the developer console.
+ *
+ * RETRY REMOUNTS. Most of these failures are a card handed half an argument mid-stream, which the
+ * finished arguments draw fine; Retry clears the failure and mounts the children afresh (a new key,
+ * so nothing of the broken instance's state is reused). One that throws again lands back here.
  */
 export class ToolRenderBoundary extends Component<
   { name: string; children: ReactNode },
-  { failed: boolean }
+  { failed: boolean; attempt: number }
 > {
-  state = { failed: false };
+  state = { failed: false, attempt: 0 };
 
   static getDerivedStateFromError() {
     return { failed: true };
@@ -26,15 +32,34 @@ export class ToolRenderBoundary extends Component<
     );
   }
 
+  retry = () => {
+    this.setState((state) => ({ failed: false, attempt: state.attempt + 1 }));
+  };
+
   render() {
     if (this.state.failed) {
-      return (
-        <p className="my-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <span className="font-medium">{this.props.name}</span> could not be
-          drawn. The rest of this conversation is unaffected.
-        </p>
-      );
+      return <RenderFailed name={this.props.name} onRetry={this.retry} />;
     }
-    return this.props.children;
+    return <Fragment key={this.state.attempt}>{this.props.children}</Fragment>;
   }
+}
+
+/** The boundary's card, a function so it can read the conversation's language. */
+function RenderFailed({
+  name,
+  onRetry,
+}: {
+  name: string;
+  onRetry: () => void;
+}) {
+  const ui = useUiStrings();
+  return (
+    <RecoveryCard
+      compact
+      detail={ui.renderCrashDetail}
+      onRetry={onRetry}
+      testId="tool-render-failed"
+      title={ui.renderCrash(name)}
+    />
+  );
 }

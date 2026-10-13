@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
  * One line for one thing a Bot did.
@@ -9,6 +10,10 @@ import type { ReactNode } from "react";
  *
  * While it is still running the text shimmers, which is the only signal that the Bot is working on
  * something with nothing to show yet.
+ *
+ * A line that went wrong can carry its way forward under it (`actions`, a compact RecoveryCard),
+ * outside the disclosure: what to do next must not hide behind a chevron. The fixed words ("Blocked",
+ * "didn't work") are in the conversation's language; the label is the caller's.
  */
 export function ToolLine({
   label,
@@ -16,6 +21,7 @@ export function ToolLine({
   running,
   refused,
   failed,
+  actions,
   children,
 }: {
   /** What was done, in a couple of words: "Searched Slack", "Filled in", "Read the page". */
@@ -27,9 +33,12 @@ export function ToolLine({
   refused?: boolean;
   /** It was permitted and did not work. A different request might. */
   failed?: boolean;
+  /** Under the line, always visible: the ways forward from a step that went wrong. */
+  actions?: ReactNode;
   /** Shown when the line is expanded. Without it the line is not expandable. */
   children?: ReactNode;
 }) {
+  const ui = useUiStrings();
   const tone = refused
     ? "text-destructive"
     : failed
@@ -43,16 +52,22 @@ export function ToolLine({
       }`}
     >
       <span className="shrink-0">
-        {refused ? "Blocked" : failed ? `${label}, didn't work` : label}
+        {refused ? ui.blocked : failed ? ui.didNotWork(label) : label}
       </span>
       {detail ? <span className="truncate opacity-70">{detail}</span> : null}
     </span>
   );
 
-  if (!children) return <div className="my-1.5">{text}</div>;
+  if (!children)
+    return (
+      <div className="my-1.5">
+        {text}
+        {actions}
+      </div>
+    );
 
-  return (
-    <details className="tool-line my-1.5 min-w-0">
+  const details = (
+    <details className={`tool-line min-w-0 ${actions ? "" : "my-1.5"}`}>
       {/*
        * Native <details> owns expansion because SDK tool renderers can be re-invoked independently
        * of this component's React state.
@@ -74,5 +89,12 @@ export function ToolLine({
         {children}
       </div>
     </details>
+  );
+  if (!actions) return details;
+  return (
+    <div className="my-1.5 min-w-0">
+      {details}
+      {actions}
+    </div>
   );
 }
