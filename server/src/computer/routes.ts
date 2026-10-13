@@ -25,6 +25,7 @@ import {
 import type { PageFrameStore } from "./page-frames";
 import { dryRunAgainstHistory, REPLAYABLE_EVENT_TYPES } from "./policy-dry-run";
 import { type PolicyStore, parseActionPolicy } from "./policy-store";
+import { showScreen } from "./show-screen";
 
 /**
  * The Bot computer's surface, behind the same session guard as every other API route.
@@ -607,6 +608,32 @@ export function createComputerRoutes(
     }
     const stored = await pageFrames.load(botId, toolCallId);
     return context.json({ frame: stored });
+  });
+
+  /**
+   * Show the person the page the Bot has open, as a picture kept under this tool call. See
+   * `show-screen.ts`.
+   */
+  routes.post("/:botId/show-screen", async (context) => {
+    const body = (await context.req.json().catch(() => null)) as {
+      toolCallId?: unknown;
+    } | null;
+    const toolCallId =
+      typeof body?.toolCallId === "string" ? body.toolCallId.trim() : "";
+    if (!toolCallId || toolCallId.length > 200) {
+      return context.json({ error: "A turn is required." }, 400);
+    }
+    try {
+      return context.json(
+        await showScreen(
+          { gateway, pageFrames },
+          context.req.param("botId"),
+          toolCallId,
+        ),
+      );
+    } catch (error) {
+      return context.json(errorBody(error), statusFor(error));
+    }
   });
 
   routes.post("/:botId/files/list", (context) =>

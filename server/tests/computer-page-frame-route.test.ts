@@ -306,3 +306,94 @@ describe("the frame a page was opened on", () => {
     ).toEqual({ frame: null });
   });
 });
+
+describe("showing the person the screen", () => {
+  function show(
+    routes: ReturnType<typeof harness>["routes"],
+    toolCallId: string | null = "call-show",
+  ) {
+    return routes.request("http://openbot.test/bot-9/show-screen", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(toolCallId ? { toolCallId } : {}),
+    });
+  }
+
+  test("keeps a picture of the open page under the call and says where it was taken", async () => {
+    const { routes, saved } = harness();
+
+    const response = await show(routes);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      url: "https://example.com/story",
+    });
+    expect(saved).toEqual([
+      {
+        computerId: "bot-9",
+        toolCallId: "call-show",
+        url: "https://example.com/story",
+        frame: "PNGBYTES",
+      },
+    ]);
+  });
+
+  test("the picture itself never goes back to the Bot", async () => {
+    const { routes } = harness();
+
+    const body = JSON.stringify(await (await show(routes)).json());
+
+    expect(body).not.toContain("PNGBYTES");
+  });
+
+  test("a computer that is not up shows nothing and wakes nothing", async () => {
+    let photographed = false;
+    const { routes, saved } = harness({
+      status: async (botId) => ({ botId, state: "suspended" }),
+      screenshot: async () => {
+        photographed = true;
+        return { base64: "PNGBYTES", url: "https://example.com/story" };
+      },
+    });
+
+    const body = (await (await show(routes)).json()) as {
+      ok: boolean;
+      reason: string;
+    };
+
+    expect(body.ok).toBe(false);
+    expect(body.reason).toContain("suspended");
+    expect(photographed).toBe(false);
+    expect(saved).toEqual([]);
+  });
+
+  test("a browser with nothing open is not shown", async () => {
+    const { routes, saved } = harness({
+      screenshot: async () => ({ base64: "PNGBYTES", url: "about:blank" }),
+    });
+
+    const body = (await (await show(routes)).json()) as { ok: boolean };
+
+    expect(body.ok).toBe(false);
+    expect(saved).toEqual([]);
+  });
+
+  test("on a shared computer, a picture that does not say its page is not shown", async () => {
+    const { routes, saved } = harness({
+      isolation: "shared",
+      screenshot: async () => ({ base64: "PNGBYTES" }),
+    });
+
+    const body = (await (await show(routes)).json()) as { ok: boolean };
+
+    expect(body.ok).toBe(false);
+    expect(saved).toEqual([]);
+  });
+
+  test("a call with no turn is refused", async () => {
+    const { routes } = harness();
+
+    expect((await show(routes, null)).status).toBe(400);
+  });
+});

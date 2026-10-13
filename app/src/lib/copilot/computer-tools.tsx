@@ -11,6 +11,7 @@ import {
   type SecureFormState,
   SecureNote,
 } from "@/components/chat-cards/secure-form";
+import { ScreenShown } from "@/components/chat-cards/screen-shown";
 import { CommandOutput } from "@/components/computer/command-output";
 import { ComputerView } from "@/components/computer/computer-view";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import {
   runHelpRequest,
   runNavigation,
 } from "@/lib/computers/handoff";
+import { showScreen } from "@/lib/computers/screen";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
 import { useComputerAvailable } from "./computer-available";
@@ -622,6 +624,53 @@ export function ComputerTools() {
         reason={typeof args?.reason === "string" ? args.reason : ""}
         result={result}
         running={status !== "complete"}
+      />
+    ),
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_show_screen",
+    description:
+      "Show the person what is on your screen right now, as a picture in this conversation. Use it " +
+      "before an irreversible submit, so they decide on the preview itself, and whenever a picture " +
+      "says more than a description would. The picture is for them: you do not see it, and it does " +
+      "not change the page. Do NOT rebuild a page as a generated interface to show it; show it.",
+    parameters: z.object({
+      caption: z
+        .string()
+        .optional()
+        .describe(
+          "A few words under the picture, in the person's language, e.g. 'Προεπισκόπηση δήλωσης'",
+        ),
+    }),
+    handler: async (
+      _input: { caption?: string },
+      { toolCall }: { toolCall?: { id?: string } } = {},
+    ) => {
+      const toolCallId = toolCall?.id;
+      if (!toolCallId)
+        return {
+          ok: false,
+          reason:
+            "The screen could not be shown: this call has no id to keep the picture under.",
+        };
+      const shown = await showScreen(bot.current, toolCallId);
+      return shown.ok
+        ? {
+            ok: true,
+            url: shown.url,
+            shown: "The person now sees a picture of this page in the chat.",
+          }
+        : shown;
+    },
+    render: ({ args, result, status, toolCallId }) => (
+      <ScreenShown
+        caption={typeof args?.caption === "string" ? args.caption : undefined}
+        computerId={bot.current}
+        result={result}
+        running={status !== "complete"}
+        {...(toolCallId ? { toolCallId } : {})}
       />
     ),
   });

@@ -169,3 +169,48 @@ export async function readPageFrame(
     return null;
   }
 }
+
+/** What showing the screen in the chat came to: where the picture was taken, or why there is none. */
+export type ShowScreenOutcome =
+  | { ok: true; url: string }
+  | { ok: false; reason: string };
+
+/**
+ * Keep a picture of the Bot's screen under this tool call, for the conversation to show.
+ *
+ * The server takes it, from the computer, and files it as the call's page frame (see the server's
+ * `show-screen.ts`); `readPageFrame` reads it back. Never throws: a picture that could not be taken
+ * is a sentence for the Bot, not a broken turn.
+ */
+export async function showScreen(
+  computerId: string,
+  toolCallId: string,
+): Promise<ShowScreenOutcome> {
+  try {
+    const response = await tryClient(
+      `/api/computers/${computerId}/show-screen`,
+      { method: "POST", body: { toolCallId } },
+    );
+    const body = (await response.json().catch(() => null)) as {
+      ok?: unknown;
+      url?: unknown;
+      reason?: unknown;
+      error?: unknown;
+    } | null;
+    if (body?.ok === true && typeof body.url === "string") {
+      return { ok: true, url: body.url };
+    }
+    const reason =
+      typeof body?.reason === "string"
+        ? body.reason
+        : typeof body?.error === "string"
+          ? body.error
+          : "The screen could not be shown.";
+    return { ok: false, reason };
+  } catch {
+    return {
+      ok: false,
+      reason: "The screen could not be shown: the server did not answer.",
+    };
+  }
+}

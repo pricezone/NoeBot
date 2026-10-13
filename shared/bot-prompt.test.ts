@@ -20,6 +20,7 @@ describe("COMPUTER_GUIDANCE", () => {
       "computer_request_sign_in",
       "computer_key",
       "computer_scroll",
+      "computer_show_screen",
     ])
       expect(COMPUTER_GUIDANCE).toContain(tool);
   });

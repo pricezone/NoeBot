@@ -64,7 +64,7 @@ const RULES: readonly Rule[] = [
     verdict: "action:writing",
   },
   {
-    test: /navigate|browse|snapshot|screenshot|search|web|google|fetch|crawl|scrape|lookup|find|computer_(click|type|key|scroll|read)\b/i,
+    test: /navigate|browse|snapshot|screenshot|search|web|google|fetch|crawl|scrape|lookup|find|computer_(click|type|key|scroll|read|show_screen)\b/i,
     verdict: "action:search",
   },
   {
