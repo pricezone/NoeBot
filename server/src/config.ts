@@ -402,9 +402,9 @@ export type DeploymentConfig = {
   /**
    * Whether a person's chat run carries out its computer tools on the server, inside the run.
    *
-   * Off by default while it is proven. Off, every computer tool is a browser tool: the run ends at
-   * each call, the browser carries it out and starts another run. On (COMPUTER_TOOLS_IN_RUN=true or
-   * 1), the server executes each call as soon as the model has finished writing it and continues
+   * On by default; COMPUTER_TOOLS_IN_RUN=false (or 0) turns it off. Off, every computer tool is a
+   * browser tool: the run ends at each call, the browser carries it out and starts another run. On,
+   * the server executes each call as soon as the model has finished writing it and continues
    * the model in the same run; the browser only draws the calls, and resumes a run that stopped to
    * wait for the person. Projected on /api/capabilities so both halves agree.
    */
@@ -1488,10 +1488,13 @@ function generativeUiEnabled(environment: Environment): boolean {
   return value !== "false" && value !== "0";
 }
 
-/** Off unless explicitly "true" or "1": a new execution path is opted into, never fallen into. */
+/**
+ * On unless explicitly "false" or "0". It passed the real-browser fixture matrix and a security
+ * review, and it removes a whole run per browser step; the browser path stays as the kill switch.
+ */
 function computerToolsInRunEnabled(environment: Environment): boolean {
   const value = optional(environment, "COMPUTER_TOOLS_IN_RUN")?.toLowerCase();
-  return value === "true" || value === "1";
+  return value !== "false" && value !== "0";
 }
 
 /** Same rule as generated interfaces: on unless explicitly "false" or "0". */

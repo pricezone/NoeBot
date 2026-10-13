@@ -734,18 +734,19 @@ describe("what a resumed run is told", () => {
 });
 
 describe("the flag", () => {
-  test("COMPUTER_TOOLS_IN_RUN is off unless it says true or 1", () => {
+  test("COMPUTER_TOOLS_IN_RUN is on unless it says false or 0", () => {
     const flag = (value?: string) =>
       loadConfig(
         testEnvironment(
           value === undefined ? {} : { COMPUTER_TOOLS_IN_RUN: value },
         ),
       ).computerToolsInRun;
-    expect(flag()).toBe(false);
+    expect(flag()).toBe(true);
     expect(flag("true")).toBe(true);
     expect(flag("1")).toBe(true);
-    expect(flag("yes")).toBe(false);
     expect(flag("false")).toBe(false);
+    expect(flag("FALSE")).toBe(false);
+    expect(flag("0")).toBe(false);
   });
 });
 

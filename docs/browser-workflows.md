@@ -82,8 +82,9 @@ for that kind of work on any website, how it is tested, and how fast it is.
 - **Saved-call ledger:** browser-executed writes are verified instantly against the server's own
   record of the streamed call, with no replay.
 - **Warm-up:** the browser is warmed while the person types.
-- **Behind `COMPUTER_TOOLS_IN_RUN`:** computer tools execute on the server inside the run, so there
-  is no new run per step. A turn also survives the tab closing.
+- **In the run (`COMPUTER_TOOLS_IN_RUN`, on by default, `false` turns it off):** computer tools
+  execute on the server inside the run, so there is no new run per step. A turn also survives the
+  tab closing.
 
 ## How it is tested
 

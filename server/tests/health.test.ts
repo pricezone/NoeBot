@@ -49,7 +49,7 @@ describe("runtime capabilities", () => {
       selfHostBanner: true,
       transcription: false,
       voice: false,
-      // Off unless COMPUTER_TOOLS_IN_RUN is set and the deployment has a computer.
+      // Only where the deployment has a computer (on there unless COMPUTER_TOOLS_IN_RUN=false).
       computerToolsInRun: false,
       // Off unless the platform that meters this deployment named where to read usage from.
       usage: false,
