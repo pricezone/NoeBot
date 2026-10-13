@@ -24,6 +24,7 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 import type { ShownCalls } from "@/components/chat-cards/pending-requests";
+import { browserActivityOf } from "@/components/noe-bot/anim/browser-steps";
 import { useAvatarDirector } from "@/components/noe-bot/anim/use-avatar-director";
 import type {
   AvatarChoice,
@@ -1571,9 +1572,11 @@ export function ChatTranscript({
   /*
    * WHAT THE BOT IS DOING, for the character under the last message (`ChatActivityIndicator`).
    * Read off the same items the rows are drawn from: a tool call with no result yet is the tool in
-   * flight, a browser group at the end is the Bot browsing, assistant text at the end is the reply
-   * streaming, and the person's last words are what it was asked. The director turns those into
-   * the animation and the label; while history is still being restored there is nothing to show.
+   * flight, the turn's browser steps say which part of the page work it is on (the newest one last
+   * means it is browsing), assistant text at the end is the reply streaming (or, once the turn is
+   * over, the answer that earns the check), and the person's last words are what it was asked. The
+   * director turns those into the animation and the label; while history is still being restored
+   * there is nothing to show.
    */
   let lastUserText: string | null = null;
   for (let i = items.length - 1; i >= 0; i--) {
@@ -1583,6 +1586,7 @@ export function ChatTranscript({
       break;
     }
   }
+  const browser = browserActivityOf(items);
   const director = useAvatarDirector({
     busy: busy && !restoring,
     waitingOnFirstToken,
@@ -1590,9 +1594,13 @@ export function ChatTranscript({
       busy && lastItem?.kind === "tool" && lastItem.result === undefined
         ? lastItem.toolCall.function.name
         : null,
-    browsing: busy && lastItem?.kind === "browser",
+    browsing: busy && browser.browsing,
+    browserSteps: browser.steps,
     streaming:
       busy && lastItem?.kind === "text" && lastItem.role === "assistant",
+    replied:
+      lastItem?.kind === "activity" ||
+      (lastItem?.kind === "text" && lastItem.role === "assistant"),
     pendingText: lastUserText,
     stopped: stopped ?? null,
   });

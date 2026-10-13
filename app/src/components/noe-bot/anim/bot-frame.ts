@@ -310,10 +310,17 @@ const timelineAt = (input: FrameInput, T: number): Timeline => {
         (((T % durationOfSequence(sequence)) + durationOfSequence(sequence)) %
           durationOfSequence(sequence));
       const cues: [number, string][] = [];
-      for (const [actId] of segmentsOf(sequence)) {
+      for (const [actId, from] of segmentsOf(sequence)) {
         const act = ACTS[actId];
         if (!act) continue;
-        for (const [at, face] of act.faces) cues.push([passStart + at, face]);
+        // A segment's cues are timed within the animation it belongs to; looped on its own (turbo,
+        // detective) they keep their spacing and move to where the segment starts here.
+        const shift =
+          act.partOf && act.partOf !== sequence
+            ? from - (act.faces[0]?.[0] ?? 0)
+            : 0;
+        for (const [at, face] of act.faces)
+          cues.push([passStart + at + shift, face]);
       }
       cues.sort((a, b) => a[0] - b[0]);
       const cur = holdOf(cues, passStart + durationOfSequence(sequence));

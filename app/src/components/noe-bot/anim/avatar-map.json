@@ -129,7 +129,7 @@
     { "tool": "generate or edit code", "animation": "action:type" },
     {
       "tool": "long or heavy code generation (> 20 s or > 2k tokens)",
-      "animation": "action:type (turbo segment)"
+      "animation": "action:turbo"
     },
     { "tool": "run code / shell / terminal", "animation": "action:terminal" },
     {
@@ -305,10 +305,11 @@
   ],
   "timing": {
     "minDisplayMs": 1200,
+    "browserMinDisplayMs": 800,
     "reactionMs": 600,
     "debounceMs": 250,
     "maxSameLoopBeforeSwitchMs": 12000,
-    "longWaitFallback": "After 12 s on one working animation, alternate with face:pensive or action:coffee every 6 s; after 30 s switch to state:caffeinated.",
+    "longWaitFallback": "After 12 s on one working animation, alternate every 6 s with its partner loop (search/detective, nerd/study, type/turbo, terminal/servers from 10 s), or with face:pensive or action:coffee when it has none; after 30 s switch to state:caffeinated.",
     "transition": "Change-glitch (2 frames) on every face change; hands/legs ease 0.3 s into an action and back."
   },
   "catalog": {
@@ -389,7 +390,9 @@
       "sparkler",
       "bubblegum",
       "heart",
-      "cash"
+      "cash",
+      "turbo",
+      "detective"
     ],
     "states": [
       "repair",

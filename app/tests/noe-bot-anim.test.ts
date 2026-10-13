@@ -5,6 +5,7 @@ import {
   ACTIONS,
   CATALOG,
   FACE_GROUPS,
+  LABELS,
   labelFor,
   parseAnimation,
   STATE_IDS,
@@ -70,7 +71,8 @@ describe("the design's pixels", () => {
   test("the catalogue matches avatar-map.json and every id parses", () => {
     expect(ACTIONS.join(",")).toBe(AVATAR_MAP.catalog.actions.join(","));
     expect(STATE_IDS.join(",")).toBe(AVATAR_MAP.catalog.states.join(","));
-    expect(CATALOG).toHaveLength(55 + 20 + 9 + 3);
+    // The design's 20 actions, plus turbo and detective looped on their own.
+    expect(CATALOG).toHaveLength(55 + 22 + 9 + 3);
     for (const id of CATALOG) {
       const a = parseAnimation(id);
       if (a.kind === "face") expect(id).toBe(`face:${a.id}`);
@@ -284,6 +286,36 @@ describe("one frame as a pure function of time", () => {
         el: labelFor(id, "el") !== undefined,
       }).toEqual({ id, en: true, el: true });
     }
+    // Every browser step's own name is said in Greek too.
+    const steps = Object.keys(LABELS.en).filter((k) => k.startsWith("step:"));
+    expect(steps.length).toBeGreaterThanOrEqual(10);
+    for (const id of steps)
+      expect({ id, el: LABELS.el[id] !== undefined }).toEqual({ id, el: true });
+    expect(labelFor("action:turbo", "en")).toBe("Filling in the form…");
+    expect(labelFor("action:turbo", "el")).toBe("Συμπληρώνω τη φόρμα…");
+    expect(labelFor("step:read-page", "el")).toBe("Διαβάζω τη σελίδα…");
+  });
+
+  test("turbo and detective loop on their own, with their faces at the start of the loop", () => {
+    const at = (id: string, t: number) =>
+      renderBotFrame({
+        animation: parseAnimation(id),
+        t,
+        mode: "terminal",
+        props: true,
+      });
+    expect(at("action:turbo", 0.5).act).toBe("turbo");
+    expect(at("action:turbo", 0.5).face).toBe("attentive");
+    expect(at("action:turbo", 2).face).toBe("excited");
+    // A second pass plays the same frames.
+    expect(at("action:turbo", 3.5)).toEqual(at("action:turbo", 0.5));
+    expect(at("action:detective", 1).act).toBe("detective");
+    expect(at("action:detective", 1).face).toBe("suspicious");
+    // Inside their own animations the segments keep their timing.
+    expect(at("action:type", 5.5).act).toBe("turbo");
+    expect(at("action:type", 5.5).face).toBe("attentive");
+    expect(at("action:type", 7).face).toBe("excited");
+    expect(at("action:search", 8).face).toBe("suspicious");
   });
 });
 

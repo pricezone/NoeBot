@@ -49,7 +49,8 @@ export function useAvatarDirector(signal: RunSignal): DirectorView {
     viewOf(machine.current ?? INITIAL_DIRECTOR),
   );
   const running = signal.busy || signal.stopped !== null || view.visible;
-  const key = `${signal.busy}|${signal.waitingOnFirstToken}|${signal.runningTool ?? ""}|${signal.browsing}|${signal.streaming}|${signal.stopped ?? ""}`;
+  const step = signal.browserSteps.at(-1);
+  const key = `${signal.busy}|${signal.waitingOnFirstToken}|${signal.runningTool ?? ""}|${signal.browsing}|${signal.browserSteps.length}:${step?.id ?? ""}:${step?.running}:${step?.ok}|${signal.streaming}|${signal.replied}|${signal.stopped ?? ""}`;
   // biome-ignore lint/correctness/useExhaustiveDependencies: a changed signal steps the machine at once, so the key is a dependency on purpose
   useEffect(() => {
     const step = () => {

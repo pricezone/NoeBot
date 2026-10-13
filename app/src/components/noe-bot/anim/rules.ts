@@ -9,6 +9,8 @@ export type AvatarMap = {
   version: string;
   timing: {
     minDisplayMs: number;
+    /** A browser step is quicker than most work: its animation holds for less, so each still shows. */
+    browserMinDisplayMs: number;
     reactionMs: number;
     debounceMs: number;
     maxSameLoopBeforeSwitchMs: number;

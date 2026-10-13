@@ -1578,7 +1578,8 @@ export type Segment = readonly [string, number, number];
 
 /**
  * Each catalogue animation's segments and loop length, from the showcase's scene list: search is
- * the search action then the detective, type ends in turbo, sparkler ends as the wizard.
+ * the search action then the detective, type ends in turbo, sparkler ends as the wizard. Turbo and
+ * detective also loop on their own, for the browser steps that are all speed or all scrutiny.
  */
 export const SEQUENCES: Record<
   string,
@@ -1622,6 +1623,8 @@ export const SEQUENCES: Record<
   bubblegum: { segments: [["bubblegum", 0, 3]], duration: 3 },
   heart: { segments: [["heart", 0, 3]], duration: 3 },
   cash: { segments: [["cash", 0, 3]], duration: 3 },
+  turbo: { segments: [["turbo", 0, 3]], duration: 3 },
+  detective: { segments: [["detective", 0, 3]], duration: 3 },
   repair: { segments: [["repair", 0, 3]], duration: 3 },
   servers: { segments: [["servers", 0, 3]], duration: 3 },
   "sub-agents": { segments: [["agents", 0, 3]], duration: 3 },

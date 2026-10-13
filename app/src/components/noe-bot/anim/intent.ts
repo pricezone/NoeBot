@@ -37,6 +37,13 @@ const RULES: readonly IntentRule[] = [
     sequence: ["face:suspicious", "action:search", "state:repair"],
   },
   {
+    // An address or a task on a site: the Bot is about to browse, never to write code. Before
+    // "build UI" and "code task", whose words ("page", "code") a browser task often carries.
+    id: "browse the web",
+    test: /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(com|gr|org|net|io|eu|gov|edu|app|ai|dev|co|uk|de)\b|\b(go to|visit|browse|navigate to|fill (in|out)|log ?in to|sign ?in to|sign me up)\b|\bopen (the |this |that )?(site|website|page|link|url|portal)\b|\bon (the|their|this) (site|website|portal)\b|μπες (σ|στ)|πήγαινε (σ|στ)|άνοιξε (το|τη|την) (σελίδα|site|link|σύνδεσμο|ιστοσελίδα)|συνδέσου|συμπλήρωσ|φόρμα|ιστότοπ/i,
+    sequence: ["face:curious", "action:search", "face:nerd"],
+  },
+  {
     id: "deploy / infra",
     test: /\b(deploy|production|prod|release|ship it|server|database|db|migration|docker|kubernetes|dns|domain|hosting)\b|ανέβασ|παραγωγ|διακομιστ|βάση δεδομένων|εγκατ[άα]στ/i,
     sequence: ["face:attentive", "state:servers"],

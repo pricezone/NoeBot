@@ -2,7 +2,8 @@
  * The catalogue of animations and the ids the app passes around.
  *
  * `face:<id>` holds one expression (the 18 of the brand sheet, dizzy, cool, and the 35 newer
- * ones); `action:<id>` and `state:<id>` are the design's 20 actions and 9 states; `boot` scans the
+ * ones); `action:<id>` and `state:<id>` are the design's 20 actions and 9 states, plus two segments
+ * looped on their own (turbo, the end of type, and detective, the end of search); `boot` scans the
  * character in and `rest` sends it to sleep and scans it out. Ids match `avatar-map.json`.
  */
 
@@ -31,6 +32,8 @@ export const ACTIONS = [
   "bubblegum",
   "heart",
   "cash",
+  "turbo",
+  "detective",
 ] as const;
 export const STATE_IDS = [
   "repair",
@@ -212,6 +215,8 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "action:flex": "Getting pumped…",
     "action:bubblegum": "Taking a moment…",
     "action:heart": "Aww…",
+    "action:turbo": "Filling in the form…",
+    "action:detective": "Investigating…",
     "state:servers": "Working on the infrastructure…",
     "state:repair": "Fixing it…",
     "state:sub-agents": "Working with other Bots…",
@@ -237,6 +242,17 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "phase:streaming": "Replying…",
     "phase:waiting": "Waiting for you",
     "phase:done": "Done",
+    // A browser step is named by what it does to the page, whichever loop draws it.
+    "step:open-page": "Opening the page…",
+    "step:read-page": "Reading the page…",
+    "step:fill": "Filling in…",
+    "step:show-screen": "Showing you the screen…",
+    "step:upload": "Uploading the file…",
+    "step:dialog": "Answering the page…",
+    "step:tabs": "Switching windows…",
+    "step:back": "Going back…",
+    "step:continue": "Continuing…",
+    "step:server": "Working on the server…",
   },
   el: {
     "action:search": "Αναζήτηση…",
@@ -259,6 +275,8 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "action:flex": "Ζεσταίνομαι…",
     "action:bubblegum": "Μια στιγμή…",
     "action:heart": "Ωωω…",
+    "action:turbo": "Συμπληρώνω τη φόρμα…",
+    "action:detective": "Ερευνώ…",
     "state:servers": "Δουλεύω στην υποδομή…",
     "state:repair": "Το φτιάχνω…",
     "state:sub-agents": "Συνεργάζομαι με άλλα Bots…",
@@ -284,6 +302,16 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "phase:streaming": "Απαντώ…",
     "phase:waiting": "Σε περιμένω",
     "phase:done": "Έτοιμο",
+    "step:open-page": "Ανοίγω τη σελίδα…",
+    "step:read-page": "Διαβάζω τη σελίδα…",
+    "step:fill": "Συμπληρώνω…",
+    "step:show-screen": "Σου δείχνω την οθόνη…",
+    "step:upload": "Ανεβάζω το αρχείο…",
+    "step:dialog": "Απαντώ στη σελίδα…",
+    "step:tabs": "Αλλάζω παράθυρο…",
+    "step:back": "Πάω πίσω…",
+    "step:continue": "Συνεχίζω…",
+    "step:server": "Δουλεύω στον server…",
   },
 };
 
