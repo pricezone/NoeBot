@@ -3,6 +3,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { type ChannelPage, type ChannelSummary, channelKeys } from "./queries";
 import { type SidebarSection, sectionKeys } from "./sections";
+import { noteChannelStep, readWaiting } from "./steps";
 import { socketUrl as buildSocketUrl } from "@/lib/socket-url";
 
 /**
@@ -101,6 +102,14 @@ export type ChannelActivityEvent = {
    * indicator without disturbing the preview or the order.
    */
   busy?: boolean;
+  /**
+   * Which moment of a person's turn a busy signal marks, from the tab running it. Absent on every
+   * other event, and on a busy signal for a turn no browser runs. Kept out of the roster cache; see
+   * `./steps.ts`, which holds the latest one per channel for the conversation open in this tab.
+   */
+  step?: number;
+  /** The card that began waiting on the person at this step. */
+  waiting?: { kind: string; toolCallId: string };
 };
 
 /** The infinite query's cache, which holds pages rather than one array. */
@@ -200,6 +209,7 @@ export function applyChannelEvent(
    * in it — so the order is left exactly as it was.
    */
   if (activity.busy !== undefined) {
+    // The step rides on the busy signal but is not the roster's; see `noteChannelStep`.
     if ((previous.busy ?? false) === activity.busy) return data;
     const channels = page.channels.slice();
     channels[index] = { ...previous, busy: activity.busy };
@@ -287,6 +297,16 @@ export function useChannelEvents() {
             return data;
           },
         );
+
+        // A moment of a turn another tab is running: the open conversation reads itself again.
+        if (typeof activity.step === "number") {
+          const waiting = readWaiting(activity.waiting);
+          noteChannelStep(activity.channelId, {
+            step: activity.step,
+            busy: activity.busy ?? true,
+            ...(waiting ? { waiting } : {}),
+          });
+        }
 
         /*
          * A chat filed, in another tab, under a section this tab has never heard of: that tab made
