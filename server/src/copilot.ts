@@ -7,14 +7,26 @@ import {
   CopilotRuntime,
 } from "@copilotkit/runtime/v2";
 import { createCopilotHonoHandler } from "@copilotkit/runtime/v2/hono";
-import type { Observable } from "rxjs";
-import { defer, finalize, from, fromEvent, switchMap, takeUntil } from "rxjs";
+import {
+  defer,
+  finalize,
+  from,
+  fromEvent,
+  Observable,
+  switchMap,
+  takeUntil,
+} from "rxjs";
 import { z } from "zod";
 import {
   COMPUTER_GUIDANCE,
   PROVENANCE_GUIDANCE,
 } from "../../shared/bot-prompt";
 import { sanitizeSeededHistory } from "./agents/history-sanitize";
+import {
+  type ReasoningEffort,
+  tunedConfiguration,
+  withModelRun,
+} from "./agents/model-tuning";
 import {
   PLAN_RUN_COMPLETED,
   PlanModel,
@@ -34,7 +46,11 @@ import {
   type StoredAttachment,
 } from "./channels/attachment-parts";
 import type { AgentFetch, StallGuard } from "./channels/stall-guard";
-import { HeadlessToolsMiddleware } from "./computer/headless-tools";
+import {
+  type HeadlessTool,
+  HeadlessToolsMiddleware,
+  type HeadlessWait,
+} from "./computer/headless-tools";
 import type { DeploymentConfig } from "./config";
 import { observeModelConnection } from "./desktop-connection-failure";
 import { desktopTelemetryProperties } from "./desktop-telemetry";
@@ -60,6 +76,7 @@ import {
 } from "./plugins/selection";
 import type { GrantedTool } from "./plugins/tools";
 import { grantedToolGuidance, parametersFor } from "./plugins/tools";
+import { beginRunTiming, endRunTiming, timed } from "./run-timing";
 import { UNTRUSTED_GUIDANCE } from "./untrusted-content";
 
 /**
@@ -182,7 +199,31 @@ export type RuntimeModel = {
   provider: "openai" | "anthropic";
   defaultModel: string;
   plan?: PlanModelConfig;
+  /** BOT_REASONING_EFFORT for the built-in Bots, set at boot. See agents/model-tuning.ts. */
+  reasoningEffort?: ReasoningEffort;
 };
+
+/** The two tools a Bot draws an interface with, wherever they come from. */
+const GENERATED_UI_TOOLS = new Set(["render_a2ui", "generateSandboxedUi"]);
+
+/**
+ * Said on both generated-interface tools, because a Bot drew a fake copy of a web page it had open
+ * (a form, a gov.gr page) instead of showing the page itself.
+ */
+export const OPEN_PAGE_NOTE =
+  "Never use this to show a web page that is open in your browser: the question card shows your screen, and computer_show_screen posts a picture of it.";
+
+/** The run's tools with {@link OPEN_PAGE_NOTE} on the generated-interface ones, once. */
+export function withOpenPageNote<
+  T extends { name: string; description: string },
+>(tools: readonly T[]): T[] {
+  return tools.map((tool) =>
+    GENERATED_UI_TOOLS.has(tool.name) &&
+    !tool.description.includes(OPEN_PAGE_NOTE)
+      ? { ...tool, description: `${tool.description} ${OPEN_PAGE_NOTE}`.trim() }
+      : tool,
+  );
+}
 
 /** Optional desktop environment values may be present but blank; SDKs treat them as URLs. */
 export function normalizeModelBaseUrls(
@@ -526,6 +567,8 @@ export async function buildAgents(
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemory?: LoadPersonalMemory,
+  /** How built-in Bots carry out computer tools inside the run. Absent, the browser does. */
+  computerInRun?: ComputerInRun,
 ): Promise<Record<string, AbstractAgent>> {
   let vendors: readonly string[] = [];
   try {
@@ -582,6 +625,7 @@ export async function buildAgents(
           loadAttachment,
           markAttachmentsSent,
           acquireLearnedSkills,
+          computerInRun,
         );
         if (loadPersonalMemory)
           built.use(new PersonalMemoryMiddleware(agent.id, loadPersonalMemory));
@@ -844,6 +888,7 @@ async function buildAgent(
   /** How this run records that those files were sent. See {@link buildAgents}. */
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
+  computerInRun?: ComputerInRun,
 ): Promise<AbstractAgent> {
   if (agent.type === "unavailable") {
     return new UnavailableAgent(agent);
@@ -950,6 +995,8 @@ async function buildAgent(
     );
   }
 
+  // With COMPUTER_TOOLS_IN_RUN, the computer tools run here, between model turns, in one run.
+  const inRun = inRunExecutor(agent.id, computerInRun);
   /*
    * A built-in Bot takes its tools in its configuration, so narrowing means building it again once
    * the message is known. The guidance it is given is generated from the tools passed here, which is
@@ -962,27 +1009,40 @@ async function buildAgent(
     learnedSkills?: LearnedSkillInvocation,
   ) =>
     new BuiltInAgentWithSaneHistory(
-      builtInAgentConfiguration(
-        agent,
-        model,
-        apiKey,
-        tools,
-        computerGuidance,
-        connectedVendors,
-        standingInstructions,
-        model.plan && input
-          ? new PlanModel(
-              model.plan,
-              agent.id,
-              input,
-              new Set(input.tools.map((tool) => tool.name)),
-              signal,
-            )
-          : undefined,
-        learnedSkills,
+      // The model wrapped for the prompt cache, old page observations and the reasoning effort.
+      withComputerSteps(
+        inRun !== undefined,
+        tunedConfiguration(
+          builtInAgentConfiguration(
+            agent,
+            model,
+            apiKey,
+            tools,
+            computerGuidance,
+            connectedVendors,
+            standingInstructions,
+            model.plan && input
+              ? new PlanModel(
+                  model.plan,
+                  agent.id,
+                  input,
+                  new Set(input.tools.map((tool) => tool.name)),
+                  signal,
+                )
+              : undefined,
+            learnedSkills,
+          ),
+          {
+            provider: model.provider,
+            ...(model.reasoningEffort
+              ? { reasoningEffort: model.reasoningEffort }
+              : {}),
+          },
+        ),
       ),
       loadAttachment,
       markAttachmentsSent,
+      { botId: agent.id, inRun },
     );
 
   const whole = withTools(granted);
@@ -1388,7 +1448,7 @@ function remoteAgentWithStandingRole(
            * else's process.
            */
           tools: [
-            ...(input.tools ?? []),
+            ...withOpenPageNote(input.tools ?? []),
             ...tools.map((tool) => ({
               name: tool.name,
               description: tool.description,
@@ -1584,6 +1644,24 @@ class CloningRemoteAgent extends AbstractAgent {
 }
 
 /**
+ * How a built-in Bot carries out its computer tools inside the run, when it does.
+ *
+ * Given the prepared input and `segment`, one model run; answers the whole run. The executor runs a
+ * segment, carries out the computer calls it ended on, and runs the next segment with their results,
+ * all inside the one run the person started. See `HeadlessToolsMiddleware` in computer/headless-tools.ts.
+ */
+export type InRunExecutor = (
+  input: RunAgentInput,
+  segment: (input: RunAgentInput) => Observable<BaseEvent>,
+) => Observable<BaseEvent>;
+
+type BuiltInRunOptions = {
+  /** For the prompt cache key and the timing line. */
+  botId?: string;
+  inRun?: InRunExecutor;
+};
+
+/**
  * A built-in Bot that will not hand the model provider a conversation it is going to refuse.
  *
  * FOUND LIVE, ON CHAT. One person's next three messages each failed with
@@ -1622,24 +1700,49 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
    * of THIS class, and a seam lost in a clone is a seam that never runs.
    */
   private readonly markAttachmentsSent: MarkAttachmentsSent | undefined;
+  /**
+   * Who this Bot is and how its computer tools run inside the run, or absent. Held for the reason
+   * {@link loadAttachment} is: {@link clone} builds another one of THIS class.
+   */
+  private readonly runOptions: BuiltInRunOptions;
+  /** Stop for the run in progress, which may be between model calls, executing a tool. */
+  private activeRun: AbortController | undefined;
 
   constructor(
     configuration: BuiltInAgentConfiguration,
     loadAttachment?: LoadAttachment,
     markAttachmentsSent?: MarkAttachmentsSent,
+    runOptions: BuiltInRunOptions = {},
   ) {
     super(configuration);
     this.configuration = configuration;
     this.loadAttachment = loadAttachment;
     this.markAttachmentsSent = markAttachmentsSent;
+    this.runOptions = runOptions;
   }
 
   run(input: RunAgentInput): Observable<BaseEvent> {
+    // The generated-interface tools say they are not for showing an open web page.
+    input = { ...input, tools: withOpenPageNote(input.tools) };
     const answeredByResume = new Set(
       (input.resume ?? []).map((entry) => entry.interruptId),
     );
     const history = sanitizeSeededHistory(input.messages, answeredByResume);
     const load = this.loadAttachment;
+    /*
+     * One model run. With computer tools in the run, the executor calls this once per model turn
+     * between the tools it carries out; without them, it is the whole run, as it always was.
+     */
+    const segment = (segmentInput: RunAgentInput) =>
+      nativeApprovalRun(segmentInput, () =>
+        observeModelConnection(super.run(segmentInput)),
+      );
+    const start = (messages: Message[]) => {
+      const prepared = { ...input, messages };
+      return this.runOptions.inRun
+        ? this.runOptions.inRun(prepared, segment)
+        : segment(prepared);
+    };
     /*
      * ALONGSIDE THE GUARD ABOVE, NOT INSTEAD OF IT. One drops a conversation the model provider is
      * going to refuse; this replaces the stored reference a person's attachment arrives as with the
@@ -1648,33 +1751,64 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
      *
      * Nothing to load means nothing to inline, and the run goes up exactly as it did before any of
      * this existed.
-     */
-    if (!load)
-      return nativeApprovalRun({ ...input, messages: history }, () =>
-        observeModelConnection(super.run({ ...input, messages: history })),
-      );
-    /*
+     *
      * Deferred, because `run` has to answer with a stream straight away and reading the bytes is a
      * database round trip. `defer` puts that read on the subscription, which is where the run
      * actually begins, so nothing is fetched until somebody is listening.
      */
-    return defer(() =>
-      from(
-        inlineAttachments(
-          history,
-          load,
-          // As above: the run's own conversation, not the actor's channels at large.
-          input.threadId,
-          this.markAttachmentsSent,
-        ),
-      ).pipe(
-        switchMap((messages) =>
-          nativeApprovalRun({ ...input, messages }, () =>
-            observeModelConnection(super.run({ ...input, messages })),
-          ),
-        ),
-      ),
-    );
+    const stream = load
+      ? defer(() =>
+          from(
+            inlineAttachments(
+              history,
+              load,
+              // As above: the run's own conversation, not the actor's channels at large.
+              input.threadId,
+              this.markAttachmentsSent,
+            ),
+          ).pipe(switchMap(start)),
+        )
+      : defer(() => start(history));
+    return this.observed(input, stream);
+  }
+
+  /**
+   * The run, measured and stoppable as one thing.
+   *
+   * Timed into the run's `[timing]` line (run-timing.ts), with the model's calls told which Bot and
+   * conversation they belong to (model-tuning.ts), and ended by {@link abortRun} even while no model
+   * call is in flight, such as while a computer tool is executing between two of them.
+   */
+  private observed(
+    input: RunAgentInput,
+    stream: Observable<BaseEvent>,
+  ): Observable<BaseEvent> {
+    return new Observable<BaseEvent>((subscriber) => {
+      const stop = new AbortController();
+      this.activeRun = stop;
+      const timing = beginRunTiming(input.threadId, input.runId);
+      const subscription = withModelRun(
+        {
+          botId: this.runOptions.botId ?? this.agentId ?? "",
+          threadId: input.threadId,
+          runId: input.runId,
+        },
+        () =>
+          stream
+            .pipe(takeUntil(fromEvent(stop.signal, "abort")))
+            .subscribe(subscriber),
+      );
+      return () => {
+        subscription.unsubscribe();
+        if (this.activeRun === stop) this.activeRun = undefined;
+        endRunTiming(timing);
+      };
+    });
+  }
+
+  abortRun(): void {
+    this.activeRun?.abort();
+    super.abortRun();
   }
 
   /**
@@ -1692,6 +1826,7 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
       this.configuration,
       this.loadAttachment,
       this.markAttachmentsSent,
+      this.runOptions,
     );
     type WithMiddlewares = { middlewares: unknown[] };
     (cloned as unknown as WithMiddlewares).middlewares = [
@@ -1869,6 +2004,8 @@ export async function resolveRuntimeAgents(
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemory?: LoadPersonalMemory,
+  /** Appended last, positionally. See {@link buildAgents}. */
+  computerInRun?: ComputerInRun,
 ): Promise<Record<string, AbstractAgent>> {
   const all = await loadAgents();
   if (all.length === 0) {
@@ -1905,6 +2042,7 @@ export async function resolveRuntimeAgents(
     markAttachmentsSent,
     acquireLearnedSkills,
     loadPersonalMemory,
+    computerInRun,
   );
 }
 
@@ -2012,10 +2150,58 @@ export function createRequestAgents(
   markAttachmentsSentForActor?: (actorId: string) => MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemoryForActor?: (actorId: string) => LoadPersonalMemory,
+  /** Named rather than positional, so what comes next does not shift anybody's arguments. */
+  extras: RequestAgentExtras = {},
 ) {
-  return async ({ request }: { request: Request }) => {
-    const actor = await identifyActor(request);
-    return resolveRuntimeAgents(
+  const buildTtlMs = extras.buildTtlMs ?? AGENT_BUILD_TTL_MS;
+  /*
+   * One person's built Bots, reused for a few seconds.
+   *
+   * Every runtime request (a run, a connect, a stop, the info call) built every Bot this person can
+   * see: their grants, their skills, their instructions, the vendors, all read again. A browser turn
+   * makes several of those requests in a row. The map is a template the runtime clones before each
+   * run, so sharing it across requests changes nothing a run can see beyond the build's own reads,
+   * and those are what {@link invalidateAgentBuilds} and the time limit bound.
+   */
+  const builds = new Map<
+    string,
+    {
+      at: number;
+      generation: number;
+      agents: Promise<Record<string, AbstractAgent>>;
+    }
+  >();
+  return async ({ request }: { request: Request }) =>
+    // The per-person agent build, measured: it runs on every runtime request. See run-timing.ts.
+    timed("agent_build", async () => {
+      const actor = await identifyActor(request);
+      const key = JSON.stringify([actor.id, actor.role]);
+      const cached = builds.get(key);
+      if (
+        cached &&
+        cached.generation === agentBuildGeneration &&
+        Date.now() - cached.at < buildTtlMs
+      )
+        return cached.agents;
+      for (const [other, entry] of builds)
+        if (Date.now() - entry.at >= buildTtlMs) builds.delete(other);
+      const agents = buildForActor(actor);
+      builds.set(key, {
+        at: Date.now(),
+        generation: agentBuildGeneration,
+        agents,
+      });
+      // A failed build is never served again: the next request tries afresh.
+      agents.catch(() => {
+        if (builds.get(key)?.agents === agents) builds.delete(key);
+      });
+      return agents;
+    });
+
+  async function buildForActor(
+    actor: AgentActor,
+  ): Promise<Record<string, AbstractAgent>> {
+    const agents = await resolveRuntimeAgents(
       () => loadAgents(actor),
       model,
       resolveModelApiKey,
@@ -2037,8 +2223,102 @@ export function createRequestAgents(
       markAttachmentsSentForActor?.(actor.id),
       acquireLearnedSkills,
       loadPersonalMemoryForActor?.(actor.id),
+      extras.computerInRun?.(actor),
     );
-  };
+    extras.decorate?.(actor, agents);
+    return agents;
+  }
+}
+
+/** How long one person's built Bots are reused across runtime requests. */
+export const AGENT_BUILD_TTL_MS = 10_000;
+let agentBuildGeneration = 0;
+
+/**
+ * Something a person's Bots are built from changed (a Bot, a grant, an instruction): every request
+ * after this builds them again rather than reusing a build from before the change.
+ */
+export function invalidateAgentBuilds(): void {
+  agentBuildGeneration += 1;
+}
+
+/** The request path's named options. See {@link createRequestAgents}. */
+export type RequestAgentExtras = {
+  /** How long a build is reused; zero builds on every request. */
+  buildTtlMs?: number;
+  /**
+   * Called once per build with the person and their Bots, to attach middleware every run of theirs
+   * gets: the saved-call ledger's observer (runs/ledger.ts).
+   */
+  decorate?: (actor: AgentActor, agents: Record<string, AbstractAgent>) => void;
+  /**
+   * COMPUTER_TOOLS_IN_RUN: how this person's built-in Bots carry out computer tools inside the run.
+   * Absent (the flag off, or no computer), every computer tool stays the browser's, as before.
+   */
+  computerInRun?: (actor: AgentActor) => ComputerInRun | undefined;
+};
+
+/**
+ * The server's computer tools for one person's chat runs, and where a run that stops to wait for
+ * them is recorded. See `HeadlessToolsMiddleware` (interactive) and runs/waits.ts.
+ */
+export type ComputerInRun = {
+  /** This Bot's computer tools for this person; empty when they may not use its computer. */
+  tools(botId: string): Promise<HeadlessTool[]>;
+  onWaiting?(botId: string, wait: HeadlessWait): Promise<void>;
+};
+
+/** How many model turns a run with computer tools may take: a browser task is many small steps. */
+export const COMPUTER_TOOL_STEPS = 60;
+
+/** A computer turn's tool loop may take {@link COMPUTER_TOOL_STEPS} steps rather than eight. */
+function withComputerSteps(
+  computer: boolean,
+  configuration: BuiltInAgentConfiguration,
+): BuiltInAgentConfiguration {
+  return computer &&
+    !("factory" in configuration) &&
+    configuration.maxSteps !== undefined
+    ? { ...configuration, maxSteps: COMPUTER_TOOL_STEPS }
+    : configuration;
+}
+
+/** An agent whose run is one model segment, for the in-run executor to call between tools. */
+class SegmentAgent extends AbstractAgent {
+  constructor(
+    private readonly segment: (input: RunAgentInput) => Observable<BaseEvent>,
+  ) {
+    super();
+  }
+  run(input: RunAgentInput): Observable<BaseEvent> {
+    return this.segment(input);
+  }
+}
+
+/**
+ * The in-run executor for one built-in Bot, or undefined when its computer tools stay the browser's.
+ *
+ * The tools are resolved per run, as the person whose run it is, so a Bot they may no longer use the
+ * computer of gets none; with none, the run is the plain segment it always was.
+ */
+function inRunExecutor(
+  botId: string,
+  computerInRun: ComputerInRun | undefined,
+): InRunExecutor | undefined {
+  if (!computerInRun) return undefined;
+  return (input, segment) =>
+    defer(() => from(computerInRun.tools(botId))).pipe(
+      switchMap((tools) =>
+        tools.length === 0
+          ? segment(input)
+          : new HeadlessToolsMiddleware(tools, undefined, {
+              interactive: true,
+              maxSegments: COMPUTER_TOOL_STEPS,
+              onWaiting: (wait) =>
+                computerInRun.onWaiting?.(botId, wait) ?? Promise.resolve(),
+            }).run(input, new SegmentAgent(segment)),
+      ),
+    );
 }
 
 /**
@@ -2183,10 +2463,26 @@ class IntelligenceKnowingANewThread extends CopilotKitIntelligence {
   override getThreadMessages(
     params: Parameters<CopilotKitIntelligence["getThreadMessages"]>[0],
   ) {
-    return withPlatformRetry(() =>
-      historyOrEmpty(() => super.getThreadMessages(params), {
-        messages: [],
-      }),
+    return timed(
+      "history",
+      () =>
+        withPlatformRetry(() =>
+          historyOrEmpty(() => super.getThreadMessages(params), {
+            messages: [],
+          }),
+        ),
+      params.threadId,
+    );
+  }
+
+  /** Measured only: the thread every run gets or creates first. See run-timing.ts. */
+  override getOrCreateThread(
+    params: Parameters<CopilotKitIntelligence["getOrCreateThread"]>[0],
+  ) {
+    return timed(
+      "thread",
+      () => super.getOrCreateThread(params),
+      params.threadId,
     );
   }
 
@@ -2194,9 +2490,14 @@ class IntelligenceKnowingANewThread extends CopilotKitIntelligence {
   override ɵacquireThreadLock(
     params: Parameters<CopilotKitIntelligence["ɵacquireThreadLock"]>[0],
   ) {
-    return withPlatformRetry(() => super.ɵacquireThreadLock(params), {
-      statuses: LOCK_STATUSES,
-    });
+    return timed(
+      "lock",
+      () =>
+        withPlatformRetry(() => super.ɵacquireThreadLock(params), {
+          statuses: LOCK_STATUSES,
+        }),
+      params.threadId,
+    );
   }
 }
 
@@ -2273,6 +2574,8 @@ export function mountCopilotRuntime(
   markAttachmentsSentForActor?: (actorId: string) => MarkAttachmentsSent,
   learningSettings?: LearningSettingsStore,
   loadPersonalMemoryForActor?: (actorId: string) => LoadPersonalMemory,
+  /** The request path's named options; see {@link RequestAgentExtras}. */
+  requestExtras?: RequestAgentExtras,
 ) {
   const { intelligence } = config.runtime;
 
@@ -2345,11 +2648,16 @@ export function mountCopilotRuntime(
             throw new Error(
               "Learning Thread assignment requires a verified user.",
             );
-          return learning?.containerForThread({
-            agentId,
-            threadId: input.threadId,
-            userId: user.id,
-          });
+          return timed(
+            "learning",
+            async () =>
+              learning?.containerForThread({
+                agentId,
+                threadId: input.threadId,
+                userId: user.id,
+              }),
+            input.threadId,
+          );
         },
       }),
     );
@@ -2424,6 +2732,7 @@ export function mountCopilotRuntime(
       markAttachmentsSentForActor,
       learning?.acquire,
       loadPersonalMemoryForActor,
+      requestExtras,
     ) as never,
   });
 

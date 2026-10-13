@@ -1,3 +1,4 @@
+import { tryClient } from "@/lib/client";
 import type {
   BrowserChallenge,
   HandoffRequest,
@@ -297,4 +298,112 @@ export async function runBrowserRead(
   rememberHandoff(botId, challenge.requestId, toolCallId);
   const resumed = await awaitHandoff(botId, challenge.requestId, signal);
   return { ...resumed, challenge, challengeResolved: resumed.ok };
+}
+
+/**
+ * A computer call the server carried out inside the run that stopped to wait for the person
+ * (COMPUTER_TOOLS_IN_RUN): a sign-in, a takeover, a secret, an approval. See server/src/runs/waits.ts.
+ *
+ * `ready` means the person has answered and the run can continue; `claimed` means somebody already
+ * continued it (the server, another tab) or the person stopped it.
+ */
+export type ServerWait = {
+  kind: string;
+  requestId: string | null;
+  status: "waiting" | "ready" | "claimed";
+  claimedBy?: string;
+};
+
+const waitPath = (threadId: string, toolCallId: string) =>
+  `/api/runs/waits/${encodeURIComponent(threadId)}/${encodeURIComponent(toolCallId)}`;
+
+/** The server's wait for this call, or null when the server did not carry the call out. */
+export async function readServerWait(
+  threadId: string,
+  toolCallId: string,
+  signal?: AbortSignal,
+): Promise<ServerWait | null> {
+  const response = await tryClient(waitPath(threadId, toolCallId), { signal });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("The paused task could not be checked.");
+  const body = (await response.json()) as Partial<ServerWait>;
+  return typeof body.kind === "string" &&
+    (body.status === "waiting" ||
+      body.status === "ready" ||
+      body.status === "claimed")
+    ? {
+        kind: body.kind,
+        requestId: typeof body.requestId === "string" ? body.requestId : null,
+        status: body.status,
+        ...(typeof body.claimedBy === "string"
+          ? { claimedBy: body.claimedBy }
+          : {}),
+      }
+    : null;
+}
+
+/**
+ * Take the answered wait so this tab continues the run. The content is the tool result the server
+ * built from the request itself; null when somebody else continued it first.
+ */
+export async function claimServerWait(
+  threadId: string,
+  toolCallId: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const response = await tryClient(`${waitPath(threadId, toolCallId)}/claim`, {
+    method: "POST",
+    body: {},
+    signal,
+  });
+  if (!response.ok) return null;
+  const body = (await response.json()) as {
+    claimed?: boolean;
+    content?: unknown;
+  };
+  return body.claimed === true && typeof body.content === "string"
+    ? body.content
+    : null;
+}
+
+/** The person stopped the turn: nobody, the server included, may continue it. */
+export async function stopServerWait(
+  threadId: string,
+  toolCallId: string,
+): Promise<void> {
+  await tryClient(`${waitPath(threadId, toolCallId)}/claim`, {
+    method: "POST",
+    body: { stop: true },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined);
+}
+
+/**
+ * Wait for the person to answer a server wait, as long as the server keeps it open.
+ *
+ * `ready`: answered, claim it. `claimed`: continued elsewhere. `gone`: the server no longer has it.
+ * `stopped`: this wait was aborted. A few unreadable answers in a row are tolerated, like a takeover.
+ */
+export async function awaitServerWait(
+  threadId: string,
+  toolCallId: string,
+  signal?: AbortSignal,
+  pollMs = 1000,
+): Promise<"ready" | "claimed" | "gone" | "stopped"> {
+  let failures = 0;
+  while (!signal?.aborted) {
+    const wait = await readServerWait(threadId, toolCallId, signal).catch(
+      () => undefined,
+    );
+    if (signal?.aborted) break;
+    if (wait === null) return "gone";
+    if (wait === undefined) {
+      if (++failures >= 30) return "gone";
+    } else {
+      failures = 0;
+      if (wait.status !== "waiting") return wait.status;
+    }
+    await pause(pollMs, signal);
+  }
+  return "stopped";
 }

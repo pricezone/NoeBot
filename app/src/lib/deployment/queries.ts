@@ -37,6 +37,12 @@ export type DeploymentCapabilities = {
    * a new tab, never fetched. Absent when the server named none.
    */
   billingUrl?: string;
+  /**
+   * Whether chat runs carry out computer tools on the server (COMPUTER_TOOLS_IN_RUN). On, the
+   * browser draws the calls and only resumes a run that stopped to wait for the person; see
+   * `useFrontendTool` in lib/copilot/approval-tools.tsx.
+   */
+  computerToolsInRun?: boolean;
 };
 
 export const deploymentKeys = {
@@ -77,6 +83,7 @@ export function deploymentCapabilitiesQueryOptions() {
         voice?: boolean;
         usage?: boolean;
         billingUrl?: string | null;
+        computerToolsInRun?: boolean;
       };
 
       return {
@@ -85,6 +92,10 @@ export function deploymentCapabilitiesQueryOptions() {
         transcription: body.transcription === true,
         voice: body.voice === true,
         usage: body.usage === true,
+        // Only when on: absent reads as off, and an older server says nothing.
+        ...(body.computerToolsInRun === true
+          ? { computerToolsInRun: true }
+          : {}),
         // A string or nothing: the server answers null when it has no billing page, and an older
         // server answers no field at all. Both read as "no link to offer".
         ...(typeof body.billingUrl === "string" && body.billingUrl

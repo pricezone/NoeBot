@@ -44,6 +44,7 @@ import {
   recentTurnCount,
 } from "./agents/lifecycle";
 import { createBotReset } from "./agents/lifecycle-reset";
+import { reasoningEffortFrom } from "./agents/model-tuning";
 import { createAgentProfileStore } from "./agents/profile-store";
 import type { AgentActor } from "./agents/profile-types";
 import { agentDto } from "./agents/routes";
@@ -128,6 +129,7 @@ import { createComputerGateway } from "./computer/gateway";
 import {
   createHeadlessComputerTools,
   HeadlessToolSuspension,
+  type HeadlessWait,
 } from "./computer/headless-tools";
 import { createPageFrameStore } from "./computer/page-frames";
 import { startPolicyListener } from "./computer/policy-listener";
@@ -146,6 +148,7 @@ import { loadConfig } from "./config";
 import {
   type IdentifyActor,
   type IdentifyUser,
+  invalidateAgentBuilds,
   mountCopilotRuntime,
   normalizeModelBaseUrls,
   resolveRuntimeAgents,
@@ -196,7 +199,7 @@ import { createMemoryStore } from "./memory/store";
 import { memoryTools } from "./memory/tools";
 import { createModelKeyRoutes } from "./model-key/routes";
 import { createSignInNotifier, createSignInResumer } from "./passwords/resume";
-import { createSignInService } from "./passwords/service";
+import { createSignInService, signInToolResult } from "./passwords/service";
 import { createPasswordStore } from "./passwords/store";
 import { createOnboardingStore } from "./people/onboarding";
 import { createPeopleStore } from "./people/store";
@@ -254,6 +257,20 @@ import { createRoutineRunner } from "./routines/runner";
 import { createRoutineStore } from "./routines/store";
 import { createIntentRouter } from "./routing/classify";
 import { createModelCompleter } from "./routing/model";
+import { timedFetch } from "./run-timing";
+import {
+  createToolCallLedger,
+  LEDGER_TTL_MS,
+  ToolCallLedgerMiddleware,
+} from "./runs/ledger";
+import {
+  createRunWaitResumer,
+  createRunWaitRoutes,
+  createRunWaitStore,
+  createWaitResolver,
+  RUN_WAIT_TTL_MS,
+  waitFromSuspension,
+} from "./runs/waits";
 import { createSelfHostBanner } from "./self-host-banner";
 import { createTeamBots } from "./team-bots/team-bots";
 import {
@@ -528,6 +545,26 @@ const authoriseQuestion = async (question: PersonQuestion) => {
   )
     throw new ApprovalRefusedError("That Bot is no longer available to you.");
 };
+/**
+ * The saved-call ledger: every computer call a person's run streamed, recorded by the server's own
+ * observer on the agent stream, so the approval gate below checks a browser-executed action in one
+ * read instead of waiting for the conversation service to save it. See runs/ledger.ts.
+ */
+const toolCallLedger = createToolCallLedger(database);
+/**
+ * Computer tools the server carried out inside a chat run that are waiting on the person, and who
+ * resumes each: the open tab, or the server when none claims it. See runs/waits.ts.
+ */
+const runWaitStore = createRunWaitStore(database);
+// Both are worth a day at most; a browser acts on a call within seconds of its run ending.
+setInterval(() => {
+  void toolCallLedger
+    .purge(new Date(Date.now() - LEDGER_TTL_MS))
+    .catch(() => undefined);
+  void runWaitStore
+    .purge(new Date(Date.now() - RUN_WAIT_TTL_MS))
+    .catch(() => undefined);
+}, 60 * 60_000).unref?.();
 const storedApprovals = createApprovalStore(database);
 const approvalService = createApprovalService(
   {
@@ -601,10 +638,22 @@ const approvalService = createApprovalService(
      * that never appears is refused; and a service that cannot be read at all answers "unavailable",
      * never a refusal (see saved-call.ts for why that distinction was worth a module).
      */
+    const ledgerCall = {
+      threadId: snapshot.threadId,
+      toolCallId: snapshot.toolCallId,
+      ownerUserId,
+      toolName: snapshot.toolName,
+      args: snapshot.args,
+    };
     await requireSavedToolCall({
       toolCallId: snapshot.toolCallId,
       toolName: snapshot.toolName,
       args: snapshot.args,
+      // The server's own record of the call first: one read, and the call is used once.
+      ledger: {
+        consume: () => toolCallLedger.consume(ledgerCall),
+        settle: () => toolCallLedger.settle({ ...ledgerCall, botId }),
+      },
       read: () =>
         routineIntelligence.getThreadMessages({
           threadId: snapshot.threadId,
@@ -718,8 +767,21 @@ const signInService = computerGateway
           database,
           resumeResponsibility: (owner, runId, result) =>
             responsibilityStore.resumeWaiting(owner, runId, result),
-          continueTurn: ({ ownerUserId, botId, snapshot, result, messageId }) =>
-            approvalContinuationRunner({
+          continueTurn: async ({
+            ownerUserId,
+            botId,
+            snapshot,
+            result,
+            messageId,
+          }) => {
+            // A chat run waiting on this sign-in is resumed by its tab, or by the run-wait sweep.
+            if (
+              await runWaitStore
+                .get(ownerUserId, snapshot.threadId, snapshot.toolCallId)
+                .catch(() => undefined)
+            )
+              return {};
+            return approvalContinuationRunner({
               ownerUserId,
               routineId: "sign-in",
               agentId: botId,
@@ -727,7 +789,8 @@ const signInService = computerGateway
               instruction: "",
               initiator: snapshot.initiator ?? PERSON_INITIATOR,
               continuation: { snapshot, result, messageId },
-            }),
+            });
+          },
           recordReply: async ({
             ownerUserId,
             channelId,
@@ -1018,7 +1081,11 @@ const stallGuard = createStallGuard({
 });
 
 normalizeModelBaseUrls();
-const runtimeModel = runtimeModelForEnvironment(tenantPackage.model);
+const runtimeModel = {
+  ...runtimeModelForEnvironment(tenantPackage.model),
+  // How hard the built-in Bots think per step; refused at boot when it is not a known effort.
+  reasoningEffort: reasoningEffortFrom(process.env),
+};
 
 const intentRouter = createIntentRouter({
   complete: createModelCompleter({
@@ -1853,6 +1920,59 @@ const copilotRuntime = mountCopilotRuntime(
   markAttachmentsSentForActor,
   learningSettings,
   loadPersonalMemoryForActor,
+  {
+    /*
+     * COMPUTER_TOOLS_IN_RUN: a person's chat run carries out its computer tools here, as soon as the
+     * model has written each call, through the same governed gateway (policy, approvals, audit) the
+     * browser's calls reach. A Bot whose computer this person may not use gets none.
+     */
+    ...(config.computerToolsInRun && computerGateway
+      ? {
+          computerInRun: (actor: AgentActor) => ({
+            tools: async (botId: string) => {
+              const profile = await agentProfileStore
+                .get(actor, botId)
+                .catch(() => null);
+              if (!profile || !canUseComputer(profile, actor)) return [];
+              return createHeadlessComputerTools({
+                gateway: computerGateway,
+                botId,
+                actor: {
+                  id: actor.id,
+                  userId: actor.id,
+                  initiator: PERSON_INITIATOR,
+                },
+                auditStore: bootAuditStore,
+                // The open chat's sign-in: the card is in front of the person, so nothing is sent
+                // to their phone, exactly as when the browser asked.
+                ...(signInService
+                  ? {
+                      signIn: {
+                        request: (input) =>
+                          signInService.request({ ...input, notify: false }),
+                      },
+                    }
+                  : {}),
+              });
+            },
+            onWaiting: (botId: string, wait: HeadlessWait) =>
+              runWaitStore.open(
+                waitFromSuspension(wait, { ownerUserId: actor.id, botId }),
+              ),
+          }),
+        }
+      : {}),
+    // Every computer call a person's run streams goes into the saved-call ledger, by the server.
+    decorate: (actor, agents) => {
+      for (const [botId, agent] of Object.entries(agents))
+        agent.use(
+          new ToolCallLedgerMiddleware(toolCallLedger, {
+            ownerUserId: actor.id,
+            botId,
+          }),
+        );
+    },
+  },
 );
 
 const responsibilityQueue = createWorkQueue(database);
@@ -2093,6 +2213,89 @@ const approvalContinuationRunner = createTurnRunner({
     copilotRuntime.learning?.containerForThread(input) ??
     Promise.resolve(undefined),
 });
+/*
+ * Which in-run computer waits have been answered, and the tool result each resumes with: the
+ * sign-in request, the computer's control state, a fresh snapshot after a takeover. Shared by the
+ * tab's claim route and the server's sweep, so both resume a run with the same result.
+ */
+const runWaitResolver = createWaitResolver({
+  ...(computerGateway
+    ? {
+        control: (botId: string, requestId?: string) =>
+          computerGateway.control(botId, requestId),
+        snapshot: (botId: string) => computerGateway.snapshot(botId),
+      }
+    : {}),
+  ...(signInService
+    ? {
+        signIn: (ownerUserId: string, requestId: string) =>
+          signInService.record(ownerUserId, requestId).catch(() => undefined),
+        signInResult: async (ownerUserId: string, requestId: string) =>
+          signInToolResult(await signInService.record(ownerUserId, requestId)),
+      }
+    : {}),
+});
+/*
+ * The server's half of resuming an in-run wait: answered, and no tab claimed it within a few
+ * seconds, so the turn continues here, exactly as an approved action does, and its reply lands in
+ * the channel. This is what lets a browser task survive its tab being closed.
+ */
+const runWaitResumer = createRunWaitResumer({
+  store: runWaitStore,
+  resolver: runWaitResolver,
+  continueTurn: async (wait, content) => {
+    const messageId = `run-wait-result:${wait.toolCallId}`;
+    const snapshot = parseApprovalContinuation(wait.continuation);
+    let replyText: string | undefined;
+    try {
+      ({ replyText } = await approvalContinuationRunner({
+        ownerUserId: wait.ownerUserId,
+        routineId: "computer",
+        agentId: wait.botId,
+        threadId: wait.threadId,
+        instruction: "",
+        initiator: snapshot.initiator ?? PERSON_INITIATOR,
+        continuation: { snapshot, result: { content }, messageId },
+      }));
+    } catch (error) {
+      // Waiting again (another sign-in, another approval) is a turn that stopped, not one that failed.
+      if (error instanceof HeadlessToolSuspension) return;
+      throw error;
+    }
+    const [source] = await database
+      .select({ channelId: intelligenceChannelMappings.channelId })
+      .from(intelligenceChannelMappings)
+      .where(
+        and(
+          eq(intelligenceChannelMappings.userId, wait.ownerUserId),
+          eq(intelligenceChannelMappings.threadId, wait.threadId),
+        ),
+      )
+      .limit(1);
+    if (source && replyText)
+      await channelStore.recordActivity(
+        await actorFor(wait.ownerUserId),
+        source.channelId,
+        { text: replyText, agentId: wait.botId, at: new Date() },
+        { id: messageId },
+      );
+  },
+});
+const runWaitSweep = config.computerToolsInRun
+  ? repeatAfterEach(async () => {
+      try {
+        await runWaitResumer();
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            type: "run-wait-sweep-error",
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }
+    }, 2_000)
+  : undefined;
 /*
  * A Bot made in one click opens its own conversation. The same runner as an approved action resuming
  * or a Slack message arriving, because it is the same thing: one of the person's own turns, run here
@@ -3197,6 +3400,9 @@ const app = createApp(
     firstTurn,
     botTemplates: botTemplateRoutes,
     modelKey: modelKeyRoutes,
+    // Where the open tab finds and claims an in-run computer wait. See runs/waits.ts.
+    runWaits: (requireUser) =>
+      createRunWaitRoutes(runWaitStore, runWaitResolver, requireUser),
     lifecycle: {
       lifecycle: createBotLifecycleStore(database),
       reset: createBotReset({
@@ -3321,6 +3527,32 @@ const isProxiedStream = (data: SocketData): data is StreamData =>
 const asChannelSocket = (ws: { data: SocketData }) =>
   ws as unknown as ChannelSocket;
 
+/**
+ * Whether a request may change what a person's Bots are built from: a Bot, a grant, a connector, an
+ * instruction. Any write outside the busy paths that never do (a run, a computer action, channel
+ * activity) counts, so a write nobody listed still drops the reused builds. See
+ * `invalidateAgentBuilds` in copilot.ts; a change that arrives any other way waits out its ten seconds.
+ */
+const BUILD_NEUTRAL_WRITES = [
+  "/api/copilotkit",
+  "/api/approvals/computer",
+  "/api/computers/",
+  "/api/channels",
+  "/api/runs/",
+  "/api/attachments",
+  "/api/dictation",
+  "/api/voice",
+  "/api/audio/",
+];
+function changesAgentBuilds(request: Request): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return false;
+  const path = new URL(request.url).pathname;
+  return (
+    path.startsWith("/api/") &&
+    !BUILD_NEUTRAL_WRITES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
 serve<SocketData>({
   port,
   /*
@@ -3409,7 +3641,15 @@ serve<SocketData>({
       }
       return new Response("Expected a WebSocket upgrade.", { status: 400 });
     }
-    return app.fetch(request, { server });
+    if (!changesAgentBuilds(request))
+      return timedFetch(request, () => app.fetch(request, { server }));
+    // Before and after: a run that starts while the change is being written must not keep the old build.
+    invalidateAgentBuilds();
+    try {
+      return await app.fetch(request, { server });
+    } finally {
+      invalidateAgentBuilds();
+    }
   },
   websocket: {
     open(ws) {
@@ -3528,6 +3768,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     memorySweep.stop();
     proactiveSweep.stop();
     approvalSweep.stop();
+    runWaitSweep?.stop();
     personResponseSweep.stop();
     groupSweep.stop();
     for (const sweep of deliverySweeps) sweep.stop();

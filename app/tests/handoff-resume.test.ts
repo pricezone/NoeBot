@@ -144,3 +144,74 @@ test("an interrupted restored handoff continues with an honest failure result", 
   expect(result?.content).toContain('"handoffStatus":"interrupted"');
   expect(r.order).toEqual(["result", "run"]);
 });
+
+/**
+ * A takeover the server ran inside the run (COMPUTER_TOOLS_IN_RUN) has a wait the server recorded.
+ * Resuming it here claims that wait, so the server does not continue the same turn as well, and
+ * resumes with the result the server built rather than one this tab put together.
+ */
+test("an in-run wait is claimed from the server and resumed with the server's result", async () => {
+  const r = resumedAgent();
+  const asked: string[] = [];
+  fetchSpy.mockImplementation(
+    Object.assign(
+      async (path: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        asked.push(`${init?.method ?? "GET"} ${String(path)}`);
+        return String(path).endsWith("/claim")
+          ? Response.json({
+              claimed: true,
+              content: '{"ok":true,"handoffStatus":"completed","snapshotId":9}',
+            })
+          : Response.json({
+              kind: "computer_handoff",
+              requestId: "request-1",
+              status: "ready",
+            });
+      },
+      { preconnect: () => undefined },
+    ),
+  );
+  await resumeHandoffTask(
+    "bot-1",
+    pending,
+    { ...r.agent, threadId: "thread-1", setMessages: r.agent.setMessages },
+    r.run,
+  );
+  expect(asked).toEqual([
+    "GET /api/runs/waits/thread-1/tool-1",
+    "POST /api/runs/waits/thread-1/tool-1/claim",
+  ]);
+  expect(r.order).toEqual(["result", "run"]);
+  expect(r.agent.messages.at(-1)).toMatchObject({
+    role: "tool",
+    toolCallId: "tool-1",
+    content: '{"ok":true,"handoffStatus":"completed","snapshotId":9}',
+  });
+});
+
+test("an in-run wait somebody else already continued is not continued again", async () => {
+  const r = resumedAgent();
+  fetchSpy.mockImplementation(
+    Object.assign(
+      async (path: Parameters<typeof fetch>[0]) =>
+        String(path).endsWith("/claim")
+          ? Response.json({ claimed: false })
+          : Response.json({
+              kind: "computer_handoff",
+              requestId: "request-1",
+              status: "claimed",
+              claimedBy: "server",
+            }),
+      { preconnect: () => undefined },
+    ),
+  );
+  await expect(
+    resumeHandoffTask(
+      "bot-1",
+      pending,
+      { ...r.agent, threadId: "thread-1", setMessages: r.agent.setMessages },
+      r.run,
+    ),
+  ).rejects.toThrow("already continued");
+  expect(r.order).toEqual([]);
+});

@@ -3,13 +3,13 @@ import {
   CopilotKitIntelligence,
   LearnedSkillsError,
 } from "@copilotkit/runtime/v2";
+import type { LearningSettings } from "../../shared/learning";
 import {
-  createLearningRuntime,
   clearLearningRevisionFallback,
+  createLearningRuntime,
   selectLearningTarget,
 } from "../src/learning/runtime";
 import type { LearningSettingsStore } from "../src/learning/settings";
-import type { LearningSettings } from "../../shared/learning";
 import { skillSnapshot } from "./fixtures/learned-skills";
 
 function fixture() {
@@ -364,4 +364,73 @@ test("cancelling one acquisition leaves another run's shared refresh alive", asy
   snapshot.resolve(skillSnapshot());
   expect((await second)?.catalog).toContain("public-answer");
   expect(reads).toBe(1);
+});
+
+describe("the Learning container a conversation keeps", () => {
+  const thread = { userId: "person", threadId: "thread-cache", agentId: "bot" };
+
+  test("is looked up once: later runs skip the platform and the binding write", async () => {
+    const f = fixture();
+    let lookups = 0;
+    let binds = 0;
+    const getThread = f.client.getThread.bind(f.client);
+    f.client.getThread = async (input) => {
+      lookups++;
+      return getThread(input);
+    };
+    const bindThread = f.store.bindThread;
+    f.store.bindThread = async (input) => {
+      binds++;
+      return bindThread(input);
+    };
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    const [first, second] = await Promise.all([
+      runtime.containerForThread(thread),
+      runtime.containerForThread(thread),
+    ]);
+    expect(first).toBe("openbot");
+    expect(second).toBe("openbot");
+    await expect(runtime.containerForThread(thread)).resolves.toBe("openbot");
+    expect(lookups).toBe(1);
+    expect(binds).toBe(1);
+  });
+
+  test("switching Learning off still reaches the next run of a remembered conversation", async () => {
+    const f = fixture();
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    await expect(runtime.containerForThread(thread)).resolves.toBe("openbot");
+    await f.store.write({ enabled: false, defaultTarget: null, agents: {} });
+    await expect(runtime.containerForThread(thread)).resolves.toBeUndefined();
+  });
+
+  test("an answer the platform could not give is asked again, not remembered", async () => {
+    const f = fixture();
+    let calls = 0;
+    f.client.getThread = async () => {
+      calls++;
+      throw platformError(503);
+    };
+    const runtime = createLearningRuntime({ store: f.store, client: f.client });
+    await expect(runtime.containerForThread(thread)).resolves.toBeUndefined();
+    await expect(runtime.containerForThread(thread)).resolves.toBeUndefined();
+    expect(calls).toBe(4);
+  });
+
+  test("is asked again once its time is up", async () => {
+    const f = fixture();
+    let lookups = 0;
+    const getThread = f.client.getThread.bind(f.client);
+    f.client.getThread = async (input) => {
+      lookups++;
+      return getThread(input);
+    };
+    const runtime = createLearningRuntime({
+      store: f.store,
+      client: f.client,
+      containerTtlMs: 0,
+    });
+    await runtime.containerForThread(thread);
+    await runtime.containerForThread(thread);
+    expect(lookups).toBe(2);
+  });
 });

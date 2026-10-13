@@ -58,6 +58,7 @@ import {
 import { useConversationActivity } from "@/lib/computers/use-computer-sleep";
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { observeApprovalAgent } from "@/lib/copilot/approval-context";
+import { runWithContinuationRetry } from "@/lib/copilot/continuation-retry";
 import { ConversationProvider } from "@/lib/copilot/conversation";
 import { afterMs, joinWithin } from "@/lib/copilot/join-thread";
 import {
@@ -933,9 +934,27 @@ export function ChannelChat({
 
     setRunsInFlight((count) => count + 1);
     try {
-      await withVoiceContext(copilotkit, target.agentId, voiceHistory, () =>
-        copilotkit.runAgent({ agent: target }),
+      // A browser step followed by silence is retried once, then failed out loud: continuation-retry.ts.
+      const stoppedAt = stopEpoch.current;
+      const stalled = await withVoiceContext(
+        copilotkit,
+        target.agentId,
+        voiceHistory,
+        () =>
+          runWithContinuationRetry({
+            agent: target,
+            run: () => copilotkit.runAgent({ agent: target }),
+            before: existingMessageIds,
+            followsUp: (toolName) =>
+              copilotkit.getTool({ toolName, agentId: target.agentId })
+                ?.followUp !== false,
+            stopped: () => stopEpoch.current !== stoppedAt,
+          }),
       );
+      if (stalled && turnFailure.current === null) {
+        turnFailure.current = stalled;
+        setRunError(stalled);
+      }
     } finally {
       setRunsInFlight((count) => count - 1);
     }
