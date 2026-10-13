@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { ApprovalContinuation } from "../approvals/types";
@@ -47,7 +47,8 @@ export type RunWait = {
   claimedBy: string | null;
 };
 
-export type ClaimedBy = "tab" | "server" | "stopped";
+/** `expired`: nobody answered in time, or it could not be checked; nobody continues it. */
+export type ClaimedBy = "tab" | "server" | "stopped" | "expired";
 
 export type RunWaitStore = {
   open(
@@ -65,8 +66,12 @@ export type RunWaitStore = {
     toolCallId: string,
     by: ClaimedBy,
   ): Promise<RunWait | undefined>;
-  /** Unclaimed rows of these kinds, oldest first. */
-  listOpen(kinds: readonly string[], limit: number): Promise<RunWait[]>;
+  /** Unclaimed rows of these kinds, oldest first, created after `after` when given. */
+  listOpen(
+    kinds: readonly string[],
+    limit: number,
+    after?: Date,
+  ): Promise<RunWait[]>;
   purge(before: Date): Promise<number>;
 };
 
@@ -153,12 +158,16 @@ export function createRunWaitStore(database?: Database): RunWaitStore {
         .returning();
       return row ? fromRow(row) : undefined;
     },
-    async listOpen(kinds, limit) {
+    async listOpen(kinds, limit, after) {
       const rows = await database
         .select()
         .from(runWaits)
         .where(
-          and(isNull(runWaits.claimedAt), inArray(runWaits.kind, [...kinds])),
+          and(
+            isNull(runWaits.claimedAt),
+            inArray(runWaits.kind, [...kinds]),
+            ...(after ? [gt(runWaits.createdAt, after)] : []),
+          ),
         )
         .orderBy(asc(runWaits.createdAt))
         .limit(limit);
@@ -202,9 +211,14 @@ function createInMemoryRunWaitStore(): RunWaitStore {
       row.claimedBy = by;
       return { ...row };
     },
-    async listOpen(kinds, limit) {
+    async listOpen(kinds, limit, after) {
       return [...rows.values()]
-        .filter((row) => !row.claimedAt && kinds.includes(row.kind))
+        .filter(
+          (row) =>
+            !row.claimedAt &&
+            kinds.includes(row.kind) &&
+            (!after || row.createdAt > after),
+        )
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
         .slice(0, limit)
         .map((row) => ({ ...row }));
@@ -243,6 +257,12 @@ const SIGN_IN_FINAL = new Set(["signed_in", "failed", "cancelled", "expired"]);
  * snapshot once a takeover is handed back, mirroring what the tab's handlers return.
  */
 export function createWaitResolver(deps: {
+  /**
+   * The computer's lifecycle state, read WITHOUT waking it. A takeover or a secret can only have
+   * been answered on a running computer, so one that is not running is not asked (asking would
+   * resume a suspended computer every few seconds for a wait nobody is answering).
+   */
+  status?: (botId: string) => Promise<{ state: string }>;
   control?: (botId: string, requestId?: string) => Promise<ControlState>;
   snapshot?: (botId: string) => Promise<object>;
   signIn?: (
@@ -260,8 +280,15 @@ export function createWaitResolver(deps: {
       ? args.label
       : "the value";
   };
+  const running = async (botId: string) =>
+    !deps.status || (await deps.status(botId)).state === "ready";
   return {
     async ready(wait) {
+      if (
+        (wait.kind === "computer_handoff" || wait.kind === "computer_secret") &&
+        !(await running(wait.botId))
+      )
+        return false;
       if (wait.kind === "computer_sign_in") {
         if (!wait.requestId || !deps.signIn) return false;
         const request = await deps.signIn(wait.ownerUserId, wait.requestId);
@@ -378,6 +405,12 @@ export function createWaitResolver(deps: {
  *
  * Called on a schedule. A wait first seen answered starts its grace then, so an open tab, which
  * polls every second, nearly always claims it first and the person watches the answer stream in.
+ *
+ * KIND TO THE COMPUTERS AND TO THE QUEUE. A wait nobody is answering is checked less and less often
+ * (doubling from `minDelayMs` to `maxDelayMs`), a wait that cannot be checked at all is given up
+ * after `maxFailures` tries, and one older than `maxAgeMs` is expired: nobody is continuing a turn
+ * from hours ago. The open waits are walked a page at a time from where the last sweep stopped, so
+ * a run of waits that never become ready can never hold newer ones back.
  */
 export function createRunWaitResumer(deps: {
   store: RunWaitStore;
@@ -385,37 +418,98 @@ export function createRunWaitResumer(deps: {
   continueTurn(wait: RunWait, content: string): Promise<void>;
   graceMs?: number;
   now?: () => number;
+  /** Rows read per sweep, and how many of those may be checked. */
+  pageSize?: number;
+  checksPerSweep?: number;
+  minDelayMs?: number;
+  maxDelayMs?: number;
+  maxFailures?: number;
+  maxAgeMs?: number;
 }) {
   const graceMs = deps.graceMs ?? 5_000;
   const now = deps.now ?? Date.now;
-  const answeredAt = new Map<string, number>();
+  const pageSize = deps.pageSize ?? 50;
+  const checksPerSweep = deps.checksPerSweep ?? 10;
+  const minDelayMs = deps.minDelayMs ?? 2_000;
+  const maxDelayMs = deps.maxDelayMs ?? 60_000;
+  const maxFailures = deps.maxFailures ?? 6;
+  const maxAgeMs = deps.maxAgeMs ?? 2 * 60 * 60_000;
+  /** Per wait: when it is next due, the current back-off, failures in a row, when first answered. */
+  const schedule = new Map<
+    string,
+    { due: number; delay: number; failures: number; answeredAt?: number }
+  >();
+  let cursor: Date | undefined;
+  const keyOf = (wait: RunWait) =>
+    JSON.stringify([wait.threadId, wait.toolCallId]);
+  const later = (key: string, failed: boolean) => {
+    const slot = schedule.get(key) ?? { due: 0, delay: 0, failures: 0 };
+    slot.delay = Math.min(
+      maxDelayMs,
+      slot.delay === 0 ? minDelayMs : slot.delay * 2,
+    );
+    slot.due = now() + slot.delay;
+    slot.failures = failed ? slot.failures + 1 : 0;
+    slot.answeredAt = undefined;
+    schedule.set(key, slot);
+    return slot;
+  };
+  const expire = async (wait: RunWait, key: string) => {
+    schedule.delete(key);
+    await deps.store
+      .claim(wait.ownerUserId, wait.threadId, wait.toolCallId, "expired")
+      .catch(() => undefined);
+  };
   return async function sweep(): Promise<number> {
     let resumed = 0;
-    const open = await deps.store.listOpen(SERVER_RESUMED_KINDS, 25);
-    const seen = new Set<string>();
-    for (const wait of open) {
-      const key = JSON.stringify([wait.threadId, wait.toolCallId]);
-      seen.add(key);
+    let checked = 0;
+    const from = cursor;
+    const page = await deps.store.listOpen(
+      SERVER_RESUMED_KINDS,
+      pageSize,
+      from,
+    );
+    // The next sweep continues after this page; a short page means the end, so start over.
+    cursor = page.length < pageSize ? undefined : page.at(-1)?.createdAt;
+    for (const wait of page) {
+      const key = keyOf(wait);
+      if (now() - wait.createdAt.getTime() >= maxAgeMs) {
+        await expire(wait, key);
+        continue;
+      }
+      const slot = schedule.get(key);
+      if (slot && slot.due > now()) continue;
+      if (checked >= checksPerSweep) break;
+      checked++;
       let ready: boolean;
       try {
         ready = await deps.resolver.ready(wait);
       } catch {
+        if (later(key, true).failures >= maxFailures) await expire(wait, key);
         continue;
       }
       if (!ready) {
-        answeredAt.delete(key);
+        later(key, false);
         continue;
       }
-      const since = answeredAt.get(key) ?? now();
-      answeredAt.set(key, since);
-      if (now() - since < graceMs) continue;
+      const answeredAt = slot?.answeredAt ?? now();
+      if (now() - answeredAt < graceMs) {
+        schedule.set(key, {
+          due: answeredAt + graceMs,
+          delay: 0,
+          failures: 0,
+          answeredAt,
+        });
+        continue;
+      }
       let content: string;
       try {
         content = await deps.resolver.result(wait);
       } catch {
+        if (later(key, true).failures >= maxFailures) await expire(wait, key);
         continue;
       }
-      answeredAt.delete(key);
+      schedule.delete(key);
       const claimed = await deps.store.claim(
         wait.ownerUserId,
         wait.threadId,
@@ -439,8 +533,11 @@ export function createRunWaitResumer(deps: {
         });
       }
     }
-    for (const key of answeredAt.keys())
-      if (!seen.has(key)) answeredAt.delete(key);
+    // Forget waits that have gone (claimed by a tab, purged): nothing has looked at them in ages.
+    if (!from && page.length === 0) schedule.clear();
+    else
+      for (const [key, slot] of schedule)
+        if (slot.due < now() - maxAgeMs) schedule.delete(key);
     return resumed;
   };
 }

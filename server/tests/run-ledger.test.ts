@@ -31,6 +31,7 @@ const call: LedgerCall = {
   threadId: "thread-1",
   toolCallId: "click-1",
   ownerUserId: "owner",
+  botId: "bot",
   toolName: "computer_click",
   args: { ref: "e7", snapshotId: 3 },
 };
@@ -64,7 +65,7 @@ function gate(
     },
     ledger: {
       consume: () => ledger.consume(request),
-      settle: () => ledger.settle({ ...request, botId: "bot" }),
+      settle: () => ledger.settle(request),
     },
     attempts: 3,
     sleep: async () => undefined,
@@ -84,7 +85,7 @@ describe("the saved-call ledger", () => {
 
   test("a recorded call passes at once, without asking the conversation service", async () => {
     const ledger = createToolCallLedger();
-    await ledger.record({ ...call, botId: "bot" });
+    await ledger.record(call);
     const checked = gate(ledger, {
       ...call,
       args: { snapshotId: 3, ref: "e7" },
@@ -95,7 +96,7 @@ describe("the saved-call ledger", () => {
 
   test("a replayed call is refused", async () => {
     const ledger = createToolCallLedger();
-    await ledger.record({ ...call, botId: "bot" });
+    await ledger.record(call);
     await gate(ledger, call).promise;
     const again = gate(ledger, call, async () => savedHistory());
     await expect(again.promise).rejects.toThrow("already carried out once");
@@ -103,13 +104,14 @@ describe("the saved-call ledger", () => {
     expect(again.reads()).toBe(0);
   });
 
-  test("other arguments, another tool or another person are refused", async () => {
+  test("other arguments, another tool, another person or another Bot are refused", async () => {
     const ledger = createToolCallLedger();
-    await ledger.record({ ...call, botId: "bot" });
+    await ledger.record(call);
     for (const forged of [
       { ...call, args: { ref: "e8", snapshotId: 3 } },
       { ...call, toolName: "computer_type" },
       { ...call, ownerUserId: "someone-else" },
+      { ...call, botId: "another-bot" },
     ]) {
       const checked = gate(ledger, forged, async () => savedHistory());
       await expect(checked.promise).rejects.toBeInstanceOf(
@@ -146,7 +148,7 @@ describe("the saved-call ledger", () => {
       args: call.args,
       read: async () => {
         reads++;
-        await ledger.record({ ...call, botId: "bot" });
+        await ledger.record(call);
         return { messages: [] };
       },
       ledger: { consume: () => ledger.consume(call) },
@@ -180,7 +182,7 @@ describe("the saved-call ledger", () => {
 
   test("old rows are purged", async () => {
     const ledger = createToolCallLedger();
-    await ledger.record({ ...call, botId: "bot" });
+    await ledger.record(call);
     expect(await ledger.purge(new Date(Date.now() + 1000))).toBe(1);
     await expect(ledger.consume(call)).resolves.toBe("missing");
   });

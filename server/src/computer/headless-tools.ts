@@ -9,7 +9,7 @@ import {
   type Tool,
   type ToolCall,
 } from "@ag-ui/client";
-import { Observable, type Subscription } from "rxjs";
+import { Observable, type Subscriber, type Subscription } from "rxjs";
 import { z } from "zod";
 import { SIGN_IN_TOOL_DESCRIPTION } from "../../../shared/sign-in-guidance";
 import {
@@ -96,7 +96,24 @@ export type HeadlessToolsOptions = {
   maxSegments?: number;
   /** Told about each suspension before the run ends, so whoever resumes it can find it. */
   onWaiting?: (wait: HeadlessWait) => Promise<void>;
+  /**
+   * Called before each call is carried out. The saved-call ledger marks the call used here, so the
+   * browser path cannot carry out the same call a second time. A failure is logged, not fatal: the
+   * ledger's observer marks the call used again when its result streams.
+   */
+  beforeExecute?: (call: {
+    threadId: string;
+    toolCallId: string;
+    toolName: string;
+    args: unknown;
+  }) => Promise<void>;
 };
+
+/**
+ * How long a run that failed mid-stream waits for the calls it had already started, so what they
+ * did is recorded rather than lost. Past it they are stopped.
+ */
+const STARTED_CALLS_GRACE_MS = 60_000;
 
 type Outcome =
   | { message: Message & { role: "tool" }; error?: string }
@@ -170,6 +187,8 @@ export class HeadlessToolsMiddleware extends Middleware {
           let state = request.state;
           let terminal: RunFinishedEvent | undefined;
           let failed = false;
+          /** A model-stream failure held back until the calls already started have answered. */
+          let heldError: BaseEvent | undefined;
           let spoke = false;
           /** Results of this model turn's calls, in the order they finished. */
           const answered: Message[] = [];
@@ -263,14 +282,38 @@ export class HeadlessToolsMiddleware extends Middleware {
                   if (started) return;
                   started = true;
                 }
-                if (event.type === EventType.RUN_ERROR) failed = true;
+                if (event.type === EventType.RUN_ERROR) {
+                  failed = true;
+                  if (scheduled.size > 0) {
+                    heldError = event;
+                    return;
+                  }
+                }
                 subscriber.next(event);
               },
               error: reject,
               complete: resolve,
             });
           });
-          if (subscriber.closed || failed) return;
+          if (subscriber.closed) return;
+          if (failed) {
+            /*
+             * The model stream failed after calls had started. A click or a command may already have
+             * happened: its result is still recorded, and a suspension still gets its wait, before
+             * the failure ends the run, so the Bot never repeats an action it does not know it did.
+             */
+            if (heldError) {
+              await this.settleStarted(
+                scheduled,
+                request,
+                messages,
+                controller,
+                subscriber,
+              );
+              if (!subscriber.closed) subscriber.next(heldError);
+            }
+            return;
+          }
           if (!terminal)
             throw new Error(
               "The headless agent ended without a terminal event.",
@@ -332,37 +375,7 @@ export class HeadlessToolsMiddleware extends Middleware {
             if ("skipped" in outcome) continue;
             if ("suspension" in outcome) {
               const failure = outcome.suspension;
-              failure.waiting.continuation ??= outcome.continuation;
-              subscriber.next({
-                type: EventType.CUSTOM,
-                name: "openbot.headless.waiting",
-                value: {
-                  ...failure.waiting,
-                  message: failure.message,
-                  toolCallId: call.id,
-                },
-              });
-              // Recorded before the run ends: whoever resumes it looks for this first.
-              await this.options
-                .onWaiting?.({
-                  threadId: request.threadId,
-                  runId: request.runId,
-                  toolCallId: call.id,
-                  toolName: call.function.name,
-                  waiting: failure.waiting,
-                  message: failure.message,
-                })
-                .catch((error: unknown) => {
-                  console.error({
-                    error: "headless_wait_record_failed",
-                    context: {
-                      threadId: request.threadId,
-                      toolName: call.function.name,
-                      name: error instanceof Error ? error.name : "unknown",
-                    },
-                    timestamp: new Date().toISOString(),
-                  });
-                });
+              await this.recordSuspension(call, outcome, request, subscriber);
               if (subscriber.closed) return;
               subscriber.next(
                 interactive
@@ -385,18 +398,11 @@ export class HeadlessToolsMiddleware extends Middleware {
               );
               return;
             }
-            const { message, error } = outcome;
+            const { message } = outcome;
             messages = [...messages, message];
             results.set(call.id, message.content);
             answeredInRun += 1;
-            subscriber.next({
-              type: EventType.TOOL_CALL_RESULT,
-              messageId: message.id,
-              toolCallId: call.id,
-              role: "tool",
-              content: message.content,
-              ...(error ? { error } : {}),
-            });
+            emitResult(subscriber, outcome);
           }
           const interrupts =
             terminal.outcome?.type === "interrupt"
@@ -451,6 +457,92 @@ export class HeadlessToolsMiddleware extends Middleware {
     });
   }
 
+  /** The waiting event, and the wait recorded before the run ends: whoever resumes looks for it. */
+  private async recordSuspension(
+    call: ToolCall,
+    outcome: Extract<Outcome, { suspension: HeadlessToolSuspension }>,
+    request: RunAgentInput,
+    subscriber: Subscriber<BaseEvent>,
+  ): Promise<void> {
+    const failure = outcome.suspension;
+    failure.waiting.continuation ??= outcome.continuation;
+    subscriber.next({
+      type: EventType.CUSTOM,
+      name: "openbot.headless.waiting",
+      value: {
+        ...failure.waiting,
+        message: failure.message,
+        toolCallId: call.id,
+      },
+    });
+    await this.options
+      .onWaiting?.({
+        threadId: request.threadId,
+        runId: request.runId,
+        toolCallId: call.id,
+        toolName: call.function.name,
+        waiting: failure.waiting,
+        message: failure.message,
+      })
+      .catch((error: unknown) => {
+        console.error({
+          error: "headless_wait_record_failed",
+          context: {
+            threadId: request.threadId,
+            toolName: call.function.name,
+            name: error instanceof Error ? error.name : "unknown",
+          },
+          timestamp: new Date().toISOString(),
+        });
+      });
+  }
+
+  /**
+   * After a failed model stream: wait (boundedly) for the calls already started, then emit each
+   * result and record each wait, in the order they were started. Calls still running at the deadline
+   * are stopped through the run's signal.
+   */
+  private async settleStarted(
+    scheduled: Map<string, Promise<Outcome>>,
+    request: RunAgentInput,
+    messages: Message[],
+    controller: AbortController,
+    subscriber: Subscriber<BaseEvent>,
+  ): Promise<void> {
+    const deadline = Date.now() + STARTED_CALLS_GRACE_MS;
+    for (const [toolCallId, pending] of scheduled) {
+      if (subscriber.closed) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        pending,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(
+            () => resolve(undefined),
+            Math.max(0, deadline - Date.now()),
+          );
+        }),
+      ]).finally(() => clearTimeout(timer));
+      if (!outcome) {
+        controller.abort();
+        return;
+      }
+      if (subscriber.closed || "skipped" in outcome) continue;
+      if ("suspension" in outcome) {
+        const call = callIn(messages, toolCallId) ?? {
+          id: toolCallId,
+          type: "function" as const,
+          function: {
+            name: outcome.continuation.toolName,
+            arguments: JSON.stringify(outcome.continuation.args ?? {}),
+          },
+        };
+        await this.recordSuspension(call, outcome, request, subscriber);
+        continue;
+      }
+      emitResult(subscriber, outcome);
+    }
+  }
+
   /** One call, carried out under its approval context, timed, and turned into an outcome. */
   private async execute(
     tool: HeadlessTool | undefined,
@@ -467,6 +559,24 @@ export class HeadlessToolsMiddleware extends Middleware {
           `The tool ${call.function.name} is unavailable for this headless turn.`,
         );
       const args: unknown = JSON.parse(call.function.arguments || "{}");
+      await this.options
+        .beforeExecute?.({
+          threadId: continuation.threadId,
+          toolCallId: call.id,
+          toolName: call.function.name,
+          args,
+        })
+        .catch((error: unknown) => {
+          console.warn({
+            error: "headless_before_execute_failed",
+            context: {
+              threadId: continuation.threadId,
+              toolName: call.function.name,
+              name: error instanceof Error ? error.name : "unknown",
+            },
+            timestamp: new Date().toISOString(),
+          });
+        });
       const result = await withApprovalContext(continuation, () =>
         tool.execute(args, { toolCallId: call.id, signal }),
       );
@@ -496,6 +606,21 @@ export class HeadlessToolsMiddleware extends Middleware {
       ...(error ? { error } : {}),
     };
   }
+}
+
+/** A finished call's TOOL_CALL_RESULT. */
+function emitResult(
+  subscriber: Subscriber<BaseEvent>,
+  outcome: Extract<Outcome, { message: unknown }>,
+) {
+  subscriber.next({
+    type: EventType.TOOL_CALL_RESULT,
+    messageId: outcome.message.id,
+    toolCallId: outcome.message.toolCallId,
+    role: "tool",
+    content: outcome.message.content,
+    ...(outcome.error ? { error: outcome.error } : {}),
+  });
 }
 
 /** A call's arguments as a value, or the raw text when they are not JSON (execute then refuses). */

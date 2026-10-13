@@ -9,16 +9,22 @@ import {
 import { LLMock } from "@copilotkit/aimock";
 import { Hono, type MiddlewareHandler } from "hono";
 import { Observable } from "rxjs";
+import { requireSavedToolCall } from "../src/approvals/saved-call";
 import type { AppVariables } from "../src/auth/guards";
 import {
   type HeadlessTool,
   HeadlessToolSuspension,
   HeadlessToolsMiddleware,
+  type HeadlessToolsOptions,
   type HeadlessWait,
   SILENT_TURN_MESSAGE,
 } from "../src/computer/headless-tools";
 import { loadConfig } from "../src/config";
 import { buildAgents, type ComputerInRun } from "../src/copilot";
+import {
+  createToolCallLedger,
+  ToolCallLedgerMiddleware,
+} from "../src/runs/ledger";
 import {
   createRunWaitResumer,
   createRunWaitRoutes,
@@ -233,6 +239,7 @@ describe("computer tools inside the run", () => {
       store,
       resolver,
       graceMs: 0,
+      minDelayMs: 0,
       continueTurn: async (claimed, content) => {
         continued.push({ content, messages: claimed.continuation.messages });
       },
@@ -359,7 +366,11 @@ const words = (text: string): BaseEvent[] => [
   { type: EventType.TEXT_MESSAGE_END, messageId: "reply" } as BaseEvent,
 ];
 
-function drive(agent: Segments, tool: HeadlessTool): Promise<BaseEvent[]> {
+function drive(
+  agent: Segments,
+  tool: HeadlessTool,
+  options: Omit<HeadlessToolsOptions, "interactive"> = {},
+): Promise<BaseEvent[]> {
   const input: RunAgentInput = {
     threadId: "thread",
     runId: "run",
@@ -371,7 +382,10 @@ function drive(agent: Segments, tool: HeadlessTool): Promise<BaseEvent[]> {
   };
   return new Promise((resolve, reject) => {
     const events: BaseEvent[] = [];
-    new HeadlessToolsMiddleware([tool], undefined, { interactive: true })
+    new HeadlessToolsMiddleware([tool], undefined, {
+      interactive: true,
+      ...options,
+    })
       .run(input, agent)
       .subscribe({
         next: (event) => void events.push(event),
@@ -732,5 +746,269 @@ describe("the flag", () => {
     expect(flag("1")).toBe(true);
     expect(flag("yes")).toBe(false);
     expect(flag("false")).toBe(false);
+  });
+});
+
+/** A model turn that writes a call and then fails before it finishes. */
+function failingSegment(input: RunAgentInput): Observable<BaseEvent> {
+  return new Observable((subscriber) => {
+    subscriber.next({
+      type: EventType.RUN_STARTED,
+      threadId: input.threadId,
+      runId: input.runId,
+    } as BaseEvent);
+    for (const event of callEvents("c1")) subscriber.next(event);
+    setTimeout(() => {
+      subscriber.next({
+        type: EventType.RUN_ERROR,
+        message: "The model stream broke.",
+      } as BaseEvent);
+      subscriber.complete();
+    }, 5);
+  });
+}
+
+describe("a model stream that fails after a call has started", () => {
+  test("still records what the call did before the failure ends the run", async () => {
+    const agent = new Segments([failingSegment]);
+    const events = await drive(
+      agent,
+      clickTool(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return { ok: true, element: { name: "Save" } };
+      }),
+    );
+    const result = events.findIndex(
+      (event) => event.type === EventType.TOOL_CALL_RESULT,
+    );
+    const error = events.findIndex(
+      (event) => event.type === EventType.RUN_ERROR,
+    );
+    expect(result).toBeGreaterThan(-1);
+    expect(error).toBeGreaterThan(result);
+    expect(count(events, EventType.RUN_ERROR)).toBe(1);
+  });
+
+  test("still records the wait of a call that stopped for the person", async () => {
+    const waits: HeadlessWait[] = [];
+    const agent = new Segments([failingSegment]);
+    const events = await drive(
+      agent,
+      clickTool(async () => {
+        throw new HeadlessToolSuspension("Waiting for you to sign in.", {
+          kind: "computer_sign_in",
+          requestId: "sign-in-2",
+        });
+      }),
+      { onWaiting: async (wait) => void waits.push(wait) },
+    );
+    expect(waits.map((wait) => wait.toolCallId)).toEqual(["c1"]);
+    expect(waits[0]?.waiting.continuation).toBeDefined();
+    const waiting = events.findIndex(
+      (event) => event.type === EventType.CUSTOM,
+    );
+    const error = events.findIndex(
+      (event) => event.type === EventType.RUN_ERROR,
+    );
+    expect(waiting).toBeGreaterThan(-1);
+    expect(error).toBeGreaterThan(waiting);
+  });
+});
+
+describe("a call carried out inside the run cannot be carried out again by the browser", () => {
+  test("the ledger marks it used before it runs, so a crafted browser request is refused", async () => {
+    scriptModel();
+    const ledger = createToolCallLedger();
+    let executions = 0;
+    const agent = await bot({
+      tools: async () => [
+        clickTool(async () => {
+          executions++;
+          return { ok: true };
+        }),
+      ],
+      beforeExecute: (botId, call) =>
+        ledger.settle({ ...call, ownerUserId: "owner", botId }),
+    });
+    agent.use(
+      new ToolCallLedgerMiddleware(ledger, {
+        ownerUserId: "owner",
+        botId: "bot",
+      }),
+    );
+    await run(agent);
+    expect(executions).toBe(1);
+    // The browser path: a snapshot that leaves the server's result out, asking to run it again.
+    const replay = requireSavedToolCall({
+      toolCallId: "call-click",
+      toolName: "computer_click",
+      args: { ref: "e7", snapshotId: 3 },
+      read: async () => ({ messages: [] }),
+      ledger: {
+        consume: () =>
+          ledger.consume({
+            threadId: agent.threadId,
+            toolCallId: "call-click",
+            ownerUserId: "owner",
+            botId: "bot",
+            toolName: "computer_click",
+            args: { ref: "e7", snapshotId: 3 },
+          }),
+      },
+      attempts: 1,
+      sleep: async () => undefined,
+    });
+    await expect(replay).rejects.toThrow("already carried out once");
+  });
+
+  test("the ledger's observer also marks used every call the run answered itself", async () => {
+    const ledger = createToolCallLedger();
+    const answered = new Segments([
+      (input) =>
+        segment(input, [
+          ...callEvents("c9"),
+          {
+            type: EventType.TOOL_CALL_RESULT,
+            messageId: "r9",
+            toolCallId: "c9",
+            role: "tool",
+            content: '{"ok":true}',
+          } as BaseEvent,
+        ]),
+    ]);
+    answered.use(
+      new ToolCallLedgerMiddleware(ledger, {
+        ownerUserId: "owner",
+        botId: "bot",
+      }),
+    );
+    answered.threadId = "thread";
+    await answered.runAgent();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect(
+      ledger.consume({
+        threadId: "thread",
+        toolCallId: "c9",
+        ownerUserId: "owner",
+        botId: "bot",
+        toolName: "computer_click",
+        args: { ref: "e7", snapshotId: 3 },
+      }),
+    ).resolves.toBe("replayed");
+  });
+});
+
+describe("the run-wait sweep, kind to computers and to the queue", () => {
+  const owner = { ownerUserId: "owner", botId: "bot" };
+  async function openWait(
+    store: ReturnType<typeof createRunWaitStore>,
+    id: string,
+  ) {
+    await store.open(
+      waitFromSuspension(
+        {
+          threadId: "thread",
+          runId: "run",
+          toolCallId: id,
+          toolName: "computer_request_help",
+          message: "Take over",
+          waiting: {
+            kind: "computer_handoff",
+            requestId: `req-${id}`,
+            continuation: {},
+          },
+        },
+        owner,
+      ),
+    );
+    // Distinct creation times, so the walk order is the open order.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+
+  test("a takeover on a computer that is not running is not asked, so it is never woken", async () => {
+    let controls = 0;
+    const resolver = createWaitResolver({
+      status: async () => ({ state: "absent" }),
+      control: async () => {
+        controls++;
+        throw new Error("would wake the computer");
+      },
+    });
+    const store = createRunWaitStore();
+    await openWait(store, "a");
+    const [wait] = await store.listOpen(["computer_handoff"], 1);
+    if (!wait) throw new Error("expected a wait");
+    expect(await resolver.ready(wait)).toBe(false);
+    expect(controls).toBe(0);
+  });
+
+  test("an unanswered wait is checked less and less often", async () => {
+    const store = createRunWaitStore();
+    await openWait(store, "a");
+    let clock = 0;
+    let checks = 0;
+    const sweep = createRunWaitResumer({
+      store,
+      resolver: {
+        ready: async () => {
+          checks++;
+          return false;
+        },
+        result: async () => "{}",
+      },
+      continueTurn: async () => undefined,
+      now: () => clock,
+    });
+    for (clock = 0; clock <= 20_000; clock += 1_000) await sweep();
+    // Due at 0, 2 s, 6 s, 14 s: four checks in twenty seconds, not twenty.
+    expect(checks).toBe(4);
+  });
+
+  test("a wait that cannot be checked is given up, and never holds newer waits back", async () => {
+    const store = createRunWaitStore();
+    await openWait(store, "broken");
+    await openWait(store, "fine");
+    let clock = 0;
+    const continued: string[] = [];
+    const sweep = createRunWaitResumer({
+      store,
+      resolver: {
+        ready: async (wait) => {
+          if (wait.toolCallId === "broken") throw new Error("unreachable");
+          return true;
+        },
+        result: async () => "{}",
+      },
+      continueTurn: async (wait) => void continued.push(wait.toolCallId),
+      now: () => clock,
+      graceMs: 0,
+      pageSize: 1,
+      checksPerSweep: 1,
+      maxFailures: 2,
+    });
+    for (clock = 0; clock <= 10_000; clock += 1_000) await sweep();
+    expect(continued).toEqual(["fine"]);
+    expect(await store.listOpen(["computer_handoff"], 10)).toEqual([]);
+    expect((await store.get("owner", "thread", "broken"))?.claimedBy).toBe(
+      "expired",
+    );
+  });
+
+  test("a wait older than anybody would still be waiting is expired, not resumed", async () => {
+    const store = createRunWaitStore();
+    await openWait(store, "old");
+    const sweep = createRunWaitResumer({
+      store,
+      resolver: { ready: async () => true, result: async () => "{}" },
+      continueTurn: async () => {
+        throw new Error("must not continue");
+      },
+      now: () => Date.now() + 3 * 60 * 60_000,
+      graceMs: 0,
+    });
+    expect(await sweep()).toBe(0);
+    expect((await store.get("owner", "thread", "old"))?.claimedBy).toBe(
+      "expired",
+    );
   });
 });

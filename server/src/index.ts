@@ -642,6 +642,7 @@ const approvalService = createApprovalService(
       threadId: snapshot.threadId,
       toolCallId: snapshot.toolCallId,
       ownerUserId,
+      botId,
       toolName: snapshot.toolName,
       args: snapshot.args,
     };
@@ -652,7 +653,7 @@ const approvalService = createApprovalService(
       // The server's own record of the call first: one read, and the call is used once.
       ledger: {
         consume: () => toolCallLedger.consume(ledgerCall),
-        settle: () => toolCallLedger.settle({ ...ledgerCall, botId }),
+        settle: () => toolCallLedger.settle(ledgerCall),
       },
       read: () =>
         routineIntelligence.getThreadMessages({
@@ -1959,6 +1960,13 @@ const copilotRuntime = mountCopilotRuntime(
               runWaitStore.open(
                 waitFromSuspension(wait, { ownerUserId: actor.id, botId }),
               ),
+            // Used before it runs: the browser path can never carry out the same call again.
+            beforeExecute: (botId, call) =>
+              toolCallLedger.settle({
+                ...call,
+                ownerUserId: actor.id,
+                botId,
+              }),
           }),
         }
       : {}),
@@ -2221,6 +2229,8 @@ const approvalContinuationRunner = createTurnRunner({
 const runWaitResolver = createWaitResolver({
   ...(computerGateway
     ? {
+        // Read without waking the computer, so an unanswered wait never keeps one running.
+        status: (botId: string) => computerGateway.status(botId),
         control: (botId: string, requestId?: string) =>
           computerGateway.control(botId, requestId),
         snapshot: (botId: string) => computerGateway.snapshot(botId),

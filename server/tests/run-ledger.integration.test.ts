@@ -18,6 +18,7 @@ const call = {
   threadId: `thread-${crypto.randomUUID()}`,
   toolCallId: "click-1",
   ownerUserId,
+  botId: "bot",
   toolName: "computer_click",
   args: { ref: "e7", snapshotId: 3 },
 };
@@ -41,7 +42,7 @@ describe.skipIf(!enabled)("the saved-call ledger in Postgres", () => {
       .insert(users)
       .values({ id: ownerUserId, email: `${ownerUserId}@example.com` })
       .onConflictDoNothing();
-    await createToolCallLedger(db()).record({ ...call, botId: "bot" });
+    await createToolCallLedger(db()).record(call);
     const [first, second] = await Promise.all([
       createToolCallLedger(db()).consume(call),
       createToolCallLedger(db()).consume(call),
@@ -55,7 +56,7 @@ describe.skipIf(!enabled)("the saved-call ledger in Postgres", () => {
       .values({ id: ownerUserId, email: `${ownerUserId}@example.com` })
       .onConflictDoNothing();
     const ledger = createToolCallLedger(db());
-    await ledger.record({ ...call, botId: "bot" });
+    await ledger.record(call);
     await expect(
       ledger.consume({ ...call, args: { ref: "e8", snapshotId: 3 } }),
     ).resolves.toBe("mismatch");

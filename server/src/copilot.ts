@@ -2266,6 +2266,16 @@ export type ComputerInRun = {
   /** This Bot's computer tools for this person; empty when they may not use its computer. */
   tools(botId: string): Promise<HeadlessTool[]>;
   onWaiting?(botId: string, wait: HeadlessWait): Promise<void>;
+  /** Before a call is carried out: the saved-call ledger marks it used. See runs/ledger.ts. */
+  beforeExecute?(
+    botId: string,
+    call: {
+      threadId: string;
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+    },
+  ): Promise<void>;
 };
 
 /** How many model turns a run with computer tools may take: a browser task is many small steps. */
@@ -2316,6 +2326,8 @@ function inRunExecutor(
               maxSegments: COMPUTER_TOOL_STEPS,
               onWaiting: (wait) =>
                 computerInRun.onWaiting?.(botId, wait) ?? Promise.resolve(),
+              beforeExecute: (call) =>
+                computerInRun.beforeExecute?.(botId, call) ?? Promise.resolve(),
             }).run(input, new SegmentAgent(segment)),
       ),
     );

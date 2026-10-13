@@ -54,6 +54,8 @@ export type LedgerCall = {
   threadId: string;
   toolCallId: string;
   ownerUserId: string;
+  /** The Bot whose run made the call; a request for another Bot is a mismatch. */
+  botId: string;
   toolName: string;
   args: unknown;
 };
@@ -62,15 +64,19 @@ export type LedgerCall = {
  * - `ok`: recorded, same name, same arguments, same person, not used before; now marked used.
  * - `missing`: not recorded (yet, or the write failed). The caller falls back to the conversation.
  * - `replayed`: recorded and already carried out once.
- * - `mismatch`: recorded with another name, other arguments, or for another person.
+ * - `mismatch`: recorded with another name, other arguments, for another person or another Bot.
  */
 export type LedgerVerdict = "ok" | "missing" | "replayed" | "mismatch";
 
 export type ToolCallLedger = {
-  record(call: LedgerCall & { botId: string }): Promise<void>;
+  record(call: LedgerCall): Promise<void>;
   consume(call: LedgerCall): Promise<LedgerVerdict>;
-  /** A call the conversation service vouched for: mark it used so the ledger cannot pass it again. */
-  settle(call: LedgerCall & { botId: string }): Promise<void>;
+  /**
+   * Mark a call used, recording it first if need be: one the conversation service vouched for, one
+   * the server is about to carry out inside the run, or one whose result the run already streamed.
+   * After this, the browser path can never carry it out again.
+   */
+  settle(call: LedgerCall): Promise<void>;
   /** Drop rows older than `before`. Returns how many went. */
   purge(before: Date): Promise<number>;
 };
@@ -91,6 +97,7 @@ function verdictFor(row: Row | undefined, call: LedgerCall): LedgerVerdict {
   if (!row) return "missing";
   if (
     row.ownerUserId !== call.ownerUserId ||
+    row.botId !== call.botId ||
     row.toolName !== call.toolName ||
     row.argsHash !== argsHash(call.args)
   )
@@ -215,10 +222,14 @@ function createInMemoryLedger(): ToolCallLedger {
 /**
  * Records every computer tool call the agent's model streams, on the server, as it streams.
  *
- * Reads only the agent's own TOOL_CALL_START / ARGS / END events, never `input.messages` (which the
- * browser wrote). The write is not awaited by the stream: a browser can only act on a call after
- * the run's last event reaches it, well after this write, and a write that fails leaves the gate
- * its slower fallback rather than failing the run.
+ * Reads only the agent's own TOOL_CALL_START / ARGS / END / RESULT events, never `input.messages`
+ * (which the browser wrote). The write is not awaited by the stream: a browser can only act on a
+ * call after the run's last event reaches it, well after this write, and a write that fails leaves
+ * the gate its slower fallback rather than failing the run.
+ *
+ * A call the run itself answered (a TOOL_CALL_RESULT: a server tool, a computer call carried out
+ * inside the run) is marked used, so a crafted browser request for the same call is refused as a
+ * replay rather than carried out a second time.
  */
 export class ToolCallLedgerMiddleware extends Middleware {
   constructor(
@@ -230,6 +241,20 @@ export class ToolCallLedgerMiddleware extends Middleware {
 
   run(input: RunAgentInput, next: AbstractAgent): Observable<BaseEvent> {
     const calls = new Map<string, { name: string; args: string }>();
+    /** Calls recorded on this run, for marking used when the run answers them. */
+    const recorded = new Map<string, LedgerCall>();
+    const warn = (error: unknown) => {
+      // The name only: a database error can carry connection details or row contents.
+      console.warn({
+        error: "tool_call_ledger_write_failed",
+        context: {
+          botId: this.owner.botId,
+          threadId: input.threadId,
+          name: error instanceof Error ? error.name : "unknown",
+        },
+        timestamp: new Date().toISOString(),
+      });
+    };
     return this.runNext(input, next).pipe(
       tap((event) => {
         if (event.type === EventType.TOOL_CALL_START) {
@@ -254,27 +279,22 @@ export class ToolCallLedgerMiddleware extends Middleware {
           const args = parseCallArguments(call.args);
           // Arguments that are not JSON could never match a request; nothing to record.
           if (args === undefined) return;
-          void this.ledger
-            .record({
-              threadId: input.threadId,
-              toolCallId: end.toolCallId,
-              ownerUserId: this.owner.ownerUserId,
-              botId: this.owner.botId,
-              toolName: call.name,
-              args,
-            })
-            .catch((error: unknown) => {
-              // The name only: a database error can carry connection details or row contents.
-              console.warn({
-                error: "tool_call_ledger_write_failed",
-                context: {
-                  botId: this.owner.botId,
-                  threadId: input.threadId,
-                  name: error instanceof Error ? error.name : "unknown",
-                },
-                timestamp: new Date().toISOString(),
-              });
-            });
+          const entry: LedgerCall = {
+            threadId: input.threadId,
+            toolCallId: end.toolCallId,
+            ownerUserId: this.owner.ownerUserId,
+            botId: this.owner.botId,
+            toolName: call.name,
+            args,
+          };
+          recorded.set(end.toolCallId, entry);
+          void this.ledger.record(entry).catch(warn);
+        } else if (event.type === EventType.TOOL_CALL_RESULT) {
+          const result = event as BaseEvent & { toolCallId: string };
+          const entry = recorded.get(result.toolCallId);
+          if (!entry) return;
+          recorded.delete(result.toolCallId);
+          void this.ledger.settle(entry).catch(warn);
         }
       }),
     );
