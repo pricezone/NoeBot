@@ -454,8 +454,6 @@ export function ChannelChat({
   const [historyReadFailed, setHistoryReadFailed] = useState(false);
   // Mount reads and Bot refreshes share one ordering: only the newest read owns the notice.
   const historyReadVersion = useRef(0);
-  /** Read the durable history again now: the history notice's Retry (`pull` below). */
-  const pullHistory = useRef<() => void>(() => undefined);
   useEffect(() => {
     if (isReady) openReadyGate.current();
   }, [isReady]);
@@ -639,8 +637,6 @@ export function ChannelChat({
     let lastSeen = initialActivity;
     let cancelled = false;
     const pull = () => pullHistory.current(ACTIVITY_PULL);
-
-    pullHistory.current = pull;
     const unsubscribe = queryClient.getQueryCache().subscribe(() => {
       const activity = authoredActivity();
       if (activity && !sameActivity(activity, lastSeen)) {
@@ -1371,7 +1367,7 @@ export function ChannelChat({
                   <ChatNotice
                     message={historyNotice}
                     {...(historyAvailability === "unavailable"
-                      ? { onRetry: () => pullHistory.current() }
+                      ? { onRetry: () => pullHistory.current(ACTIVITY_PULL) }
                       : {})}
                   />
                 ) : null}
