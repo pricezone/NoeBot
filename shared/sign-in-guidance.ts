@@ -61,6 +61,8 @@ export function signInResultForBot(request: {
   method?: Method | null;
   outcome?: string | null;
   attempt?: SignInAttempt;
+  /** The site the login was first typed for, when it went on to another one and was asked again. */
+  movedFrom?: string;
 }) {
   const signedIn = request.status === "signed_in";
   const attempt = request.attempt;
@@ -73,6 +75,8 @@ export function signInResultForBot(request: {
     result += attempt.pageMessage
       ? ` The site refused the last attempt and said: "${attempt.pageMessage}".`
       : " The site refused the last attempt.";
+  if (request.movedFrom)
+    result += ` The sign-in went from ${request.movedFrom} on to ${request.origin}, a different site, so nothing was typed there and the person was asked again for ${request.origin}.`;
   if (attempt?.rememberDeviceLeftUnchecked)
     result +=
       " A 'remember this device' box was left unchecked, so the site may ask for a code again next time.";
@@ -85,6 +89,7 @@ export function signInResultForBot(request: {
     site: request.origin,
     status: request.status,
     ...(request.method ? { method: METHOD_WORDS[request.method] } : {}),
+    ...(request.movedFrom ? { movedFrom: request.movedFrom } : {}),
     ...(outcome ? { outcome } : {}),
     ...(!signedIn && attempt?.pageMessage
       ? { pageMessage: attempt.pageMessage }

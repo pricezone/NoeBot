@@ -43,6 +43,8 @@ export type SignInRequestRecord = {
    * row, and put on the record handed to `onResolved`, so the tool result can say it.
    */
   attempt?: SignInAttempt;
+  /** Likewise not a column: the site the login was typed for, before it went on to this one. */
+  movedFrom?: string;
 };
 
 /** What a route may return about a request. No continuation, which carries the conversation. */
@@ -99,6 +101,7 @@ export type PasswordStore = {
       | "resolvedAt"
       | "fillingUntil"
       | "attempt"
+      | "movedFrom"
     >,
   ): Promise<SignInRequestRecord>;
   request(ownerUserId: string, id: string): Promise<SignInRequestRecord | null>;

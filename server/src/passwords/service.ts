@@ -17,6 +17,7 @@ import {
   type SignInRequestView,
   type SignInStatus,
 } from "./types";
+import { sameSite } from "./site";
 
 /**
  * The private sign-in request and the Passwords vault.
@@ -93,7 +94,7 @@ const FINAL: readonly SignInStatus[] = [
   "cancelled",
   "expired",
 ];
-/** How many origins a login may move on through (a site, then its identity provider, then one more). */
+/** How many origins within one site a login may move on through. */
 const MAX_MOVES = 2;
 
 export function isFinalSignIn(status: SignInStatus) {
@@ -158,6 +159,8 @@ export function createSignInService(deps: SignInServiceDependencies) {
     passwordLabel?: string;
     codeLabel?: string;
     attempt?: SignInAttempt;
+    /** The origin the person was asked about before the login went on to another site. */
+    movedFrom?: string;
     until: number;
   };
   const probed = new Map<string, Remembered>();
@@ -239,9 +242,13 @@ export function createSignInService(deps: SignInServiceDependencies) {
   async function resolved(request: SignInRequestRecord) {
     approvals.delete(request.id);
     if (!deps.onResolved) return;
-    const attempt = probeOf(request.id)?.attempt;
+    const { attempt, movedFrom } = probeOf(request.id) ?? {};
     try {
-      await deps.onResolved({ ...request, ...(attempt ? { attempt } : {}) });
+      await deps.onResolved({
+        ...request,
+        ...(attempt ? { attempt } : {}),
+        ...(movedFrom ? { movedFrom } : {}),
+      });
     } catch (error) {
       // The outcome is recorded either way; a turn that could not be resumed is reported, not hidden.
       console.error(
@@ -482,6 +489,63 @@ export function createSignInService(deps: SignInServiceDependencies) {
   }
 
   /**
+   * The login went on to another site than the one the person was shown: nothing is typed there.
+   * The request goes back to the form, for the new host, with the page read afresh for its fields
+   * and icon (the Bot's title and labels were for the other site), and the person decides there.
+   * Returns the refusal the person sees; the Bot is told, when the request ends, that they were
+   * asked again for the new host.
+   */
+  async function askAgainOn(
+    claimed: SignInRequestRecord,
+    to: string,
+    actor: ActionActor,
+    method: SignInMethod,
+    loginId: string | undefined,
+  ) {
+    const { ownerUserId: owner, id } = claimed;
+    let probe:
+      | Awaited<ReturnType<NonNullable<typeof gateway.probeSignIn>>>
+      | undefined;
+    try {
+      probe = await gateway.probeSignIn?.(claimed.botId);
+    } catch {
+      probe = undefined;
+    }
+    const fresh = probe?.origin === to ? probe : undefined;
+    const host = hostOf(to);
+    const before = probeOf(id);
+    probed.set(id, {
+      requestedOrigin: before?.requestedOrigin ?? claimed.origin,
+      movedFrom: claimed.origin,
+      form: fresh && fresh.form !== "none" ? fresh.form : "login",
+      ...(fresh?.icon ? { icon: fresh.icon } : {}),
+      title: `Sign in to ${host}`,
+      until: before?.until ?? Date.now() + ttlMs,
+    });
+    const words =
+      method === "saved"
+        ? `The sign-in went on to ${host}. A saved login is only typed into the site it was saved for: enter the login for ${host} to carry on.`
+        : `The sign-in went on to ${host}, a different site from ${hostOf(claimed.origin)}. Nothing was typed there. Check it is where you meant to sign in, and enter the login for ${host}.`;
+    const reopened = await store.transition(owner, id, ["filling"], {
+      origin: to,
+      status: "pending",
+      fillingUntil: null,
+      outcome: words,
+    });
+    await audit("computer.sign_in_failed", actor, "computer", claimed.botId, {
+      bot: claimed.botId,
+      request: id,
+      site: to,
+      method,
+      movedFrom: claimed.origin,
+      ...(loginId ? { savedLogin: loginId } : {}),
+      failure:
+        "The sign-in went on to another site; the person is asked again for it.",
+    });
+    return new SignInRefusedError(words, reopened ? 409 : 400);
+  }
+
+  /**
    * Type a login into the Bot's browser, and record how it went.
    *
    * The credential lives in this function's arguments and the requests to the computer. It is not
@@ -533,19 +597,24 @@ export function createSignInService(deps: SignInServiceDependencies) {
     let origin = claimed.origin;
     let result: SignInFillResult | undefined;
     let failure: string | undefined;
+    let crossed: string | undefined;
     try {
       result = await gateway.signIn(claimed.botId, {
         origin,
         ...fields("login"),
       });
       /*
-       * THE SAME LOGIN, ONE ORIGIN ON. A username step that sent the browser on to an identity
-       * provider on another origin used to end in "take over the browser". The computer types
-       * nothing on an origin it was not given, and reports where the login went instead. The person
-       * typed this login for this sign-in, and the move came straight from sending its username in
-       * the Bot's own tab, so it continues there, exactly as a request already moves to where the form
-       * is when it is made: the request now names that origin, which the form shows and the audit
-       * records. A saved login never follows: it is typed only into the site it was saved for.
+       * A LOGIN THAT MOVES ON. A username step can send the browser to another origin for the
+       * password (the site's own login host, or an identity provider). The computer types nothing on
+       * an origin it was not given and reports where the login went (`movedTo`) instead.
+       *
+       * The person agreed to this login going to the site they were shown, and no further. A move
+       * within that same site (`www.example.com` to `login.example.com`, see site.ts) continues with
+       * the same login, the request now naming the origin it reached, which the form shows and the
+       * audit records. A move to ANY other site stops here: the typed values are dropped, never
+       * forwarded, and the form opens again for the new host, so the person sees where a login would
+       * go and types it there or not at all. A saved login never moves: it is typed only into the
+       * origin it was saved for.
        */
       for (
         let moves = 0;
@@ -553,21 +622,24 @@ export function createSignInService(deps: SignInServiceDependencies) {
         moves++
       ) {
         const to = originOf(result.movedTo.origin);
+        if (method === "saved" || !sameSite(claimed.origin, to)) {
+          crossed = to;
+          break;
+        }
         if (!probeOf(id)?.requestedOrigin)
           remember(id, { requestedOrigin: origin });
         await store.transition(owner, id, ["filling"], { origin: to });
         origin = to;
-        if (method === "saved") break;
         result = await gateway.signIn(claimed.botId, {
           origin,
           ...fields(result.movedTo.form),
         });
       }
-      if (result.movedTo)
+      // A move to another site is answered below, with nothing typed and nothing else read.
+      if (crossed) failure = undefined;
+      else if (result.movedTo)
         failure =
-          method === "saved"
-            ? `The sign-in went on to ${hostOf(origin)}. A saved login is only typed into the site it was saved for: enter the login for ${hostOf(origin)}, or sign in by hand.`
-            : "The sign-in kept moving to other sites. Sign in by hand to finish.";
+          "The sign-in kept moving to other pages. Sign in by hand to finish.";
       else if (result.error) failure = scrub(result.error, secrets);
       else if (!result.submitted)
         failure = "The sign-in form could not be submitted.";
@@ -601,6 +673,8 @@ export function createSignInService(deps: SignInServiceDependencies) {
       : {};
     const moved =
       origin !== claimed.origin ? { movedFrom: claimed.origin } : {};
+    if (crossed)
+      throw await askAgainOn(claimed, crossed, actor, method, extra.loginId);
     if (failure) {
       if (
         result?.outcome === "error" ||
@@ -698,7 +772,8 @@ export function createSignInService(deps: SignInServiceDependencies) {
     // A security check can stand in front of a password the site has not checked yet: no save then.
     if (saving && outcome !== "captcha") {
       try {
-        await saveAccepted(owner, id, actor, done.origin, credential);
+        // Under the origin the person was shown and agreed to, never one the login moved on to.
+        await saveAccepted(owner, id, actor, claimed.origin, credential);
       } catch (error) {
         console.error(
           JSON.stringify({

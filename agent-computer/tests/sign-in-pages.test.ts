@@ -471,7 +471,8 @@ describe.skipIf(!asked)("two steps", () => {
     });
     expect(moved.error).toBeUndefined();
     expect(await tab.locator("input[type=password]").inputValue()).toBe("");
-    // The server continues on the identity provider's origin with the same login.
+    // The server continues there only when it is the same site (here, the same host on another
+    // port); any other site goes back to the person's form. This is that continuation.
     const result = await fillSignIn(tab, {
       origin: idpOrigin,
       username: "a@example.test",

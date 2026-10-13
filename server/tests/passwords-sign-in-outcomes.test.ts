@@ -11,6 +11,7 @@ import {
   createSignInService,
   signInToolResult,
 } from "../src/passwords/service";
+import { registrableDomain, sameSite } from "../src/passwords/site";
 import { createMemoryPasswordStore } from "../src/passwords/store";
 import type { SignInRequestRecord } from "../src/passwords/types";
 
@@ -266,10 +267,10 @@ describe("what the page answered becomes the request's state", () => {
 });
 
 describe("a login that moves on to another origin", () => {
-  test("a typed login continues there, and the request names the origin it went to", async () => {
-    const { service, fills, ask } = setup({
+  test("within the same site, a typed login continues there and is saved for the site the person saw", async () => {
+    const { service, store, fills, ask } = setup({
       fills: [
-        { movedTo: { origin: "https://id.example.net", form: "login" } },
+        { movedTo: { origin: "https://login.example.com", form: "login" } },
         { outcome: "signed-in" },
       ],
     });
@@ -277,22 +278,65 @@ describe("a login that moves on to another origin", () => {
     const view = await service.submit("owner", request.id, actor, {
       username: USERNAME,
       password: PASSWORD,
+      save: true,
     });
     expect(fills.map((fill) => fill.origin)).toEqual([
       "https://example.com",
-      "https://id.example.net",
+      "https://login.example.com",
     ]);
     expect(fills[1]).toMatchObject({ username: USERNAME, password: PASSWORD });
     expect(view).toMatchObject({
       status: "signed_in",
-      origin: "https://id.example.net",
+      origin: "https://login.example.com",
       requestedOrigin: "https://example.com",
     });
+    expect((await store.logins("owner")).map((login) => login.origin)).toEqual([
+      "https://example.com",
+    ]);
   });
 
-  test("a saved login is never typed into the origin it moved to", async () => {
-    const { service, store, fills, ask } = setup({
+  test("to another site, nothing is forwarded: the form opens again for the new host", async () => {
+    const { service, store, fills, resolved, ask } = setup({
       fills: [{ movedTo: { origin: "https://id.example.net", form: "login" } }],
+    });
+    const request = await ask();
+    const refusal = await service
+      .submit("owner", request.id, actor, {
+        username: USERNAME,
+        password: PASSWORD,
+        save: true,
+      })
+      .catch((error: Error) => error.message);
+    expect(refusal).toContain("id.example.net, a different site");
+    // One call to the computer, for the site the person saw; the credential went nowhere else.
+    expect(fills).toHaveLength(1);
+    expect(fills[0]?.origin).toBe("https://example.com");
+    const view = await service.get("owner", request.id);
+    expect(view).toMatchObject({
+      status: "pending",
+      origin: "https://id.example.net",
+      requestedOrigin: "https://example.com",
+      title: "Sign in to id.example.net",
+      form: "login",
+    });
+    expect(await store.logins("owner")).toEqual([]);
+    await service.cancel("owner", request.id, actor);
+    const result = signInToolResult(resolved[0] as SignInRequestRecord);
+    expect(result).toMatchObject({
+      site: "https://id.example.net",
+      movedFrom: "https://example.com",
+    });
+    expect(result.result).toContain(
+      "the person was asked again for https://id.example.net",
+    );
+    expect(JSON.stringify([view, result])).not.toContain(PASSWORD);
+  });
+
+  test("a saved login is never typed into the origin it moved to, even within the site", async () => {
+    const { service, store, fills, ask } = setup({
+      fills: [
+        { movedTo: { origin: "https://login.example.com", form: "login" } },
+      ],
     });
     const request = await ask();
     const { encryptSecret } = await import("../src/credentials");
@@ -307,7 +351,40 @@ describe("a login that moves on to another origin", () => {
     ).rejects.toThrow(/only typed into the site it was saved for/);
     expect(fills).toHaveLength(1);
     expect((await service.get("owner", request.id)).origin).toBe(
-      "https://id.example.net",
+      "https://login.example.com",
+    );
+  });
+});
+
+describe("the same site, read conservatively", () => {
+  test("a subdomain of the same registrable domain is the same site; anything else is not", () => {
+    expect(
+      sameSite("https://www.example.com", "https://login.example.com"),
+    ).toBe(true);
+    expect(sameSite("https://example.com", "https://id.example.net")).toBe(
+      false,
+    );
+    expect(sameSite("https://example.com", "http://example.com")).toBe(false);
+    expect(sameSite("http://127.0.0.1:1", "http://127.0.0.1:2")).toBe(true);
+    expect(sameSite("http://127.0.0.1", "http://127.0.0.2")).toBe(false);
+  });
+
+  test("multi-part and hosting suffixes are never a site of their own", () => {
+    expect(registrableDomain("www.bbc.co.uk")).toBe("bbc.co.uk");
+    expect(sameSite("https://a.co.uk", "https://b.co.uk")).toBe(false);
+    expect(sameSite("https://www.gov.gr", "https://oauth2.gsis.gr")).toBe(
+      false,
+    );
+    expect(
+      sameSite("https://alice.github.io", "https://mallory.github.io"),
+    ).toBe(false);
+    expect(sameSite("https://a.vercel.app", "https://b.vercel.app")).toBe(
+      false,
+    );
+    // An unknown two-letter country code under a short label is treated as a suffix.
+    expect(sameSite("https://a.abc.xy", "https://b.abc.xy")).toBe(false);
+    expect(sameSite("https://www.example.de", "https://login.example.de")).toBe(
+      true,
     );
   });
 });
