@@ -257,6 +257,11 @@ import { createRoutineStore } from "./routines/store";
 import { createIntentRouter } from "./routing/classify";
 import { createModelCompleter } from "./routing/model";
 import { timedFetch } from "./run-timing";
+import {
+  createToolCallLedger,
+  LEDGER_TTL_MS,
+  ToolCallLedgerMiddleware,
+} from "./runs/ledger";
 import { createSelfHostBanner } from "./self-host-banner";
 import { createTeamBots } from "./team-bots/team-bots";
 import {
@@ -531,6 +536,18 @@ const authoriseQuestion = async (question: PersonQuestion) => {
   )
     throw new ApprovalRefusedError("That Bot is no longer available to you.");
 };
+/**
+ * The saved-call ledger: every computer call a person's run streamed, recorded by the server's own
+ * observer on the agent stream, so the approval gate below checks a browser-executed action in one
+ * read instead of waiting for the conversation service to save it. See runs/ledger.ts.
+ */
+const toolCallLedger = createToolCallLedger(database);
+// Rows are worth a day at most; a browser acts on a call within seconds of its run ending.
+setInterval(() => {
+  void toolCallLedger
+    .purge(new Date(Date.now() - LEDGER_TTL_MS))
+    .catch(() => undefined);
+}, 60 * 60_000).unref?.();
 const storedApprovals = createApprovalStore(database);
 const approvalService = createApprovalService(
   {
@@ -604,10 +621,22 @@ const approvalService = createApprovalService(
      * that never appears is refused; and a service that cannot be read at all answers "unavailable",
      * never a refusal (see saved-call.ts for why that distinction was worth a module).
      */
+    const ledgerCall = {
+      threadId: snapshot.threadId,
+      toolCallId: snapshot.toolCallId,
+      ownerUserId,
+      toolName: snapshot.toolName,
+      args: snapshot.args,
+    };
     await requireSavedToolCall({
       toolCallId: snapshot.toolCallId,
       toolName: snapshot.toolName,
       args: snapshot.args,
+      // The server's own record of the call first: one read, and the call is used once.
+      ledger: {
+        consume: () => toolCallLedger.consume(ledgerCall),
+        settle: () => toolCallLedger.settle({ ...ledgerCall, botId }),
+      },
       read: () =>
         routineIntelligence.getThreadMessages({
           threadId: snapshot.threadId,
@@ -1860,6 +1889,18 @@ const copilotRuntime = mountCopilotRuntime(
   markAttachmentsSentForActor,
   learningSettings,
   loadPersonalMemoryForActor,
+  {
+    // Every computer call a person's run streams goes into the saved-call ledger, by the server.
+    decorate: (actor, agents) => {
+      for (const [botId, agent] of Object.entries(agents))
+        agent.use(
+          new ToolCallLedgerMiddleware(toolCallLedger, {
+            ownerUserId: actor.id,
+            botId,
+          }),
+        );
+    },
+  },
 );
 
 const responsibilityQueue = createWorkQueue(database);

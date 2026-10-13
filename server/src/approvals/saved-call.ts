@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { CopilotKitIntelligence } from "@copilotkit/runtime/v2";
+import type { LedgerVerdict } from "../runs/ledger";
 import { ApprovalRefusedError, ApprovalUnavailableError } from "./types";
 
 type SavedHistory = Awaited<
@@ -35,7 +36,16 @@ export type SavedToolCallCheck = {
   args: unknown;
   /** One read of the saved conversation. */
   read: () => Promise<SavedHistory>;
-  /** Reads before giving up on a call that never appears. 11 reads 500 ms apart is five seconds. */
+  /**
+   * The server's own record of this call (runs/ledger.ts), bound to it, asked before the
+   * conversation and again on every round. `consume` marks a matching call used; `settle` marks a
+   * call the conversation vouched for, so the ledger cannot pass it a second time.
+   */
+  ledger?: {
+    consume: () => Promise<LedgerVerdict>;
+    settle?: () => Promise<void>;
+  };
+  /** Rounds before giving up on a call that never appears: 48 rounds 250 ms apart is twelve seconds. */
   attempts?: number;
   delayMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -78,22 +88,48 @@ export async function requireSavedToolCall(
   input: SavedToolCallCheck,
 ): Promise<void> {
   /*
-   * About 24 seconds in all, backing off from half a second to two. Eleven reads half a second apart
-   * (5.5 s) was shorter than the conversation service sometimes takes to save a call: on 2026-10-13
-   * a gov.gr run had its "Είσοδος στην υπηρεσία" click refused twice while the service was answering
-   * 404 and 502 that hour, and the person saw a click "not saved" that they never had a hand in.
+   * THE LEDGER FIRST. The server recorded every call its model streamed (runs/ledger.ts), so a call
+   * that is there passes in one read, instantly, and is marked used so it cannot pass again. A call
+   * recorded differently, or already used, is refused outright: that is the anti-forgery and
+   * anti-replay property, and the conversation service is not asked to overrule it.
+   *
+   * Only a call the ledger does not hold falls back to the conversation service, which saves a run's
+   * messages a moment behind the stream: on 2026-10-13 a gov.gr run had a click refused twice while
+   * the service was answering 404 and 502. Asked every 250 ms for about twelve seconds, with the
+   * ledger asked again each round, since its write may land while this waits.
    */
-  const attempts = input.attempts ?? 16;
-  const delayMs = input.delayMs ?? 500;
-  const delayFor = (attempt: number) =>
-    input.delayMs !== undefined
-      ? delayMs
-      : Math.min(2_000, delayMs * Math.ceil(attempt / 2));
+  const askLedger = async (): Promise<LedgerVerdict> => {
+    if (!input.ledger) return "missing";
+    try {
+      return await input.ledger.consume();
+    } catch (error) {
+      input.warn?.({ attempt: -1, failure: describeFailure(error) });
+      return "missing";
+    }
+  };
+  const verdict = await askLedger();
+  if (verdict === "ok") return;
+  if (verdict !== "missing")
+    throw new ApprovalRefusedError(
+      verdict === "replayed"
+        ? "That tool call was already carried out once. It was not repeated."
+        : "That unanswered tool call is not saved in this conversation.",
+    );
+  const attempts = input.attempts ?? 48;
+  const delayMs = input.delayMs ?? 250;
   const sleep = input.sleep ?? pause;
   let reads = 0;
   let failures = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await sleep(delayFor(attempt));
+    if (attempt > 0) {
+      await sleep(delayMs);
+      const late = await askLedger();
+      if (late === "ok") return;
+      if (late !== "missing")
+        throw new ApprovalRefusedError(
+          "That unanswered tool call is not saved in this conversation.",
+        );
+    }
     let history: SavedHistory;
     try {
       history = await input.read();
@@ -122,6 +158,10 @@ export async function requireSavedToolCall(
       throw new ApprovalRefusedError(
         "That unanswered tool call is not saved in this conversation.",
       );
+    // Vouched for by the conversation: the ledger must not let the same call through again.
+    await input.ledger?.settle?.().catch((error: unknown) => {
+      input.warn?.({ attempt, failure: describeFailure(error) });
+    });
     return;
   }
   if (reads === 0 && failures > 0)

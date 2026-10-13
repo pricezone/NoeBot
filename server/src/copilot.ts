@@ -2208,6 +2208,7 @@ export function createRequestAgents(
       acquireLearnedSkills,
       loadPersonalMemoryForActor?.(actor.id),
     );
+    extras.decorate?.(actor, agents);
     return agents;
   }
 }
@@ -2228,6 +2229,11 @@ export function invalidateAgentBuilds(): void {
 export type RequestAgentExtras = {
   /** How long a build is reused; zero builds on every request. */
   buildTtlMs?: number;
+  /**
+   * Called once per build with the person and their Bots, to attach middleware every run of theirs
+   * gets: the saved-call ledger's observer (runs/ledger.ts).
+   */
+  decorate?: (actor: AgentActor, agents: Record<string, AbstractAgent>) => void;
 };
 
 /**
@@ -2483,6 +2489,8 @@ export function mountCopilotRuntime(
   markAttachmentsSentForActor?: (actorId: string) => MarkAttachmentsSent,
   learningSettings?: LearningSettingsStore,
   loadPersonalMemoryForActor?: (actorId: string) => LoadPersonalMemory,
+  /** The request path's named options; see {@link RequestAgentExtras}. */
+  requestExtras?: RequestAgentExtras,
 ) {
   const { intelligence } = config.runtime;
 
@@ -2639,6 +2647,7 @@ export function mountCopilotRuntime(
       markAttachmentsSentForActor,
       learning?.acquire,
       loadPersonalMemoryForActor,
+      requestExtras,
     ) as never,
   });
 
