@@ -4,6 +4,7 @@ import {
   type QuestionAnswer,
   QuestionCard,
 } from "@/components/chat-cards/question-card";
+import { useConversation } from "@/lib/copilot/conversation";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
 
 /**
@@ -26,6 +27,45 @@ type Waiting<T> =
       result: undefined;
     }
   | { status: "complete"; args: T; respond: undefined; result: string };
+
+/**
+ * A decision card this tab cannot answer through the run, answered through the chat instead.
+ *
+ * A decision suspends the run in the tab that started it, and only that tab holds what resumes it.
+ * Drawn anywhere else — the person's own tab while the Bot was driven from another, or the same tab
+ * after a reload — the card arrives with no result and nothing executing it, which the runtime calls
+ * "in progress" for good: the options were hidden as if still being written, and the question could
+ * not be answered at all. So when this tab has no turn going and the question is written, the card
+ * takes an answer and sends it as the person's next message, the way a Bot's `ask_person` question
+ * is answered; the history repair then tells the Bot that message is the answer.
+ *
+ * `answer` is what the person said after the question, read off the transcript (see
+ * `question-answers.ts`), for a card whose own result does not hold one.
+ */
+function useChatAnswer(props: {
+  status: "inProgress" | "executing" | "complete";
+  args: { title?: string };
+  toolCallId?: string;
+}) {
+  const conversation = useConversation();
+  const id = props.toolCallId;
+  const answer =
+    id && props.status !== "executing"
+      ? conversation?.answers?.get(id)
+      : undefined;
+  const answerable =
+    props.status === "inProgress" &&
+    answer === undefined &&
+    conversation?.turnActive === false &&
+    Boolean(id) &&
+    Boolean(props.args.title);
+  const send = async (text: string) => {
+    // Not sent at all: the card takes an answer again.
+    if ((await conversation?.ask(text)) === false)
+      throw new Error("The answer was not sent.");
+  };
+  return { answer, answerable, send };
+}
 
 export const ApprovalCardProps = z.object({
   title: z.string().describe("What is being approved, in a few words"),
@@ -56,12 +96,25 @@ type ApprovalAnswer = { decision: "approved" | "declined"; note?: string };
  * "approve", so it goes out as a decline carrying the person's words: the Bot learns what they want
  * instead, and nothing irreversible happens on an answer that never said yes.
  */
-export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
-  const { args, status, respond } = props;
+export function ApprovalCard(
+  props: Waiting<ApprovalArgs> & { name?: string; toolCallId?: string },
+) {
+  const { args } = props;
   const [sending, setSending] = useState<ApprovalAnswer | null>(null);
   const [sent, setSent] = useState<ApprovalAnswer | null>(null);
+  const chat = useChatAnswer(props);
+  const approveLabel = args.approveLabel ?? "Approve";
+  const rejectLabel = args.rejectLabel ?? "Decline";
 
-  if (status === "inProgress") {
+  const recorded =
+    props.status === "complete" ? readApproval(props.result) : undefined;
+  /** Said in the chat instead: a row's label (and a reason after it), or words of their own. */
+  const inChat =
+    recorded || chat.answer === undefined
+      ? undefined
+      : approvalFromText(chat.answer, approveLabel, rejectLabel);
+
+  if (props.status === "inProgress" && !chat.answerable && !inChat) {
     return (
       <QuestionCard
         subtitle="Preparing the request…"
@@ -70,10 +123,13 @@ export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
     );
   }
 
-  const decided =
-    (status === "complete" ? readApproval(props.result) : undefined) ??
-    sent ??
-    undefined;
+  const respond = chat.answerable
+    ? (value: ApprovalAnswer) =>
+        chat.send(
+          `${value.decision === "approved" ? approveLabel : rejectLabel}${value.note ? `: ${value.note}` : ""}`,
+        )
+    : props.respond;
+  const decided = recorded ?? (inChat && "decision" in inChat ? inChat : sent);
 
   const answer = async (decision: ApprovalAnswer["decision"], note: string) => {
     if (!respond || sending || decided) return;
@@ -91,8 +147,8 @@ export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
   };
 
   const options = [
-    { id: "approved", label: args.approveLabel ?? "Approve" },
-    { id: "declined", label: args.rejectLabel ?? "Decline" },
+    { id: "approved", label: approveLabel },
+    { id: "declined", label: rejectLabel },
   ];
   const asAnswer = (value: ApprovalAnswer): QuestionAnswer => ({
     optionId: value.decision,
@@ -101,7 +157,13 @@ export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
 
   return (
     <QuestionCard
-      answered={decided ? asAnswer(decided) : undefined}
+      answered={
+        decided
+          ? asAnswer(decided)
+          : inChat && "text" in inChat
+            ? inChat
+            : undefined
+      }
       onOwnAnswer={
         respond ? (text) => void answer("declined", text) : undefined
       }
@@ -117,7 +179,7 @@ export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
       options={options}
       sending={sending ? asAnswer(sending) : undefined}
       subtitle={args.summary}
-      title={args.title}
+      title={args.title ?? ""}
     >
       {args.details?.length ? (
         <dl className="grid grid-cols-[minmax(0,9rem)_1fr] gap-x-4 gap-y-1 text-sm">
@@ -174,18 +236,33 @@ export type ChoiceAnswer = { choice: string; label: string; typed?: true };
  * then answers in the composer like any other message.
  */
 export function ChoiceCard(
-  props: Waiting<ChoiceArgs> & { onDismiss?: () => void },
+  props: Waiting<ChoiceArgs> & { onDismiss?: () => void; toolCallId?: string },
 ) {
-  const { args, status, respond, onDismiss } = props;
+  const { args, onDismiss } = props;
   /** The answer on its way out, so the card stops taking answers at once. */
   const [sending, setSending] = useState<ChoiceAnswer | null>(null);
   /** Sent, before the transcript has caught up with it. */
   const [sent, setSent] = useState<ChoiceAnswer | null>(null);
+  const chat = useChatAnswer(props);
+  // Answerable here only by message: drawn as waiting on an answer, and an answer goes out as one.
+  const status = chat.answerable ? "executing" : props.status;
+  const respond = chat.answerable
+    ? (value: unknown) =>
+        chat.send(
+          value && typeof value === "object" && "label" in value
+            ? String(value.label)
+            : "",
+        )
+    : props.respond;
 
   const recorded =
-    status === "complete" ? readChoiceAnswer(props.result) : undefined;
-  const given = recorded ?? sent ?? undefined;
-  const options = status === "inProgress" ? [] : (args.options ?? []);
+    props.status === "complete" ? readChoiceAnswer(props.result) : undefined;
+  const inChat =
+    recorded || chat.answer === undefined
+      ? undefined
+      : choiceFromText(chat.answer, args.options ?? []);
+  const given = recorded ?? inChat ?? sent ?? undefined;
+  const options = status === "inProgress" && !given ? [] : (args.options ?? []);
   const open = status === "executing" && Boolean(respond) && !given;
 
   const answer = async (value: ChoiceAnswer) => {
@@ -231,6 +308,38 @@ export function ChoiceCard(
       title={args.title ?? "Waiting for the assistant…"}
     />
   );
+}
+
+/** An answer said in the chat, as the option whose label it is, or as words of the person's own. */
+function choiceFromText(
+  text: string,
+  options: ReadonlyArray<{ id?: string; label?: string } | undefined>,
+): ChoiceAnswer {
+  const picked = options.find((option) => option?.label === text);
+  return picked?.id
+    ? { choice: picked.id, label: text }
+    : { choice: text, label: text, typed: true };
+}
+
+/**
+ * An approval said in the chat. The card sends a row's label, with the reason after a colon when one
+ * was typed; anything else is the person's own words, drawn as they wrote them rather than guessed
+ * into a yes or a no.
+ */
+function approvalFromText(
+  text: string,
+  approveLabel: string,
+  rejectLabel: string,
+): ApprovalAnswer | { text: string } {
+  for (const [label, decision] of [
+    [approveLabel, "approved"],
+    [rejectLabel, "declined"],
+  ] as const) {
+    if (text === label) return { decision };
+    if (text.startsWith(`${label}: `))
+      return { decision, note: text.slice(label.length + 2) };
+  }
+  return { text };
 }
 
 /**

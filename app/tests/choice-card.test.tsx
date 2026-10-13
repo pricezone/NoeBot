@@ -11,10 +11,11 @@ import type { Message } from "@ag-ui/core";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ChoiceCard } from "@/components/gallery/decisions";
+import { ApprovalCard, ChoiceCard } from "@/components/gallery/decisions";
 import { ConversationProvider } from "@/lib/copilot/conversation";
 import { AskWithOptions } from "@/lib/copilot/escalation-tool";
 import { questionAnswers } from "@/lib/copilot/question-answers";
+import { ANSWERED_IN_CHAT } from "@/lib/copilot/repair-history";
 import {
   FIRST_TURN_OPTIONS,
   FIRST_TURN_QUESTION,
@@ -254,5 +255,166 @@ describe("answers read off the transcript", () => {
 
   test("a question nobody has answered yet has no answer", () => {
     expect(questionAnswers([ask]).size).toBe(0);
+  });
+});
+
+describe("a choice card this tab is not running", () => {
+  /** The card as the runtime hands it to a tab that did not start the run: no result, nothing executing. */
+  function renderOrphan(
+    answers = new Map<string, string>(),
+    turnActive = false,
+  ) {
+    const asked: string[] = [];
+    const view = render(
+      <ConversationProvider
+        answers={answers}
+        ask={async (text) => {
+          asked.push(text);
+        }}
+        turnActive={turnActive}
+      >
+        <ChoiceCard
+          args={ARGS}
+          respond={undefined}
+          result={undefined}
+          status="inProgress"
+          toolCallId="call-9"
+        />
+      </ConversationProvider>,
+    );
+    return { asked, view };
+  }
+
+  test("shows its options and sends a picked one as the person's message", async () => {
+    const { asked, view } = renderOrphan();
+
+    expect(rows(view)).toHaveLength(4);
+    await user.click(view.getByText("Web tasks and errands"));
+
+    await waitFor(() => expect(asked).toEqual(["Web tasks and errands"]));
+    expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+  });
+
+  test("takes an answer of the person's own the same way", async () => {
+    const { asked, view } = renderOrphan();
+
+    await user.type(view.getByRole("textbox"), "Something else{Enter}");
+
+    await waitFor(() => expect(asked).toEqual(["Something else"]));
+  });
+
+  test("still being written while this tab has the turn, it waits", () => {
+    const { view } = renderOrphan(new Map(), true);
+
+    expect(view.queryAllByRole("listitem")).toHaveLength(0);
+    expect(view.queryByRole("textbox")).toBeNull();
+  });
+
+  test("answered in the chat, it collapses to that answer", () => {
+    const { asked, view } = renderOrphan(
+      new Map([["call-9", "Code and GitHub work"]]),
+    );
+
+    expect(view.getByText("Code and GitHub work")).toBeTruthy();
+    expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+    expect(view.queryByText("Research and writing")).toBeNull();
+    expect(asked).toEqual([]);
+  });
+});
+
+describe("decision cards answered off the transcript", () => {
+  const choice: Message = {
+    id: "a2",
+    role: "assistant",
+    content: "",
+    toolCalls: [
+      {
+        id: "call-2",
+        type: "function",
+        function: {
+          name: "askChoice",
+          arguments: JSON.stringify(ARGS),
+        },
+      },
+    ],
+  };
+
+  test("a card with only a stand-in result is answered by the next message", () => {
+    expect(
+      questionAnswers([
+        choice,
+        {
+          id: "t2",
+          role: "tool",
+          toolCallId: "call-2",
+          content: ANSWERED_IN_CHAT,
+        },
+        { id: "u2", role: "user", content: "Web tasks and errands" },
+      ]),
+    ).toEqual(new Map([["call-2", "Web tasks and errands"]]));
+  });
+
+  test("a card answered on the card is not answered by a later message", () => {
+    expect(
+      questionAnswers([
+        choice,
+        {
+          id: "t2",
+          role: "tool",
+          toolCallId: "call-2",
+          content: JSON.stringify({ choice: "x", label: "x" }),
+        },
+        { id: "u2", role: "user", content: "thanks" },
+      ]).size,
+    ).toBe(0);
+  });
+});
+
+describe("an approval card this tab is not running", () => {
+  const APPROVAL = {
+    title: "Issue the declaration?",
+    summary: "It goes to the recipient once issued.",
+    approveLabel: "Issue",
+  };
+
+  function renderOrphan(answers = new Map<string, string>()) {
+    const asked: string[] = [];
+    const view = render(
+      <ConversationProvider
+        answers={answers}
+        ask={async (text) => {
+          asked.push(text);
+        }}
+        turnActive={false}
+      >
+        <ApprovalCard
+          args={APPROVAL}
+          respond={undefined}
+          result={undefined}
+          status="inProgress"
+          toolCallId="call-7"
+        />
+      </ConversationProvider>,
+    );
+    return { asked, view };
+  }
+
+  test("offers its rows and sends the picked one's label", async () => {
+    const { asked, view } = renderOrphan();
+
+    expect(rows(view)).toEqual(["AIssue", "BDecline"]);
+    await user.click(view.getByText("Issue"));
+
+    await waitFor(() => expect(asked).toEqual(["Issue"]));
+  });
+
+  test("a decline with a reason said in the chat collapses to Decline", () => {
+    const { view } = renderOrphan(
+      new Map([["call-7", "Decline: the address is wrong"]]),
+    );
+
+    expect(view.getByText("Decline")).toBeTruthy();
+    expect(view.getByText("the address is wrong")).toBeTruthy();
+    expect(view.queryByText("Issue")).toBeNull();
   });
 });

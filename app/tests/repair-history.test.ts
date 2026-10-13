@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@ag-ui/core";
-import { repairUnansweredToolCalls } from "../src/lib/copilot/repair-history";
+import {
+  ANSWERED_IN_CHAT,
+  isStandIn,
+  repairUnansweredToolCalls,
+  UNANSWERED,
+} from "../src/lib/copilot/repair-history";
 
 /**
  * A stored thread must remain provider-valid even when a tool call lost its result.
@@ -213,5 +218,58 @@ describe("repairUnansweredToolCalls without an id source", () => {
     expect(result.toolCallId).toBe("call-1");
     // A real id, not an empty string and not the call's own id.
     expect(result.id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("a question answered in the chat instead of on its card", () => {
+  test("its stand-in says the next message is the answer", () => {
+    const messages = [
+      { id: "u1", role: "user", content: "issue it" },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        toolCalls: [call("c1", "askChoice")],
+      },
+      { id: "u2", role: "user", content: "Yes, issue it" },
+    ] as Message[];
+
+    const repaired = repairUnansweredToolCalls(messages, ids);
+
+    const result = repaired[2] as Message & { content: string };
+    expect(result.role).toBe("tool");
+    expect(result.content).toBe(ANSWERED_IN_CHAT);
+    expect(isStandIn(result.content)).toBe(true);
+  });
+
+  test("a question with nothing said after it keeps the generic stand-in", () => {
+    const messages = [
+      { id: "u1", role: "user", content: "issue it" },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        toolCalls: [call("c1", "askApproval")],
+      },
+    ] as Message[];
+
+    const repaired = repairUnansweredToolCalls(messages, ids);
+
+    expect((repaired[2] as Message & { content: string }).content).toBe(
+      UNANSWERED,
+    );
+  });
+
+  test("any other tool keeps the generic stand-in even with a message after it", () => {
+    const messages = [
+      { id: "a1", role: "assistant", content: "", toolCalls: [call("c1")] },
+      { id: "u2", role: "user", content: "and now?" },
+    ] as Message[];
+
+    const repaired = repairUnansweredToolCalls(messages, ids);
+
+    expect((repaired[1] as Message & { content: string }).content).toBe(
+      UNANSWERED,
+    );
   });
 });

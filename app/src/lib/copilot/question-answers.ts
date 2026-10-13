@@ -1,4 +1,5 @@
 import type { Message } from "@ag-ui/core";
+import { isStandIn, QUESTION_TOOLS } from "./repair-history";
 
 /** The tool a Bot asks a person with. Its server-side name; see `server/src/agents/escalation.ts`. */
 const ASK_PERSON = "ask_person";
@@ -27,6 +28,11 @@ function textOf(content: unknown): string {
  * first user message with words in it after the call, whether they picked an option on the card or
  * typed into the composer. Every question still open at that message is answered by it.
  *
+ * A decision card (`askChoice`, `askApproval`) is answered by its tool result when it was answered
+ * on the card. One with no real result — answerable only by message, because the tab that held its
+ * run is gone — is answered by the next message the same way. The stand-in result written for it
+ * when that message went out is not an answer, so it does not close the question.
+ *
  * Pure, so the rule is testable without a conversation, and returning a fresh map each time: the
  * caller keeps one identity per distinct content (see `channel-chat.tsx`).
  */
@@ -35,13 +41,25 @@ export function questionAnswers(
 ): Map<string, string> {
   const answers = new Map<string, string>();
   let open: string[] = [];
+  /** Decision cards, whose real result is their answer; `ask_person`'s result only says it was put. */
+  const decisions = new Set<string>();
   for (const message of messages) {
     if (message.role === "assistant") {
       for (const call of Array.isArray(message.toolCalls)
         ? message.toolCalls
         : []) {
-        if (call?.function?.name === ASK_PERSON) open.push(call.id);
+        const name = call?.function?.name ?? "";
+        if (!QUESTION_TOOLS.has(name)) continue;
+        open.push(call.id);
+        if (name !== ASK_PERSON) decisions.add(call.id);
       }
+      continue;
+    }
+    if (message.role === "tool") {
+      const id = "toolCallId" in message ? message.toolCallId : undefined;
+      // Answered on the card: its own result holds the answer, and the next message is not one.
+      if (id && decisions.has(id) && !isStandIn(message.content))
+        open = open.filter((waiting) => waiting !== id);
       continue;
     }
     if (message.role !== "user" || open.length === 0) continue;

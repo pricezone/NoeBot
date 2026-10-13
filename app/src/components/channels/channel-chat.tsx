@@ -1037,6 +1037,7 @@ export function ChannelChat({
       <ConversationProvider
         answers={answersRef.current.answers}
         ask={askFromComponent}
+        turnActive={agent.isRunning || turnsInFlight > 0}
       >
         <div
           className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col"

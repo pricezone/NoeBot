@@ -5,8 +5,33 @@ import { newId } from "../new-id";
  * Insert explanatory tool results for unanswered tool calls before sending history to providers.
  */
 
-const UNANSWERED =
+export const UNANSWERED =
   "This call produced no result: the surface was interrupted before it could answer. Do not assume it succeeded.";
+
+/**
+ * The tools that put a question to the person: `ask_person` on the server, and the two decision
+ * cards that suspend a run in the browser. A card is answered on the card where the tab that drew it
+ * still holds the run; anywhere else (another tab, or the same one after a reload) the only way left
+ * to answer it is the next message, so that message is the answer.
+ */
+export const QUESTION_TOOLS: ReadonlySet<string> = new Set([
+  "ask_person",
+  "askChoice",
+  "askApproval",
+]);
+
+/**
+ * The stand-in for a question nobody answered on its card, when the person has written since. It
+ * tells the Bot where the answer is instead of that the question failed, which is what the generic
+ * sentence above would have it believe.
+ */
+export const ANSWERED_IN_CHAT =
+  "The person answered this question in their next message instead of on the card. Read that message as their answer.";
+
+/** Whether a tool result is one of the stand-ins this file writes rather than a real answer. */
+export function isStandIn(content: unknown): boolean {
+  return content === UNANSWERED || content === ANSWERED_IN_CHAT;
+}
 
 /** A tool result message, which AG-UI models as its own role. */
 type ToolResult = { role: "tool"; toolCallId: string };
@@ -82,7 +107,9 @@ export function repairUnansweredToolCalls(
 
   const repaired: Message[] = [];
   const filled = new Set(answered);
-  for (const message of messages) {
+  /** Past this index the person has said nothing yet, so no question there is answered in chat. */
+  const lastUser = messages.findLastIndex((message) => message.role === "user");
+  for (const [index, message] of messages.entries()) {
     if (misplaced.has(message)) continue;
     repaired.push(message);
     if (message.role !== "assistant") continue;
@@ -99,7 +126,10 @@ export function repairUnansweredToolCalls(
             id: mintId(),
             role: "tool",
             toolCallId: call.id,
-            content: UNANSWERED,
+            content:
+              QUESTION_TOOLS.has(call.function?.name ?? "") && index < lastUser
+                ? ANSWERED_IN_CHAT
+                : UNANSWERED,
           } as Message),
       );
       // A duplicated call id may only receive one repair result.
