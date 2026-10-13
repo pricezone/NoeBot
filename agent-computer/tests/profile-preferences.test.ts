@@ -6,7 +6,7 @@ test("keeps WebRTC inside the proxy and everything else the profile remembers", 
     profile: { name: "Bot" },
     webrtc: { multiple_routes_enabled: false },
   });
-  expect(next).toEqual({
+  expect(next).toMatchObject({
     profile: { name: "Bot" },
     webrtc: {
       multiple_routes_enabled: false,
@@ -36,4 +36,18 @@ test("applying it twice changes nothing the second time", () => {
   expect(
     withProfilePreferences(once, { homepage: "https://www.google.com/" }),
   ).toEqual(once);
+});
+
+test("the Bot's browser keeps no passwords and offers to keep none", () => {
+  const prefs = withProfilePreferences({ profile: { name: "Bot" } });
+  expect(prefs.credentials_enable_service).toBe(false);
+  expect(prefs.credentials_enable_autosignin).toBe(false);
+  expect(prefs.profile).toMatchObject({
+    name: "Bot",
+    password_manager_enabled: false,
+  });
+  expect(prefs.autofill).toMatchObject({
+    profile_enabled: false,
+    credit_card_enabled: false,
+  });
 });
