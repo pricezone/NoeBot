@@ -38,6 +38,7 @@ import type { SignInOutcome } from "../../shared/sign-in-guidance";
 import { classifyChallenge } from "./challenge";
 import { chooseLivePage } from "./live-page";
 import { markElementSecret, SECRET_ATTRIBUTE } from "./secret-masking";
+import { sameSite } from "./site";
 
 export type SignInFillInput = {
   origin: string;
@@ -63,6 +64,11 @@ export type SignInProbe = {
    * server reads it while a site waits for approval on the person's phone.
    */
   check?: SignInCheck;
+  /**
+   * The form is in a frame from another site than the page around it. A login is never typed there;
+   * this is the frame's own address, to open as a page of its own before asking.
+   */
+  frameUrl?: string;
 };
 
 export type SignInFillResult = {
@@ -80,10 +86,17 @@ export type SignInFillResult = {
    * typed there; the server decides whether to continue on that origin.
    */
   movedTo?: { origin: string; form: "login" | "code" };
+  /**
+   * The form is in a frame on a page of another site, which controls that frame: nothing is typed
+   * there. The frame's own address, for the Bot to open as a page of its own and ask again.
+   */
+  openFrame?: string;
 };
 
 const LOGIN_ATTRIBUTE = "data-openbot-login";
 const STEP_TIMEOUT_MS = 15_000;
+/** Marking a field this fill just found takes no time; longer means the field is gone. */
+const MARK_TIMEOUT_MS = 2_000;
 
 /**
  * The words pages are read by, as regular-expression sources (matched case-insensitively).
@@ -1005,17 +1018,40 @@ function markSubmit(
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const marked = (frame: Frame, name: string) =>
-  frame.locator(`[${LOGIN_ATTRIBUTE}="${name}"]`);
+/** A field the scan marked, by the scan's own marker. */
+const marked = (found: FrameScan, name: string) =>
+  found.frame.locator(`[${found.marker}="${name}"]`);
 
-async function submitFrom(frame: Frame, field: Locator) {
+/** Thrown when the frame a field was found in changed before something was typed or sent. */
+const FRAME_CHANGED = "The frame holding the form changed.";
+
+/**
+ * Stop unless the frame is still the document the scan read: same address, no navigation since,
+ * still attached. Called immediately before every field is typed into and before every submit, so
+ * a page that swaps what its frame holds (it controls the frame) gets nothing more typed into the
+ * new document. The marker is a fresh name per fill as well, so a swapped-in document that copied
+ * the old one's markup still has no field a locator would find.
+ */
+function unchanged(found: FrameScan) {
+  if (
+    found.frame.isDetached() ||
+    found.frame.url() !== found.url ||
+    (navigations.get(found.frame) ?? 0) !== found.navigations
+  )
+    throw new Error(FRAME_CHANGED);
+}
+
+async function submitFrom(found: FrameScan, field: Locator) {
+  unchanged(found);
+  if ((await field.count()) === 0) throw new Error(FRAME_CHANGED);
   const how = await field.evaluate(markSubmit, {
-    attribute: LOGIN_ATTRIBUTE,
+    attribute: found.marker,
     sends: SIGN_IN_WORDS.sends,
     elsewhere: SIGN_IN_WORDS.elsewhere,
   });
+  unchanged(found);
   if (how === "button")
-    await marked(frame, "submit").click({ timeout: STEP_TIMEOUT_MS });
+    await marked(found, "submit").click({ timeout: STEP_TIMEOUT_MS });
   else if (how === "form")
     await field.evaluate((element) =>
       (element as HTMLInputElement).form?.requestSubmit(),
@@ -1067,7 +1103,8 @@ async function send(
     await submit();
   } catch (error) {
     // A window that closed on its own submit, or a form the page already sent itself (a code that
-    // submits on its last box), went; anything else is a failure.
+    // submits on its last box), went; anything else is a failure, a changed frame above all.
+    if (error instanceof Error && error.message === FRAME_CHANGED) throw error;
     if (!page.isClosed() && !(await landed().catch(() => false))) throw error;
   }
   await settle(page);
@@ -1076,8 +1113,35 @@ async function send(
   return next;
 }
 
-/** One frame read, with the origin the browser gives it. */
-type FrameScan = { frame: Frame; scan: PageScan; origin: string };
+/**
+ * One frame read: the origin the browser gives it, the address and the count of its navigations at
+ * the moment it was read (what `unchanged` compares against), and the marker its fields carry.
+ */
+type FrameScan = {
+  frame: Frame;
+  scan: PageScan;
+  origin: string;
+  url: string;
+  navigations: number;
+  marker: string;
+};
+
+/** How many times each frame has navigated, counted from the browser's own events. */
+const navigations = new WeakMap<Frame, number>();
+const watched = new WeakSet<Page>();
+
+function watchNavigations(page: Page) {
+  if (watched.has(page)) return;
+  watched.add(page);
+  page.on("framenavigated", (frame) => {
+    navigations.set(frame, (navigations.get(frame) ?? 0) + 1);
+  });
+}
+
+/** A fresh marker name, so no document but the one just read carries it. */
+function freshMarker() {
+  return `${LOGIN_ATTRIBUTE}-${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
 
 /**
  * A frame's origin as the browser knows it, never as the page says it: a page's script can replace
@@ -1095,33 +1159,44 @@ function frameOrigin(frame: Frame): string {
   return originOfUrl(url.startsWith("blob:") ? url.slice(5) : url);
 }
 
+/** The nearest address a person could open for a frame: its own, or that of the frame around it. */
+function frameAddress(frame: Frame): string {
+  const url = frame.url();
+  if (/^https?:/.test(url)) return url;
+  const parent = frame.parentFrame();
+  return parent ? frameAddress(parent) : url;
+}
+
 /**
- * Every frame of the page read, the main frame first. Frames that cannot be read are skipped. A
- * ticked "remember this device" box is unticked only in frames of `uncheckOn`, the approved origin:
- * nothing is changed in any other.
+ * Every frame of the page read, the main frame first. Frames that cannot be read, or that navigated
+ * while being read, are skipped. A ticked "remember this device" box is unticked only in frames of
+ * `uncheckOn`, the approved origin: nothing is changed in any other.
  */
 async function scanFrames(
   page: Page,
-  options: { uncheckOn?: string; challenge?: boolean } = {},
+  options: { uncheckOn?: string; challenge?: boolean; marker?: string } = {},
 ): Promise<FrameScan[]> {
   if (page.isClosed()) return [];
+  watchNavigations(page);
+  const marker = options.marker ?? LOGIN_ATTRIBUTE;
   const main = page.mainFrame();
   const scans: FrameScan[] = [];
   for (const frame of [main, ...page.frames().filter((f) => f !== main)]) {
     try {
+      const url = frame.url();
+      const count = navigations.get(frame) ?? 0;
       const origin = frameOrigin(frame);
-      scans.push({
-        frame,
-        scan: await frame.evaluate(scanPage, {
-          attribute: LOGIN_ATTRIBUTE,
-          words: SIGN_IN_WORDS,
-          uncheckRemember:
-            options.uncheckOn !== undefined && origin === options.uncheckOn,
-          challenge: (options.challenge ?? false) && frame === main,
-          around: false,
-        }),
-        origin,
+      const scan = await frame.evaluate(scanPage, {
+        attribute: marker,
+        words: SIGN_IN_WORDS,
+        uncheckRemember:
+          options.uncheckOn !== undefined && origin === options.uncheckOn,
+        challenge: (options.challenge ?? false) && frame === main,
+        around: false,
       });
+      if (frame.url() !== url || (navigations.get(frame) ?? 0) !== count)
+        continue;
+      scans.push({ frame, scan, origin, url, navigations: count, marker });
     } catch {
       // A frame mid-navigation or detached: not this one.
     }
@@ -1276,6 +1351,11 @@ export async function probeSignIn(page: Page): Promise<SignInProbe> {
       : "none";
   const holder = login ?? code;
   const origin = holder?.origin ?? originOfUrl(url);
+  // A form in a frame from another site than the page around it is never filled: say where it is.
+  const crossSite =
+    holder !== undefined &&
+    holder.frame !== page.mainFrame() &&
+    !sameSite(originOfUrl(url), holder.origin);
   let host = "";
   try {
     host = origin ? new URL(origin).host : "";
@@ -1286,14 +1366,37 @@ export async function probeSignIn(page: Page): Promise<SignInProbe> {
   const icon = origin
     ? await pageIcon(holder?.frame ?? page.mainFrame())
     : undefined;
-  return { url, origin, host, form, check, ...(icon ? { icon } : {}) };
+  return {
+    url,
+    origin,
+    host,
+    form,
+    check,
+    ...(icon ? { icon } : {}),
+    ...(holder && crossSite ? { frameUrl: frameAddress(holder.frame) } : {}),
+  };
 }
 
-async function typeSecret(field: Locator, value: string) {
+async function typeSecret(
+  field: Locator,
+  value: string,
+  guard: () => void = () => {},
+) {
+  guard();
+  // The field this fill marked is gone: the document was replaced, and nothing goes into another.
+  if ((await field.count()) === 0) throw new Error(FRAME_CHANGED);
   // Marked first as well as after, so not one frame of the live screen shows it unmasked.
-  await field.evaluate(markElementSecret, SECRET_ATTRIBUTE).catch(() => {});
+  await field
+    .evaluate(markElementSecret, SECRET_ATTRIBUTE, { timeout: MARK_TIMEOUT_MS })
+    .catch(() => {});
+  guard();
   await field.fill(value, { timeout: STEP_TIMEOUT_MS });
-  await field.evaluate(markElementSecret, SECRET_ATTRIBUTE);
+  // Gone straight after taking the value: the document was swapped under it. Nothing more is typed.
+  await field
+    .evaluate(markElementSecret, SECRET_ATTRIBUTE, { timeout: MARK_TIMEOUT_MS })
+    .catch(() => {
+      throw new Error(FRAME_CHANGED);
+    });
 }
 
 /**
@@ -1304,19 +1407,22 @@ async function typeSecret(field: Locator, value: string) {
  * or dashes aside) goes into the first box whole, as a paste would, for the site's script to spread.
  */
 async function typeIntoBoxes(
-  frame: Frame,
+  box: (index: number) => Locator,
   lengths: number[],
   value: string,
   timeout: number,
+  guard: () => void = () => {},
 ) {
-  const box = (index: number) => marked(frame, `code-${index}`);
   for (const index of lengths.keys())
     await box(index)
-      .evaluate(markElementSecret, SECRET_ATTRIBUTE)
+      .evaluate(markElementSecret, SECRET_ATTRIBUTE, {
+        timeout: MARK_TIMEOUT_MS,
+      })
       .catch(() => {});
   const compact = value.replace(/[\s-]/g, "");
   const total = lengths.reduce((sum, length) => sum + length, 0);
   if (compact.length !== total) {
+    guard();
     await box(0).fill("", { timeout });
     await box(0).pressSequentially(value, { timeout });
     return;
@@ -1327,6 +1433,7 @@ async function typeIntoBoxes(
     offset += length;
     // A site that submits on its last box may already be gone.
     if (index > 0 && (await box(index).count()) === 0) return;
+    guard();
     await box(index).fill("", { timeout });
     await box(index).pressSequentially(part, { timeout });
   }
@@ -1334,19 +1441,21 @@ async function typeIntoBoxes(
 
 /** Type a code into whatever the scan found: one field, or a row of boxes. */
 async function typeCode(found: FrameScan, code: string) {
+  const guard = () => unchanged(found);
   if (found.scan.codeBoxes.length > 1)
     await typeIntoBoxes(
-      found.frame,
+      (index) => marked(found, `code-${index}`),
       found.scan.codeBoxes,
       code,
       STEP_TIMEOUT_MS,
+      guard,
     );
-  else await typeSecret(marked(found.frame, "code"), code);
+  else await typeSecret(marked(found, "code"), code, guard);
 }
 
 function codeField(found: FrameScan) {
   return marked(
-    found.frame,
+    found,
     found.scan.codeBoxes.length > 1
       ? `code-${found.scan.codeBoxes.length - 1}`
       : "code",
@@ -1389,7 +1498,12 @@ export async function typeSecretValue(
         continue;
       }
       if (scan.codeBoxes.length > 1) {
-        await typeIntoBoxes(frame, scan.codeBoxes, value, timeout);
+        await typeIntoBoxes(
+          (index) => frame.locator(`[${LOGIN_ATTRIBUTE}="code-${index}"]`),
+          scan.codeBoxes,
+          value,
+          timeout,
+        );
         return;
       }
       break;
@@ -1443,6 +1557,7 @@ async function afterUsername(
   before: ReadonlySet<Page>,
   earlierMessage: string | undefined,
   approved: string,
+  marker: string,
 ): Promise<{ page: Page; login?: FrameScan; check?: SignInCheck }> {
   const deadline = Date.now() + STEP_TIMEOUT_MS;
   let live = page;
@@ -1451,6 +1566,7 @@ async function afterUsername(
     const scans = await scanFrames(live, {
       uncheckOn: approved,
       challenge: true,
+      marker,
     });
     // The approved origin's password field first; any other is only ever reported, never typed into.
     const login =
@@ -1482,6 +1598,8 @@ export async function fillSignIn(
   input: SignInFillInput,
 ): Promise<SignInFillResult> {
   let live = page;
+  // This fill's own marker: no other document, and no earlier read of this one, carries it.
+  const marker = freshMarker();
   const answer = (error: string, submitted = false): SignInFillResult => ({
     submitted,
     passwordFieldVisible: false,
@@ -1492,27 +1610,49 @@ export async function fillSignIn(
   const rememberedFlag = () =>
     remembered ? { rememberDeviceLeftUnchecked: true } : {};
   /**
+   * TYPED ONLY WHERE THE PAGE AROUND IT IS THE SAME SITE. A frame is controlled by the page that
+   * embeds it, which can navigate it between being read and being typed into. So a login in a frame
+   * is typed only when the top-level page is the approved origin's own site; in a frame on a page of
+   * another site it never is, and the Bot is told to open the frame's address as a page of its own.
+   */
+  const topAllows = (found: FrameScan) =>
+    found.frame === live.mainFrame() ||
+    sameSite(originOfUrl(live.url()), found.origin);
+  const openFrame = (
+    found: FrameScan,
+    submitted: boolean,
+  ): SignInFillResult => ({
+    submitted,
+    passwordFieldVisible: false,
+    url: live.url(),
+    openFrame: frameAddress(found.frame),
+    ...rememberedFlag(),
+  });
+  /**
    * A form only another origin holds: nothing typed, and where it is reported for the server to ask
-   * the person about. A frame with no origin this trusts is no destination at all.
+   * the person about (or, in a frame on another site's page, for the Bot to open). A frame with no
+   * origin this trusts is no destination at all.
    */
   const elsewhere = (
     found: FrameScan,
     form: "login" | "code",
     submitted: boolean,
     passwordFieldVisible = false,
-  ): SignInFillResult =>
-    found.origin
-      ? {
-          submitted,
-          passwordFieldVisible,
-          url: live.url(),
-          movedTo: { origin: found.origin, form },
-          ...rememberedFlag(),
-        }
-      : answer(
-          "The sign-in form is in a part of the page whose site cannot be told. Take over the browser to sign in there.",
-          submitted,
-        );
+  ): SignInFillResult => {
+    if (!found.origin)
+      return answer(
+        "The sign-in form is in a part of the page whose site cannot be told. Take over the browser to sign in there.",
+        submitted,
+      );
+    if (!topAllows(found)) return openFrame(found, submitted);
+    return {
+      submitted,
+      passwordFieldVisible,
+      url: live.url(),
+      movedTo: { origin: found.origin, form },
+      ...rememberedFlag(),
+    };
+  };
   const opener = await page.opener().catch(() => null);
   const answered = (
     summary: SignInPageSummary,
@@ -1527,16 +1667,27 @@ export async function fillSignIn(
   });
   const readAnswer = async (sent: "username" | "login" | "code") => {
     const summary = summarise(
-      await scanFrames(live, { challenge: true }),
+      await scanFrames(live, { challenge: true, marker }),
       input.origin,
     );
     return { summary, check: classifySignInPage(summary, sent) };
   };
   const codeGone = (found: FrameScan) => async () =>
     (await codeField(found).count()) === 0;
+  const sendCode = (found: FrameScan) =>
+    send(
+      live,
+      opener,
+      async () => {
+        if (await codeGone(found)()) return;
+        await submitFrom(found, codeField(found));
+      },
+      codeGone(found),
+    );
   const approved = ({ origin }: FrameScan) => origin === input.origin;
+  let submitted = false;
   try {
-    const first = await scanFrames(live, { uncheckOn: input.origin });
+    const first = await scanFrames(live, { uncheckOn: input.origin, marker });
     // The page, or a frame of it, must be on the approved origin before anything else is asked.
     if (originOfUrl(page.url()) !== input.origin && !first.some(approved))
       return answer(
@@ -1551,17 +1702,10 @@ export async function fillSignIn(
           ? elsewhere(other, "code", false)
           : answer("There is no code field on the page the Bot has open.");
       }
+      if (!topAllows(found)) return openFrame(found, false);
       remembered = found.scan.rememberDevice;
       await typeCode(found, input.code ?? "");
-      live = await send(
-        live,
-        opener,
-        async () => {
-          if (await codeGone(found)()) return;
-          await submitFrom(found.frame, codeField(found));
-        },
-        codeGone(found),
-      );
+      live = await sendCode(found);
       const { summary, check } = await readAnswer("code");
       return answered(summary, check);
     }
@@ -1574,34 +1718,44 @@ export async function fillSignIn(
         ? elsewhere(other, "login", false)
         : answer("There is no sign-in form on the page the Bot has open.");
     }
+    if (!topAllows(login)) return openFrame(login, false);
     remembered = login.scan.rememberDevice;
+    const step = login;
     // Masked like the password: "never shown to your Bot" covers the username too, and a username
     // field is not a type the snapshot hides on its own.
     if (login.scan.username && input.username)
-      await typeSecret(marked(login.frame, "username"), input.username);
+      await typeSecret(marked(step, "username"), input.username, () =>
+        unchanged(step),
+      );
     if (!login.scan.password) {
       // Two steps: username first, then the site shows the password field, here or elsewhere.
       if (!input.username)
         return answer(
           "This site asks for a username first. Enter one and try again.",
         );
-      const step = login;
       const before = new Set(live.context().pages());
       try {
-        await submitFrom(step.frame, marked(step.frame, "username"));
+        await submitFrom(step, marked(step, "username"));
       } catch (error) {
+        if (error instanceof Error && error.message === FRAME_CHANGED)
+          throw error;
         if (!live.isClosed()) throw error;
       }
+      submitted = true;
       const next = await afterUsername(
         live,
         opener,
         before,
         summarise(first, input.origin).message,
         input.origin,
+        marker,
       );
       live = next.page;
       if (next.check) {
-        const summary = summarise(await scanFrames(live), input.origin);
+        const summary = summarise(
+          await scanFrames(live, { marker }),
+          input.origin,
+        );
         return answered(summary, next.check);
       }
       if (!next.login)
@@ -1612,17 +1766,21 @@ export async function fillSignIn(
       // The password field on another origin, as the whole page or a frame in it: typed nowhere.
       if (!approved(next.login))
         return elsewhere(next.login, "login", true, true);
+      if (!topAllows(next.login)) return openFrame(next.login, true);
       login = next.login;
       remembered ||= login.scan.rememberDevice;
     }
-    const { frame } = login;
-    await typeSecret(marked(frame, "password"), input.password);
-    // A code box on the same form as the password takes the code before it is sent.
-    const codeHere = Boolean(input.code && login.scan.code);
-    if (codeHere && input.code) await typeCode(login, input.code);
-    live = await send(live, opener, () =>
-      submitFrom(frame, marked(frame, "password")),
+    const target = login;
+    await typeSecret(marked(target, "password"), input.password, () =>
+      unchanged(target),
     );
+    // A code box on the same form as the password takes the code before it is sent.
+    const codeHere = Boolean(input.code && target.scan.code);
+    if (codeHere && input.code) await typeCode(target, input.code);
+    live = await send(live, opener, () =>
+      submitFrom(target, marked(target, "password")),
+    );
+    submitted = true;
     let { summary, check } = await readAnswer(codeHere ? "code" : "login");
     if (input.code && !codeHere && check.outcome === "signed-in") {
       // A code page that is slow to draw: look once more before calling it signed in.
@@ -1630,28 +1788,26 @@ export async function fillSignIn(
       ({ summary, check } = await readAnswer("login"));
     }
     if (input.code && !codeHere && check.outcome === "code-requested") {
-      const scans = await scanFrames(live, { uncheckOn: input.origin });
+      const scans = await scanFrames(live, { uncheckOn: input.origin, marker });
       const found = scans.find((scan) => approved(scan) && scan.scan.code);
       if (!found) {
         const other = scans.find(({ scan }) => scan.code);
         if (other) return elsewhere(other, "code", true, summary.password);
       } else {
+        if (!topAllows(found)) return openFrame(found, true);
         remembered ||= found.scan.rememberDevice;
         await typeCode(found, input.code);
-        live = await send(
-          live,
-          opener,
-          async () => {
-            if (await codeGone(found)()) return;
-            await submitFrom(found.frame, codeField(found));
-          },
-          codeGone(found),
-        );
+        live = await sendCode(found);
         ({ summary, check } = await readAnswer("code"));
       }
     }
     return answered(summary, check);
-  } catch {
-    return answer("The login could not be typed into the page.");
+  } catch (error) {
+    if (error instanceof Error && error.message === FRAME_CHANGED)
+      return answer(
+        "The page changed what its sign-in frame shows while the login was being typed, so nothing more was typed. Ask again once the page has settled.",
+        submitted,
+      );
+    return answer("The login could not be typed into the page.", submitted);
   }
 }

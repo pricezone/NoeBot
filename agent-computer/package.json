@@ -11,6 +11,7 @@
   "dependencies": {
     "playwright": "1.62.1",
     "spiffe": "^0.5.1",
+    "tldts": "7.4.16",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

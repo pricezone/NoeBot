@@ -170,6 +170,23 @@ beforeAll(async () => {
           return html(
             `<h1>Account</h1><iframe src="${idpOrigin}/fake-login" width="500" height="300"></iframe>`,
           );
+        // A frame from another site, and frames of the page's own site (another host and port).
+        case "/xs-framed":
+          return html(
+            `<h1>Shop</h1><iframe src="http://idp.test:${idp.port}/frame-login" width="500" height="300"></iframe>`,
+          );
+        case "/ss-framed":
+          return html(
+            `<h1>Shop</h1><iframe src="http://login.shop.test:${idp.port}/frame-login" width="500" height="300"></iframe>`,
+          );
+        case "/ss-swap":
+          return html(
+            `<iframe src="http://login.shop.test:${idp.port}/swap-login" width="500" height="300"></iframe>`,
+          );
+        case "/ss-rewrite":
+          return html(
+            `<iframe src="http://login.shop.test:${idp.port}/rewrite-login" width="500" height="300"></iframe>`,
+          );
         // The page's own login, and the same intruder frame beside it.
         case "/login-and-intruder":
           return html(
@@ -225,6 +242,31 @@ beforeAll(async () => {
           return form?.get("password") === PASSWORD
             ? html("<h1>Signed in at the identity provider</h1>")
             : html(`<p role="alert">Wrong password</p>`);
+        case "/frame-login":
+          return html(login("/frame-login-session"));
+        case "/frame-login-session":
+          return form?.get("password") === PASSWORD
+            ? html("<h1>Framed welcome</h1>")
+            : html(`<p role="alert">Wrong password</p>`);
+        // A login whose frame is sent to another document the moment typing starts.
+        case "/swap-login":
+          return html(`${login("/frame-login-session")}<script>
+            document.querySelector('[name=email]').addEventListener('input', () => {
+              location.href = '/swapped';
+            });
+          </script>`);
+        // A login whose document is replaced in place the moment typing starts: no navigation at all.
+        case "/rewrite-login":
+          return html(`${login("/frame-login-session")}<script>
+            document.querySelector('[name=email]').addEventListener('input', () => {
+              const fresh = ${JSON.stringify(login("/stolen"))};
+              document.open();
+              document.write('<!doctype html><body>' + fresh + '</body>');
+              document.close();
+            });
+          </script>`);
+        case "/swapped":
+          return html(login("/stolen"));
         // A fake login that also claims, to any script that asks, to be the approved origin.
         case "/fake-login":
           return html(`${login("/stolen")}
@@ -244,7 +286,11 @@ beforeAll(async () => {
   idpOrigin = `http://127.0.0.1:${idp.port}`;
   if (!asked) return;
   const { chromium } = await import("playwright");
-  browser = await chromium.launch();
+  // Hosts under .test reach these servers, so pages can be on different sites: shop.test,
+  // www.shop.test and login.shop.test are one site, idp.test another.
+  browser = await chromium.launch({
+    args: ["--host-resolver-rules=MAP *.test 127.0.0.1"],
+  });
 });
 
 afterAll(async () => {
@@ -563,6 +609,101 @@ describe.skipIf(!asked)(
         url: `${origin}/home`,
       });
       expect(intruder?.isDetached()).toBe(true);
+      await tab.close();
+    });
+  },
+);
+
+describe.skipIf(!asked)(
+  "a frame is typed into only on a page of its own site",
+  () => {
+    test("a login in a frame on another site's page is never typed; the Bot is told to open the frame", async () => {
+      const frameUrl = `http://idp.test:${idp.port}/frame-login`;
+      const idpSite = `http://idp.test:${idp.port}`;
+      const tab = await browser.newPage();
+      await tab.goto(`http://shop.test:${site.port}/xs-framed`);
+      await tab.frames()[1]?.waitForLoadState();
+      expect(await probeSignIn(tab)).toMatchObject({
+        origin: idpSite,
+        form: "login",
+        frameUrl,
+      });
+      const refused = await fillSignIn(tab, {
+        origin: idpSite,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(refused).toMatchObject({ submitted: false, openFrame: frameUrl });
+      expect(
+        await tab.frames()[1]?.locator("input[type=password]").inputValue(),
+      ).toBe("");
+      // Opened as a page of its own, it is an ordinary login.
+      await tab.goto(frameUrl);
+      const probe = await probeSignIn(tab);
+      expect(probe).toMatchObject({ origin: idpSite, form: "login" });
+      expect(probe.frameUrl).toBeUndefined();
+      const result = await fillSignIn(tab, {
+        origin: idpSite,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result).toMatchObject({ outcome: "signed-in" });
+      expect(await tab.textContent("h1")).toBe("Framed welcome");
+      await tab.close();
+    });
+
+    test("a login in a frame of the page's own site is filled", async () => {
+      const tab = await browser.newPage();
+      await tab.goto(`http://www.shop.test:${site.port}/ss-framed`);
+      await tab.frames()[1]?.waitForLoadState();
+      expect((await probeSignIn(tab)).frameUrl).toBeUndefined();
+      const result = await fillSignIn(tab, {
+        origin: `http://login.shop.test:${idp.port}`,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result).toMatchObject({ submitted: true, outcome: "signed-in" });
+      expect(await tab.frames()[1]?.textContent("h1")).toBe("Framed welcome");
+      await tab.close();
+    });
+
+    test("a frame that navigates while the login is typed gets nothing in its new document", async () => {
+      const tab = await browser.newPage();
+      await tab.goto(`http://www.shop.test:${site.port}/ss-swap`);
+      await tab.frames()[1]?.waitForLoadState();
+      const result = await fillSignIn(tab, {
+        origin: `http://login.shop.test:${idp.port}`,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result.error).toContain("changed");
+      expect(result.outcome).toBeUndefined();
+      const frame = tab.frames()[1];
+      await frame?.waitForURL(/\/swapped$/);
+      expect(await frame?.locator("input[type=password]").inputValue()).toBe(
+        "",
+      );
+      expect(await frame?.locator("input[type=email]").inputValue()).toBe("");
+      await tab.close();
+    });
+
+    test("a frame whose document is replaced in place while the login is typed gets nothing in the new one", async () => {
+      const tab = await browser.newPage();
+      await tab.goto(`http://www.shop.test:${site.port}/ss-rewrite`);
+      await tab.frames()[1]?.waitForLoadState();
+      const started = Date.now();
+      const result = await fillSignIn(tab, {
+        origin: `http://login.shop.test:${idp.port}`,
+        username: "a@example.test",
+        password: PASSWORD,
+      });
+      expect(result.error).toContain("changed");
+      // Stopped at once, not after a locator gave up waiting.
+      expect(Date.now() - started).toBeLessThan(5_000);
+      const frame = tab.frames()[1];
+      expect(await frame?.locator("input[type=password]").inputValue()).toBe(
+        "",
+      );
       await tab.close();
     });
   },

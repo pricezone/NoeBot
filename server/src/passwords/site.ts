@@ -19,7 +19,7 @@ import { getDomain } from "tldts";
  * one tenant must never follow a move to another, so any host under these domains is the same site
  * only as itself. Kept short and to services people sign in through; add to it, never trim it.
  */
-const TENANT_DOMAINS = [
+export const TENANT_DOMAINS = [
   "okta.com",
   "oktapreview.com",
   "okta-emea.com",

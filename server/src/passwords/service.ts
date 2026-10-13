@@ -605,6 +605,41 @@ export function createSignInService(deps: SignInServiceDependencies) {
   }
 
   /**
+   * The form turned out to be in a frame on a page of another site, which nothing is typed into.
+   * The request ends, and the Bot is told to open the frame's own address as a page and ask again.
+   */
+  async function frameElsewhere(
+    claimed: SignInRequestRecord,
+    actor: ActionActor,
+    method: SignInMethod,
+    address: string,
+  ) {
+    const { ownerUserId: owner, id } = claimed;
+    remember(id, { attempt: undefined });
+    const done = await store.transition(owner, id, ["filling"], {
+      status: "failed",
+      method,
+      fillingUntil: null,
+      outcome: `The sign-in form is inside a frame on a page of another site, and a login is never typed into a frame another site controls, so nothing was typed. Open ${address} with computer_navigate as a page of its own, then call computer_request_sign_in again.`,
+      resolvedAt: new Date(),
+    });
+    if (!done)
+      throw new SignInRefusedError(
+        "This sign-in request was closed while it was being entered.",
+        409,
+      );
+    await audit("computer.sign_in_failed", actor, "computer", done.botId, {
+      bot: done.botId,
+      request: id,
+      site: done.origin,
+      method,
+      failure: "The form is in a frame on another site's page; nothing typed.",
+    });
+    await resolved(done);
+    return done;
+  }
+
+  /**
    * Type a login into the Bot's browser, and record how it went.
    *
    * The credential lives in this function's arguments and the requests to the computer. It is not
@@ -676,6 +711,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
     let failure: string | undefined;
     let crossed: string | undefined;
     let closed = false;
+    let framed: string | undefined;
     try {
       result = await gateway.signIn(claimed.botId, {
         origin,
@@ -722,8 +758,10 @@ export function createSignInService(deps: SignInServiceDependencies) {
           ...fields(result.movedTo.form),
         });
       }
-      // A move to another site, or a request closed under the fill, is answered below, typing nothing.
-      if (crossed || closed) failure = undefined;
+      framed = result.openFrame;
+      // A move to another site, a request closed under the fill, or a form in another site's frame
+      // is answered below, typing nothing more.
+      if (crossed || closed || framed) failure = undefined;
       else if (result.movedTo)
         failure =
           "The sign-in kept moving to other pages. Sign in by hand to finish.";
@@ -756,6 +794,8 @@ export function createSignInService(deps: SignInServiceDependencies) {
         "This sign-in request was closed while it was being entered.",
         409,
       );
+    if (framed)
+      return frameElsewhere(claimed, actor, method, scrub(framed, secrets));
     const page = result?.url ? pageForBot(result.url, secrets) : undefined;
     const pageMessage = result?.pageMessage
       ? scrub(result.pageMessage, secrets).slice(0, 200)
@@ -928,6 +968,17 @@ export function createSignInService(deps: SignInServiceDependencies) {
       if (probe?.form === "none")
         throw new SignInRefusedError(
           `There is no sign-in form on ${probe.host || "the page you have open"} yet. Open the site's sign-in page first (its own "Sign in" or "Log in" button, in whatever language the site uses), wait for the login fields to show, then ask again.`,
+          409,
+        );
+      /*
+       * A FORM IN ANOTHER SITE'S FRAME. The page around a frame controls it and can swap what it
+       * holds between being read and being typed into, so the computer never types a login into a
+       * frame on a page of another site. Nobody is asked for one: the Bot opens the frame's own
+       * address as a page and asks again there.
+       */
+      if (probe?.frameUrl)
+        throw new SignInRefusedError(
+          `The sign-in form on ${hostOf(probe.url)} is inside a frame from ${probe.host || "another site"}, a different site, and a login is never typed into a frame another site controls. Open ${probe.frameUrl} with computer_navigate as a page of its own, then call computer_request_sign_in again.`,
           409,
         );
       if (probe?.origin) origin = probe.origin;
