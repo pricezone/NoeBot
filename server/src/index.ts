@@ -254,6 +254,7 @@ import { createRoutineRunner } from "./routines/runner";
 import { createRoutineStore } from "./routines/store";
 import { createIntentRouter } from "./routing/classify";
 import { createModelCompleter } from "./routing/model";
+import { timedFetch } from "./run-timing";
 import { createSelfHostBanner } from "./self-host-banner";
 import { createTeamBots } from "./team-bots/team-bots";
 import {
@@ -3409,7 +3410,7 @@ serve<SocketData>({
       }
       return new Response("Expected a WebSocket upgrade.", { status: 400 });
     }
-    return app.fetch(request, { server });
+    return timedFetch(request, () => app.fetch(request, { server }));
   },
   websocket: {
     open(ws) {
