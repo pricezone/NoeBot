@@ -78,6 +78,8 @@ export function reportStep(
   channelId: string,
   busy: boolean,
   waiting?: ChannelWaiting,
+  /** The turn starting or ending: the channel's other members are told it is (no longer) busy. */
+  announce = false,
 ): number {
   const step = nextStep();
   sentHere.add(step);
@@ -90,6 +92,7 @@ export function reportStep(
     busy,
     step,
     ...(waiting ? { waiting } : {}),
+    ...(announce ? { announce } : {}),
   });
   return step;
 }

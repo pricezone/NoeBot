@@ -289,7 +289,16 @@ export type ChannelStore = SidebarSectionStore & {
 };
 
 /** Which step of a turn a browser's busy signal marks. See `ChannelActivityEvent.step`. */
-export type ChannelMoment = { step?: number; waiting?: ChannelWaiting };
+export type ChannelMoment = {
+  step?: number;
+  waiting?: ChannelWaiting;
+  /**
+   * The turn starting or ending, which the channel's other members are told as the plain busy flag,
+   * as they always were. Every other step, and every waiting card, reaches only the actor's own
+   * tabs: when a card waits in one member's turn, and what kind, is not the others' to know.
+   */
+  announce?: boolean;
+};
 
 /** A busy signal as a browser sends it: the flag, and optionally the step and the waiting card. */
 export const busySignalSchema = z.object({
@@ -301,7 +310,49 @@ export const busySignalSchema = z.object({
       toolCallId: z.string().trim().min(1).max(200),
     })
     .optional(),
+  announce: z.boolean().optional(),
 });
+
+/**
+ * The announcements one busy signal makes, and to whom. A plain signal goes to every member, as it
+ * always did. A step, and the card waiting at it, go to the actor's own tabs alone; the others hear
+ * only the turn starting and ending (`announce`), as the plain flag. Pure, so who hears what is
+ * provable without a database.
+ */
+export function busySignalEvents({
+  channelId,
+  actorId,
+  memberIds,
+  busy,
+  moment = {},
+}: {
+  channelId: string;
+  actorId: string;
+  memberIds: string[];
+  busy: boolean;
+  moment?: ChannelMoment;
+}): ChannelActivityEvent[] {
+  const flag = {
+    channelId,
+    lastMessage: null,
+    lastMessageAt: null,
+    lastMessageAgentId: null,
+    busy,
+  };
+  if (moment.step === undefined) return [{ ...flag, memberIds }];
+  const others = memberIds.filter((id) => id !== actorId);
+  return [
+    {
+      ...flag,
+      memberIds: [actorId],
+      step: moment.step,
+      ...(moment.waiting ? { waiting: moment.waiting } : {}),
+    },
+    ...(moment.announce && others.length > 0
+      ? [{ ...flag, memberIds: others }]
+      : []),
+  ];
+}
 
 const PRIVATE_AGENT_CHANNEL_DESCRIPTION = "Private agent channel.";
 const MAX_CHANNEL_NAME_CODE_POINTS = 120;
@@ -1148,19 +1199,17 @@ export function createChannelStore(
         .from(channelMemberships)
         .where(eq(channelMemberships.channelId, channelId));
 
-      const event: ChannelActivityEvent = {
+      const events = busySignalEvents({
         channelId,
+        actorId: actor.id,
         memberIds: members.map((member) => member.userId),
-        lastMessage: null,
-        lastMessageAt: null,
-        lastMessageAgentId: null,
         busy,
-        ...(moment.step === undefined ? {} : { step: moment.step }),
-        ...(moment.waiting ? { waiting: moment.waiting } : {}),
-      };
-      await database.execute(
-        sql`select pg_notify(${CHANNEL_ACTIVITY_TOPIC}, ${JSON.stringify(event)})`,
-      );
+        moment,
+      });
+      for (const event of events)
+        await database.execute(
+          sql`select pg_notify(${CHANNEL_ACTIVITY_TOPIC}, ${JSON.stringify(event)})`,
+        );
     },
   };
   return store;
@@ -1445,7 +1494,7 @@ export function createChannelRoutes(
     }
 
     try {
-      const { busy, step, waiting } = signal.data;
+      const { busy, step, waiting, announce } = signal.data;
       await store.signalChannelBusy(
         context.var.actor,
         context.req.param("channelId"),
@@ -1453,6 +1502,7 @@ export function createChannelRoutes(
         {
           ...(step === undefined ? {} : { step }),
           ...(waiting ? { waiting } : {}),
+          ...(announce ? { announce } : {}),
         },
       );
       return context.body(null, 204);

@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   createMemoryWaitingDecisionStore,
   DECISION_FORGOTTEN_MS,
+  DECISION_KEPT_MS,
   DECISION_STALE_MS,
+  MAX_OPEN_DECISIONS,
 } from "../src/approvals/decisions";
 import { createApprovalRoutes } from "../src/approvals/routes";
 import type { ApprovalService } from "../src/approvals/service";
@@ -198,7 +200,9 @@ describe("waiting decision records", () => {
 
     await call("owner", "/decisions", choice);
     advance(DECISION_FORGOTTEN_MS + 1);
+    // No longer offered anywhere, and closed the next time this person opens a card.
     expect(await store.list("owner")).toEqual([]);
+    await store.open("owner", { ...choice, toolCallId: "call-next" });
     expect((await store.get("owner", "call-choice")).closed).toBe(true);
   });
 
@@ -218,6 +222,84 @@ describe("waiting decision records", () => {
     expect(reopened.answer).toEqual({ choice: "staging", label: "Staging" });
     await store.close("owner", "call-choice");
     expect((await store.open("owner", choice)).closed).toBe(true);
+  });
+
+  test("an answer must be one the card could have given", async () => {
+    const { call } = harness();
+    await call("owner", "/decisions", choice);
+    for (const answer of [
+      { choice: "qa", label: "QA" },
+      { choice: "staging", label: "Production" },
+      { choice: "something", label: "something else", typed: true },
+    ]) {
+      const refused = await call("owner", "/decisions/call-choice/answer", {
+        answer,
+      });
+      expect(refused.status).toBe(400);
+    }
+    // A typed answer is the person's words as both choice and label.
+    const typed = await call("owner", "/decisions/call-choice/answer", {
+      answer: { choice: "Next week", label: "Next week", typed: true },
+    });
+    expect(typed.status).toBe(200);
+  });
+
+  test("a close never overwrites an answer that got there first", async () => {
+    const { store } = harness();
+    await store.open("owner", choice);
+    await store.answer("owner", "call-choice", {
+      choice: "staging",
+      label: "Staging",
+    });
+    const closed = await store.close("owner", "call-choice", {
+      choice: "production",
+      label: "Production",
+    });
+    expect(closed.answer).toEqual({ choice: "staging", label: "Staging" });
+  });
+
+  test("one person may have only so many cards waiting; beyond that, 429", async () => {
+    const { call, store } = harness();
+    for (let index = 0; index < MAX_OPEN_DECISIONS; index += 1)
+      await store.open("owner", { ...choice, toolCallId: `call-${index}` });
+    const refused = await call("owner", "/decisions", {
+      ...choice,
+      toolCallId: "call-one-too-many",
+    });
+    expect(refused.status).toBe(429);
+    // Somebody else is not held to this person's count.
+    expect(
+      (
+        await call("other", "/decisions", {
+          ...choice,
+          toolCallId: "call-one-too-many",
+        })
+      ).status,
+    ).toBe(201);
+    // Closing one makes room again.
+    await store.close("owner", "call-0");
+    expect(
+      (
+        await call("owner", "/decisions", {
+          ...choice,
+          toolCallId: "call-one-too-many",
+        })
+      ).status,
+    ).toBe(201);
+  });
+
+  test("the retention sweep drops cards done with, or abandoned, a day ago, and keeps the rest", async () => {
+    const { store, advance } = harness();
+    await store.open("owner", { ...choice, toolCallId: "call-done" });
+    await store.close("owner", "call-done");
+    await store.open("owner", { ...choice, toolCallId: "call-abandoned" });
+    advance(DECISION_KEPT_MS + 1);
+    expect(await store.purge()).toBe(2);
+    await store.open("owner", { ...choice, toolCallId: "call-fresh" });
+    expect(await store.purge()).toBe(0);
+    await expect(store.get("owner", "call-done")).rejects.toThrow();
+    await expect(store.get("owner", "call-abandoned")).rejects.toThrow();
+    expect((await store.get("owner", "call-fresh")).live).toBe(true);
   });
 
   test("a deployment without the store answers the routes with a refusal, not a crash", async () => {

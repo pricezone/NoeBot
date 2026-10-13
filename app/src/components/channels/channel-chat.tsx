@@ -1023,8 +1023,9 @@ export function ChannelChat({
     setTurnsInFlight(turnsRef.current);
     if (turnsRef.current === 1) {
       turnStartedAt.current = Date.now();
-      // The first step of the turn; the person's other tabs start watching it (`steps.ts`).
-      reportStep(channel.id, true);
+      // The first step of the turn; the person's other tabs start watching it (`steps.ts`), and the
+      // channel's other members see the working dot.
+      reportStep(channel.id, true, undefined, true);
     }
     try {
       return await deliver(trimmed, skillInstructions, attachments);
@@ -1034,7 +1035,7 @@ export function ChannelChat({
       // Sent from here rather than from an effect on `turnsInFlight`: this runs after unmount, that
       // does not, and the last turn out is what takes the roster's working indicator down.
       if (turnsRef.current === 0) {
-        reportStep(channel.id, false);
+        reportStep(channel.id, false, undefined, true);
       }
     }
   };

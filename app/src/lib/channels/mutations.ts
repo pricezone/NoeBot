@@ -77,6 +77,8 @@ export async function setChannelBusy(variables: {
   /** Which moment of the turn this is, and the card that began waiting at it. See `./steps.ts`. */
   step?: number;
   waiting?: { kind: string; toolCallId: string };
+  /** With a step: also tell the channel's other members (the turn started or ended). */
+  announce?: boolean;
 }) {
   const { channelId, ...body } = variables;
   await tryClient(`/api/channels/${channelId}/busy`, {

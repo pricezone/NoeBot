@@ -564,6 +564,8 @@ setInterval(() => {
   void runWaitStore
     .purge(new Date(Date.now() - RUN_WAIT_TTL_MS))
     .catch(() => undefined);
+  // Decision cards done with (or abandoned) a day ago; see approvals/decisions.ts.
+  void approvalService.decisions?.purge().catch(() => undefined);
 }, 60 * 60_000).unref?.();
 const storedApprovals = createApprovalStore(database);
 const approvalService = createApprovalService(

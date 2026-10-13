@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -94,5 +95,12 @@ export const workItems = pgTable(
     primaryKey({ columns: [table.kind, table.key] }),
     // The claim's own query: due, unclaimed or expired, not yet finished, oldest first.
     index("work_items_claimable_idx").on(table.kind, table.runAt),
+    /*
+     * One person's waiting decision cards (approvals/decisions.ts), read every second and a half by
+     * each open conversation: by their owner, without scanning everybody's.
+     */
+    index("work_items_decision_owner_idx")
+      .on(sql`(${table.payload}->>'ownerUserId')`)
+      .where(sql`${table.kind} = 'person.decision'`),
   ],
 );
