@@ -22,7 +22,11 @@ import {
   PROVENANCE_GUIDANCE,
 } from "../../shared/bot-prompt";
 import { sanitizeSeededHistory } from "./agents/history-sanitize";
-import { withModelRun } from "./agents/model-tuning";
+import {
+  type ReasoningEffort,
+  tunedConfiguration,
+  withModelRun,
+} from "./agents/model-tuning";
 import {
   PLAN_RUN_COMPLETED,
   PlanModel,
@@ -191,7 +195,31 @@ export type RuntimeModel = {
   provider: "openai" | "anthropic";
   defaultModel: string;
   plan?: PlanModelConfig;
+  /** BOT_REASONING_EFFORT for the built-in Bots, set at boot. See agents/model-tuning.ts. */
+  reasoningEffort?: ReasoningEffort;
 };
+
+/** The two tools a Bot draws an interface with, wherever they come from. */
+const GENERATED_UI_TOOLS = new Set(["render_a2ui", "generateSandboxedUi"]);
+
+/**
+ * Said on both generated-interface tools, because a Bot drew a fake copy of a web page it had open
+ * (a form, a gov.gr page) instead of showing the page itself.
+ */
+export const OPEN_PAGE_NOTE =
+  "Never use this to show a web page that is open in your browser: the question card shows your screen, and computer_show_screen posts a picture of it.";
+
+/** The run's tools with {@link OPEN_PAGE_NOTE} on the generated-interface ones, once. */
+export function withOpenPageNote<
+  T extends { name: string; description: string },
+>(tools: readonly T[]): T[] {
+  return tools.map((tool) =>
+    GENERATED_UI_TOOLS.has(tool.name) &&
+    !tool.description.includes(OPEN_PAGE_NOTE)
+      ? { ...tool, description: `${tool.description} ${OPEN_PAGE_NOTE}`.trim() }
+      : tool,
+  );
+}
 
 /** Optional desktop environment values may be present but blank; SDKs treat them as URLs. */
 export function normalizeModelBaseUrls(
@@ -971,24 +999,33 @@ async function buildAgent(
     learnedSkills?: LearnedSkillInvocation,
   ) =>
     new BuiltInAgentWithSaneHistory(
-      builtInAgentConfiguration(
-        agent,
-        model,
-        apiKey,
-        tools,
-        computerGuidance,
-        connectedVendors,
-        standingInstructions,
-        model.plan && input
-          ? new PlanModel(
-              model.plan,
-              agent.id,
-              input,
-              new Set(input.tools.map((tool) => tool.name)),
-              signal,
-            )
-          : undefined,
-        learnedSkills,
+      // The model wrapped for the prompt cache, old page observations and the reasoning effort.
+      tunedConfiguration(
+        builtInAgentConfiguration(
+          agent,
+          model,
+          apiKey,
+          tools,
+          computerGuidance,
+          connectedVendors,
+          standingInstructions,
+          model.plan && input
+            ? new PlanModel(
+                model.plan,
+                agent.id,
+                input,
+                new Set(input.tools.map((tool) => tool.name)),
+                signal,
+              )
+            : undefined,
+          learnedSkills,
+        ),
+        {
+          provider: model.provider,
+          ...(model.reasoningEffort
+            ? { reasoningEffort: model.reasoningEffort }
+            : {}),
+        },
       ),
       loadAttachment,
       markAttachmentsSent,
@@ -1398,7 +1435,7 @@ function remoteAgentWithStandingRole(
            * else's process.
            */
           tools: [
-            ...(input.tools ?? []),
+            ...withOpenPageNote(input.tools ?? []),
             ...tools.map((tool) => ({
               name: tool.name,
               description: tool.description,
@@ -1672,6 +1709,8 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
   }
 
   run(input: RunAgentInput): Observable<BaseEvent> {
+    // The generated-interface tools say they are not for showing an open web page.
+    input = { ...input, tools: withOpenPageNote(input.tools) };
     const answeredByResume = new Set(
       (input.resume ?? []).map((entry) => entry.interruptId),
     );

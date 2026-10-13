@@ -44,6 +44,7 @@ import {
   recentTurnCount,
 } from "./agents/lifecycle";
 import { createBotReset } from "./agents/lifecycle-reset";
+import { reasoningEffortFrom } from "./agents/model-tuning";
 import { createAgentProfileStore } from "./agents/profile-store";
 import type { AgentActor } from "./agents/profile-types";
 import { agentDto } from "./agents/routes";
@@ -1019,7 +1020,11 @@ const stallGuard = createStallGuard({
 });
 
 normalizeModelBaseUrls();
-const runtimeModel = runtimeModelForEnvironment(tenantPackage.model);
+const runtimeModel = {
+  ...runtimeModelForEnvironment(tenantPackage.model),
+  // How hard the built-in Bots think per step; refused at boot when it is not a known effort.
+  reasoningEffort: reasoningEffortFrom(process.env),
+};
 
 const intentRouter = createIntentRouter({
   complete: createModelCompleter({
