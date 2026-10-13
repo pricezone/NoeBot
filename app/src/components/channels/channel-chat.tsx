@@ -36,15 +36,24 @@ import {
 } from "@/lib/approvals";
 import { botLifecycleKeys } from "@/lib/bot-lifecycle/queries";
 import { attachmentUrl } from "@/lib/channels/attachments";
-import {
-  recordChannelActivityMutationOptions,
-  setChannelBusy,
-} from "@/lib/channels/mutations";
+import { recordChannelActivityMutationOptions } from "@/lib/channels/mutations";
 import {
   type AgentChannel,
   type ChannelSummary,
   channelKeys,
 } from "@/lib/channels/queries";
+import {
+  channelStep,
+  reportStep,
+  subscribeToChannelSteps,
+  WAITING_TOOLS,
+} from "@/lib/channels/steps";
+import {
+  holdsToolCall,
+  liveCalls,
+  screenQuestionOnce,
+  unfinishedTurn,
+} from "@/lib/channels/watch";
 import { useConversationActivity } from "@/lib/computers/use-computer-sleep";
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { observeApprovalAgent } from "@/lib/copilot/approval-context";
@@ -57,7 +66,10 @@ import {
 } from "@/lib/copilot/question-answers";
 import { repairUnansweredToolCalls } from "@/lib/copilot/repair-history";
 import { stoppedReason } from "@/lib/copilot/stopped-turn";
-import { readThreadMessages } from "@/lib/copilot/thread-messages";
+import {
+  readThreadMessages,
+  type StoredThread,
+} from "@/lib/copilot/thread-messages";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import {
   askChannelAgent,
@@ -88,6 +100,50 @@ const JOIN_DEADLINE_MS = 1500;
  * Backstop for a message typed before the runtime agent exists; it must not be discarded.
  */
 const SEND_WITHOUT_RUNTIME_AFTER_MS = 1500;
+
+/**
+ * One read of the durable history, retried: how long to wait before each attempt, when an attempt
+ * has what it came for (`done`), and whether a read that never succeeded is said on screen.
+ */
+type HistoryPull = {
+  waits: readonly number[];
+  done: (stored: StoredThread, changed: boolean) => boolean;
+  announce: boolean;
+};
+
+/**
+ * A Bot's turn surfaced through the roster: read until something new arrives. Retried briefly,
+ * because the roster is patched when the turn is on record with the runner and the platform's read
+ * of the thread can be a beat behind it.
+ */
+const ACTIVITY_PULL: HistoryPull = {
+  waits: [0, 750, 1500],
+  done: (_stored, changed) => changed,
+  announce: true,
+};
+
+/**
+ * A step another tab reported (see `lib/channels/steps.ts`): read now, and when the step names a
+ * card that began waiting, keep reading for up to six seconds until the history holds it — the
+ * conversation service can answer "no such thread" or an older snapshot for a moment.
+ */
+const STEP_PULL_WAITS = [0, 400, 800, 1600, 3200];
+function stepPull(expected: string | undefined): HistoryPull {
+  return {
+    waits: STEP_PULL_WAITS,
+    done: (stored) =>
+      expected === undefined || holdsToolCall(stored.messages, expected),
+    announce: true,
+  };
+}
+
+/** A turn another tab is running, read every two seconds while the roster says it is going. */
+const WATCH_POLL_MS = 2000;
+const POLL_PULL: HistoryPull = {
+  waits: [0],
+  done: () => true,
+  announce: false,
+};
 
 type ChannelActivitySignature = {
   agentId: string;
@@ -460,6 +516,80 @@ export function ChannelChat({
     };
   }, [copilotkit, agent, isReady, channel.threadId, runtimeAgentId]);
 
+  /** Gone with the screen: a read still in flight must not write into a conversation left behind. */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  /** Reads in flight, so a poll never cuts short a read that is retrying for something specific. */
+  const pullsInFlight = useRef(0);
+
+  /**
+   * Read the durable history again and merge in what this tab does not have.
+   *
+   * The same merge as mount places a recovered durable prefix before its shared local anchors,
+   * preserving current content and local-only messages in both the transcript and the next run. Every
+   * read shares one ordering with the mount restore: only the newest read owns the notice, and an
+   * older one still in flight stops when a newer one starts.
+   *
+   * A READ, NEVER A RE-JOIN. Joining the live run again would run any frontend tool still pending —
+   * a Secure Form, a question — in this tab as well as the one running the turn.
+   */
+  const pullHistory = useRef<(pull: HistoryPull) => void>(() => {});
+  pullHistory.current = (pull: HistoryPull) => {
+    const version = ++historyReadVersion.current;
+    const isCurrent = () =>
+      mounted.current && version === historyReadVersion.current;
+    pullsInFlight.current += 1;
+    void (async () => {
+      try {
+        let sawReady = false;
+        for (const [attempt, waitMs] of pull.waits.entries()) {
+          if (waitMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+          }
+          if (!isCurrent()) return;
+          const stored = await readThreadMessages(
+            channel.threadId,
+            runtimeAgentId,
+          );
+          if (!isCurrent()) return;
+          if (stored.availability === "unavailable") {
+            // Only an exhausted refresh with no successful read is a failure to announce. Keep the
+            // last known ready notice when the store already answered this refresh cycle.
+            if (
+              pull.announce &&
+              attempt === pull.waits.length - 1 &&
+              !sawReady
+            ) {
+              setHistoryAvailability("unavailable");
+              setHistoryReadFailed(true);
+            }
+            continue;
+          }
+          sawReady = true;
+          // A ready read owns the notice even when every readable id is already on screen.
+          setUnreadable(stored.unreadable);
+          setHistoryAvailability("ready");
+          setHistoryReadFailed(false);
+          const current = agentRef.current;
+          const messages = mergeStoredMessages(
+            current.messages,
+            stored.messages,
+          );
+          const changed = messages !== current.messages;
+          if (changed) current.setMessages(messages);
+          if (pull.done(stored, changed)) return;
+        }
+      } finally {
+        pullsInFlight.current -= 1;
+      }
+    })();
+  };
+
   /*
    * A turn nobody here streamed, surfaced while the channel is open.
    *
@@ -504,48 +634,7 @@ export function ChannelChat({
     const initialActivity = authoredActivity();
     let lastSeen = initialActivity;
     let cancelled = false;
-
-    const pull = () => {
-      const version = ++historyReadVersion.current;
-      const isCurrent = () =>
-        !cancelled && version === historyReadVersion.current;
-      void (async () => {
-        let sawReady = false;
-        for (const delayMs of [0, 750, 1500]) {
-          if (delayMs > 0) {
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          }
-          if (!isCurrent()) return;
-          const stored = await readThreadMessages(
-            channel.threadId,
-            runtimeAgentId,
-          );
-          if (!isCurrent()) return;
-          if (stored.availability === "unavailable") {
-            // Only an exhausted refresh with no successful read is a failure to announce. Keep the
-            // last known ready notice when the store already answered this refresh cycle.
-            if (delayMs === 1500 && !sawReady) {
-              setHistoryAvailability("unavailable");
-              setHistoryReadFailed(true);
-            }
-            continue;
-          }
-          sawReady = true;
-          // A ready read owns the notice even when every readable id is already on screen.
-          setUnreadable(stored.unreadable);
-          setHistoryAvailability("ready");
-          setHistoryReadFailed(false);
-          const current = agentRef.current;
-          const messages = mergeStoredMessages(
-            current.messages,
-            stored.messages,
-          );
-          if (messages === current.messages) continue;
-          current.setMessages(messages);
-          return;
-        }
-      })();
-    };
+    const pull = () => pullHistory.current(ACTIVITY_PULL);
 
     const unsubscribe = queryClient.getQueryCache().subscribe(() => {
       const activity = authoredActivity();
@@ -569,7 +658,7 @@ export function ChannelChat({
       cancelled = true;
       unsubscribe();
     };
-  }, [channel.id, channel.threadId, joinGatePromise, runtimeAgentId]);
+  }, [channel.id, joinGatePromise]);
 
   // Tool calls from this conversation act on this coworker's own computer.
   useActiveBot(runtimeAgentId);
@@ -662,6 +751,8 @@ export function ChannelChat({
   /* Authoritative once this screen unmounts, where `setTurnsInFlight` becomes a no-op. */
   const turnsRef = useRef(0);
   const [runsInFlight, setRunsInFlight] = useState(0);
+  /** When this tab's current turn began, for "did this turn use the browser". */
+  const turnStartedAt = useRef(0);
 
   /*
    * A turn starting, and the person typing or sending, is somebody using the Bot: its computer view
@@ -907,7 +998,9 @@ export function ChannelChat({
     turnsRef.current += 1;
     setTurnsInFlight(turnsRef.current);
     if (turnsRef.current === 1) {
-      void setChannelBusy({ channelId: channel.id, busy: true });
+      turnStartedAt.current = Date.now();
+      // The first step of the turn; the person's other tabs start watching it (`steps.ts`).
+      reportStep(channel.id, true);
     }
     try {
       return await deliver(trimmed, skillInstructions, attachments);
@@ -917,7 +1010,7 @@ export function ChannelChat({
       // Sent from here rather than from an effect on `turnsInFlight`: this runs after unmount, that
       // does not, and the last turn out is what takes the roster's working indicator down.
       if (turnsRef.current === 0) {
-        void setChannelBusy({ channelId: channel.id, busy: false });
+        reportStep(channel.id, false);
       }
     }
   };
@@ -931,7 +1024,44 @@ export function ChannelChat({
       turnFailure.current = message;
       setRunError(message);
     };
+    /*
+     * Each run of this tab's turn is a step for the person's other tabs (`steps.ts`): a turn that
+     * touches the browser is several runs in a row, and each one ending is when what it did is on
+     * record. Only while this tab has the turn; the join's own replay is not a run of ours.
+     */
+    const step = () => {
+      if (turnsRef.current > 0) reportStep(channel.id, true);
+    };
     const subscription = agent.subscribe?.({
+      onRunStartedEvent: () => step(),
+      onRunFinalized: () => step(),
+      /*
+       * A Bot's `ask_person` runs on the server; its result arriving here is the question reaching
+       * the person, which is a card starting to wait on them like any frontend one. Asked in a turn
+       * that used the browser, the question also gets a picture of the screen.
+       */
+      onToolCallResultEvent: ({ event, messages }) => {
+        if (turnsRef.current === 0) return;
+        const asked = messages.some(
+          (message) =>
+            message.role === "assistant" &&
+            message.toolCalls?.some(
+              (call) =>
+                call.id === event.toolCallId &&
+                call.function.name === "ask_person",
+            ),
+        );
+        if (!asked) return;
+        screenQuestionOnce(
+          runtimeAgentId,
+          event.toolCallId,
+          turnStartedAt.current,
+        );
+        reportStep(channel.id, true, {
+          kind: "question",
+          toolCallId: event.toolCallId,
+        });
+      },
       // Both surfaces fall back to the same sentence, from the same place, so a person who uses
       // both is not told two different things about the same silence.
       onRunErrorEvent: ({ event }) => fail(stoppedReason(event?.message)),
@@ -953,7 +1083,74 @@ export function ChannelChat({
       },
     });
     return () => subscription?.unsubscribe();
-  }, [agent, runtimeAgentId]);
+  }, [agent, runtimeAgentId, channel.id]);
+
+  /*
+   * A card starting to wait on the person in this tab — a sign-in, a secret, a takeover, a choice, an
+   * approval — is a step for their other tabs, which then read the conversation at once and draw it.
+   * The frontend tool starting to execute is that moment, and only the tab running the turn sees
+   * it. A choice or an approval asked in a turn that used the browser also gets a picture of the
+   * screen, taken now, for the card to show above its options.
+   */
+  useEffect(() => {
+    // The run reports the agent by this channel's local id; the runtime's id is accepted too.
+    const ours = (agentId: string) =>
+      agentId === channelAgentId || agentId === runtimeAgentId;
+    const subscription = copilotkit.subscribe({
+      onToolExecutionStart: ({ agentId, toolCallId, toolName }) => {
+        if (!ours(agentId)) return;
+        const kind = WAITING_TOOLS[toolName];
+        if (!kind) return;
+        if (kind === "choice" || kind === "approval")
+          screenQuestionOnce(runtimeAgentId, toolCallId, turnStartedAt.current);
+        reportStep(channel.id, true, { kind, toolCallId });
+      },
+      onToolExecutionEnd: ({ agentId, toolName }) => {
+        if (!ours(agentId) || !WAITING_TOOLS[toolName]) return;
+        reportStep(channel.id, true);
+      },
+    });
+    return () => subscription.unsubscribe();
+  }, [copilotkit, channelAgentId, channel.id, runtimeAgentId]);
+
+  /*
+   * WATCHING A TURN ANOTHER TAB IS RUNNING. Joined once on mount, this tab would otherwise see that
+   * turn's cards only when a Bot message reached the roster, which a turn waiting on the person never
+   * sends. So it reads the history again on every step the running tab reports, and every two
+   * seconds while the roster says a turn is going and none of it is this tab's. Never by joining the
+   * run again: see `pullHistory`.
+   */
+  const ownTurn = useCallback(
+    () => turnsRef.current > 0 || agentRef.current.isRunning,
+    [],
+  );
+  useEffect(() => {
+    let seen = channelStep(channel.id)?.step;
+    return subscribeToChannelSteps(() => {
+      const latest = channelStep(channel.id);
+      if (!latest || latest.step === seen) return;
+      seen = latest.step;
+      if (ownTurn()) return;
+      const expected = latest.waiting?.toolCallId;
+      void joinGatePromise.then(() => {
+        if (!ownTurn()) pullHistory.current(stepPull(expected));
+      });
+    });
+  }, [channel.id, joinGatePromise, ownTurn]);
+
+  const watching =
+    rosterBusy && !agent.isRunning && turnsInFlight === 0 && runsInFlight === 0;
+  useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => {
+      if (pullsInFlight.current > 0 || ownTurn()) return;
+      void joinGatePromise.then(() => {
+        if (pullsInFlight.current === 0 && !ownTurn())
+          pullHistory.current(POLL_PULL);
+      });
+    }, WATCH_POLL_MS);
+    return () => clearInterval(timer);
+  }, [watching, joinGatePromise, ownTurn]);
 
   /** Stable reference for effects and component callbacks. */
   const sayRef = useRef(say);
@@ -1027,6 +1224,19 @@ export function ChannelChat({
     // Keep `seed` in state; transcriptMessages gives it up once the agent holds a user turn.
   }, []);
 
+  /*
+   * The Bot stopped before finishing: the turn is over, the conversation ends on a tool result, and
+   * nothing is waiting on the person. Only a signal here; the screen offers to let it carry on.
+   */
+  const stoppedHalfway =
+    channel.active &&
+    !restoring &&
+    unfinishedTurn({
+      messages: agent.messages,
+      running:
+        agent.isRunning || turnsInFlight > 0 || runsInFlight > 0 || rosterBusy,
+    });
+
   return (
     // Activity renderers resolve their agent through this SDK context. It must match useAgent's
     // channel instance so an action continues this thread instead of looking for a default agent.
@@ -1037,7 +1247,10 @@ export function ChannelChat({
       <ConversationProvider
         answers={answersRef.current.answers}
         ask={askFromComponent}
+        botId={runtimeAgentId}
+        channelId={channel.id}
         turnActive={agent.isRunning || turnsInFlight > 0}
+        unfinishedTurn={stoppedHalfway}
       >
         <div
           className="relative isolate flex min-h-0 min-w-0 flex-1 flex-col"
@@ -1054,7 +1267,13 @@ export function ChannelChat({
           />
           <ConversationView
             pendingRequests={(shown: ShownCalls) => (
-              <PendingRequests botId={runtimeAgentId} shown={shown} />
+              <PendingRequests
+                botId={runtimeAgentId}
+                channelId={channel.id}
+                live={liveCalls(agent.messages)}
+                shown={shown}
+                threadId={channel.threadId}
+              />
             )}
             voiceCall={
               call.available

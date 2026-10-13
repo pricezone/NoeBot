@@ -4,8 +4,16 @@ import {
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
-import { type KeyboardEvent, type ReactNode, useId, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useState,
+} from "react";
+import { AttachmentLightbox } from "@/components/channels/chat-transcript";
 import { Button } from "@/components/ui/button";
+import { type PageFrame, readPageFrame } from "@/lib/computers/screen";
 import { cn } from "@/lib/utils";
 
 /**
@@ -57,6 +65,7 @@ export function QuestionCard({
   onDismiss,
   footer,
   label,
+  screen,
 }: {
   title: ReactNode;
   /** The muted line under the question: why it is asked, or what answering does. */
@@ -84,6 +93,11 @@ export function QuestionCard({
   footer?: ReactNode;
   /** The card's accessible name. Defaults to the question itself. */
   label?: string;
+  /**
+   * A picture of the Bot's screen, drawn above the rows while the card is open: the page the
+   * question is about, so the person decides on the page itself. See `QuestionScreen`.
+   */
+  screen?: ReactNode;
 }) {
   const titleId = useId();
   const [draft, setDraft] = useState("");
@@ -152,6 +166,7 @@ export function QuestionCard({
         <AnsweredRow answer={answered} options={options} />
       ) : (
         <>
+          {screen ? <div className="mt-3">{screen}</div> : null}
           {children ? <div className="mt-3">{children}</div> : null}
 
           {options.length > 0 ? (
@@ -308,5 +323,79 @@ function RowText({
         </span>
       ) : null}
     </span>
+  );
+}
+
+/** Pictures already read in this tab, by tool call, so a long transcript does not read them again. */
+const SCREENS = new Map<string, PageFrame>();
+
+/**
+ * When to look again for a question's picture while it waits: the tab running the turn takes it as
+ * the question starts (`showScreen`), so another tab, or this one, can ask a moment before it exists.
+ */
+const SCREEN_RETRIES_MS = [0, 1500, 4000, 8000];
+
+/**
+ * The Bot's screen as it was when it asked a question, kept on the server under the question's tool
+ * call, so every tab and a reload show the same picture. Nothing at all for a question asked in a
+ * turn that did not use the browser, where no picture was taken.
+ *
+ * Read the way `ScreenShown` reads the screen a Bot showed (`readPageFrame`, by tool call id), and
+ * looked for again for a little while when the question is still waiting.
+ */
+export function QuestionScreen({
+  computerId,
+  toolCallId,
+  waiting,
+}: {
+  computerId?: string;
+  toolCallId?: string;
+  /** Still waiting on the person: the picture may still be on its way, so look again. */
+  waiting: boolean;
+}) {
+  const [frame, setFrame] = useState(() =>
+    toolCallId ? SCREENS.get(toolCallId) : undefined,
+  );
+
+  useEffect(() => {
+    if (!computerId || !toolCallId || frame) return;
+    let current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const delays = waiting ? SCREEN_RETRIES_MS : [0];
+    const look = async (attempt: number) => {
+      const stored = await readPageFrame(computerId, toolCallId);
+      if (!current) return;
+      if (stored) {
+        SCREENS.set(toolCallId, stored);
+        setFrame(stored);
+        return;
+      }
+      const next = delays[attempt + 1];
+      if (next !== undefined)
+        timer = setTimeout(
+          () => void look(attempt + 1),
+          next - (delays[attempt] ?? 0),
+        );
+    };
+    void look(0);
+    return () => {
+      current = false;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [computerId, toolCallId, waiting, frame]);
+
+  if (!frame) return null;
+  const label = frame.title?.trim() || "The Bot's screen";
+  const url = `data:image/png;base64,${frame.frame}`;
+  return (
+    <figure className="overflow-hidden rounded-xl border border-border bg-background">
+      <AttachmentLightbox
+        className="w-full rounded-none"
+        filename={label}
+        url={url}
+      >
+        <img alt={label} className="block h-auto w-full" src={url} />
+      </AttachmentLightbox>
+    </figure>
   );
 }

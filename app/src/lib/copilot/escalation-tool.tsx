@@ -1,7 +1,10 @@
 import { useRenderTool } from "@copilotkit/react-core/v2";
 import { useState } from "react";
 import { z } from "zod";
-import { QuestionCard } from "@/components/chat-cards/question-card";
+import {
+  QuestionCard,
+  QuestionScreen,
+} from "@/components/chat-cards/question-card";
 import { ChoiceCard } from "@/components/gallery/decisions";
 import { useConversation } from "@/lib/copilot/conversation";
 import { PUT_TO } from "@/lib/copilot/markers";
@@ -51,17 +54,29 @@ function AskedLine({
   result,
   running,
   answer,
+  toolCallId,
 }: {
   question?: string;
   why?: string;
   result: unknown;
   running: boolean;
   answer?: string;
+  toolCallId?: string;
 }) {
   const refused = !running && !reached(result);
+  const botId = useConversation()?.botId;
   return (
     <QuestionCard
       answered={answer !== undefined ? { text: answer } : undefined}
+      screen={
+        refused ? undefined : (
+          <QuestionScreen
+            computerId={botId}
+            toolCallId={toolCallId}
+            waiting={answer === undefined}
+          />
+        )
+      }
       subtitle={
         <>
           {why ? <span className="block">{why}</span> : null}
@@ -89,7 +104,7 @@ export function AskWithoutOptions({
   running: boolean;
 }) {
   const answer = useConversation()?.answers?.get(toolCallId);
-  return <AskedLine {...asked} answer={answer} />;
+  return <AskedLine {...asked} answer={answer} toolCallId={toolCallId} />;
 }
 
 /**
@@ -135,6 +150,7 @@ export function AskWithOptions({
         why={why}
         result={result}
         running={running}
+        toolCallId={toolCallId}
       />
     );
   }
@@ -150,6 +166,7 @@ export function AskWithOptions({
     return (
       <ChoiceCard
         args={{ options: args.options }}
+        held={false}
         onDismiss={() => setDismissed(true)}
         respond={undefined}
         result={undefined}
@@ -161,15 +178,19 @@ export function AskWithOptions({
     return (
       <ChoiceCard
         args={args}
+        held={false}
         respond={undefined}
         result={JSON.stringify({ choice: answer, label: answer })}
         status="complete"
+        toolCallId={toolCallId}
       />
     );
   }
   return (
     <ChoiceCard
       args={args}
+      // The Bot's turn is over; the answer is a message, not a run waiting in this tab.
+      held={false}
       onDismiss={() => setDismissed(true)}
       respond={async (picked) => {
         const label =
@@ -183,6 +204,7 @@ export function AskWithOptions({
       }}
       result={undefined}
       status="executing"
+      toolCallId={toolCallId}
     />
   );
 }

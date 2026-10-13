@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { PendingRequests } from "@/components/chat-cards/pending-requests";
+import { settleReactWork } from "./settle-react-work";
 
 /*
  * The Secure Form a person is waiting for must appear in their own tab even when that tab could not
@@ -13,7 +14,10 @@ import { PendingRequests } from "@/components/chat-cards/pending-requests";
  */
 beforeAll(() => GlobalRegistrator.register({ url: "http://localhost/" }));
 afterEach(cleanup);
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(async () => {
+  await settleReactWork();
+  GlobalRegistrator.unregister();
+});
 
 const request = {
   id: "req-9",
@@ -90,19 +94,53 @@ test("a tab with no history still offers the Bot's open sign-in, and only that B
   }
 });
 
-test("a sign-in the transcript already draws is not drawn again", async () => {
+test("a sign-in the transcript already draws, live and open, is not drawn again", async () => {
   const restore = serve();
   try {
     const view = render(
       wrap(
         <PendingRequests
           botId="assistant"
-          shown={{ ids: new Set(["call-9"]), unanswered: new Set() }}
+          live={{
+            ids: new Set(["call-9"]),
+            open: new Map([
+              ["call-9", { name: "computer_request_sign_in", args: {} }],
+            ]),
+            questions: new Set(),
+          }}
+          shown={{
+            ids: new Set(["call-9"]),
+            unanswered: new Set(["computer_request_sign_in"]),
+          }}
         />,
       ),
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(view.queryByRole("button", { name: "Open" })).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+test("a sign-in whose call this tab merely holds, answered, is still offered while the server waits", async () => {
+  const restore = serve();
+  try {
+    const view = render(
+      wrap(
+        <PendingRequests
+          botId="assistant"
+          live={{
+            ids: new Set(["call-9"]),
+            open: new Map(),
+            questions: new Set(),
+          }}
+          shown={{ ids: new Set(["call-9"]), unanswered: new Set() }}
+        />,
+      ),
+    );
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "Open" })).toBeDefined(),
+    );
   } finally {
     restore();
   }
