@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import type { SignInAttempt } from "../../../../shared/sign-in-guidance";
 
 /**
  * A Bot's request to be signed in to a website, as the private form sees it.
@@ -44,6 +45,12 @@ export type SignInRequest = {
   usernameLabel?: string;
   passwordLabel?: string;
   codeLabel?: string;
+  /** How the page answered the last thing the computer sent (a refusal, a code next, ...). */
+  attempt?: SignInAttempt;
+  /** While the site waits for the person to approve the sign-in on their phone: until when. */
+  approvalUntil?: string;
+  /** The site the login was typed for, when it went on to another and the form opened again. */
+  movedFrom?: string;
 };
 
 export type SavedLogin = {

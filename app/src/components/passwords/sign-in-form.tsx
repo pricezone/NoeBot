@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   cancelSignInMutationOptions,
   confirmSavedLoginMutationOptions,
+  continueSignInMutationOptions,
   finishSignInMutationOptions,
   submitSignInMutationOptions,
   takeOverSignInMutationOptions,
@@ -22,6 +23,7 @@ import {
   FINAL_SIGN_IN,
   signInRequestQueryOptions,
 } from "@/lib/passwords/queries";
+import { signInNote } from "@/lib/passwords/sign-in-words";
 import { queryClient } from "@/query-client";
 
 /**
@@ -32,7 +34,11 @@ import { queryClient } from "@/query-client";
  * result, so the model never sees it, and the transcript never holds it. The password lives in this
  * component's state until it is sent and is cleared the moment it is.
  *
- * Four answers: type a login, confirm a saved one, take over the browser, or decline.
+ * Four answers: type a login, confirm a saved one, take over the browser, or decline. While the site
+ * waits for the person to approve the sign-in on their phone, it says so and offers Continue.
+ *
+ * Every sentence here is for the person (sign-in-words.ts); what the Bot is told stays in its tool
+ * result.
  */
 export function SignInForm({ requestId }: { requestId: string }) {
   const request = useQuery({
@@ -50,6 +56,9 @@ export function SignInForm({ requestId }: { requestId: string }) {
   const takeOver = useMutation(takeOverSignInMutationOptions(queryClient));
   const finish = useMutation(finishSignInMutationOptions(queryClient));
   const cancel = useMutation(cancelSignInMutationOptions(queryClient));
+  const continueApproval = useMutation(
+    continueSignInMutationOptions(queryClient),
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -70,20 +79,70 @@ export function SignInForm({ requestId }: { requestId: string }) {
     confirmSaved.isPending ||
     takeOver.isPending ||
     finish.isPending ||
-    cancel.isPending;
+    cancel.isPending ||
+    continueApproval.isPending;
   const failure =
     submit.error ??
     confirmSaved.error ??
     takeOver.error ??
     finish.error ??
-    cancel.error;
+    cancel.error ??
+    continueApproval.error;
+  const host = hostOf(data.origin) ?? data.origin;
 
-  if (FINAL_SIGN_IN.includes(data.status))
+  if (FINAL_SIGN_IN.includes(data.status)) {
+    const signedIn = data.status === "signed_in";
+    const codeNext = data.attempt?.outcome === "code-requested";
     return (
-      <PageSection title={data.status === "signed_in" ? "Signed in" : "Closed"}>
+      <PageSection
+        title={signedIn ? "Signed in" : codeNext ? "Submitted" : "Closed"}
+      >
         <p className="text-muted-foreground text-sm">
-          {data.outcome ?? "This sign-in request is no longer open."}
+          {signedIn
+            ? `You are signed in to ${host}.${data.attempt?.rememberDeviceLeftUnchecked ? " “Remember this device” was left unchecked." : ""}`
+            : (signInNote({
+                status: data.status,
+                ...(data.attempt?.outcome
+                  ? { outcome: data.attempt.outcome }
+                  : {}),
+                ...(data.attempt?.pageMessage
+                  ? { pageMessage: data.attempt.pageMessage }
+                  : {}),
+                host,
+              }) ?? "This sign-in request is no longer open.")}
         </p>
+      </PageSection>
+    );
+  }
+
+  if (data.status === "filling" && data.approvalUntil)
+    return (
+      <PageSection
+        title="Waiting for approval on your phone"
+        description={`${host} asked your phone or app to approve this sign-in. Approve it there, then press Continue.`}
+      >
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => continueApproval.mutate(requestId)}
+          >
+            {continueApproval.isPending ? "Checking…" : "Continue"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => cancel.mutate(requestId)}
+          >
+            Cancel
+          </Button>
+        </div>
+        {failure ? (
+          <p className="mt-2 text-destructive text-sm" role="alert">
+            {failure.message}
+          </p>
+        ) : null}
       </PageSection>
     );
 
@@ -127,7 +186,6 @@ export function SignInForm({ requestId }: { requestId: string }) {
       </PageSection>
     );
 
-  const host = hostOf(data.origin) ?? data.origin;
   const requestedHost = hostOf(data.requestedOrigin);
   const codeOnly = data.form === "code";
   const usernameLabel = data.usernameLabel ?? "Username or email";

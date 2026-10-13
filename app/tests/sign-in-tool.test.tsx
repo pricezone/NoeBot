@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 /**
@@ -26,6 +26,7 @@ mock.module("@copilotkit/react-core/v2", () => ({
   },
 }));
 const { SignInTool } = await import("@/lib/copilot/sign-in-tool");
+const { ConversationProvider } = await import("@/lib/copilot/conversation");
 
 beforeAll(() => GlobalRegistrator.register());
 afterEach(cleanup);
@@ -168,6 +169,143 @@ test("a tab that did not run the call still offers the form, found by the call's
       expect(view.getByRole("button", { name: "Open" })).toBeDefined(),
     );
     expect(view.getByText("Σύνδεση Taxisnet")).toBeDefined();
+    view.unmount();
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+/** The registered card, drawn inside a conversation whose `ask` is recorded. */
+function drawCard(props: Record<string, unknown>) {
+  const asked: string[] = [];
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <SignInTool />
+    </QueryClientProvider>,
+  );
+  const tool = registered.find(
+    (entry) => entry.name === "computer_request_sign_in",
+  );
+  const Card = tool?.render as (props: Record<string, unknown>) => ReactNode;
+  const view = render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ConversationProvider ask={(text) => void asked.push(text)}>
+        <Card {...props} />
+      </ConversationProvider>
+    </QueryClientProvider>,
+  );
+  return { view, asked };
+}
+
+test("a finished row speaks to the person, never in the Bot's words, and Ask again asks as them", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = Object.assign(async () => Response.json({}, { status: 404 }), {
+    preconnect: originalFetch.preconnect,
+  });
+  try {
+    const { view, asked } = drawCard({
+      args: { site: "https://example.com" },
+      status: "complete",
+      toolCallId: "call-3",
+      result: JSON.stringify({
+        ok: false,
+        site: "https://example.com",
+        status: "cancelled",
+        outcome: "error",
+        pageMessage: "Incorrect password",
+        result:
+          "The person chose not to sign in to https://example.com. Do not ask for the login another way.",
+      }),
+    });
+    expect(view.getByText("Cancelled")).toBeDefined();
+    expect(
+      view.getByText(
+        "Wrong password or code. The site says: “Incorrect password” The sign-in was then declined.",
+      ),
+    ).toBeDefined();
+    expect(view.queryByText(/Do not ask for the login/)).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Ask again" }));
+    expect(asked).toEqual(["Ask me again for the sign-in to example.com"]);
+    view.unmount();
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("an expired row says so and offers Ask again; a signed-in one offers nothing more", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = Object.assign(async () => Response.json({}, { status: 404 }), {
+    preconnect: originalFetch.preconnect,
+  });
+  try {
+    const expired = drawCard({
+      args: { site: "https://example.com" },
+      status: "complete",
+      toolCallId: "call-4",
+      result: JSON.stringify({
+        ok: false,
+        status: "expired",
+        result: "Nobody signed in. Do not ask for the login another way.",
+      }),
+    });
+    expect(expired.view.getByText("Expired")).toBeDefined();
+    expect(
+      expired.view.getByText(
+        "This sign-in request expired before anyone signed in.",
+      ),
+    ).toBeDefined();
+    expect(
+      expired.view.getByRole("button", { name: "Ask again" }),
+    ).toBeDefined();
+    expired.view.unmount();
+    const done = drawCard({
+      args: { site: "https://example.com" },
+      status: "complete",
+      toolCallId: "call-5",
+      result: JSON.stringify({ ok: true, signedIn: true, status: "signed_in" }),
+    });
+    expect(done.view.getByText("Submitted")).toBeDefined();
+    expect(done.view.queryByRole("button", { name: "Ask again" })).toBeNull();
+    done.view.unmount();
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("while the site waits for the person's phone, the row says so and Continue asks the server to look", async () => {
+  const originalFetch = global.fetch;
+  const posted: string[] = [];
+  global.fetch = Object.assign(
+    async (path: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(path);
+      if (init?.method === "POST") posted.push(url);
+      if (url.includes("/api/sign-in-requests/req-6"))
+        return Response.json({
+          ...request,
+          id: "req-6",
+          status: "filling",
+          approvalUntil: new Date(Date.now() + 60_000).toISOString(),
+          attempt: { outcome: "push-approval" },
+        });
+      return Response.json({}, { status: 404 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const { view } = drawCard({
+      args: { site: "https://example.com" },
+      status: "executing",
+      toolCallId: "call-6",
+      result: JSON.stringify({ requestId: "req-6" }),
+    });
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "Continue" })).toBeDefined(),
+    );
+    expect(view.getByText(/Waiting for approval on your phone/)).toBeDefined();
+    fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await waitFor(() =>
+      expect(posted.some((url) => url.endsWith("/req-6/continue"))).toBe(true),
+    );
     view.unmount();
   } finally {
     global.fetch = originalFetch;

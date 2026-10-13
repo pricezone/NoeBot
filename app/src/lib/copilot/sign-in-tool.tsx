@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 import {
@@ -8,24 +8,39 @@ import {
   type SecureFormState,
 } from "@/components/chat-cards/secure-form";
 import { SignInForm } from "@/components/passwords/sign-in-form";
-import { readSignIn, requestSignIn } from "@/lib/passwords/mutations";
+import { Button } from "@/components/ui/button";
+import {
+  continueSignInMutationOptions,
+  readSignIn,
+  requestSignIn,
+} from "@/lib/passwords/mutations";
 import {
   FINAL_SIGN_IN,
   pendingSignInsQueryOptions,
   signInRequestQueryOptions,
 } from "@/lib/passwords/queries";
+import {
+  askAgainText,
+  canAskAgain,
+  finishedState,
+  type SignInSituation,
+  signInNote,
+} from "@/lib/passwords/sign-in-words";
+import {
+  SIGN_IN_TOOL_DESCRIPTION,
+  type SignInOutcome,
+  signInResultForBot,
+} from "../../../../shared/sign-in-guidance";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
 import { useComputerAvailable } from "./computer-available";
+import { useConversation } from "./conversation";
 
 /** How long the open chat waits for the person to answer. The server's request lasts as long. */
 const WAIT_MS = 15 * 60_000;
 const POLL_MS = 1_500;
 
-/** Must match SIGN_IN_TOOL_DESCRIPTION in server/src/computer/headless-tools.ts. */
-const DESCRIPTION =
-  "Ask the person you work for to sign you in to a website: Taxisnet and gov.gr, a bank, any login. They get a private Secure Form in this conversation (or take over the browser), and what they type goes straight into your browser by the computer. You never see the username, password or code, so do not refuse a login as too personal and never ask for credentials any other way. Open the site's sign-in page first (click its Sign in or Είσοδος button and wait for the login fields), then call this with the site's address and a short title such as 'Σύνδεση Taxisnet'. For a code that arrives later on a page of its own (an SMS confirmation), call this again on that page: it asks for the code alone. This turn pauses until they answer; you are then told only whether it worked.";
-
+/** The tool result, as the row reads it. `result` is the Bot's sentence and is never shown. */
 type Outcome = {
   ok?: boolean;
   signedIn?: boolean;
@@ -34,6 +49,11 @@ type Outcome = {
   requestId?: string;
   result?: string;
   reason?: string;
+  outcome?: SignInOutcome;
+  pageMessage?: string;
+  movedFrom?: string;
+  /** The chat stopped the request: the turn was stopped, nobody declined anything. */
+  stopped?: boolean;
 };
 
 function parse(result: string | undefined): Outcome {
@@ -102,7 +122,8 @@ export function SignInTool() {
   useFrontendTool({
     available,
     name: "computer_request_sign_in",
-    description: DESCRIPTION,
+    // The same words the headless tool registers: see shared/sign-in-guidance.ts.
+    description: SIGN_IN_TOOL_DESCRIPTION,
     parameters: z.object({
       site: z
         .string()
@@ -115,25 +136,25 @@ export function SignInTool() {
         .string()
         .optional()
         .describe(
-          "The form's title in the person's language, e.g. 'Σύνδεση Taxisnet' or 'Κωδικός SMS'",
+          "The form's title in the person's language, e.g. 'Sign in to your bank' or 'SMS code'",
         ),
       usernameLabel: z
         .string()
         .optional()
         .describe(
-          "The username field's label as the site words it, e.g. 'Χρήστης'",
+          "The username field's label as the site words it, e.g. 'Email' or 'Customer number'",
         ),
       passwordLabel: z
         .string()
         .optional()
         .describe(
-          "The password field's label as the site words it, e.g. 'Κωδικός'",
+          "The password field's label as the site words it, e.g. 'Password' or 'PIN'",
         ),
       codeLabel: z
         .string()
         .optional()
         .describe(
-          "For a code-only page, the code field's label, e.g. 'Κωδικός Επιβεβαίωσης'",
+          "For a code-only page, the code field's label as the site words it, e.g. 'Verification code'",
         ),
     }),
     handler: async (
@@ -200,23 +221,13 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
         ok: false,
         requestId: id,
         status: "cancelled",
+        stopped: true,
         result: "The request was stopped.",
       };
     const state = await readSignIn(id, signal);
+    // Built the way the server builds it for an unattended turn, so both tell the Bot the same.
     if (state && FINAL_SIGN_IN.includes(state.status))
-      return {
-        ok: state.status === "signed_in",
-        signedIn: state.status === "signed_in",
-        site: state.origin,
-        status: state.status,
-        requestId: id,
-        result:
-          state.outcome ??
-          (state.status === "signed_in"
-            ? `Signed in to ${state.origin}.`
-            : `The sign-in to ${state.origin} did not complete.`),
-        note: "You were not told the credentials and must never ask for them another way.",
-      };
+      return { ...signInResultForBot(state), requestId: id };
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   return {
@@ -228,17 +239,13 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
   };
 }
 
-/** How a finished sign-in reads on its row. */
-function finishedState(outcome: Outcome): SecureFormState {
-  if (outcome.signedIn) return "submitted";
-  if (outcome.status === "expired") return "expired";
-  if (outcome.status === "cancelled") return "cancelled";
-  return "failed";
-}
-
 /**
  * The sign-in in the conversation: Grok's secure form row, whose Open draws the private form in a
  * dialog with the site's icon, the Bot's title and the host the login goes to.
+ *
+ * Everything on it is for the person (see sign-in-words.ts): a refused login with the site's own
+ * message, Continue while the site waits for their phone, and Ask again once it ended without a
+ * login going in, which says so in the conversation as them.
  */
 function SignInCard({
   site,
@@ -254,6 +261,12 @@ function SignInCard({
   outcome: Outcome;
 }) {
   const [open, setOpen] = useState(false);
+  const [askedAgain, setAskedAgain] = useState(false);
+  const conversation = useConversation();
+  const queryClient = useQueryClient();
+  const continueApproval = useMutation(
+    continueSignInMutationOptions(queryClient),
+  );
   const opened = useOpenedSignInRequest(toolCallId);
   /*
    * ANY TAB, NOT ONLY THE ONE THAT ASKED. The tool call runs in one tab, and only that tab learns the
@@ -273,6 +286,8 @@ function SignInCard({
   const request = useQuery({
     ...signInRequestQueryOptions(requestId ?? ""),
     enabled: Boolean(requestId),
+    // While it runs, so a refusal or a wait for the person's phone shows on the row itself.
+    refetchInterval: running ? 3_000 : false,
   });
   const data = request.data;
   const final = data ? FINAL_SIGN_IN.includes(data.status) : false;
@@ -282,25 +297,78 @@ function SignInCard({
   }, [final]);
   const host =
     hostOf(data?.origin) ?? hostOf(outcome.site) ?? hostOf(site) ?? site;
-  const heading = title ?? data?.title ?? `Sign in to ${host}`;
+  // The server's title first: it is the Bot's, unless the login went on to another site.
+  const heading = data?.title ?? title ?? `Sign in to ${host}`;
+  const waiting =
+    running && data?.status === "filling" && Boolean(data.approvalUntil);
+  const situation: SignInSituation = running
+    ? {
+        ...(data?.status ? { status: data.status } : {}),
+        ...(data?.attempt?.outcome ? { outcome: data.attempt.outcome } : {}),
+        ...(data?.attempt?.pageMessage
+          ? { pageMessage: data.attempt.pageMessage }
+          : {}),
+        ...(data?.movedFrom ? { movedFrom: data.movedFrom } : {}),
+        waitingForApproval: waiting,
+        host,
+      }
+    : {
+        ...(outcome.status
+          ? { status: outcome.status }
+          : outcome.signedIn
+            ? { status: "signed_in" }
+            : {}),
+        ...(outcome.outcome ? { outcome: outcome.outcome } : {}),
+        ...(outcome.pageMessage ? { pageMessage: outcome.pageMessage } : {}),
+        ...(outcome.stopped ? { stopped: true } : {}),
+        notOpened: !outcome.status && Boolean(outcome.reason),
+        host,
+      };
   const state: SecureFormState = running
     ? requestId
       ? "open"
       : "preparing"
-    : finishedState(outcome);
-  const note =
-    !running && !outcome.signedIn
-      ? (outcome.reason ?? outcome.result)
-      : undefined;
+    : finishedState(situation);
+  const note = continueApproval.error?.message ?? signInNote(situation);
+  const askAgain = !running && canAskAgain(situation) && conversation;
   return (
     <>
       <SecureFormRow
         icon={data?.icon}
-        onOpen={() => setOpen(true)}
+        onOpen={() => {
+          if (!waiting) setOpen(true);
+          else if (requestId) continueApproval.mutate(requestId);
+        }}
+        openLabel={
+          waiting
+            ? continueApproval.isPending
+              ? "Checking…"
+              : "Continue"
+            : "Open"
+        }
         state={state}
         title={heading}
       >
-        {note}
+        {note || askAgain ? (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {note ? <span>{note}</span> : null}
+            {askAgain ? (
+              <Button
+                className="rounded-full"
+                disabled={askedAgain}
+                onClick={() => {
+                  setAskedAgain(true);
+                  conversation.ask(askAgainText(host));
+                }}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Ask again
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </SecureFormRow>
       {requestId ? (
         <SecureFormDialog
