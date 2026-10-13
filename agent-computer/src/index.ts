@@ -606,7 +606,25 @@ async function reportPage(
         ? await downloads.take(botId)
         : { notes: [] as string[] };
       const previous = session.lastSnapshot;
-      const snapshot = await snapshotPage(session, live);
+      const snapshot = await snapshotWhileMoving(session, live);
+      if (!snapshot)
+        return {
+          page: {
+            url: live.url(),
+            title: "",
+            ...(extras.status !== undefined ? { status: extras.status } : {}),
+            snapshotId: session.snapshotId,
+            elements: [],
+            ...(opened ? { opened } : {}),
+            ...(saved.download ? { download: saved.download } : {}),
+            loading: true as const,
+            notes: [
+              ...(extras.notes ?? []),
+              ...saved.notes,
+              "The page was still changing, so its elements could not be listed. Take a snapshot when it has loaded.",
+            ],
+          },
+        };
       const challenge = await detectChallenge(
         live,
         session.control,
@@ -1450,7 +1468,11 @@ serve<StreamData>({
           const extract =
             reported.page.dialog && !reported.page.dialog.dismissed
               ? { text: "", truncated: false }
-              : await readablePageText(live, NAVIGATE_TEXT_LIMIT);
+              : // A page still moving has no text to give yet; the page report says it is loading.
+                await readablePageText(live, NAVIGATE_TEXT_LIMIT).catch(() => ({
+                  text: "",
+                  truncated: false,
+                }));
           const challenge = reported.challenge;
           return json({
             url: reported.page.url,
@@ -2351,6 +2373,34 @@ function actionFailure(error: unknown): Response {
       502,
     );
   return json({ error: describe(error, "The action failed.") }, 502);
+}
+
+/**
+ * A snapshot of a page that may still be navigating: the action's own work is done, so a document
+ * replaced under the snapshot is waited for and asked again, and one that will not hold still is
+ * answered with nothing rather than turning a click that worked into a failure.
+ */
+async function snapshotWhileMoving(
+  session: BotSession,
+  live: Page,
+): Promise<Awaited<ReturnType<typeof snapshotPage>> | undefined> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await snapshotPage(session, live);
+    } catch (error) {
+      if (
+        !/Execution context was destroyed|navigat|frame was detached|Target page, context or browser has been closed/i.test(
+          String(error),
+        ) ||
+        live.isClosed()
+      )
+        throw error;
+      await live
+        .waitForLoadState("domcontentloaded", { timeout: 3_000 })
+        .catch(() => undefined);
+    }
+  }
+  return undefined;
 }
 
 /** A page paused on a dialog: nothing else can run until it is answered. */
