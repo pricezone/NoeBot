@@ -12,6 +12,7 @@
         "@copilotkit/aimock": "1.39.0",
         "@types/bun": "^1.3.3",
         "roughjs": "^4.6.6",
+        "tldts": "7.4.16",
         "typescript": "^5.9.3",
         "yaml": "^2.9.0",
       },
