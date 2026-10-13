@@ -283,12 +283,10 @@ async function frameWith<T extends { found: boolean }>(
 }
 
 const loginIn = (frame: Frame) =>
-  frame
-    .evaluate(markLoginFields, LOGIN_ATTRIBUTE)
-    .then((marked) => ({
-      ...marked,
-      found: marked.password || marked.username,
-    }));
+  frame.evaluate(markLoginFields, LOGIN_ATTRIBUTE).then((marked) => ({
+    ...marked,
+    found: marked.password || marked.username,
+  }));
 
 const codeIn = (frame: Frame) =>
   frame.evaluate(markCodeField, LOGIN_ATTRIBUTE).then((found) => ({ found }));
