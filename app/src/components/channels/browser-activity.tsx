@@ -18,6 +18,14 @@ const labels: Record<string, string> = {
   computer_type: "Filled in field",
   computer_key: "Pressed key",
   computer_scroll: "Scrolled page",
+  computer_fill: "Filled in form",
+  computer_select: "Chose option",
+  computer_check: "Ticked box",
+  computer_upload: "Uploaded file",
+  computer_hover: "Hovered",
+  computer_dialog: "Answered dialog",
+  computer_tabs: "Switched tab",
+  computer_back: "Went back",
 };
 
 /** Group adjacent browsing steps without moving messages or hiding requests for human help. */

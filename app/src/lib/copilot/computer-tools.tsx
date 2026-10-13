@@ -93,6 +93,23 @@ type ComputerOutcome = {
   /** Where a navigation landed, which is what a finished turn's screen tile remembers. */
   url?: string;
   title?: string;
+  /** A select's chosen option, by its label (page text, never something the Bot typed). */
+  chosen?: string;
+  checked?: boolean;
+  /** An upload's workspace file. */
+  path?: string;
+  /** A dialog's answer, and what it asked. */
+  accepted?: boolean;
+  dialog?: { type?: string; message?: string };
+  /** A fill's fields that went in. */
+  filled?: unknown[];
+  /** A tabs call: which tab it switched to or closed. */
+  switched?: number;
+  closed?: number;
+  /** A back call: false when there was nothing to go back to. */
+  wentBack?: boolean;
+  /** The page an acting call left behind. */
+  page?: { url?: string; title?: string };
 };
 
 /**
@@ -210,9 +227,9 @@ export function ComputerTools() {
     available,
     name: "computer_navigate",
     description:
-      "Open a web page on your own computer so the person can watch. Use this when asked to look " +
-      "at, visit, open or check a website. Returns the page title and its readable text, so answer " +
-      "from what comes back rather than telling the person to go and look.",
+      "Open a web page on your own computer so the person can watch. Returns its title, readable " +
+      "text and `page`: the HTTP status and the elements with refs you can act on straight away. " +
+      "Answer from what comes back rather than telling the person to go and look.",
     parameters: z.object({
       url: z.string().describe("Full web address to open, including https://"),
     }),
@@ -296,10 +313,9 @@ export function ComputerTools() {
     available,
     name: "computer_snapshot",
     description:
-      "List the things on the current page you can act on: fields, buttons, links and checkboxes, " +
-      "each with a ref, its label and its current value. Call this BEFORE clicking or typing, and " +
-      "use the refs it returns. Always send back the snapshotId it gives you. If an action reports " +
-      "that your refs are stale, the page changed: call this again and use the new refs.",
+      "List everything on the current page you can act on, each with a ref, label and value. " +
+      "Acting tools already return `page` with refs; call this when `page.changed` lists only what " +
+      "changed and you need the rest, or when refs are reported stale. Send its snapshotId back.",
     parameters: z.object({}),
     handler: async (
       _input: Record<string, never>,
@@ -330,9 +346,8 @@ export function ComputerTools() {
     available,
     name: "computer_type",
     description:
-      "Enter text into a field on the page. Give the ref of the field from your most recent " +
-      "snapshot and the snapshotId it came from. This replaces whatever the field already contains. " +
-      "Set submit to true to press Enter afterwards.",
+      "Replace a field's text, by ref and the snapshotId it came from; submit presses Enter " +
+      "after. For several fields at once use computer_fill.",
     parameters: z.object({
       ref: z
         .string()
@@ -381,8 +396,8 @@ export function ComputerTools() {
     available,
     name: "computer_click",
     description:
-      "Click something on the page: a button, a link, a checkbox or a radio option. Give the ref " +
-      "from your most recent snapshot and the snapshotId it came from.",
+      "Click a button, link or other element, by ref and the snapshotId it came from (from the " +
+      "latest `page` or snapshot). Returns the page after the click.",
     parameters: z.object({
       ref: z
         .string()
@@ -927,15 +942,21 @@ export function ComputerTools() {
     available,
     name: "computer_scroll",
     description:
-      "Scroll the page down, or up with a negative amount, to bring more of a long page into view.",
+      "Scroll the page by deltaY (negative is up). With a ref: scroll it into view, or with " +
+      "deltaY too, scroll inside the panel it is in.",
     parameters: z.object({
       deltaY: z
         .number()
         .optional()
         .describe("Pixels to scroll; positive is down. Defaults to 600."),
+      ref: z.string().optional().describe("An element or panel to scroll"),
+      snapshotId: z
+        .number()
+        .optional()
+        .describe("The snapshotId the ref came from, required with a ref"),
     }),
     handler: async (
-      input: { deltaY?: number },
+      input: { deltaY?: number; ref?: string; snapshotId?: number },
       { signal }: { signal?: AbortSignal } = {},
     ) =>
       callComputer(
@@ -955,6 +976,336 @@ export function ComputerTools() {
         failed={didNotWork(outcomeOf(result))}
       />
     ),
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_fill",
+    description:
+      "Fill a whole form in one call. Each field is a ref with exactly one of text, checked, " +
+      "option (a drop-down's label or value) or file (a workspace path); then clicks a ref or " +
+      "submits the form. Stops at the first field that fails and says which and why.",
+    parameters: z.object({
+      fields: z
+        .array(
+          z.object({
+            ref: z.string().describe("Ref of the field"),
+            text: z.string().optional().describe("Text to put in it"),
+            checked: z.boolean().optional().describe("Tick or untick it"),
+            option: z.string().optional().describe("Option to choose"),
+            file: z.string().optional().describe("Workspace file to upload"),
+          }),
+        )
+        .describe("The fields, in the order to fill them"),
+      // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+      then: z
+        .union([
+          z.object({ click: z.string().describe("Ref to click after") }),
+          z.object({ submit: z.literal(true) }),
+        ])
+        .optional()
+        .describe("Click a ref, or submit the form, once the fields are in"),
+      snapshotId: z.number().describe("The snapshotId the refs came from"),
+    }),
+    handler: async (
+      input: {
+        fields: Array<{
+          ref: string;
+          text?: string;
+          checked?: boolean;
+          option?: string;
+          file?: string;
+        }>;
+        then?: { click: string } | { submit: true };
+        snapshotId: number;
+      },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/fill",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ result, status }) => {
+      const outcome = outcomeOf(result);
+      const filled = Array.isArray(outcome.filled) ? outcome.filled.length : 0;
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label="Filled in form"
+          detail={
+            outcome.refused === true || didNotWork(outcome)
+              ? String(outcome.reason ?? "")
+              : filled
+                ? `${filled} field${filled === 1 ? "" : "s"}`
+                : undefined
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_select",
+    description:
+      "Choose an option in a drop-down, native or custom, by its visible label or value.",
+    parameters: z.object({
+      ref: z.string().describe("Ref of the drop-down"),
+      option: z.string().describe("The option's label or value"),
+      snapshotId: z.number().describe("The snapshotId that ref came from"),
+    }),
+    handler: async (
+      input: { ref: string; option: string; snapshotId: number },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/select",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label="Chose"
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : (outcome.chosen ?? labelOf(result))
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_check",
+    description:
+      "Tick (checked true) or untick a checkbox, radio button or switch, by ref.",
+    parameters: z.object({
+      ref: z.string().describe("Ref of the checkbox, radio button or switch"),
+      checked: z.boolean().describe("True to tick, false to untick"),
+      snapshotId: z.number().describe("The snapshotId that ref came from"),
+    }),
+    handler: async (
+      input: { ref: string; checked: boolean; snapshotId: number },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/check",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ args, result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label={args?.checked === false ? "Unticked" : "Ticked"}
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : labelOf(result)
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_upload",
+    description:
+      "Upload a file from your workspace (path relative to it) into a file input or upload button.",
+    parameters: z.object({
+      ref: z.string().describe("Ref of the file input or upload button"),
+      path: z.string().describe("Workspace path, such as Downloads/cv.pdf"),
+      snapshotId: z.number().describe("The snapshotId that ref came from"),
+    }),
+    handler: async (
+      input: { ref: string; path: string; snapshotId: number },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/upload",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ args, result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label="Uploaded"
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : typeof args?.path === "string"
+                ? args.path
+                : undefined
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_hover",
+    description:
+      "Move the pointer over an element, to open a menu or show a tooltip.",
+    parameters: z.object({
+      ref: z.string().describe("Ref of the element"),
+      snapshotId: z.number().describe("The snapshotId that ref came from"),
+    }),
+    handler: async (
+      input: { ref: string; snapshotId: number },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/hover",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ result, status }) => (
+      <ActionLine
+        running={status !== "complete"}
+        label="Hovered"
+        detail={labelOf(result)}
+        refused={outcomeOf(result).refused === true}
+        failed={didNotWork(outcomeOf(result))}
+      />
+    ),
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_dialog",
+    description:
+      "Answer the alert, confirm or prompt the page shows (`page.dialog`): accept true for OK, " +
+      "false for Cancel; text answers a prompt.",
+    parameters: z.object({
+      accept: z.boolean().describe("True for OK, false for Cancel"),
+      text: z.string().optional().describe("The answer to a prompt"),
+    }),
+    handler: async (
+      input: { accept: boolean; text?: string },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/dialog",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ args, result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label="Answered dialog"
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : `${args?.accept === false ? "Cancel" : "OK"}${outcome.dialog?.message ? `: ${outcome.dialog.message}` : ""}`
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_tabs",
+    description:
+      "List the browser's tabs, switch to one, or close one, by its index from the list.",
+    parameters: z.object({
+      action: z.enum(["list", "switch", "close"]).describe("What to do"),
+      index: z
+        .number()
+        .optional()
+        .describe("The tab's index from the list, for switch and close"),
+    }),
+    handler: async (
+      input: { action: "list" | "switch" | "close"; index?: number },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(
+        bot.current,
+        "/tabs",
+        { method: "POST", body: input },
+        signal,
+      ),
+    render: ({ args, result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label={
+            args?.action === "close"
+              ? "Closed tab"
+              : args?.action === "list"
+                ? "Listed tabs"
+                : "Switched tab"
+          }
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : args?.action === "list"
+                ? undefined
+                : outcome.page?.title
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
+  });
+
+  useFrontendTool({
+    available,
+    name: "computer_back",
+    description: "Go back to the previous page in this tab.",
+    parameters: z.object({}),
+    handler: async (
+      _input: Record<string, never>,
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      callComputer(bot.current, "/back", { method: "POST", body: {} }, signal),
+    render: ({ result, status }) => {
+      const outcome = outcomeOf(result);
+      return (
+        <ActionLine
+          running={status !== "complete"}
+          label="Went back"
+          detail={
+            didNotWork(outcome) || outcome.refused === true
+              ? String(outcome.reason ?? "")
+              : outcome.page?.title
+          }
+          refused={outcome.refused === true}
+          failed={didNotWork(outcome)}
+        />
+      );
+    },
   });
 
   return null;
