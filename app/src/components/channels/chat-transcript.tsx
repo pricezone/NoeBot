@@ -13,6 +13,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { motion, useReducedMotion } from "motion/react";
+import type { ReactNode } from "react";
 import {
   memo,
   useEffect,
@@ -22,6 +23,7 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import type { ShownCalls } from "@/components/chat-cards/pending-requests";
 import { useAvatarDirector } from "@/components/noe-bot/anim/use-avatar-director";
 import type {
   AvatarChoice,
@@ -84,6 +86,11 @@ type ChatTranscriptProps = {
   /** Comma-separated `/` command names, used to tell a skill chip from a leading slash. */
   commandNames?: string;
   messages: ReadonlyArray<Readonly<Message>>;
+  /**
+   * Requests waiting on the person that this transcript is not drawing itself (see
+   * `PendingRequests`), given what it does draw so nothing appears twice.
+   */
+  pendingRequests?: (shown: ShownCalls) => ReactNode;
   /**
    * Typed while the Bot had the turn, and waiting for it to finish. Empty on a screen that does not
    * offer queueing at all.
@@ -1520,6 +1527,7 @@ export function ChatTranscript({
   restoring = false,
   stopped,
   botAvatar,
+  pendingRequests,
 }: ChatTranscriptProps) {
   /*
    * NOT MEMOISED, AND THAT IS DELIBERATE. `useMemo` keyed on `messages` looks obviously right and
@@ -1532,6 +1540,7 @@ export function ChatTranscript({
    * which is where the 25x came from. This runs per render and is not worth guarding.
    */
   const items = groupBrowserSteps(toVisibleChatItems(messages));
+  const shownCalls = pendingRequests ? callsIn(messages) : undefined;
 
   /*
    * ONLY WHILE THERE IS NOTHING ELSE TO LOOK AT. Once a reply starts streaming, or a tool line
@@ -1712,6 +1721,9 @@ export function ChatTranscript({
              * position, which is the library's to change and is worth asking for.
              */}
             <div className="contents [&>*]:order-1">
+              {pendingRequests && shownCalls
+                ? pendingRequests(shownCalls)
+                : null}
               {director.visible ? (
                 <ChatActivityIndicator
                   animation={director.animation}
@@ -1815,4 +1827,25 @@ export function ChatTranscript({
       </MessageScroller>
     </MessageScrollerProvider>
   );
+}
+
+/** The tool calls a conversation holds, and which of them have no answer yet. */
+function callsIn(messages: ReadonlyArray<Readonly<Message>>): ShownCalls {
+  const ids = new Set<string>();
+  const names = new Map<string, string>();
+  const answered = new Set<string>();
+  for (const message of messages as ReadonlyArray<Record<string, unknown>>) {
+    if (message.role === "tool" && typeof message.toolCallId === "string")
+      answered.add(message.toolCallId);
+    const calls = Array.isArray(message.toolCalls) ? message.toolCalls : [];
+    for (const call of calls as Array<Record<string, unknown>>) {
+      if (typeof call.id !== "string") continue;
+      ids.add(call.id);
+      const fn = call.function as { name?: unknown } | undefined;
+      if (typeof fn?.name === "string") names.set(call.id, fn.name);
+    }
+  }
+  const unanswered = new Set<string>();
+  for (const [id, name] of names) if (!answered.has(id)) unanswered.add(name);
+  return { ids, unanswered };
 }

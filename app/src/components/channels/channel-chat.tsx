@@ -24,6 +24,10 @@ import {
   transcriptMessages,
 } from "@/components/channels/transcript-messages";
 import { VoiceCallWidget } from "@/components/channels/voice-call-widget";
+import {
+  PendingRequests,
+  type ShownCalls,
+} from "@/components/chat-cards/pending-requests";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
@@ -1048,6 +1052,9 @@ export function ChannelChat({
             taskRunning={agent.isRunning || runsInFlight > 0}
           />
           <ConversationView
+            pendingRequests={(shown: ShownCalls) => (
+              <PendingRequests botId={runtimeAgentId} shown={shown} />
+            )}
             voiceCall={
               call.available
                 ? {

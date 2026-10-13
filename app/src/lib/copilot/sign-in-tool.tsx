@@ -313,3 +313,12 @@ function SignInCard({
     </>
   );
 }
+
+/**
+ * A sign-in request drawn without its tool call: the conversation's history could not be loaded in
+ * this tab (the conversation service answers 404 while another tab's run is in flight), so the call
+ * that would draw the card is not here. The request is the server's, so it is drawn from that.
+ */
+export function SignInRequestRow({ requestId }: { requestId: string }) {
+  return <SignInCard outcome={{ requestId }} running site="" />;
+}

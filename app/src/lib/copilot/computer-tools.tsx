@@ -926,7 +926,7 @@ const CODE_LIKE = /code|otp|pin|κωδικ|sms/i;
  * the single masked field. What is typed goes to the computer's own route and into the field the Bot
  * named, never into the conversation.
  */
-function SecretCard({
+export function SecretCard({
   computerId,
   label,
   running,
@@ -1030,7 +1030,7 @@ function SecretCard({
  * The Bot asking the person to take over its browser (a CAPTCHA, a step only a person can do): the
  * same row as a secure form, whose Open goes to the Bot's screen with the wheel offered.
  */
-function HelpCard({
+export function HelpCard({
   computerId,
   reason,
   running,

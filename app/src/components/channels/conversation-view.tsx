@@ -20,6 +20,7 @@ import {
 } from "@/components/channels/composer";
 import type { ComposerHandle } from "@/components/channels/composer/composer";
 import { SendFailedNotice } from "@/components/channels/send-failed-notice";
+import type { ShownCalls } from "@/components/chat-cards/pending-requests";
 import type {
   AvatarChoice,
   AvatarScheme,
@@ -44,6 +45,7 @@ export function ConversationView({
   placeholder,
   personScheme,
   botAvatar,
+  pendingRequests,
   onSubmit,
   onStop,
   voiceCall,
@@ -105,6 +107,8 @@ export function ConversationView({
   personScheme?: AvatarScheme;
   /** The Bot this conversation is with, for the activity indicator under the last message. */
   botAvatar?: AvatarChoice;
+  /** Requests waiting on the person, drawn from the server under the conversation. */
+  pendingRequests?: (shown: ShownCalls) => ReactNode;
   onSubmit: (draft: ComposerDraft) => void | Promise<void>;
   /** Stop the Bot mid-answer; forwarded to turn the send button into a stop button. */
   onStop?: () => void;
@@ -489,6 +493,7 @@ export function ConversationView({
           }}
           {...(personScheme ? { personScheme } : {})}
           {...(botAvatar ? { botAvatar } : {})}
+          {...(pendingRequests ? { pendingRequests } : {})}
           queued={queued}
           restoring={restoring}
           {...(stopped ? { stopped } : {})}
