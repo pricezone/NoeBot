@@ -37,6 +37,12 @@ import { createWorkspace } from "../src/workspace";
  */
 const asked = process.env.OPENBOT_COMPUTER_BROWSER === "1";
 const BOT = "acting-test";
+/**
+ * The switch the computer's own launches carry on a Mac (launch-args.ts): without it Chromium asks
+ * the login keychain for "Chromium Safe Storage", which prompts the person at the machine and holds
+ * the browser (a page close waited on it) until they answer.
+ */
+const KEYCHAIN = process.platform === "darwin" ? ["--use-mock-keychain"] : [];
 const LAUNCH_TIMEOUT_MS = 120_000;
 
 const html = (body: string, status = 200, title = "Fixture") =>
@@ -106,6 +112,20 @@ const PAGES: Record<string, () => string> = {
   "/article": () =>
     `<h1>What is a CAPTCHA?</h1><p>A CAPTCHA asks you to verify you are human.</p>`,
   "/downloads": () => `<a href="/file">Download report</a>`,
+  "/drive-by": () =>
+    `<p>Welcome</p><script>setTimeout(() => { location.href = "/file"; }, 50)</script>`,
+  "/huge": () => `<a href="/huge-file">Download disk image</a>`,
+  "/not-controls": () => `
+    <button onclick="document.title='deleted'">Delete account</button>
+    <div class="upload">
+      <button onclick="document.title='chooser'">Choose file</button>
+      <input type="file" id="hidden-file" style="display:none">
+    </div>`,
+  "/interrupted-form": () => `
+    <label>First <input id="first"></label>
+    <label>Second <input id="second" oninput="alert('Check this field')"></label>
+    <label>Third <input id="third"></label>
+    <button onclick="document.title='sent'">Send</button>`,
   "/spa": () => `
     <button onclick="history.pushState({}, '', '/spa/next');
       document.getElementById('view').innerHTML='<h1>Next step</h1><button>Continue</button>'">Go</button>
@@ -145,6 +165,28 @@ beforeAll(async () => {
             "content-disposition": 'attachment; filename="report.pdf"',
           },
         });
+      if (url.pathname === "/huge-file") {
+        // Five megabytes, a little at a time, so the size watch sees it grow.
+        const chunk = new Uint8Array(256 * 1024);
+        let sent = 0;
+        const stream = new ReadableStream({
+          async pull(controller) {
+            if (sent >= 20) {
+              controller.close();
+              return;
+            }
+            sent += 1;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            controller.enqueue(chunk);
+          },
+        });
+        return new Response(stream, {
+          headers: {
+            "content-type": "application/octet-stream",
+            "content-disposition": 'attachment; filename="disk.img"',
+          },
+        });
+      }
       if (url.pathname === "/slow") {
         // The headers and the start of the page at once, the end of it three seconds later.
         const stream = new ReadableStream({
@@ -203,7 +245,7 @@ beforeAll(async () => {
   downloads = createDownloadKeeper(createWorkspace(root));
   if (!asked) return;
   const { chromium } = await import("playwright");
-  browser = await chromium.launch();
+  browser = await chromium.launch({ args: KEYCHAIN });
   context = await browser.newContext({ acceptDownloads: true });
   dialogs.attach(BOT, context);
   downloads.attach(BOT, context);
@@ -532,9 +574,11 @@ describe.skipIf(!asked)("acting on real pages", () => {
     );
     expect(broken.response?.status()).toBe(500);
 
+    // On a tab of its own, closed only once the page has finished arriving.
+    const slowTab = await context.newPage();
     const started = Date.now();
     const slow = await navigateWebPage(
-      tab,
+      slowTab,
       `${origin}/slow`,
       "managed",
       10_000,
@@ -544,6 +588,10 @@ describe.skipIf(!asked)("acting on real pages", () => {
     );
     expect(slow.stillLoading).toBe(true);
     expect(Date.now() - started).toBeLessThan(2_500);
+    await slowTab
+      .waitForLoadState("domcontentloaded", { timeout: 10_000 })
+      .catch(() => undefined);
+    await slowTab.close().catch(() => undefined);
 
     const nowhere = await failure(
       navigateWebPage(
@@ -566,14 +614,22 @@ describe.skipIf(!asked)("acting on real pages", () => {
       navigateWebPage(tab, `http://127.0.0.1:${port}/`, "managed", 10_000),
     );
     expect(isSiteFailure(refused) && refused.problem).toBe("refused");
-    await tab.close();
+    // Closing a tab on Chromium's own error page now and then never answers (Chromium, not this
+    // code), so the tab is sent somewhere ordinary first and the close is not waited on for ever.
+    await tab.goto("about:blank").catch(() => undefined);
+    await Promise.race([
+      tab.close(),
+      new Promise((resolve) => setTimeout(resolve, 3_000)),
+    ]);
   }, 60_000);
 
   test("a download lands in the workspace's Downloads folder, numbered when the name is taken", async () => {
     const tab = await open("/downloads");
     const elements = await elementsOf(tab);
     const link = refOf(elements, "link", "Download report");
+    const endClick = downloads.acting(BOT);
     await clickElement(at(tab, link), link, "link", { timeoutMs: 5_000 });
+    endClick();
     expect(await until(() => downloads.started(BOT), Boolean)).toBe(true);
     const first = await downloads.take(BOT);
     expect(first.download).toEqual({ path: "Downloads/report.pdf", bytes: 12 });
@@ -582,9 +638,11 @@ describe.skipIf(!asked)("acting on real pages", () => {
     );
 
     // Opening the file's address is a download too, not a failed navigation.
+    const endOpen = downloads.acting(BOT);
     const opened = await failure(
       navigateWebPage(tab, `${origin}/file`, "managed", 10_000),
     );
+    endOpen();
     expect(isSiteFailure(opened) && opened.problem).toBe("aborted");
     expect(await until(() => downloads.started(BOT), Boolean)).toBe(true);
     expect((await downloads.take(BOT)).download?.path).toBe(
@@ -724,6 +782,133 @@ describe.skipIf(!asked)("acting on real pages", () => {
       "Name: Grace Hopper",
     );
     await tab.close();
+  }, 60_000);
+});
+
+describe.skipIf(!asked)("nothing is clicked behind the policy's back", () => {
+  test("choosing an option in something that is not a drop-down is refused, and nothing is pressed", async () => {
+    const tab = await open("/not-controls");
+    const elements = await elementsOf(tab);
+    const remove = refOf(elements, "button", "Delete account");
+    const refused = await failure(
+      chooseOption(
+        tab,
+        at(tab, remove),
+        remove,
+        "Yes",
+        { timeoutMs: 5_000 },
+        "button",
+      ),
+    );
+    expect(isElementProblem(refused) && refused.problem).toBe("wrong_tool");
+    expect(await tab.title()).toBe("Fixture");
+    await tab.close();
+  }, 30_000);
+
+  test("an upload goes into the file input an upload button opens, without clicking the button", async () => {
+    const tab = await open("/not-controls");
+    const elements = await elementsOf(tab);
+    const file = join(root, "photo.txt");
+    await writeFile(file, "a picture");
+    const choose = refOf(elements, "button", "Choose file");
+    await uploadFile(tab, at(tab, choose), choose, file, { timeoutMs: 5_000 });
+    expect(
+      await tab
+        .locator("#hidden-file")
+        .evaluate((input) => (input as HTMLInputElement).files?.[0]?.name),
+    ).toBe("photo.txt");
+    expect(await tab.title()).toBe("Fixture");
+
+    // A button with no file input of its own is refused, and not pressed.
+    const remove = refOf(elements, "button", "Delete account");
+    await tab.evaluate(() => document.querySelector(".upload")?.remove());
+    const refused = await failure(
+      uploadFile(tab, at(tab, remove), remove, file, { timeoutMs: 5_000 }),
+    );
+    expect(isElementProblem(refused) && refused.problem).toBe("wrong_tool");
+    expect(await tab.title()).toBe("Fixture");
+    await tab.close();
+  }, 30_000);
+
+  test("a fill a dialog interrupts stops there: no later field, no click, and it says where", async () => {
+    const tab = await open("/interrupted-form");
+    const elements = await elementsOf(tab);
+    const outcome: FillOutcome = { filled: [] };
+    const observed = await observeAction(dialogs, BOT, tab, (signal) =>
+      fillForm(
+        tab,
+        [
+          { ref: refOf(elements, "textbox", "First"), text: "one" },
+          { ref: refOf(elements, "textbox", "Second"), text: "two" },
+          { ref: refOf(elements, "textbox", "Third"), text: "three" },
+        ],
+        { click: refOf(elements, "button", "Send") },
+        {
+          locate: async (wanted) => at(tab, wanted),
+          roleOf: () => undefined,
+          uploadPath: async (path) => path,
+          failure: (error) => ({ error: String(error) }),
+        },
+        { timeoutMs: 5_000, signal },
+        outcome,
+      ),
+    );
+    expect(observed.dialog?.message).toBe("Check this field");
+    await observed.settled;
+    expect(outcome.filled.map((field) => field.index)).toEqual([0]);
+    expect(outcome.failed).toMatchObject({ index: 1, problem: "interrupted" });
+    await dialogs.answer(BOT, true);
+    await tab.waitForTimeout(300);
+    expect(await tab.locator("#third").inputValue()).toBe("");
+    expect(await tab.title()).toBe("Fixture");
+    await tab.close();
+  }, 30_000);
+
+  test("a download the page starts on its own is cancelled and said", async () => {
+    // Its own keeper and browser context, so no earlier action's grace period covers it.
+    const own = await browser.newContext({ acceptDownloads: true });
+    const keeper = createDownloadKeeper(createWorkspace(root));
+    keeper.attach("drive-by", own);
+    try {
+      const tab = await own.newPage();
+      await tab.goto(`${origin}/drive-by`).catch(() => undefined);
+      expect(await until(() => keeper.started("drive-by"), Boolean)).toBe(true);
+      const taken = await keeper.take("drive-by");
+      expect(taken.download).toBeUndefined();
+      expect(taken.notes[0]).toContain("none of your actions asked for");
+    } finally {
+      await own.close();
+    }
+  }, 30_000);
+
+  test("a download growing past the per-file limit is cancelled while it arrives", async () => {
+    const { chromium } = await import("playwright");
+    const { partialDownloadsDir } = await import("../src/downloads");
+    const partial = partialDownloadsDir("huge-test");
+    await rm(partial, { recursive: true, force: true });
+    const own = await chromium.launch({
+      downloadsPath: partial,
+      args: KEYCHAIN,
+    });
+    const ownContext = await own.newContext({ acceptDownloads: true });
+    const small = createDownloadKeeper(createWorkspace(root), {
+      limits: { fileBytes: 1024 * 1024, watchMs: 100 },
+      partialDir: partialDownloadsDir,
+    });
+    small.attach("huge-test", ownContext);
+    try {
+      const tab = await ownContext.newPage();
+      await tab.goto(`${origin}/huge`);
+      const end = small.acting("huge-test");
+      await tab.getByRole("link").click();
+      end();
+      expect(await until(() => small.started("huge-test"), Boolean)).toBe(true);
+      const taken = await small.take("huge-test");
+      expect(taken.download).toBeUndefined();
+      expect(taken.notes.join(" ")).toMatch(/cancelled|not kept/);
+    } finally {
+      await own.close();
+    }
   }, 60_000);
 });
 

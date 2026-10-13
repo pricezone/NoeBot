@@ -15,6 +15,8 @@ import {
   ActionRefusedError,
   type ComputerGateway,
   createComputerGateway,
+  intentFor,
+  NavigationRefusedError,
 } from "../src/computer/gateway";
 import {
   createHeadlessComputerTools,
@@ -867,5 +869,127 @@ describe("the headless tools", () => {
       .catch((error: unknown) => error);
     expect(outcome).toBeInstanceOf(HeadlessToolSuspension);
     expect((outcome as HeadlessToolSuspension).waiting.requestId).toBe("req-1");
+  });
+});
+
+describe("a value tool aimed at something that takes no value is a press", () => {
+  const DENY_ACTIVATE: ActionPolicy = {
+    ...PERMISSIVE,
+    deny: ['intent == "activate"'],
+  };
+
+  test("the intent follows the element the server resolved", () => {
+    expect(intentFor("computer_select", undefined, { role: "button" })).toBe(
+      "activate",
+    );
+    expect(intentFor("computer_select", undefined, { role: "combobox" })).toBe(
+      "type",
+    );
+    expect(intentFor("computer_type", undefined, { role: "checkbox" })).toBe(
+      "activate",
+    );
+    expect(intentFor("computer_type", undefined, { role: "textbox" })).toBe(
+      "type",
+    );
+    expect(intentFor("computer_type", "Enter", { role: "textbox" })).toBe(
+      "activate",
+    );
+    expect(intentFor("computer_upload", undefined, { role: "button" })).toBe(
+      "activate",
+    );
+    // An element the server could not resolve is not trusted to be a field.
+    expect(intentFor("computer_select", undefined, undefined)).toBe("activate");
+    expect(intentFor("computer_check", undefined, { role: "checkbox" })).toBe(
+      "activate",
+    );
+    expect(intentFor("computer_scroll", undefined, undefined)).toBe("read");
+  });
+
+  test("a select handed the Submit button meets the rule against activating", async () => {
+    const { gateway, sent } = harness({ policy: () => DENY_ACTIVATE });
+    await gateway.snapshot("bot");
+    await expect(
+      gateway.select("bot", ACTOR, { ref: "e9", option: "x", snapshotId: 7 }),
+    ).rejects.toBeInstanceOf(ActionRefusedError);
+    await gateway.select("bot", ACTOR, {
+      ref: "e2",
+      option: "Pro",
+      snapshotId: 7,
+    });
+    expect(sent.filter((call) => call.path === "/select")).toHaveLength(1);
+  });
+
+  test("typing into a checkbox, or uploading through a button, is decided as a press", async () => {
+    const { gateway } = harness({ policy: () => DENY_ACTIVATE });
+    await gateway.snapshot("bot");
+    await expect(
+      gateway.type("bot", ACTOR, { ref: "e3", text: "yes", snapshotId: 7 }),
+    ).rejects.toBeInstanceOf(ActionRefusedError);
+    await expect(
+      gateway.upload("bot", ACTOR, {
+        ref: "e4",
+        path: "cv.pdf",
+        snapshotId: 7,
+      }),
+    ).rejects.toBeInstanceOf(ActionRefusedError);
+    await gateway.type("bot", ACTOR, { ref: "e1", text: "Ada", snapshotId: 7 });
+  });
+
+  test("inside a fill, the same rule applies field by field", async () => {
+    const { gateway, rows } = harness({ policy: () => DENY_ACTIVATE });
+    await gateway.snapshot("bot");
+    await expect(
+      gateway.fill("bot", ACTOR, {
+        snapshotId: 7,
+        fields: [{ ref: "e9", option: "x" }],
+      }),
+    ).rejects.toBeInstanceOf(ActionRefusedError);
+    expect(rows[0]?.payload).toMatchObject({
+      action: "computer_select",
+      element: { role: "button", name: "Submit order" },
+    });
+  });
+});
+
+describe("going back", () => {
+  test("is decided on the page it leads to, and the computer is told which", async () => {
+    const away: ActionPolicy = {
+      ...PERMISSIVE,
+      deny: ['page.host == "evil.example"'],
+    };
+    const history = (url: string) => ({
+      "/history": () => Response.json({ back: { url, title: "There" } }),
+    });
+    const refused = harness({
+      policy: () => away,
+      routes: history("https://evil.example/login"),
+    });
+    await expect(refused.gateway.back("bot", ACTOR)).rejects.toBeInstanceOf(
+      ActionRefusedError,
+    );
+    expect(refused.rows[0]?.payload.page).toBe("https://evil.example/login");
+    expect(refused.sent.some((call) => call.path === "/back")).toBe(false);
+
+    const allowed = harness({
+      policy: () => away,
+      routes: history("https://shop.example/basket"),
+    });
+    await allowed.gateway.back("bot", ACTOR);
+    expect(allowed.sent.find((call) => call.path === "/back")?.body).toEqual({
+      expectedUrl: "https://shop.example/basket",
+    });
+  });
+
+  test("a history entry the navigation guard refuses is refused here too", async () => {
+    const { gateway, sent } = harness({
+      routes: {
+        "/history": () =>
+          Response.json({ back: { url: "http://169.254.169.254/latest" } }),
+      },
+    });
+    await expect(gateway.back("bot", ACTOR)).rejects.toBeInstanceOf(
+      NavigationRefusedError,
+    );
+    expect(sent.some((call) => call.path === "/back")).toBe(false);
   });
 });

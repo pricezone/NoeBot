@@ -33,10 +33,11 @@ import {
   ComputerStoppedError,
   ComputerUnavailableError,
   createComputerTransport,
+  NavigationRefusedError,
   StaleSnapshotError,
 } from "./client";
 import { HeadlessToolSuspension } from "./headless-tools";
-import { checkComputerAddress } from "./target";
+import { checkComputerAddress, checkNavigationTarget } from "./target";
 
 export {
   ComputerUnavailableError,
@@ -802,7 +803,7 @@ export function createComputerGateway(
     // only thing a rule about navigation would ever want to say.
     const pageUrl = subject.targetUrl ?? stored?.url ?? "";
 
-    const intent = intentOf(toolName, subject.key);
+    const intent = intentFor(toolName, subject.key, element);
     const decision = evaluateActionPolicy(
       policyFor(botId),
       policyContext({
@@ -1088,7 +1089,7 @@ export function createComputerGateway(
           botId,
           actor,
           pageUrl,
-          intent: intentOf(step.toolName, step.key),
+          intent: intentFor(step.toolName, step.key, element),
           element,
           key: step.key,
           filePath: step.filePath,
@@ -1753,14 +1754,33 @@ export function createComputerGateway(
       );
     },
 
-    back(botId: string, actor: ActionActor, signal?: AbortSignal) {
+    /**
+     * Going back is a navigation, decided on where it goes: the tab's previous page, read from the
+     * computer first, with the same target guard and the same `page.*` rules a navigation to it
+     * would meet. The computer refuses to go if its history has moved on since (`expectedUrl`).
+     * A computer that cannot say where back leads is decided on the page it is leaving, as before.
+     */
+    async back(botId: string, actor: ActionActor, signal?: AbortSignal) {
+      const history = await get<{ back?: { url?: unknown } }>(
+        botId,
+        "/history",
+        signal,
+      ).catch(() => undefined);
+      const target =
+        typeof history?.back?.url === "string" ? history.back.url : undefined;
+      if (target && /^https?:/i.test(target)) {
+        const verdict = checkNavigationTarget(target, {
+          allowPrivateHosts: options.allowPrivateHosts,
+        });
+        if (!verdict.allowed) throw new NavigationRefusedError(verdict.reason);
+      }
       return pageAction<ActionResult>(
         "computer_back",
         "/back",
         botId,
         actor,
-        {},
-        {},
+        target ? { targetUrl: target } : {},
+        target ? { expectedUrl: target } : {},
         signal,
       );
     },
@@ -2019,6 +2039,50 @@ const ACTIVATING_KEYS = new Set(["Enter", "NumpadEnter", "Space", " "]);
  * the side that builds the path.
  */
 const HUMAN_GESTURES = new Set(["click", "type", "key", "scroll"]);
+
+/**
+ * The roles an element takes a value in. Anything else a "type" lands on is pressed instead: a
+ * checkbox typed into is ticked, a button given to `computer_select` or `computer_upload` is not a
+ * field at all.
+ */
+const VALUE_ROLES = new Set([
+  "textbox",
+  "searchbox",
+  "combobox",
+  "listbox",
+  "spinbutton",
+]);
+
+/** The tools that put a value into an element, and so "type", only while the element takes one. */
+const VALUE_TOOLS = new Set([
+  "computer_type",
+  "computer_select",
+  "computer_upload",
+  "computer_fill",
+]);
+
+/**
+ * What an action does to the element it was resolved to.
+ *
+ * `intentOf` says what a tool does in general; this says what it does here. A prompt-injected
+ * `computer_select {ref: <the "Delete account" button>}` is a press, and a rule against activating
+ * that button has to fire on it, so a value-putting tool aimed at anything that does not take a
+ * value (or at an element the server could not resolve) is decided as `activate`.
+ */
+export function intentFor(
+  toolName: string,
+  key: string | undefined,
+  element: Pick<SnapshotElement, "role"> | undefined,
+): PolicyContext["intent"] {
+  const intent = intentOf(toolName, key);
+  if (
+    intent === "type" &&
+    VALUE_TOOLS.has(toolName) &&
+    !VALUE_ROLES.has(element?.role ?? "")
+  )
+    return "activate";
+  return intent;
+}
 
 export function intentOf(
   toolName: string,

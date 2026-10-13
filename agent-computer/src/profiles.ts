@@ -40,6 +40,7 @@ import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
 import { homepageFromEnv, openStartPage } from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
+import { partialDownloadsDir } from "./downloads";
 import { egressFor, egressLabel } from "./egress";
 import { numberFromEnv, settleWithin } from "./env";
 import {
@@ -646,6 +647,13 @@ export function createProfiles(
           });
         }
         const proxy = egressFor(botId, process.env);
+        // Downloads arrive here, where they are measured as they grow (downloads.ts). Emptied first:
+        // whatever a previous browser left half-written is nobody's now.
+        const downloadsPath = partialDownloadsDir(botId);
+        await rm(downloadsPath, { recursive: true, force: true }).catch(
+          () => undefined,
+        );
+        await mkdir(downloadsPath, { recursive: true });
         console.info(
           JSON.stringify({ type: "computer-browser-launching", botId }),
         );
@@ -677,6 +685,7 @@ export function createProfiles(
           handleSIGINT: false,
           handleSIGHUP: false,
           ...(proxy ? { proxy } : {}),
+          downloadsPath,
         });
         onLaunched?.(botId, context);
         /*

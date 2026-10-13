@@ -92,6 +92,14 @@ beforeAll(async () => {
           );
         case "/other":
           return page("<h1>Help</h1><p>How can we help?</p>", "Help");
+        case "/interrupted":
+          return page(
+            `<label>First <input id="first"></label>
+             <label>Second <input id="second" oninput="alert('Check this field')"></label>
+             <label>Third <input id="third"></label>
+             <button onclick="document.title='sent'">Send</button>`,
+            "Interrupted",
+          );
         case "/banner":
           return page(
             `<button>Pay</button>
@@ -353,6 +361,65 @@ describe.skipIf(!asked)("the computer's acting routes", () => {
     expect(filled.body.page?.title).toBe("Done");
     const text = await call("/read", undefined, "GET");
     expect(String(text.body.text)).toContain("Ada on Pro, agreed on");
+  }, 60_000);
+
+  test("choosing an option in a button is refused and the button is not pressed", async () => {
+    const shop = await call("/navigate", { url: `${origin}/shop` });
+    const empty = refIn(shop, "button", "Empty basket");
+    const refused = await call("/select", {
+      ref: empty,
+      option: "Yes",
+      snapshotId: shop.body.page?.snapshotId,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.problem).toBe("wrong_tool");
+    const read = await call("/read", undefined, "GET");
+    expect(read.body.title).toBe("Shop");
+  }, 60_000);
+
+  test("a fill a dialog interrupts says where it stopped, and nothing after it runs once answered", async () => {
+    const form = await call("/navigate", { url: `${origin}/interrupted` });
+    const filled = await call("/fill", {
+      snapshotId: form.body.page?.snapshotId,
+      fields: [
+        { ref: refIn(form, "textbox", "First"), text: "one" },
+        { ref: refIn(form, "textbox", "Second"), text: "two" },
+        { ref: refIn(form, "textbox", "Third"), text: "three" },
+      ],
+      // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
+      then: { click: refIn(form, "button", "Send") },
+    });
+    expect(filled.status).toBe(200);
+    expect(filled.body.page?.dialog?.message).toBe("Check this field");
+    expect(filled.body.failed).toMatchObject({
+      index: 1,
+      problem: "interrupted",
+    });
+    expect(
+      (filled.body.filled as Array<{ index: number }>).map((f) => f.index),
+    ).toEqual([0]);
+    const answered = await call("/dialog", { accept: true });
+    expect(answered.status).toBe(200);
+    await Bun.sleep(300);
+    const read = await call("/read", undefined, "GET");
+    expect(read.body.title).toBe("Interrupted");
+    const snapshot = await call("/snapshot", {});
+    const third = (
+      snapshot.body.elements as Array<{ name: string; value?: string }>
+    ).find((element) => element.name === "Third");
+    expect(third?.value).toBeUndefined();
+  }, 60_000);
+
+  test("back is told where it leads, and refuses to go once that has changed", async () => {
+    await call("/navigate", { url: `${origin}/shop` });
+    await call("/navigate", { url: `${origin}/other` });
+    const history = await call("/history", undefined, "GET");
+    expect((history.body.back as { url?: string })?.url).toBe(`${origin}/shop`);
+    const moved = await call("/back", { expectedUrl: `${origin}/form` });
+    expect(moved.status).toBe(409);
+    const back = await call("/back", { expectedUrl: `${origin}/shop` });
+    expect(back.status).toBe(200);
+    expect(back.body.page?.title).toBe("Shop");
   }, 60_000);
 
   test("an upload takes a workspace file, and a path outside the workspace is refused", async () => {

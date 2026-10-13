@@ -25,6 +25,7 @@ const probe = (overrides: Partial<ElementProbe> = {}): ElementProbe => ({
   readOnly: false,
   editable: false,
   checkable: false,
+  hasPopup: false,
   visible: true,
   inViewport: true,
   ...overrides,

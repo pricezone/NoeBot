@@ -35,6 +35,8 @@ export type ElementProbe = {
   editable: boolean;
   /** A checkbox, radio or switch, native or by role. */
   checkable: boolean;
+  /** Says it opens a list or menu (`aria-haspopup`): the one kind of custom drop-down without a role. */
+  hasPopup: boolean;
   visible: boolean;
   inViewport: boolean;
   /** For a native `<select>`: its options by label. */
@@ -81,6 +83,8 @@ export function probeElement(element: Element): ElementProbe {
       "menuitemcheckbox",
       "menuitemradio",
     ].includes(role);
+  const popup = (el.getAttribute("aria-haspopup") || "").toLowerCase();
+  const hasPopup = popup !== "" && popup !== "false";
   const shown = (node: Element) => {
     const style = getComputedStyle(node);
     const box = node.getBoundingClientRect();
@@ -211,6 +215,7 @@ export function probeElement(element: Element): ElementProbe {
     readOnly,
     editable,
     checkable,
+    hasPopup,
     visible,
     inViewport,
     ...(select ? { select } : {}),

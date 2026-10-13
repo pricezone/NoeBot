@@ -61,8 +61,14 @@ import {
   streamSettingsFromEnv,
 } from "./desktop-cast";
 import { createDialogKeeper, type DialogInfo } from "./dialogs";
-import { createDownloadKeeper, type SavedDownload } from "./downloads";
+import {
+  createDownloadKeeper,
+  partialDownloadsDir,
+  type SavedDownload,
+} from "./downloads";
 import { handleEgressPolicyRequest, startEgressFilter } from "./egress";
+import { settleWithin } from "./env";
+import { previousEntry } from "./history";
 import { identity } from "./identity";
 import { inOrder } from "./in-order";
 import {
@@ -317,7 +323,15 @@ const dialogs = createDialogKeeper({
   dismissAtOnce: (botId) =>
     sessions.get(botId)?.control.get().holder === "human",
 });
-const downloads = createDownloadKeeper(workspace);
+const MEGABYTE = 1024 * 1024;
+const downloads = createDownloadKeeper(workspace, {
+  limits: {
+    // One file, and the whole Downloads folder: any site can start a download, and the disk is shared.
+    fileBytes: numberFromEnv("COMPUTER_DOWNLOAD_MAX_MB", 100) * MEGABYTE,
+    folderBytes: numberFromEnv("COMPUTER_DOWNLOADS_MAX_MB", 1024) * MEGABYTE,
+  },
+  partialDir: partialDownloadsDir,
+});
 
 /**
  * Who has the wheel, as a state machine in its own module.
@@ -1037,11 +1051,24 @@ serve<StreamData>({
      * refused by being added to it rather than by remembering to repeat this.
      */
     let releaseAction: (() => void) | undefined;
+    /*
+     * An action a dialog interrupted is answered before it has wound down; the wheel stays held
+     * until it has, so a person cannot take the browser while the rest of it is still running.
+     */
+    let releaseAfter: Promise<void> | undefined;
     try {
       if (actsOnTheComputer(url.pathname)) {
-        releaseAction = session.control.admitBotAction(
+        const released = session.control.admitBotAction(
           mutatesBrowser(url.pathname),
         );
+        // A download is accepted only while an action of the Bot's runs, or just after it.
+        const ended = mutatesBrowser(url.pathname)
+          ? downloads.acting(botId)
+          : undefined;
+        releaseAction = () => {
+          ended?.();
+          released();
+        };
       }
 
       if (url.pathname === "/stream") {
@@ -1331,6 +1358,23 @@ serve<StreamData>({
        * (seconds on a small machine) is spent while they type rather than after they press send.
        * Not on the acting list: it changes no page, and a person holding the wheel loses nothing.
        */
+      /**
+       * Where going back in the current tab would lead, read without going there, so the server can
+       * decide `computer_back` on its destination. A read: not on the acting list.
+       */
+      if (url.pathname === "/history" && request.method === "GET") {
+        try {
+          const target = await currentPage(botId);
+          const back = await previousEntry(target);
+          return json(back ? { back } : {});
+        } catch (error) {
+          return json(
+            { error: describe(error, "The tab's history could not be read.") },
+            502,
+          );
+        }
+      }
+
       if (url.pathname === "/warm" && request.method === "POST") {
         const startedAt = Date.now();
         const wasRunning = profiles.isLive(botId);
@@ -1776,19 +1820,25 @@ serve<StreamData>({
             pages: new Set(target.context().pages()),
           };
           const detail: ActionDetail = { action: url.pathname.slice(1) };
-          const observed = await observeAction(dialogs, botId, target, () =>
-            performAction(
-              botId,
-              session,
-              target,
-              url.pathname,
-              body,
-              detail,
-              // The caller going away is the stop signal: the surface aborts its request, the server
-              // aborts the one it made to this computer, and Bun aborts this one in turn.
-              request.signal,
-            ),
+          const observed = await observeAction(
+            dialogs,
+            botId,
+            target,
+            (interrupted) =>
+              performAction(
+                botId,
+                session,
+                target,
+                url.pathname,
+                body,
+                detail,
+                // The caller going away is the stop signal: the surface aborts its request, the server
+                // aborts the one it made to this computer, and Bun aborts this one in turn. A dialog
+                // the action raised stops the rest of it the same way.
+                AbortSignal.any([request.signal, interrupted]),
+              ),
           );
+          releaseAfter = observed.settled;
           const reported = observed.dialog
             ? {
                 page: frozenPage(session, target, observed.dialog, {
@@ -1871,12 +1921,16 @@ serve<StreamData>({
         );
       throw error;
     } finally {
-      releaseAction?.();
+      const release = releaseAction;
+      if (release && releaseAfter) void releaseAfter.then(release, release);
+      else release?.();
     }
   },
 });
 
 type ActionBody = {
+  /** For `/back`: the page the server decided going back would reach. */
+  expectedUrl?: unknown;
   ref?: unknown;
   snapshotId?: unknown;
   text?: unknown;
@@ -2121,6 +2175,7 @@ async function performAction(
       ref as string,
       body.option,
       options,
+      roleOf(ref as string),
     );
     Object.assign(detail, { ref, chosen });
     return;
@@ -2184,6 +2239,17 @@ async function performAction(
 
   if (action === "/back") {
     const from = target.url();
+    /*
+     * The server decided on the page it was told back would reach. If the tab's history says
+     * somewhere else now (another navigation in between), that decision is not about this one.
+     */
+    if (typeof body.expectedUrl === "string") {
+      const previous = await previousEntry(target);
+      if (previous?.url !== body.expectedUrl)
+        throw new StaleSnapshotError(
+          `The page to go back to is no longer ${body.expectedUrl}${previous ? ` but ${previous.url}` : ""}. Ask again to go back.`,
+        );
+    }
     let response: PageResponse | null = null;
     try {
       response = await dialogs.leaving(botId, () =>
@@ -2282,7 +2348,8 @@ async function performTabs(
       throw requestError(
         "This is the only tab. Open another page with computer_navigate instead of closing it.",
       );
-    await page.close({ runBeforeUnload: false });
+    // Bounded: closing a tab on Chromium's own error page now and then never answers.
+    await settleWithin(page.close({ runBeforeUnload: false }), 5_000);
   }
   Object.assign(detail, {
     [which === "switch" ? "switched" : "closed"]: index,

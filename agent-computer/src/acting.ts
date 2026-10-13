@@ -201,6 +201,8 @@ export async function chooseOption(
   ref: string,
   wanted: string,
   options: ActingOptions,
+  /** The role the snapshot gave it, which knows implicit roles the element's attribute does not. */
+  snapshotRole?: string,
 ): Promise<{ chosen: string }> {
   const found = await probe(locator);
   if (!found?.connected)
@@ -242,7 +244,8 @@ export async function chooseOption(
     return { chosen: match.label };
   }
 
-  if (found.role === "listbox") {
+  const role = found.role || snapshotRole || "";
+  if (role === "listbox") {
     const option = await optionNamed(locator, wanted, 1_500);
     if (!option)
       throw elementProblem(
@@ -255,6 +258,18 @@ export async function chooseOption(
     return { chosen: wanted };
   }
 
+  /*
+   * Only a drop-down is opened. A select that clicked whatever it was given would be a click the
+   * policy never saw as one: `computer_select` on a "Delete account" button presses it while a rule
+   * against activating it waits for a `computer_click` that never comes. So anything that is not a
+   * combobox, and does not say it opens a list, is refused and left alone.
+   */
+  if (role !== "combobox" && !found.hasPopup)
+    throw elementProblem(
+      "wrong_tool",
+      `${ref} is not a drop-down list, so it has no option to choose and nothing was clicked. Use computer_click to press it, or computer_type to type into it.`,
+      { useTool: found.editable ? "computer_type" : "computer_click" },
+    );
   // A custom drop-down: an autocomplete is typed into, anything else is opened with a click.
   if (found.editable)
     await guarded(locator, ref, "type into", options, (signal) =>
@@ -433,10 +448,14 @@ export async function textFieldProblem(
 }
 
 /**
- * Put a workspace file into an upload control.
+ * Put a workspace file into an upload control, without clicking anything.
  *
- * A file input (or a label for one) takes the file directly, hidden or not. Anything else is
- * treated as an upload button: clicked, and the file chooser it opens is answered.
+ * The file goes into a file input: the element itself, the input a label is for, one inside the
+ * element (a drop zone), or the only file input in the nearest container around an upload button,
+ * which is the input that button opens. Nothing is clicked, because a click is an activation the
+ * policy decides on as one: an upload that clicked first and checked for a file chooser after would
+ * press a "Delete account" button handed to it as an upload control. An element with no file input
+ * of its own is refused.
  */
 export async function uploadFile(
   page: Page,
@@ -445,32 +464,89 @@ export async function uploadFile(
   fullPath: string,
   options: ActingOptions,
 ): Promise<void> {
-  const found = await probe(locator);
-  if (found?.type === "file" || found?.tag === "label") {
-    await guarded(
-      locator,
-      ref,
-      "upload to",
-      options,
-      (signal) =>
-        locator.setInputFiles(fullPath, { timeout: options.timeoutMs, signal }),
-      (seen) => seen.disabled,
+  const marker = `openbot-upload-${crypto.randomUUID()}`;
+  let found: { via: string; disabled: boolean } | null;
+  try {
+    found = await locator.evaluate(
+      (element, mark) => {
+        const isFile = (node: unknown): node is HTMLInputElement =>
+          node instanceof HTMLInputElement && node.type === "file";
+        let input: HTMLInputElement | undefined;
+        let via = "";
+        if (isFile(element)) {
+          input = element;
+          via = "input";
+        } else if (element instanceof HTMLLabelElement) {
+          if (isFile(element.control)) {
+            input = element.control;
+            via = "label";
+          }
+        } else {
+          const inside = element.querySelectorAll('input[type="file"]');
+          if (inside.length === 1 && isFile(inside[0])) {
+            input = inside[0];
+            via = "inside";
+          } else if (inside.length === 0) {
+            const tag = element.tagName.toLowerCase();
+            const type =
+              element instanceof HTMLInputElement ? element.type : "";
+            const pressable =
+              tag === "button" ||
+              element.getAttribute("role") === "button" ||
+              type === "button" ||
+              type === "submit" ||
+              getComputedStyle(element).cursor === "pointer";
+            // The input an upload button opens: the only one in the nearest container holding any.
+            let node = element.parentElement;
+            for (let depth = 0; pressable && node && depth < 6; depth += 1) {
+              const near = node.querySelectorAll('input[type="file"]');
+              if (near.length === 1 && isFile(near[0])) {
+                input = near[0];
+                via = "button";
+                break;
+              }
+              if (near.length > 1) break;
+              node = node.parentElement;
+            }
+          }
+        }
+        if (!input) return null;
+        input.setAttribute("data-openbot-upload", mark);
+        return { via, disabled: input.disabled };
+      },
+      marker,
+      { timeout: options.timeoutMs },
     );
-    return;
+  } catch (error) {
+    throw explainActionFailure({
+      error,
+      probe: await probe(locator),
+      ref,
+      verb: "upload to",
+      timeoutMs: options.timeoutMs,
+    });
   }
-  const chooser = page
-    .waitForEvent("filechooser", { timeout: 4_000 })
-    .catch(() => null);
-  await guarded(locator, ref, "click", options, (signal) =>
-    locator.click({ timeout: options.timeoutMs, signal }),
-  );
-  const opened = await chooser;
-  if (!opened)
+  if (!found)
     throw elementProblem(
       "wrong_tool",
-      `${ref} did not open a file chooser. Find the file input or the upload button it belongs to (take a snapshot) and use that ref.`,
+      `${ref} is not a file upload: no file input belongs to it, so nothing was clicked or sent. Use the file input, its label, or the upload button beside it (take a snapshot for its ref).`,
     );
-  await opened.setFiles(fullPath);
+  const input = page.locator(`[data-openbot-upload="${marker}"]`);
+  try {
+    if (found.disabled)
+      throw elementProblem(
+        "disabled",
+        `The upload ${ref} is disabled, so no file can be put in it yet.`,
+      );
+    await input.setInputFiles(fullPath, {
+      timeout: options.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  } finally {
+    await input
+      .evaluate((element) => element.removeAttribute("data-openbot-upload"))
+      .catch(() => undefined);
+  }
 }
 
 export async function hoverElement(
@@ -615,7 +691,21 @@ export async function fillForm(
   outcome: FillOutcome,
 ): Promise<void> {
   let last: { locator: Locator; ref: string } | undefined;
+  /** Stopped (a dialog opened, or Stop): the field it was on is recorded, and nothing after runs. */
+  const interrupted = (index: number | "then", ref: string | undefined) => {
+    outcome.failed = {
+      index,
+      ...(ref ? { ref } : {}),
+      error:
+        "Stopped here before this step was confirmed done, because a dialog opened or the action was stopped. Answer the dialog, read the page, and fill in the rest.",
+      problem: "interrupted",
+    };
+  };
   for (const [index, field] of fields.entries()) {
+    if (options.signal?.aborted) {
+      interrupted(index, field.ref);
+      throw options.signal.reason ?? new Error("Stopped.");
+    }
     try {
       const locator = await deps.locate(field.ref);
       if (field.file !== undefined) {
@@ -629,6 +719,7 @@ export async function fillForm(
           field.ref,
           field.option,
           options,
+          deps.roleOf(field.ref),
         );
         outcome.filled.push({ index, ref: field.ref, kind: "option", chosen });
       } else if (field.checked !== undefined) {
@@ -660,12 +751,19 @@ export async function fillForm(
       }
       last = { locator, ref: field.ref };
     } catch (error) {
-      if (options.signal?.aborted) throw error;
+      if (options.signal?.aborted) {
+        interrupted(index, field.ref);
+        throw error;
+      }
       outcome.failed = { index, ref: field.ref, ...deps.failure(error) };
       return;
     }
   }
   if (!then) return;
+  if (options.signal?.aborted) {
+    interrupted("then", "click" in then ? then.click : last?.ref);
+    throw options.signal.reason ?? new Error("Stopped.");
+  }
   try {
     if ("click" in then) {
       const ref = then.click;
@@ -693,7 +791,10 @@ export async function fillForm(
       );
     outcome.afterwards = { submitted: true };
   } catch (error) {
-    if (options.signal?.aborted) throw error;
+    if (options.signal?.aborted) {
+      interrupted("then", "click" in then ? then.click : last?.ref);
+      throw error;
+    }
     outcome.failed = {
       index: "then",
       ref: "click" in then ? then.click : last?.ref,
