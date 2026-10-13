@@ -117,9 +117,34 @@ export function signInToolResult(request: SignInRequestRecord) {
  */
 function scrub(text: string, secrets: (string | undefined)[]): string {
   let out = text;
-  for (const secret of secrets)
-    if (secret && secret.length >= 3) out = out.split(secret).join("[hidden]");
+  for (const secret of secrets) {
+    if (!secret || secret.length < 3) continue;
+    // As typed, and as a URL or a GET form would have encoded it.
+    const encoded = encodeURIComponent(secret);
+    for (const form of new Set([secret, encoded, encoded.replace(/%20/g, "+")]))
+      out = out.split(form).join("[hidden]");
+  }
   return out.slice(0, 500);
+}
+
+/**
+ * A page's address as the Bot may be told it: origin and path only. The query and the fragment go,
+ * because a login form sent by GET puts what was typed there (percent-encoded, which an exact match
+ * would miss), and the path is decoded and scrubbed as well.
+ */
+function pageForBot(url: string, secrets: (string | undefined)[]) {
+  try {
+    const parsed = new URL(url);
+    let path = parsed.pathname;
+    try {
+      path = decodeURIComponent(path);
+    } catch {
+      // A path that does not decode is scrubbed as it is.
+    }
+    return scrub(`${parsed.origin}${path}`, secrets);
+  } catch {
+    return undefined;
+  }
 }
 
 /** What the person reads when the site refused what they typed. */
@@ -180,6 +205,14 @@ export function createSignInService(deps: SignInServiceDependencies) {
   };
   /** Requests whose site waits for approval on the person's phone, and until when. */
   const approvals = new Map<string, { owner: string; until: number }>();
+  /**
+   * Requests this process is typing a login into right now. A fill holds its request from its claim
+   * to its last answer, and nothing here reopens it under the fill (an expired lease read by a
+   * poll), so a second fill, or a Cancel that does not stop the first, cannot happen in this process;
+   * across processes the lease is renewed before every request to the computer, so it never runs out
+   * under a live call.
+   */
+  const active = new Set<string>();
 
   async function audit(
     eventType:
@@ -212,6 +245,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
       throw new SignInRefusedError("There is no such sign-in request.", 404);
     if (
       request.status === "filling" &&
+      !active.has(id) &&
       request.fillingUntil !== null &&
       request.fillingUntil <= new Date()
     ) {
@@ -401,16 +435,41 @@ export function createSignInService(deps: SignInServiceDependencies) {
       approvals.delete(id);
       return request;
     }
-    let check: Awaited<
-      ReturnType<NonNullable<typeof gateway.probeSignIn>>
-    >["check"];
+    let probe:
+      | Awaited<ReturnType<NonNullable<typeof gateway.probeSignIn>>>
+      | undefined;
     try {
-      check = (await gateway.probeSignIn?.(request.botId))?.check;
+      probe = await gateway.probeSignIn?.(request.botId);
     } catch {
-      check = undefined;
+      probe = undefined;
+    }
+    /*
+     * Only the approved site's page answers this sign-in. A page that left it while waiting (another
+     * tab came forward, the browser went somewhere else) cannot say the person approved anything:
+     * the wait ends there, and the Bot is told to look for itself rather than told it is signed in.
+     */
+    if (probe?.origin && !sameSite(request.origin, probe.origin)) {
+      approvals.delete(id);
+      remember(id, { attempt: undefined });
+      const left = await store.transition(owner, id, ["filling"], {
+        status: "failed",
+        fillingUntil: null,
+        outcome: `While the person was asked to approve the sign-in on their phone, the page left ${request.origin} for ${probe.origin}. Take a fresh snapshot to see whether the sign-in went through before acting on it.`,
+        resolvedAt: new Date(),
+      });
+      if (left) {
+        await audit("computer.sign_in_failed", actor, "computer", left.botId, {
+          bot: left.botId,
+          request: id,
+          site: left.origin,
+          failure: "The page left the site while waiting for the approval.",
+        });
+        await resolved(left);
+      }
+      return left ?? (await store.request(owner, id));
     }
     const method = request.method ?? "typed";
-    const outcome = check?.outcome;
+    const outcome = probe?.check?.outcome;
     if (!outcome || outcome === "push-approval") {
       if (Date.now() < waiting.until) return null;
       approvals.delete(id);
@@ -560,9 +619,9 @@ export function createSignInService(deps: SignInServiceDependencies) {
     extra: { loginId?: string; save?: boolean },
   ): Promise<SignInRequestRecord> {
     const request = await load(owner, id);
-    if (request.status !== "pending")
+    if (request.status !== "pending" || active.has(id))
       throw new SignInRefusedError(
-        request.status === "filling"
+        request.status === "filling" || active.has(id)
           ? "This sign-in is already being entered."
           : "This sign-in request is no longer open.",
         409,
@@ -585,6 +644,24 @@ export function createSignInService(deps: SignInServiceDependencies) {
         "This sign-in is already being entered.",
         409,
       );
+    active.add(id);
+    try {
+      return await enter(claimed, actor, credential, method, extra, saving);
+    } finally {
+      active.delete(id);
+    }
+  }
+
+  /** The claimed request's login, typed and answered. Only `fill` calls it, holding the request. */
+  async function enter(
+    claimed: SignInRequestRecord,
+    actor: ActionActor,
+    credential: { username?: string; password?: string; code?: string },
+    method: "typed" | "saved",
+    extra: { loginId?: string; save?: boolean },
+    saving: boolean,
+  ): Promise<SignInRequestRecord> {
+    const { ownerUserId: owner, id } = claimed;
     const secrets = [credential.password, credential.username, credential.code];
     const fields = (form: "login" | "code") =>
       form === "code"
@@ -598,6 +675,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
     let result: SignInFillResult | undefined;
     let failure: string | undefined;
     let crossed: string | undefined;
+    let closed = false;
     try {
       result = await gateway.signIn(claimed.botId, {
         origin,
@@ -626,17 +704,26 @@ export function createSignInService(deps: SignInServiceDependencies) {
           crossed = to;
           break;
         }
+        // The lease renewed with the move, and nothing more typed if the request was closed meanwhile
+        // (the person cancelled, or it expired).
+        const movedOn = await store.transition(owner, id, ["filling"], {
+          origin: to,
+          fillingUntil: new Date(Date.now() + FILLING_LEASE_MS),
+        });
+        if (!movedOn) {
+          closed = true;
+          break;
+        }
         if (!probeOf(id)?.requestedOrigin)
           remember(id, { requestedOrigin: origin });
-        await store.transition(owner, id, ["filling"], { origin: to });
         origin = to;
         result = await gateway.signIn(claimed.botId, {
           origin,
           ...fields(result.movedTo.form),
         });
       }
-      // A move to another site is answered below, with nothing typed and nothing else read.
-      if (crossed) failure = undefined;
+      // A move to another site, or a request closed under the fill, is answered below, typing nothing.
+      if (crossed || closed) failure = undefined;
       else if (result.movedTo)
         failure =
           "The sign-in kept moving to other pages. Sign in by hand to finish.";
@@ -664,7 +751,12 @@ export function createSignInService(deps: SignInServiceDependencies) {
         secrets,
       );
     }
-    const page = result?.url ? scrub(result.url, secrets) : undefined;
+    if (closed)
+      throw new SignInRefusedError(
+        "This sign-in request was closed while it was being entered.",
+        409,
+      );
+    const page = result?.url ? pageForBot(result.url, secrets) : undefined;
     const pageMessage = result?.pageMessage
       ? scrub(result.pageMessage, secrets).slice(0, 200)
       : undefined;
@@ -757,8 +849,9 @@ export function createSignInService(deps: SignInServiceDependencies) {
       });
     }
     if (!done)
-      throw new Error(
-        "The sign-in request changed while it was being entered.",
+      throw new SignInRefusedError(
+        "This sign-in request was closed while it was being entered.",
+        409,
       );
     if (outcome === "code-requested")
       await audit("computer.sign_in_failed", actor, "computer", done.botId, {
@@ -1035,10 +1128,10 @@ export function createSignInService(deps: SignInServiceDependencies) {
 
     async cancel(owner: string, id: string, actor: ActionActor) {
       const current = await load(owner, id);
-      // A request waiting on the person's phone can be declined too; one being typed cannot.
-      const from: readonly SignInStatus[] = approvals.has(id)
-        ? [...OPEN, "filling"]
-        : OPEN;
+      // A request waiting on the person's phone can be declined too, and so can one being typed:
+      // the fill then types nothing more (it renews its hold on the request before every step).
+      const from: readonly SignInStatus[] =
+        approvals.has(id) || active.has(id) ? [...OPEN, "filling"] : OPEN;
       const done = await store.transition(owner, id, from, {
         status: "cancelled",
         fillingUntil: null,

@@ -39,6 +39,10 @@ function setup(
     probes?: SignInProbe["check"][];
     approvalWaitMs?: number;
     approvalPollMs?: number;
+    /** Run while the computer is "typing" call number `call` (from 0). */
+    during?: (call: number) => Promise<void>;
+    /** Where the page is when it is read again (an approval wait). */
+    probeOrigin?: string;
   } = {},
 ) {
   const store = createMemoryPasswordStore();
@@ -51,6 +55,7 @@ function setup(
     Pick<ComputerGateway, "probeSignIn"> = {
     async signIn(_botId, input) {
       fills.push(input);
+      await options.during?.(fills.length - 1);
       return {
         submitted: true,
         passwordFieldVisible: false,
@@ -72,7 +77,7 @@ function setup(
       const check = probes.length > 1 ? probes.shift() : probes[0];
       return {
         url: "https://example.com/next",
-        origin: "https://example.com",
+        origin: options.probeOrigin ?? "https://example.com",
         host: "example.com",
         form: "none",
         ...(check ? { check } : {}),
@@ -356,7 +361,114 @@ describe("a login that moves on to another origin", () => {
   });
 });
 
-describe("the same site, read conservatively", () => {
+describe("one fill at a time, and none after the request closed", () => {
+  test("a Cancel during a login that moves on stops it before the next host", async () => {
+    let service: ReturnType<typeof setup>["service"] | undefined;
+    let id = "";
+    const context = setup({
+      fills: [
+        { movedTo: { origin: "https://login.example.com", form: "login" } },
+        { outcome: "signed-in" },
+      ],
+      during: async (call) => {
+        if (call === 0) await service?.cancel("owner", id, actor);
+      },
+    });
+    service = context.service;
+    id = (await context.ask()).id;
+    await expect(
+      context.service.submit("owner", id, actor, {
+        username: USERNAME,
+        password: PASSWORD,
+      }),
+    ).rejects.toThrow(/closed while it was being entered/);
+    expect(context.fills).toHaveLength(1);
+    expect((await context.service.get("owner", id)).status).toBe("cancelled");
+  });
+
+  test("a poll during a fill that outlived its lease neither reopens it nor lets a second fill in", async () => {
+    let id = "";
+    let polled: string | undefined;
+    let second: unknown;
+    let renewed: Date | null = null;
+    const context = setup({
+      fills: [
+        { movedTo: { origin: "https://login.example.com", form: "login" } },
+        { outcome: "signed-in" },
+      ],
+      during: async (call) => {
+        if (call === 0) {
+          // The lease runs out under a slow page, and the form polls.
+          await context.store.transition("owner", id, ["filling"], {
+            fillingUntil: new Date(0),
+          });
+          polled = (await context.service.get("owner", id)).status;
+          second = await context.service
+            .submit("owner", id, actor, { password: "another" })
+            .catch((error: Error) => error.message);
+        } else
+          renewed =
+            (await context.store.request("owner", id))?.fillingUntil ?? null;
+      },
+    });
+    id = (await context.ask()).id;
+    const view = await context.service.submit("owner", id, actor, {
+      username: USERNAME,
+      password: PASSWORD,
+    });
+    expect(polled).toBe("filling");
+    expect(second).toBe("This sign-in is already being entered.");
+    expect(renewed && renewed > new Date()).toBe(true);
+    expect(view.status).toBe("signed_in");
+    expect(context.fills).toHaveLength(2);
+  });
+});
+
+describe("what the Bot reads of the page", () => {
+  test("the address after the login loses its query, so a GET form's password never reaches the Bot", async () => {
+    const encoded = encodeURIComponent(PASSWORD);
+    const { service, resolved, ask } = setup({
+      fills: [
+        {
+          outcome: "signed-in",
+          url: `https://example.com/welcome/${encoded}?password=${encoded}#${encoded}`,
+        },
+      ],
+    });
+    const request = await ask();
+    await service.submit("owner", request.id, actor, {
+      username: USERNAME,
+      password: PASSWORD,
+    });
+    const result = JSON.stringify(
+      signInToolResult(resolved[0] as SignInRequestRecord),
+    );
+    expect(result).toContain("https://example.com/welcome/[hidden]");
+    expect(result).not.toContain(encoded);
+    expect(result).not.toContain(PASSWORD);
+    expect(result).not.toContain("?password");
+  });
+
+  test("an approval wait whose page left the site ends, and the Bot is told to look rather than told it is signed in", async () => {
+    const { service, resolved, ask } = setup({
+      fills: [{ outcome: "push-approval" }],
+      probes: [{ outcome: "signed-in" }],
+      probeOrigin: "https://elsewhere.example.net",
+    });
+    const request = await ask();
+    await service.submit("owner", request.id, actor, {
+      username: USERNAME,
+      password: PASSWORD,
+    });
+    const done = await service.continueApproval("owner", request.id, actor);
+    expect(done.status).toBe("failed");
+    const result = signInToolResult(resolved[0] as SignInRequestRecord);
+    expect(result.signedIn).toBe(false);
+    expect(result.result).toContain("the page left https://example.com");
+  });
+});
+
+describe("the same site, by the public suffix list and no looser", () => {
   test("a subdomain of the same registrable domain is the same site; anything else is not", () => {
     expect(
       sameSite("https://www.example.com", "https://login.example.com"),
@@ -367,23 +479,35 @@ describe("the same site, read conservatively", () => {
     expect(sameSite("https://example.com", "http://example.com")).toBe(false);
     expect(sameSite("http://127.0.0.1:1", "http://127.0.0.1:2")).toBe(true);
     expect(sameSite("http://127.0.0.1", "http://127.0.0.2")).toBe(false);
+    expect(sameSite("http://localhost:1", "http://localhost:2")).toBe(true);
+    expect(sameSite("https://www.example.de", "https://login.example.de")).toBe(
+      true,
+    );
   });
 
-  test("multi-part and hosting suffixes are never a site of their own", () => {
+  test("public, private and tenant suffixes are never one site", () => {
     expect(registrableDomain("www.bbc.co.uk")).toBe("bbc.co.uk");
     expect(sameSite("https://a.co.uk", "https://b.co.uk")).toBe(false);
     expect(sameSite("https://www.gov.gr", "https://oauth2.gsis.gr")).toBe(
       false,
     );
     expect(
+      sameSite("https://a.s3.amazonaws.com", "https://b.s3.amazonaws.com"),
+    ).toBe(false);
+    expect(
+      sameSite("https://acme.myshopify.com", "https://evil.myshopify.com"),
+    ).toBe(false);
+    expect(
       sameSite("https://alice.github.io", "https://mallory.github.io"),
     ).toBe(false);
-    expect(sameSite("https://a.vercel.app", "https://b.vercel.app")).toBe(
+    // Multi-tenant sign-in services the list reads as one domain: the exact host only.
+    expect(sameSite("https://acme.okta.com", "https://evil.okta.com")).toBe(
       false,
     );
-    // An unknown two-letter country code under a short label is treated as a suffix.
-    expect(sameSite("https://a.abc.xy", "https://b.abc.xy")).toBe(false);
-    expect(sameSite("https://www.example.de", "https://login.example.de")).toBe(
+    expect(
+      sameSite("https://acme.sharepoint.com", "https://evil.sharepoint.com"),
+    ).toBe(false);
+    expect(sameSite("https://acme.okta.com", "https://acme.okta.com")).toBe(
       true,
     );
   });
