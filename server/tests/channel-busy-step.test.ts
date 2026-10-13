@@ -5,7 +5,11 @@ import {
   type ChannelActivityEvent,
   createChannelEventHub,
 } from "../src/channels/events";
-import { type ChannelStore, createChannelRoutes } from "../src/channels/routes";
+import {
+  busySignalEvents,
+  type ChannelStore,
+  createChannelRoutes,
+} from "../src/channels/routes";
 
 /**
  * A person's tab says each moment of its turn: a run starting, a run ending, a card starting to wait
@@ -60,6 +64,63 @@ describe("the busy signal's step", () => {
         waiting: { kind: "choice", toolCallId: "call-7" },
       },
     ]);
+  });
+
+  test("the turn's start and end are marked to be announced to the channel", async () => {
+    const { calls, post } = harness();
+    await post({ busy: true, step: 3, announce: true });
+    expect(calls[0]?.slice(1)).toEqual([
+      "channel-1",
+      true,
+      { step: 3, announce: true },
+    ]);
+  });
+
+  test("a step and its waiting card reach only the actor's tabs; the others hear the turn start and end", () => {
+    const base = {
+      channelId: "channel-1",
+      actorId: "user-1",
+      memberIds: ["user-1", "user-2", "user-3"],
+      busy: true,
+    };
+    const waiting = busySignalEvents({
+      ...base,
+      moment: { step: 5, waiting: { kind: "secret", toolCallId: "call-5" } },
+    });
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]).toMatchObject({
+      memberIds: ["user-1"],
+      step: 5,
+      waiting: { kind: "secret", toolCallId: "call-5" },
+    });
+
+    const started = busySignalEvents({
+      ...base,
+      moment: { step: 4, announce: true },
+    });
+    expect(started).toHaveLength(2);
+    expect(started[0]).toMatchObject({ memberIds: ["user-1"], step: 4 });
+    expect(started[1]).toEqual({
+      channelId: "channel-1",
+      memberIds: ["user-2", "user-3"],
+      lastMessage: null,
+      lastMessageAt: null,
+      lastMessageAgentId: null,
+      busy: true,
+    });
+
+    // A plain signal (a headless turn) goes to everybody, as it always did.
+    expect(busySignalEvents(base)).toEqual([
+      expect.objectContaining({ memberIds: base.memberIds, busy: true }),
+    ]);
+    // Alone in the channel, an announced step tells nobody else.
+    expect(
+      busySignalEvents({
+        ...base,
+        memberIds: ["user-1"],
+        moment: { step: 6, announce: true },
+      }),
+    ).toHaveLength(1);
   });
 
   test("a plain busy signal still works, with no step", async () => {

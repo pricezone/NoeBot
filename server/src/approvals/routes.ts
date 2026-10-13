@@ -2,7 +2,9 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { type AppVariables, requireAdmin } from "../auth/guards";
 import {
+  DecisionAnswerError,
   DecisionConflictError,
+  DecisionLimitError,
   openDecisionSchema,
   type WaitingDecisionStore,
 } from "./decisions";
@@ -72,6 +74,10 @@ export function createApprovalRoutes(
     // Not a mistake: answered already, or the asking tab is gone and the answer must go as a message.
     if (error instanceof DecisionConflictError)
       return context.json({ error: error.message, reason: error.reason }, 409);
+    if (error instanceof DecisionAnswerError)
+      return context.json({ error: error.message }, 400);
+    if (error instanceof DecisionLimitError)
+      return context.json({ error: error.message }, 429);
     if (error instanceof ApprovalRefusedError || error instanceof z.ZodError)
       return context.json({ error: error.message }, 400);
     // The gate could not reach the conversation service. Not the request's fault, and the same

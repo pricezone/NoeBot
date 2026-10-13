@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "../db/client";
 import { workItems } from "../db/schema/work";
@@ -18,7 +18,9 @@ import { ApprovalNotFoundError } from "./types";
  *
  * In `work_items` under its own kind rather than a table of its own: nothing claims that kind, so
  * no sweep ever runs one, and the row is the same "something waiting on a person" shape the
- * questions a Bot asks already use.
+ * questions a Bot asks already use. Read by owner through `work_items_decision_owner_idx` (a partial
+ * index on the payload's owner for this kind), kept for a day after it is done with, and capped per
+ * person, so nobody can grow the table without limit by opening cards.
  */
 
 export const WAITING_DECISION_KIND = "person.decision";
@@ -28,6 +30,12 @@ export const DECISION_STALE_MS = 15_000;
 
 /** An open card not heard from for this long is no longer offered anywhere, and is closed. */
 export const DECISION_FORGOTTEN_MS = 10 * 60_000;
+
+/** How long a card is kept once done with (or abandoned), so a reload still shows its answer. */
+export const DECISION_KEPT_MS = 24 * 60 * 60_000;
+
+/** The most cards one person may have waiting at once; a run waits on one at a time. */
+export const MAX_OPEN_DECISIONS = 50;
 
 const option = z.object({
   id: z.string().min(1).max(500),
@@ -84,6 +92,31 @@ export function parseDecisionAnswer(
     : approvalAnswer.parse(answer);
 }
 
+/**
+ * An answer checked against the card it answers, not only its kind: a picked option must be one of
+ * the card's own, under its own label, and a typed answer is the person's words as both its choice
+ * and its label (the card always offers a field for one). An approval is approved or declined, with
+ * an optional reason. Throws `DecisionAnswerError` for an answer the card could not have given.
+ */
+export function answerFor(
+  card: Pick<OpenDecision, "kind" | "args">,
+  answer: unknown,
+): DecisionAnswer {
+  const parsed = parseDecisionAnswer(card.kind, answer);
+  if (card.kind === "approval" || !("choice" in parsed)) return parsed;
+  if (parsed.typed) {
+    if (parsed.choice !== parsed.label)
+      throw new DecisionAnswerError("A typed answer is its own words.");
+    return parsed;
+  }
+  const option = card.args.options?.find((item) => item.id === parsed.choice);
+  if (!option || option.label !== parsed.label)
+    throw new DecisionAnswerError(
+      "That is not one of this question's options.",
+    );
+  return parsed;
+}
+
 /** What a reader gets: the card, whether its run is still held, and the answer once there is one. */
 export type WaitingDecision = OpenDecision & {
   createdAt: string;
@@ -116,6 +149,24 @@ export class DecisionConflictError extends Error {
   }
 }
 
+/** An answer the card could not have given: an option it does not have, or one mislabelled. */
+export class DecisionAnswerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DecisionAnswerError";
+  }
+}
+
+/** One person has as many cards waiting as anybody could; refused rather than kept growing. */
+export class DecisionLimitError extends Error {
+  constructor() {
+    super(
+      "Too many questions are waiting on you at once. Answer or close some first.",
+    );
+    this.name = "DecisionLimitError";
+  }
+}
+
 export type WaitingDecisionStore = {
   /** Start waiting, or say it is still waiting. Idempotent; never touches an answer or a close. */
   open(owner: string, input: OpenDecision): Promise<WaitingDecision>;
@@ -139,6 +190,8 @@ export type WaitingDecisionStore = {
     owner: string,
     filter?: { channelId?: string },
   ): Promise<WaitingDecision[]>;
+  /** Drop everybody's cards done with, or abandoned, longer than `DECISION_KEPT_MS` ago. */
+  purge(): Promise<number>;
 };
 
 /** What is kept per card. `ownerUserId` scopes every read and write. */
@@ -201,12 +254,20 @@ export function createWaitingDecisionStore(
   database: Database,
   { now = () => new Date() }: { now?: () => Date } = {},
 ): WaitingDecisionStore {
+  /*
+   * The kind is written as a literal, not a parameter: the owner index is partial on exactly this
+   * kind, and the planner can use it only when the query says so in so many words.
+   */
+  const ofKind = sql`${workItems.kind} = 'person.decision'`;
   const owned = (owner: string, toolCallId?: string) =>
     and(
-      eq(workItems.kind, WAITING_DECISION_KIND),
+      ofKind,
       sql`${workItems.payload}->>'ownerUserId' = ${owner}`,
       ...(toolCallId ? [eq(workItems.key, keyFor(owner, toolCallId))] : []),
     );
+  const ago = (ms: number) => new Date(now().getTime() - ms).toISOString();
+  const heartbeat = sql`${workItems.payload}->>'heartbeatAt'`;
+  const unanswered = sql`(${workItems.payload} -> 'answer') is null`;
   const read = (row: typeof workItems.$inferSelect | undefined) => {
     if (!row) throw new ApprovalNotFoundError();
     const stored = storedSchema.safeParse(row.payload);
@@ -217,14 +278,16 @@ export function createWaitingDecisionStore(
       now(),
     );
   };
-  const get = async (owner: string, toolCallId: string) => {
+  const find = async (owner: string, toolCallId: string) => {
     const [row] = await database
       .select()
       .from(workItems)
       .where(owned(owner, toolCallId))
       .limit(1);
-    return read(row);
+    return row;
   };
+  const get = async (owner: string, toolCallId: string) =>
+    read(await find(owner, toolCallId));
   const touch = async (owner: string, toolCallId: string) => {
     const at = now().toISOString();
     await database
@@ -235,24 +298,60 @@ export function createWaitingDecisionStore(
       })
       .where(and(owned(owner, toolCallId), isNull(workItems.finishedAt)));
   };
+  /** This person's own: forgotten cards closed, and cards done with a day ago gone. */
+  const tidy = async (owner: string) => {
+    await database
+      .update(workItems)
+      .set({ finishedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(
+        and(
+          owned(owner),
+          isNull(workItems.finishedAt),
+          lt(heartbeat, ago(DECISION_FORGOTTEN_MS)),
+        ),
+      );
+    await database
+      .delete(workItems)
+      .where(
+        and(
+          owned(owner),
+          lt(workItems.finishedAt, new Date(ago(DECISION_KEPT_MS))),
+        ),
+      );
+  };
+  /*
+   * The object itself, not its JSON text: the driver encodes an object for a `jsonb` parameter, and
+   * a string handed to it is stored as a JSON string, which `||` then appends as an array element.
+   */
+  const answerPatch = (answer: DecisionAnswer) =>
+    sql`${{ answer, answeredAt: now().toISOString() }}::jsonb`;
 
   return {
     async open(owner, input) {
+      if (await find(owner, input.toolCallId)) {
+        await touch(owner, input.toolCallId);
+        return get(owner, input.toolCallId);
+      }
+      await tidy(owner);
+      const [waiting] = await database
+        .select({ value: count() })
+        .from(workItems)
+        .where(and(owned(owner), isNull(workItems.finishedAt)));
+      if ((waiting?.value ?? 0) >= MAX_OPEN_DECISIONS)
+        throw new DecisionLimitError();
       const stored: Stored = {
         ...input,
         ownerUserId: owner,
         heartbeatAt: now().toISOString(),
       };
-      const inserted = await database
+      await database
         .insert(workItems)
         .values({
           kind: WAITING_DECISION_KIND,
           key: keyFor(owner, input.toolCallId),
           payload: stored,
         })
-        .onConflictDoNothing()
-        .returning({ key: workItems.key });
-      if (inserted.length === 0) await touch(owner, input.toolCallId);
+        .onConflictDoNothing();
       return get(owner, input.toolCallId);
     },
     async heartbeat(owner, toolCallId) {
@@ -261,63 +360,55 @@ export function createWaitingDecisionStore(
     },
     get,
     async answer(owner, toolCallId, answer) {
-      return database.transaction(async (tx) => {
-        const [row] = await tx
-          .select()
-          .from(workItems)
-          .where(owned(owner, toolCallId))
-          .for("update")
-          .limit(1);
-        const current = read(row);
-        const parsed = parseDecisionAnswer(current.kind, answer);
-        assertAnswerable(current);
-        const at = now().toISOString();
-        await tx
-          .update(workItems)
-          .set({
-            payload: sql`${workItems.payload} || ${JSON.stringify({ answer: parsed, answeredAt: at })}::jsonb`,
-            updatedAt: sql`now()`,
-          })
-          .where(owned(owner, toolCallId));
-        return { ...current, answer: parsed, answeredAt: at };
-      });
+      const current = await get(owner, toolCallId);
+      const parsed = answerFor(current, answer);
+      /*
+       * ONE CONDITIONAL WRITE: still open, still unanswered, and heard from in the last fifteen
+       * seconds. A close or another answer landing between the read above and this write makes it
+       * match nothing, and the row is read again to say which.
+       */
+      const [row] = await database
+        .update(workItems)
+        .set({
+          payload: sql`${workItems.payload} || ${answerPatch(parsed)}`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            owned(owner, toolCallId),
+            isNull(workItems.finishedAt),
+            unanswered,
+            gte(heartbeat, ago(DECISION_STALE_MS)),
+          ),
+        )
+        .returning();
+      if (row) return read(row);
+      assertAnswerable(await get(owner, toolCallId));
+      throw new DecisionConflictError("answered");
     },
     async close(owner, toolCallId, answer) {
       const current = await get(owner, toolCallId);
       const parsed =
         answer === undefined || current.answer !== null
           ? undefined
-          : parseDecisionAnswer(current.kind, answer);
-      const at = now().toISOString();
-      await database
+          : answerFor(current, answer);
+      // One write: an answer that raced in first is kept, never overwritten by this one.
+      const [row] = await database
         .update(workItems)
         .set({
           ...(parsed
             ? {
-                payload: sql`${workItems.payload} || ${JSON.stringify({ answer: parsed, answeredAt: at })}::jsonb`,
+                payload: sql`case when ${unanswered} then ${workItems.payload} || ${answerPatch(parsed)} else ${workItems.payload} end`,
               }
             : {}),
           finishedAt: sql`coalesce(${workItems.finishedAt}, now())`,
           updatedAt: sql`now()`,
         })
-        .where(owned(owner, toolCallId));
-      return get(owner, toolCallId);
+        .where(owned(owner, toolCallId))
+        .returning();
+      return read(row);
     },
     async list(owner, filter = {}) {
-      const forgotten = new Date(
-        now().getTime() - DECISION_FORGOTTEN_MS,
-      ).toISOString();
-      // Cards nobody has heard from in a long while are closed here, so they do not wait for ever.
-      await database
-        .update(workItems)
-        .set({ finishedAt: sql`now()`, updatedAt: sql`now()` })
-        .where(
-          and(
-            owned(owner),
-            isNull(workItems.finishedAt),
-            lt(sql`${workItems.payload}->>'heartbeatAt'`, forgotten),
-          ),
-        );
       const rows = await database
         .select()
         .from(workItems)
@@ -325,13 +416,14 @@ export function createWaitingDecisionStore(
           and(
             owned(owner),
             isNull(workItems.finishedAt),
+            gte(heartbeat, ago(DECISION_FORGOTTEN_MS)),
             ...(filter.channelId
               ? [sql`${workItems.payload}->>'channelId' = ${filter.channelId}`]
               : []),
           ),
         )
         .orderBy(desc(workItems.createdAt))
-        .limit(50);
+        .limit(MAX_OPEN_DECISIONS);
       return rows.flatMap((row) => {
         try {
           return [read(row)];
@@ -339,6 +431,22 @@ export function createWaitingDecisionStore(
           return [];
         }
       });
+    },
+    async purge() {
+      const cutoff = ago(DECISION_KEPT_MS);
+      const gone = await database
+        .delete(workItems)
+        .where(
+          and(
+            ofKind,
+            or(
+              lt(workItems.finishedAt, new Date(cutoff)),
+              and(isNull(workItems.finishedAt), lt(heartbeat, cutoff)),
+            ),
+          ),
+        )
+        .returning({ key: workItems.key });
+      return gone.length;
     },
   };
 }
@@ -352,10 +460,18 @@ export function createMemoryWaitingDecisionStore({
 }: {
   now?: () => Date;
 } = {}): WaitingDecisionStore {
-  const rows = new Map<
-    string,
-    { stored: Stored; createdAt: Date; finished: boolean }
-  >();
+  type Row = {
+    stored: Stored;
+    createdAt: Date;
+    finished: boolean;
+    finishedAt?: number;
+  };
+  const rows = new Map<string, Row>();
+  const finish = (row: Row) => {
+    if (row.finished) return;
+    row.finished = true;
+    row.finishedAt = now().getTime();
+  };
   const find = (owner: string, toolCallId: string) => {
     const row = rows.get(keyFor(owner, toolCallId));
     if (!row || row.stored.ownerUserId !== owner)
@@ -364,6 +480,8 @@ export function createMemoryWaitingDecisionStore({
   };
   const show = (row: { stored: Stored; createdAt: Date; finished: boolean }) =>
     publicDecision(row.stored, row, now());
+  const heard = (row: { stored: Stored }) =>
+    new Date(row.stored.heartbeatAt).getTime();
   const store: WaitingDecisionStore = {
     async open(owner, input) {
       const key = keyFor(owner, input.toolCallId);
@@ -376,7 +494,15 @@ export function createMemoryWaitingDecisionStore({
           };
         return show(existing);
       }
-      const row = {
+      const forgotten = now().getTime() - DECISION_FORGOTTEN_MS;
+      let waiting = 0;
+      for (const other of rows.values()) {
+        if (other.stored.ownerUserId !== owner || other.finished) continue;
+        if (heard(other) < forgotten) finish(other);
+        else waiting += 1;
+      }
+      if (waiting >= MAX_OPEN_DECISIONS) throw new DecisionLimitError();
+      const row: Row = {
         stored: {
           ...input,
           ownerUserId: owner,
@@ -400,7 +526,7 @@ export function createMemoryWaitingDecisionStore({
     async answer(owner, toolCallId, answer) {
       const row = find(owner, toolCallId);
       const current = show(row);
-      const parsed = parseDecisionAnswer(current.kind, answer);
+      const parsed = answerFor(current, answer);
       assertAnswerable(current);
       row.stored = {
         ...row.stored,
@@ -414,10 +540,10 @@ export function createMemoryWaitingDecisionStore({
       if (answer !== undefined && row.stored.answer === undefined)
         row.stored = {
           ...row.stored,
-          answer: parseDecisionAnswer(row.stored.kind, answer),
+          answer: answerFor(row.stored, answer),
           answeredAt: now().toISOString(),
         };
-      row.finished = true;
+      finish(row);
       return show(row);
     },
     async list(owner, filter = {}) {
@@ -425,10 +551,7 @@ export function createMemoryWaitingDecisionStore({
       const open = [];
       for (const row of rows.values()) {
         if (row.stored.ownerUserId !== owner || row.finished) continue;
-        if (new Date(row.stored.heartbeatAt).getTime() < cutoff) {
-          row.finished = true;
-          continue;
-        }
+        if (heard(row) < cutoff) continue;
         if (filter.channelId && row.stored.channelId !== filter.channelId)
           continue;
         open.push(row);
@@ -438,6 +561,17 @@ export function createMemoryWaitingDecisionStore({
           (left, right) => right.createdAt.getTime() - left.createdAt.getTime(),
         )
         .map(show);
+    },
+    async purge() {
+      const cutoff = now().getTime() - DECISION_KEPT_MS;
+      let gone = 0;
+      for (const [key, row] of rows) {
+        const done = row.finished ? (row.finishedAt ?? 0) : heard(row);
+        if (done >= cutoff) continue;
+        rows.delete(key);
+        gone += 1;
+      }
+      return gone;
     },
   };
   return store;

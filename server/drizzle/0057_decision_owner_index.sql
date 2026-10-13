@@ -1,0 +1,1 @@
+CREATE INDEX "work_items_decision_owner_idx" ON "work_items" USING btree (("payload"->>'ownerUserId')) WHERE "work_items"."kind" = 'person.decision';
