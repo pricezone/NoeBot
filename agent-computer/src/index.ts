@@ -35,6 +35,7 @@ import {
   isOpenPath,
   matchesToken,
   mutatesBrowser,
+  needsFreshLook,
   offeredToken,
 } from "./authorisation";
 import { isPlainBotId } from "./bot-id";
@@ -1059,7 +1060,7 @@ serve<StreamData>({
     try {
       if (actsOnTheComputer(url.pathname)) {
         const released = session.control.admitBotAction(
-          mutatesBrowser(url.pathname),
+          needsFreshLook(url.pathname),
         );
         // A download is accepted only while an action of the Bot's runs, or just after it.
         const ended = mutatesBrowser(url.pathname)

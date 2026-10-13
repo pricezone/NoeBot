@@ -98,3 +98,15 @@ export function actsOnTheComputer(pathname: string): boolean {
 export function mutatesBrowser(pathname: string): boolean {
   return PAGE_ACTIONS.includes(pathname);
 }
+
+/**
+ * Whether an action must wait for the Bot to look at the page after a handback or a restart.
+ *
+ * Every page action except opening a page. The rule exists so the Bot does not act on a page a
+ * person changed without seeing it first; opening another page reads nothing on this one and
+ * answers with a fresh snapshot of its own, which is the look. Refusing it cost every turn after a
+ * restart two failed navigations and an extra snapshot before the first page opened.
+ */
+export function needsFreshLook(pathname: string): boolean {
+  return mutatesBrowser(pathname) && pathname !== "/navigate";
+}

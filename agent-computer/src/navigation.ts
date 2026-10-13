@@ -141,12 +141,48 @@ export const DOCUMENT_WAIT_MS = 10_000;
  * that never answered at all, or that the network refused, is still a failure, as a site error with
  * a hint where Chrome said why.
  */
+/**
+ * How long the first attempt waits for the site to answer before a second attempt is made.
+ *
+ * Measured on a subscriber's server: a site behind several anycast addresses answered in under two
+ * seconds on one connection and not at all within thirty on another, and the very next attempt was
+ * answered at once. One connection that never answers is usually one bad route, not a dead site, so
+ * after this the navigation is started again on a fresh connection, within the same overall deadline.
+ */
+export const FIRST_ANSWER_MS = 12_000;
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
+}
+
+function seconds(ms: number): string {
+  const n = Math.max(1, Math.round(ms / 1000));
+  return `${n} second${n === 1 ? "" : "s"}`;
+}
+
+/** A navigation nobody answered, as a site error with what to do, never Playwright's own words. */
+function noAnswer(timeoutMs: number): SiteFailure {
+  return Object.assign(
+    new Error(
+      `The site did not answer within ${seconds(timeoutMs)}, even on a second try. It may be down or very slow; try again in a moment, or try another page. (timeout)`,
+    ),
+    {
+      name: "SiteError" as const,
+      problem: "timeout" as const,
+      code: "timeout",
+    },
+  );
+}
+
 export async function navigateWebPage(
   page: NavigablePage,
   url: string,
   backend: Backend,
   timeoutMs: number,
-  { documentWaitMs = DOCUMENT_WAIT_MS }: { documentWaitMs?: number } = {},
+  {
+    documentWaitMs = DOCUMENT_WAIT_MS,
+    firstAnswerMs = FIRST_ANSWER_MS,
+  }: { documentWaitMs?: number; firstAnswerMs?: number } = {},
 ): Promise<{
   response: Awaited<ReturnType<Page["goto"]>>;
   stillLoading: boolean;
@@ -154,13 +190,21 @@ export async function navigateWebPage(
   const parsed = parseNavigateUrl(url);
   if (!parsed.ok) throw new Error(parsed.error);
   const before = page.url();
+  const started = Date.now();
   let response: Awaited<ReturnType<Page["goto"]>> = null;
   let stillLoading = false;
+  const go = (timeout: number) =>
+    page.goto(parsed.url, { waitUntil: "commit", timeout });
   try {
-    response = await page.goto(parsed.url, {
-      waitUntil: "commit",
-      timeout: timeoutMs,
-    });
+    try {
+      response = await go(Math.min(firstAnswerMs, timeoutMs));
+    } catch (first) {
+      const left = timeoutMs - (Date.now() - started);
+      // Nothing arrived on that connection: start again on a fresh one, within the same deadline.
+      if (!isTimeout(first) || page.url() !== before || left < 1_000)
+        throw first;
+      response = await go(left);
+    }
   } catch (error) {
     const arrived = page.url();
     if (
@@ -171,7 +215,9 @@ export async function navigateWebPage(
     ) {
       stillLoading = true;
     } else {
-      throw siteFailureOf(error) ?? error;
+      throw (
+        siteFailureOf(error) ?? (isTimeout(error) ? noAnswer(timeoutMs) : error)
+      );
     }
   }
   if (!stillLoading && page.waitForLoadState) {

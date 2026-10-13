@@ -4,6 +4,7 @@ import {
   isOpenPath,
   matchesToken,
   mutatesBrowser,
+  needsFreshLook,
   offeredToken,
 } from "../src/authorisation";
 
@@ -138,6 +139,13 @@ describe("what the wheel stops while a person is driving", () => {
     for (const path of ["/select", "/check", "/upload", "/fill", "/back"])
       expect(mutatesBrowser(path)).toBeTrue();
     expect(mutatesBrowser("/exec")).toBeFalse();
+  });
+
+  test("opening a page needs no look first; acting on one does", () => {
+    expect(needsFreshLook("/navigate")).toBeFalse();
+    expect(needsFreshLook("/click")).toBeTrue();
+    expect(needsFreshLook("/fill")).toBeTrue();
+    expect(needsFreshLook("/exec")).toBeFalse();
   });
 
   test("reading, looking and the handover itself are not acting", () => {

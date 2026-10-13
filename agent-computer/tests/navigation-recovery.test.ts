@@ -118,7 +118,7 @@ test("a deadline missed before anything arrived is still a failed navigation", a
       "managed",
       1000,
     ),
-  ).rejects.toThrow("Timeout 30000ms exceeded");
+  ).rejects.toThrow("The site did not answer within 1 second");
 });
 
 test("a navigation that loads in time says it is not still loading", async () => {
@@ -198,4 +198,63 @@ test("the navigation waits for the site to answer, then a bounded time for the d
   expect(waitUntil).toBe("commit");
   expect(waits).toEqual([{ state: "domcontentloaded", timeout: 500 }]);
   expect(result.stillLoading).toBe(true);
+});
+
+/** A page whose first `goto` never hears back, and whose later ones answer at once. */
+function hangsOnce(hangs = 1) {
+  let url = "about:blank";
+  const timeouts: number[] = [];
+  const page: Pick<Page, "goto" | "url"> = {
+    url: () => url,
+    goto: async (target, options) => {
+      timeouts.push(options?.timeout ?? 0);
+      if (timeouts.length <= hangs) {
+        throw Object.assign(new Error("page.goto: Timeout exceeded."), {
+          name: "TimeoutError",
+        });
+      }
+      url = target;
+      return null;
+    },
+  };
+  return { page, timeouts };
+}
+
+test("a connection that never answers is tried again on a fresh one, within the same deadline", async () => {
+  const { page, timeouts } = hangsOnce();
+
+  const result = await navigateWebPage(
+    page,
+    "https://example.com/slow-route",
+    "local-chrome",
+    30_000,
+    { firstAnswerMs: 50 },
+  );
+
+  expect(result.stillLoading).toBe(false);
+  expect(page.url()).toBe("https://example.com/slow-route");
+  expect(timeouts[0]).toBe(50);
+  expect(timeouts).toHaveLength(2);
+  // The second try gets what is left of the deadline, never more.
+  expect(timeouts[1]).toBeLessThanOrEqual(30_000);
+  expect(timeouts[1]).toBeGreaterThan(29_000);
+});
+
+test("a site that answers neither try is a site error in words, not Playwright's", async () => {
+  const { page } = hangsOnce(2);
+
+  const failure = await navigateWebPage(
+    page,
+    "https://example.com/down",
+    "local-chrome",
+    30_000,
+    { firstAnswerMs: 50 },
+  ).catch((error: unknown) => error);
+
+  expect(failure).toBeInstanceOf(Error);
+  expect((failure as Error).name).toBe("SiteError");
+  expect((failure as Error).message).toContain(
+    "did not answer within 30 seconds",
+  );
+  expect((failure as Error).message).not.toContain("page.goto");
 });
