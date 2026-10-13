@@ -222,6 +222,8 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
   return {
     ok: false,
     requestId: id,
+    // The wait ran out with the request, so the row says Expired rather than "Not completed".
+    status: "expired",
     result: "Nobody signed in. Do not ask for the login another way.",
   };
 }
