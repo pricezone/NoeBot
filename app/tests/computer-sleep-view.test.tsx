@@ -218,7 +218,7 @@ test("somebody needed at the computer keeps it awake", async () => {
   const view = card();
   await waitFor(() => expect(shots()).toBeGreaterThan(0));
   expect(view.queryByText("Computer is asleep")).toBeNull();
-  expect(view.getByText("The assistant needs you.")).toBeTruthy();
+  expect(view.getByText(/^Your Bot needs you\./)).toBeTruthy();
 });
 
 test("the viewer, asleep: the stream closes and the Bot dozes in its place, with Wake", async () => {

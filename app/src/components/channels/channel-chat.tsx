@@ -18,6 +18,7 @@ import { personBubbleScheme } from "@/components/channels/bubbles";
 import { attachmentModality } from "@/components/channels/chat-messages";
 import { toAgentOptions } from "@/components/channels/composer";
 import { ConversationView } from "@/components/channels/conversation-view";
+import { ChatNotice } from "@/components/chat-cards/recovery-card";
 import {
   seedMessage,
   takeFirstMessage,
@@ -70,6 +71,7 @@ import {
   loadVoiceArchive,
   useVoiceArchive,
   voiceArchiveContext,
+  voiceSessionQueryOptions,
   withVoiceChats,
 } from "@/lib/voice/archive";
 import { useVoiceCall } from "@/lib/voice/use-voice-call";
@@ -396,6 +398,8 @@ export function ChannelChat({
   const [historyReadFailed, setHistoryReadFailed] = useState(false);
   // Mount reads and Bot refreshes share one ordering: only the newest read owns the notice.
   const historyReadVersion = useRef(0);
+  /** Read the durable history again now: the history notice's Retry (`pull` below). */
+  const pullHistory = useRef<() => void>(() => undefined);
   useEffect(() => {
     if (isReady) openReadyGate.current();
   }, [isReady]);
@@ -547,6 +551,7 @@ export function ChannelChat({
       })();
     };
 
+    pullHistory.current = pull;
     const unsubscribe = queryClient.getQueryCache().subscribe(() => {
       const activity = authoredActivity();
       if (activity && !sameActivity(activity, lastSeen)) {
@@ -822,12 +827,15 @@ export function ChannelChat({
 
     // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers.
     const answering = trimmed ? openQuestions(target.messages) : [];
-    target.addMessage({
-      content: toMessageContent(trimmed, attachments),
-      id: newId(),
-      role: "user",
-    });
-    report(trimmed || describeAttachments(attachments), null);
+    // Nothing new is a retry (`retryTurn`): the turn runs again on the message already here.
+    if (trimmed || attachments.length > 0) {
+      target.addMessage({
+        content: toMessageContent(trimmed, attachments),
+        id: newId(),
+        role: "user",
+      });
+      report(trimmed || describeAttachments(attachments), null);
+    }
     if (answering.length > 0) settleQuestions(answering, trimmed);
 
     // Providers reject later turns if prior tool calls have no result; repair before sending.
@@ -890,12 +898,13 @@ export function ChannelChat({
     text: string,
     skillInstructions: string[] = [],
     attachments: Attachment[] = [],
+    again = false,
   ) => {
     const trimmed = text.trim();
     // A pasted screenshot with no caption is still a message to send: `canSendDraft` already
     // unlocks the button for exactly this case, so refusing it here would leave the button
     // enabled and inert.
-    if (!trimmed && attachments.length === 0) return "";
+    if (!trimmed && attachments.length === 0 && !again) return "";
 
     // Voice and typed requests share this turn boundary, including gaps between frontend tools.
     if (turnsRef.current > 0 || agentRef.current.isRunning) {
@@ -1009,6 +1018,15 @@ export function ChannelChat({
   );
 
   /**
+   * The failed turn, run again: the recovery card's Retry. Through `say` with nothing new, so it is
+   * a turn like any other (counted, reported if it fails again) and answers the message already in
+   * the transcript, whichever way it came in: typed, a card's button, the seed, or voice.
+   */
+  const retryTurn = useCallback(() => {
+    void sayRef.current("", [], [], true).catch(() => undefined);
+  }, []);
+
+  /**
    * Send the create-channel seed once. No waiting of its own: `say` owns that for every turn, and a
    * second copy of the ordering here was the one that could disagree with it.
    */
@@ -1113,9 +1131,14 @@ export function ChannelChat({
                   }}
                 />
                 {voiceArchive.error && (
-                  <p className="pb-2 text-sm text-destructive" role="alert">
-                    Voice chats couldn’t be loaded. Refresh to try again.
-                  </p>
+                  <ChatNotice
+                    kind="voice-chats"
+                    onRetry={() =>
+                      void queryClient.refetchQueries({
+                        queryKey: voiceSessionQueryOptions(channel.id).queryKey,
+                      })
+                    }
+                  />
                 )}
                 {voiceContextNotice && (
                   <p
@@ -1126,12 +1149,12 @@ export function ChannelChat({
                   </p>
                 )}
                 {historyNotice ? (
-                  <p
-                    className="pb-2 text-sm text-muted-foreground"
-                    role="status"
-                  >
-                    {historyNotice}
-                  </p>
+                  <ChatNotice
+                    message={historyNotice}
+                    {...(historyAvailability === "unavailable"
+                      ? { onRetry: () => pullHistory.current() }
+                      : {})}
+                  />
                 ) : null}
                 {channel.active ? null : (
                   <p
@@ -1202,6 +1225,7 @@ export function ChannelChat({
              * run before closing it; see server/src/channels/stall-guard.ts.
              */
             stopped={runError ?? undefined}
+            onRetry={retryTurn}
           />
         </div>
       </ConversationProvider>

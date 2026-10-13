@@ -24,6 +24,14 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 import type { ShownCalls } from "@/components/chat-cards/pending-requests";
+import {
+  RecoveryCard,
+  UnfinishedTurn,
+} from "@/components/chat-cards/recovery-card";
+import {
+  PausedTaskCard,
+  PausedTaskFallback,
+} from "@/components/computer/handoff-resume-notice";
 import { useAvatarDirector } from "@/components/noe-bot/anim/use-avatar-director";
 import type {
   AvatarChoice,
@@ -52,6 +60,11 @@ import {
 } from "@/components/ui/message-scroller";
 import { Skeleton } from "@/components/ui/skeleton";
 import { attachmentUrl } from "@/lib/channels/attachments";
+import {
+  conversationLanguage,
+  UiLanguageProvider,
+  useUiStrings,
+} from "@/lib/i18n/strings";
 import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
 import { readFiring } from "@/lib/channels/routine-firing";
 import { markdownComponents } from "@/lib/markdown";
@@ -61,7 +74,7 @@ import { asText, forDisplay, REFUSAL_MARKER } from "@/lib/plugins/tool-result";
 import { readTeamBotConsent } from "@/lib/team-bots";
 import { cn } from "@/lib/utils";
 import { VOICE_CHAT_ACTIVITY, type VoiceChatEntry } from "@/lib/voice/archive";
-import { ChatActivityIndicator } from "./activity-indicator";
+import { ChatActivityIndicator, waitingKindOf } from "./activity-indicator";
 import {
   BrowserActivity,
   groupBrowserSteps,
@@ -114,8 +127,33 @@ type ChatTranscriptProps = {
    * be told, and only the thing that ended the turn knows which one happened.
    */
   stopped?: string;
+  /**
+   * The failed turn's card at the end of the transcript, with what can be done about it. One card
+   * for a turn that stopped and for a send that never left (see `TurnRecovery`). `stopped` above
+   * drives the character; this draws the card.
+   */
+  recovery?: TurnRecovery | null;
   /** The Bot whose reply is being prepared, drawn small beside the activity indicator. */
   botAvatar?: AvatarChoice;
+};
+
+/**
+ * A turn that did not happen, as the transcript's last card.
+ *
+ * TWO SURFACES FOR ONE FAILURE WERE ONE TOO MANY. A send the server refused used to raise "Failed to
+ * send · Resend · Discard" above the composer, and the same failure, once the turn had started, a
+ * red sentence under the transcript, often both at once. Now there is this card, where the answer
+ * was going to appear, saying why in the words of whatever ended the turn and offering what can
+ * actually be done: Retry (the caller runs the turn again, or resends what the composer holds) and,
+ * for a send that never left, Discard.
+ */
+export type TurnRecovery = {
+  /** Why the turn ended, in the words of what ended it. Absent: the send never left at all. */
+  reason?: string;
+  onRetry?: () => void;
+  /** Empties the composer of the words a refused send put back. */
+  onDiscard?: () => void;
+  onDismiss?: () => void;
 };
 
 /** One shared empty array, so a screen without a queue does not hand down a new one per render. */
@@ -189,7 +227,7 @@ function RestoringTranscript() {
  */
 
 /**
- * The turn ended and no answer came.
+ * The turn ended and no answer came, or the message never left.
  *
  * In the same slot as `Thinking`, and for the same reason it is there: the person is looking at the
  * bottom of the transcript, immediately under their own message, because that is where the answer
@@ -201,15 +239,18 @@ function RestoringTranscript() {
  * and the conversation is sent back to the model on the next turn, so the Bot would then read its
  * own obituary as something it had written.
  */
-function Stopped({ reason }: { reason: string }) {
+function TurnRecoveryCard({ recovery }: { recovery: TurnRecovery }) {
+  const ui = useUiStrings();
+  const { reason, onRetry, onDiscard, onDismiss } = recovery;
   return (
-    <p
-      className="text-destructive text-sm"
-      data-testid="transcript-stopped"
-      role="alert"
-    >
-      {reason}
-    </p>
+    <RecoveryCard
+      detail={reason ? undefined : ui.sendFailedDetail}
+      testId="transcript-stopped"
+      title={reason ? ui.reason(reason) : ui.sendFailed}
+      {...(onRetry ? { onRetry } : {})}
+      {...(onDiscard ? { onDiscard } : {})}
+      {...(onDismiss ? { onDismiss } : {})}
+    />
   );
 }
 
@@ -1350,7 +1391,9 @@ const TranscriptToolCall = memo(function TranscriptToolCall({
          * What was called, shimmering until its result arrives, and then the server's own words
          * drawn the way a Bot's prose is drawn.
          */}
-        {drawn ?? <ServerToolLine name={name} result={result} />}
+        {drawn ?? (
+          <ServerToolLine name={name} result={result} toolCallId={toolCallId} />
+        )}
       </ToolRenderBoundary>
     </Arriving>
   );
@@ -1362,7 +1405,15 @@ const TranscriptToolCall = memo(function TranscriptToolCall({
  * Named from the reader's side: what was done, against which server, with the server's own words
  * behind a disclosure. The identifier the model was offered never reaches the screen.
  */
-function ServerToolLine({ name, result }: { name: string; result?: string }) {
+function ServerToolLine({
+  name,
+  result,
+  toolCallId,
+}: {
+  name: string;
+  result?: string;
+  toolCallId: string;
+}) {
   const { label, detail } = readToolName(name);
   /*
    * A refusal is not a result, and must not read like one.
@@ -1382,7 +1433,8 @@ function ServerToolLine({ name, result }: { name: string; result?: string }) {
   const body = refused ? answer?.slice(REFUSAL_MARKER.length).trim() : answer;
   // A Team Bot asking to use this person's own account draws its consent card, not the sentence.
   const consent = refused ? readTeamBotConsent(body) : null;
-  if (consent) return <TeamBotConsentCard {...consent} />;
+  if (consent)
+    return <TeamBotConsentCard {...consent} answerKey={toolCallId} />;
   return (
     <ToolLine
       {...(detail ? { detail } : {})}
@@ -1526,6 +1578,7 @@ export function ChatTranscript({
   queued = EMPTY_QUEUE,
   restoring = false,
   stopped,
+  recovery,
   botAvatar,
   pendingRequests,
 }: ChatTranscriptProps) {
@@ -1596,6 +1649,19 @@ export function ChatTranscript({
     pendingText: lastUserText,
     stopped: stopped ?? null,
   });
+  // The cards speak the person's language: the same rule the character's label follows.
+  const language = conversationLanguage(lastUserText);
+  const runningTool =
+    busy && lastItem?.kind === "tool" && lastItem.result === undefined
+      ? lastItem.toolCall.function.name
+      : null;
+  /* Every tool call drawn here, so a paused task whose step is not among them is drawn at the end. */
+  const drawnToolCalls = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "tool") drawnToolCalls.add(item.toolCall.id);
+    else if (item.kind === "browser")
+      for (const step of item.steps) drawnToolCalls.add(step.toolCall.id);
+  }
 
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const newestUserMessageId =
@@ -1663,7 +1729,7 @@ export function ChatTranscript({
     }
   }, [hasItems, delays]);
 
-  return (
+  const transcript = (
     <MessageScrollerProvider autoScroll scrollPreviousItemPeek={48}>
       <MessageScroller>
         <MessageScrollerViewport ref={viewportRef}>
@@ -1730,9 +1796,12 @@ export function ChatTranscript({
                   avatar={botAvatar}
                   label={director.label}
                   phase={director.phase}
+                  waitingFor={waitingKindOf(runningTool)}
                 />
               ) : null}
-              {stopped ? <Stopped reason={stopped} /> : null}
+              {recovery ? <TurnRecoveryCard recovery={recovery} /> : null}
+              {recovery || busy ? null : <UnfinishedTurn />}
+              <PausedTaskFallback drawn={drawnToolCalls} />
               {queued.map((message) => (
                 <Queued
                   attachments={message.attachments}
@@ -1777,6 +1846,7 @@ export function ChatTranscript({
                     result={item.result}
                     toolCallId={item.toolCall.id}
                   />
+                  <PausedTaskCard toolCallIds={[item.toolCall.id]} />
                 </MessageScrollerItem>
               ) : item.kind === "activity" ? (
                 <MessageScrollerItem key={item.id} messageId={item.id}>
@@ -1826,6 +1896,10 @@ export function ChatTranscript({
         <ScrollNewestQueuedIntoView newest={queued.at(-1)?.id ?? null} />
       </MessageScroller>
     </MessageScrollerProvider>
+  );
+  // The cards speak the person's language; see `conversationLanguage`.
+  return (
+    <UiLanguageProvider language={language}>{transcript}</UiLanguageProvider>
   );
 }
 

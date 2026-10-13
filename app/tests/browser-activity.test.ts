@@ -82,3 +82,29 @@ test("failed visits stay inspectable and unsafe or streaming URLs never become l
       .failed,
   ).toBe(true);
 });
+
+test("a person holding the wheel and a page that moved are neutral steps, never issues", () => {
+  const control = browserStepDetails(
+    step(
+      "control",
+      "computer_click",
+      '{"ok":false,"humanHasControl":true,"reason":"A person has control."}',
+    ),
+  );
+  expect(control.failed).toBe(false);
+  expect(control.neutral).toBe("person-control");
+  const stale = browserStepDetails(
+    step(
+      "stale",
+      "computer_click",
+      '{"ok":false,"staleRefs":true,"snapshotRequired":true,"reason":"Stale ref."}',
+    ),
+  );
+  expect(stale.failed).toBe(false);
+  expect(stale.neutral).toBe("page-changed");
+  const refused = browserStepDetails(
+    step("refused", "computer_click", '{"ok":false,"refused":true}'),
+  );
+  expect(refused.failed).toBe(true);
+  expect(refused.neutral).toBeUndefined();
+});

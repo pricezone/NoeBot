@@ -7,7 +7,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChatTranscript } from "@/components/channels/chat-transcript";
+import {
+  ChatTranscript,
+  type TurnRecovery,
+} from "@/components/channels/chat-transcript";
 import {
   type AgentOption,
   type CommandOption,
@@ -19,13 +22,17 @@ import {
   reduceQueue,
 } from "@/components/channels/composer";
 import type { ComposerHandle } from "@/components/channels/composer/composer";
-import { SendFailedNotice } from "@/components/channels/send-failed-notice";
 import type { ShownCalls } from "@/components/chat-cards/pending-requests";
 import type {
   AvatarChoice,
   AvatarScheme,
 } from "@/components/noe-bot/pixel-art";
 import { attachmentUrl } from "@/lib/channels/attachments";
+import {
+  conversationLanguage,
+  lastPersonText,
+  UiLanguageProvider,
+} from "@/lib/i18n/strings";
 import { newId } from "../../lib/new-id";
 
 export function ConversationView({
@@ -39,6 +46,7 @@ export function ConversationView({
   pending = false,
   autoFocus = false,
   stopped,
+  onRetry,
   stoppable,
   queueWhileBusy = false,
   restoring = false,
@@ -80,6 +88,14 @@ export function ConversationView({
   autoFocus?: boolean;
   /** Why the last turn ended without an answer. Drawn at the end of the transcript, not here. */
   stopped?: string;
+  /**
+   * Run the turn that `stopped` reports again, on the conversation as it stands: the card's Retry.
+   *
+   * The caller's, because only the caller starts turns by every route (the composer, a card's
+   * button, a seed from the compose screen, voice) and the message that started the failed one is
+   * already in the transcript. Without it a stopped turn's card offers no Retry.
+   */
+  onRetry?: () => void;
   /**
    * There is a run for Stop to abort, which is a narrower fact than `pending` and is the honest one
    * to draw a Stop button from. Defaults to `pending` for a caller with no gap between the two.
@@ -176,8 +192,8 @@ export function ConversationView({
    *
    * There is no failed message to mark: a send that fails never became one, and the composer puts
    * the words back into the editor (its `submitDraft` catch). What the person sees is their
-   * sentence reappearing in the box with no explanation — so this draws "Failed to send" with a
-   * Resend and a Discard above it, both acting on the editor through `composerRef`.
+   * sentence reappearing in the box with no explanation — so the transcript's recovery card says so,
+   * with a Retry and a Discard that act on the editor through `composerRef` (see `recovery` below).
    *
    * Only sends that came through the composer, deliberately. A drained run that fails goes back
    * into the queue, whole, and is drawn there as parked (see the drain's `catch`); a Resend line
@@ -186,6 +202,11 @@ export function ConversationView({
    */
   const [sendFailed, setSendFailed] = useState(false);
   const composerRef = useRef<ComposerHandle>(null);
+  /** The stopped sentence the person waved away, until the next one. */
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  useEffect(() => {
+    if (!stopped) setDismissed(null);
+  }, [stopped]);
 
   /**
    * Every change to the queue goes through here, so the ref and the state can never disagree.
@@ -471,6 +492,44 @@ export function ConversationView({
     });
   }, [apply, disabled, inFlight, restoreFailedRun]);
 
+  /*
+   * ONE CARD FOR ONE FAILURE. A refused send and the turn it would have been used to raise two
+   * things in two places; now the transcript draws one card (`TurnRecovery`):
+   * - The turn started and stopped (`stopped`): Retry runs it again through the caller. If the
+   *   composer also took the words back, they are emptied from it as the retry goes, because the
+   *   message is already in the transcript and is what is being retried — sending them as well would
+   *   say it twice.
+   * - The send never left (`sendFailed` alone): Retry resends what the composer holds, through its
+   *   own path, and Discard empties it.
+   */
+  const recovery: TurnRecovery | null =
+    stopped && dismissed !== stopped
+      ? {
+          reason: stopped,
+          ...(onRetry
+            ? {
+                onRetry: () => {
+                  if (sendFailed) composerRef.current?.clear();
+                  setSendFailed(false);
+                  onRetry();
+                },
+              }
+            : {}),
+          onDismiss: () => setDismissed(stopped),
+        }
+      : sendFailed && !stopped
+        ? {
+            onRetry: () => {
+              composerRef.current?.submit();
+            },
+            onDiscard: () => {
+              composerRef.current?.clear();
+              setSendFailed(false);
+            },
+          }
+        : null;
+  const language = conversationLanguage(lastPersonText(messages));
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex flex-1 min-h-0">
@@ -497,21 +556,11 @@ export function ConversationView({
           queued={queued}
           restoring={restoring}
           {...(stopped ? { stopped } : {})}
+          recovery={recovery}
         />
       </div>
       <div className="max-w-2xl mx-auto w-full px-0 pb-4 shrink-0">
-        {notice}
-        {sendFailed ? (
-          <SendFailedNotice
-            onResend={() => {
-              composerRef.current?.submit();
-            }}
-            onDiscard={() => {
-              composerRef.current?.clear();
-              setSendFailed(false);
-            }}
-          />
-        ) : null}
+        <UiLanguageProvider language={language}>{notice}</UiLanguageProvider>
         <Composer
           ref={composerRef}
           agents={agents}

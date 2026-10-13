@@ -312,14 +312,17 @@ test("Escape minimizes, but not while Name this workflow is open over it", async
   await waitFor(() => expect(viewerOpen(view)).toBe(false));
 });
 
-test("when the Bot asks for help, the card says so and Open screen opens the viewer", async () => {
+test("when the Bot asks for help, the card says so and Answer in the chat opens the viewer when no card is in sight", async () => {
   requested = true;
   const { view } = preview();
-  expect(await view.findByText("The assistant needs you.")).toBeTruthy();
+  expect(
+    await view.findByText("Your Bot needs you. Please sign in to the bank."),
+  ).toBeTruthy();
   expect(view.getByRole("button", { name: "Cancel request" })).toBeTruthy();
   expect(view.queryByRole("button", { name: "Take control" })).toBeNull();
 
-  fireEvent.click(view.getByRole("button", { name: "Open screen" }));
+  // No takeover card in this document, so the link goes where the wheel is.
+  fireEvent.click(view.getByRole("button", { name: "Answer in the chat" }));
 
   const { viewer } = await (async () => {
     const element = await view.findByRole("dialog", {
