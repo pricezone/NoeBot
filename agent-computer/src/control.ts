@@ -2,6 +2,7 @@ import type {
   ComputerControlState,
   HandoffRequest,
   HandoffSource,
+  SecretOutcome,
 } from "../../shared/computer-control";
 import { createActionBarrier } from "./action-barrier";
 import type { ControlStore, StoredControl } from "./control-store";
@@ -59,6 +60,13 @@ export function createControl(
   let secret:
     | { label: string; ref: string; snapshotId?: number; requestedAt: string }
     | undefined;
+  let lastSecret: ComputerControlState["lastSecret"];
+  /** Close the open secret request, remembering how it ended (never the value). */
+  function closeSecret(outcome: SecretOutcome) {
+    if (!secret) return;
+    lastSecret = { label: secret.label, outcome, at: now() };
+    secret = undefined;
+  }
   let storageError: Error | undefined;
   const current = () =>
     data.requests.find((r) => r.id === data.currentRequestId);
@@ -124,7 +132,7 @@ export function createControl(
       secret &&
       Date.parse(now()) - Date.parse(secret.requestedAt) > SECRET_REQUEST_TTL_MS
     )
-      secret = undefined;
+      closeSecret("expired");
   }
   function get(requestId?: string): ControlState {
     expire();
@@ -151,6 +159,7 @@ export function createControl(
             secretSnapshotId: secret.snapshotId,
           }
         : {}),
+      ...(lastSecret ? { lastSecret: { ...lastSecret } } : {}),
     };
   }
   function intended(id: string): HandoffRequest {
@@ -174,7 +183,7 @@ export function createControl(
     data.holder = "bot";
     data.since = now();
     data.resumeSnapshotRequired = true;
-    secret = undefined;
+    closeSecret("cancelled");
     options.invalidateSnapshot?.();
     persist();
     syncAdmission();
@@ -272,7 +281,7 @@ export function createControl(
       delete after.expiresAt;
       data.holder = "human";
       data.since = now();
-      secret = undefined;
+      closeSecret("cancelled");
       persist();
       return get();
     },
@@ -292,7 +301,7 @@ export function createControl(
       data.since = now();
       data.resumeSnapshotRequired = true;
       data.recoveryRequired = false;
-      secret = undefined;
+      closeSecret("cancelled");
       options.invalidateSnapshot?.();
       persist();
       syncAdmission();
@@ -358,8 +367,14 @@ export function createControl(
       expire();
       return secret ? { ref: secret.ref, snapshotId: secret.snapshotId } : null;
     },
-    secretSupplied() {
-      secret = undefined;
+    /** The value reached the field, or the field had gone and nothing was typed. */
+    secretSupplied(outcome: "supplied" | "field-gone" = "supplied") {
+      closeSecret(outcome);
+    },
+    /** The person declined to enter it. */
+    cancelSecret(): ControlState {
+      closeSecret("cancelled");
+      return get();
     },
   };
 }

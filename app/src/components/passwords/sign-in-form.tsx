@@ -1,20 +1,16 @@
-import { IconKey, IconLock, IconPointer } from "@tabler/icons-react";
+import { IconKey, IconPointer } from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
-import { PageRows, PageSection } from "@/components/layout/page-shell";
+import {
+  hostOf,
+  PILL_CLASS,
+  SecureField,
+  SecureNote,
+} from "@/components/chat-cards/secure-form";
+import { PageSection } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import {
-  Item,
-  ItemActions,
-  ItemContent,
-  ItemDescription,
-  ItemMedia,
-  ItemTitle,
-} from "@/components/ui/item";
-import { Separator } from "@/components/ui/separator";
 import {
   cancelSignInMutationOptions,
   confirmSavedLoginMutationOptions,
@@ -58,6 +54,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [save, setSave] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const id = useId();
 
   if (request.isPending) return null;
@@ -130,169 +127,189 @@ export function SignInForm({ requestId }: { requestId: string }) {
       </PageSection>
     );
 
+  const host = hostOf(data.origin) ?? data.origin;
+  const requestedHost = hostOf(data.requestedOrigin);
+  const codeOnly = data.form === "code";
+  const usernameLabel = data.usernameLabel ?? "Username or email";
+  const passwordLabel = data.passwordLabel ?? "Password";
+  const codeLabel =
+    data.codeLabel ?? (codeOnly ? "Confirmation code" : "Verification code");
+  // One place for what went wrong: the attempt just made, else the last one the server remembers.
+  // Both used to be printed, the same sentence twice, at the top and above the buttons.
+  const problem = failure?.message ?? data.outcome ?? null;
+  const ready = codeOnly
+    ? code.trim().length > 0
+    : username.trim().length > 0 && password.length > 0;
+
   return (
-    <>
-      {data.outcome ? (
-        <p className="text-destructive text-sm" role="alert">
-          {data.outcome}
-        </p>
-      ) : null}
-      {data.savedLogins.length > 0 ? (
-        <PageSection
-          title="Use a saved login"
-          description={`Choosing one confirms it may be used for this sign-in to ${data.origin}.`}
-        >
-          <PageRows>
-            {data.savedLogins.map((login, index) => (
-              <div key={login.id}>
-                {index > 0 ? <Separator /> : null}
-                <Item size="sm">
-                  <ItemMedia variant="icon">
-                    <IconKey />
-                  </ItemMedia>
-                  <ItemContent>
-                    <ItemTitle>{login.username}</ItemTitle>
-                    <ItemDescription>{data.origin}</ItemDescription>
-                  </ItemContent>
-                  <ItemActions>
-                    <Button
-                      size="sm"
-                      disabled={busy}
-                      onClick={() =>
-                        confirmSaved.mutate(
-                          {
-                            id: requestId,
-                            loginId: login.id,
-                            ...(code ? { code } : {}),
-                          },
-                          { onSettled: () => setCode("") },
-                        )
-                      }
-                    >
-                      Confirm and sign in
-                    </Button>
-                  </ItemActions>
-                </Item>
-              </div>
-            ))}
-          </PageRows>
-        </PageSection>
-      ) : null}
-      <PageSection
-        title="Enter your login"
-        description="Typed straight into the Bot's browser. The Bot is only told whether it worked."
-      >
-        <form
-          className="flex flex-col gap-3"
-          autoComplete="off"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!password) return;
-            submit.mutate(
-              {
-                id: requestId,
-                input: {
+    <form
+      autoComplete="off"
+      className="flex flex-col gap-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!ready || busy) return;
+        submit.mutate(
+          {
+            id: requestId,
+            input: codeOnly
+              ? { code }
+              : {
                   ...(username ? { username } : {}),
                   password,
                   ...(code ? { code } : {}),
                   save,
                 },
-              },
-              {
-                // Cleared whatever happened: a failed attempt is retyped, never kept.
-                onSettled: () => {
-                  setPassword("");
-                  setCode("");
-                },
-              },
-            );
-          }}
-        >
-          <label
-            className="flex flex-col gap-1 text-sm"
-            htmlFor={`${id}-username`}
-          >
-            Username or email
-            <Input
-              id={`${id}-username`}
-              autoComplete="username"
-              name="username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </label>
-          <label
-            className="flex flex-col gap-1 text-sm"
-            htmlFor={`${id}-password`}
-          >
-            Password
-            <Input
-              id={`${id}-password`}
-              autoComplete="current-password"
-              name="password"
-              type="password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm" htmlFor={`${id}-code`}>
-            Verification code, if the site asks for one
-            <Input
-              id={`${id}-code`}
-              autoComplete="one-time-code"
-              inputMode="numeric"
-              name="code"
-              type="password"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-            />
-          </label>
-          {data.passwordManager ? (
-            <label
-              className="flex items-center gap-2 text-sm"
-              htmlFor={`${id}-save`}
+          },
+          {
+            // Cleared whatever happened: a failed attempt is retyped, never kept.
+            onSettled: () => {
+              setPassword("");
+              setCode("");
+            },
+          },
+        );
+      }}
+    >
+      {requestedHost && requestedHost !== host ? (
+        <p className="text-muted-foreground text-sm">
+          The Bot was on {requestedHost}; the sign-in form is on {host}.
+        </p>
+      ) : null}
+      {!codeOnly && data.savedLogins.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-muted-foreground text-sm">Use a saved login</p>
+          {data.savedLogins.map((login) => (
+            <div
+              className="flex items-center gap-3 rounded-xl bg-background/40 px-3 py-2 dark:bg-muted/40"
+              key={login.id}
             >
+              <IconKey
+                aria-hidden="true"
+                className="size-4 text-muted-foreground"
+              />
+              <span className="min-w-0 flex-1 truncate text-[15px]">
+                {login.username}
+              </span>
+              <Button
+                className="rounded-full"
+                disabled={busy}
+                onClick={() =>
+                  confirmSaved.mutate(
+                    {
+                      id: requestId,
+                      loginId: login.id,
+                      ...(code ? { code } : {}),
+                    },
+                    { onSettled: () => setCode("") },
+                  )
+                }
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Use
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {codeOnly ? (
+        <SecureField
+          autoFocus
+          kind="code"
+          label={codeLabel}
+          name="code"
+          onChange={setCode}
+          value={code}
+        />
+      ) : (
+        <>
+          <SecureField
+            autoFocus
+            label={usernameLabel}
+            name="username"
+            onChange={setUsername}
+            value={username}
+          />
+          <SecureField
+            kind="password"
+            label={passwordLabel}
+            name="password"
+            onChange={setPassword}
+            value={password}
+          />
+          {showCode ? (
+            <SecureField
+              kind="code"
+              label={codeLabel}
+              name="code"
+              onChange={setCode}
+              required={false}
+              value={code}
+            />
+          ) : null}
+        </>
+      )}
+      <SecureNote host={host} />
+      {!codeOnly && (data.passwordManager || !showCode) ? (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+          {data.passwordManager ? (
+            <label className="flex items-center gap-2" htmlFor={`${id}-save`}>
               <Checkbox
-                id={`${id}-save`}
                 checked={save}
+                id={`${id}-save`}
                 onCheckedChange={(checked) => setSave(checked === true)}
               />
               Save to Passwords
             </label>
           ) : null}
-          {failure ? (
-            <p className="text-destructive text-sm" role="alert">
-              {failure.message}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" type="submit" disabled={busy || !password}>
-              <IconLock />
-              {submit.isPending ? "Signing in…" : "Sign in"}
-            </Button>
-            <Button
-              size="sm"
+          {showCode ? null : (
+            <button
+              className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              onClick={() => setShowCode(true)}
               type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => takeOver.mutate(requestId)}
             >
-              <IconPointer />
-              Take over to sign in
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => cancel.mutate(requestId)}
-            >
-              Decline
-            </Button>
-          </div>
-        </form>
-      </PageSection>
-    </>
+              The site also asks for a code
+            </button>
+          )}
+        </div>
+      ) : null}
+      {problem ? (
+        <p className="text-destructive text-sm" role="alert">
+          {problem}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <Button
+            disabled={busy}
+            onClick={() => takeOver.mutate(requestId)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <IconPointer />
+            Sign in by hand
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => cancel.mutate(requestId)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Decline
+          </Button>
+        </div>
+        <Button
+          className={PILL_CLASS}
+          disabled={!ready || busy}
+          type="submit"
+          variant="secondary"
+        >
+          {submit.isPending || confirmSaved.isPending ? "Sending…" : "Continue"}
+        </Button>
+      </div>
+    </form>
   );
 }

@@ -47,6 +47,19 @@ export type SignInRequestView = Omit<
   /** Saved logins for this site, by username. Offered only while the password manager is on. */
   savedLogins: { id: string; username: string }[];
   passwordManager: boolean;
+  /**
+   * What the Bot's page asked for when the request was made, read by the computer (`probeSignIn`):
+   * the fields to show, the site's icon, and the site the Bot named when the form turned out to be
+   * somewhere else (an identity provider it was redirected to). Absent after a server restart.
+   */
+  form?: "login" | "username" | "code";
+  icon?: string;
+  requestedOrigin?: string;
+  /** How the Bot titled the form and labelled its fields, in the person's language. */
+  title?: string;
+  usernameLabel?: string;
+  passwordLabel?: string;
+  codeLabel?: string;
 };
 
 export type SavedLoginRecord = {

@@ -21,7 +21,8 @@ async function post(id: string, action: string, body?: unknown) {
 /** The credential goes in the request body and nowhere else: not state, not the cache, not a log. */
 export type SignInSubmission = {
   username?: string;
-  password: string;
+  /** Absent for a page that asks for a one-time code alone. */
+  password?: string;
   code?: string;
   save?: boolean;
 };
@@ -84,7 +85,16 @@ export function deleteSavedLoginMutationOptions(queryClient: QueryClient) {
  * so a plain function: it fails closed and returns the answer.
  */
 export async function requestSignIn(
-  input: { botId: string; site: string; reason?: string; toolCallId?: string },
+  input: {
+    botId: string;
+    site: string;
+    reason?: string;
+    toolCallId?: string;
+    title?: string;
+    usernameLabel?: string;
+    passwordLabel?: string;
+    codeLabel?: string;
+  },
   signal?: AbortSignal,
 ): Promise<
   { ok: true; request: SignInRequest } | { ok: false; reason: string }

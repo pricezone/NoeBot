@@ -1,10 +1,16 @@
+import { IconForms } from "@tabler/icons-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { z } from "zod";
+import {
+  PILL_CLASS,
+  SecureFormDialog,
+  SecureFormRow,
+} from "@/components/chat-cards/secure-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
-import { Badge, GalleryFrame } from "./frame";
+import { GalleryFrame } from "./frame";
 
 const Field = z
   .object({
@@ -161,6 +167,7 @@ function FormEntry({
   respond?: Respond;
 }) {
   const prefix = useId();
+  const [open, setOpen] = useState(false);
   const [values, setValues] = useState(new Map<string, string>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [failure, setFailure] = useState(false);
@@ -229,40 +236,47 @@ function FormEntry({
   }
 
   return (
-    <GalleryFrame
-      title={args.title}
-      caption={args.description}
-      action={
-        <Badge tone={finished ? "positive" : "caution"}>
-          {finished ? "Submitted" : "Waiting on you"}
-        </Badge>
-      }
-    >
-      {finished ? (
-        <div role="status">
-          {answer ? (
-            <dl className="space-y-3">
-              {args.fields.map((field) => (
-                <div
-                  key={field.id}
-                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 text-sm"
-                >
-                  <dt className="text-muted-foreground">{field.label}</dt>
-                  <dd className="whitespace-pre-wrap break-words font-medium">
-                    {Object.hasOwn(answer.values, field.id)
-                      ? answer.values[field.id]
-                      : "Not provided"}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This form has been completed. Its saved answers are unavailable.
-            </p>
-          )}
-        </div>
-      ) : (
+    <>
+      <SecureFormRow
+        fallbackIcon={<IconForms className="size-5" />}
+        onOpen={() => setOpen(true)}
+        state={finished ? "submitted" : "open"}
+        subtitle={args.description ?? "Form"}
+        title={args.title}
+      >
+        {finished ? (
+          <div role="status">
+            {answer ? (
+              <dl className="space-y-3">
+                {args.fields.map((field) => (
+                  <div
+                    key={field.id}
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-4 text-sm"
+                  >
+                    <dt className="text-muted-foreground">{field.label}</dt>
+                    <dd className="whitespace-pre-wrap break-words font-medium">
+                      {Object.hasOwn(answer.values, field.id)
+                        ? answer.values[field.id]
+                        : "Not provided"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                This form has been completed. Its saved answers are unavailable.
+              </p>
+            )}
+          </div>
+        ) : null}
+      </SecureFormRow>
+      <SecureFormDialog
+        fallbackIcon={<IconForms className="size-5" />}
+        onOpenChange={setOpen}
+        open={open && !finished}
+        subtitle={args.description ?? "Form"}
+        title={args.title}
+      >
         <form
           noValidate
           aria-label={args.title}
@@ -368,14 +382,19 @@ function FormEntry({
               Your answers could not be sent. Try again.
             </p>
           )}
-          <div className="flex justify-end border-t border-border pt-3">
-            <Button type="submit" size="sm" disabled={sending || !respond}>
-              {sending ? "Sending…" : (args.submitLabel ?? "Submit answers")}
+          <div className="flex justify-end pt-1">
+            <Button
+              className={PILL_CLASS}
+              disabled={sending || !respond}
+              type="submit"
+              variant="secondary"
+            >
+              {sending ? "Sending…" : (args.submitLabel ?? "Continue")}
             </Button>
           </div>
         </form>
-      )}
-    </GalleryFrame>
+      </SecureFormDialog>
+    </>
   );
 }
 

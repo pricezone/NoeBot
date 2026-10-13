@@ -124,7 +124,10 @@ test("required and typed fields keep the form pending until corrected", async ()
       }}
     />,
   );
-  await user.click(view.getByRole("button", { name: "Submit answers" }));
+  // A row in the conversation; its form opens in a dialog.
+  expect(view.queryByRole("form")).toBeNull();
+  await user.click(view.getByRole("button", { name: "Open" }));
+  await user.click(view.getByRole("button", { name: "Continue" }));
   expect(view.getAllByRole("alert")).toHaveLength(4);
   expect(document.activeElement).toBe(
     view.getByRole("textbox", { name: "Team" }),
@@ -137,7 +140,7 @@ test("required and typed fields keep the form pending until corrected", async ()
   await user.type(view.getByRole("textbox", { name: "Work email" }), "invalid");
   await user.clear(view.getByRole("spinbutton", { name: "Seats" }));
   await user.type(view.getByRole("spinbutton", { name: "Seats" }), "21");
-  await user.click(view.getByRole("button", { name: "Submit answers" }));
+  await user.click(view.getByRole("button", { name: "Continue" }));
   expect(view.getByText("Enter a valid email address.")).toBeTruthy();
   expect(view.getByText("Enter 20 or less.")).toBeTruthy();
   expect(answers).toEqual([]);
@@ -148,7 +151,7 @@ test("required and typed fields keep the form pending until corrected", async ()
   );
   await user.clear(view.getByRole("spinbutton", { name: "Seats" }));
   await user.type(view.getByRole("spinbutton", { name: "Seats" }), "3");
-  await user.click(view.getByRole("button", { name: "Submit answers" }));
+  await user.click(view.getByRole("button", { name: "Continue" }));
   await waitFor(() => expect(view.getByText("Submitted")).toBeTruthy());
   expect(answers).toEqual([
     {
@@ -180,15 +183,16 @@ test("a failed answer preserves values and retries without duplicate submissions
       }}
     />,
   );
+  await user.click(view.getByRole("button", { name: "Open" }));
   await fillForm(view);
-  await user.click(view.getByRole("button", { name: "Submit answers" }));
+  await user.click(view.getByRole("button", { name: "Continue" }));
   await waitFor(() =>
     expect(view.getByRole("alert").textContent).toContain("could not be sent"),
   );
   const team = view.getByRole("textbox", { name: "Team" });
   expect(team instanceof HTMLInputElement).toBe(true);
   if (team instanceof HTMLInputElement) expect(team.value).toBe("  Design  ");
-  await user.click(view.getByRole("button", { name: "Submit answers" }));
+  await user.click(view.getByRole("button", { name: "Continue" }));
   fireEvent.submit(view.getByRole("form"));
   expect(attempts).toBe(2);
   expect(
@@ -227,7 +231,7 @@ test("completed SDK results show saved values and never offer another submission
   expect(view.getByText(/saved answers are unavailable/)).toBeTruthy();
   expect(view.queryByRole("button")).toBeNull();
 });
-test("streaming or malformed form specifications expose no active fields", () => {
+test("streaming or malformed form specifications expose no active fields", async () => {
   const view = render(
     <FormCard status="inProgress" args={{ title: "Incoming" }} />,
   );
@@ -245,10 +249,9 @@ test("streaming or malformed form specifications expose no active fields", () =>
     }).success,
   ).toBe(false);
   view.rerender(<FormCard status="executing" args={FORM} />);
+  await user.click(view.getByRole("button", { name: "Open" }));
   expect(
-    view
-      .getByRole("button", { name: "Submit answers" })
-      .hasAttribute("disabled"),
+    view.getByRole("button", { name: "Continue" }).hasAttribute("disabled"),
   ).toBe(true);
 });
 test("gallery exports have valid previews and existing card/decision kinds", () => {

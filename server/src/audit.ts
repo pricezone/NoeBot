@@ -256,6 +256,7 @@ export const auditEventTypes = [
   // which field it went in; the value is on a path this trail is not on.
   "computer.secret_requested",
   "computer.secret_supplied",
+  "computer.secret_cancelled",
   // A Bot asking its owner to sign it in to a website, and how that ended. Never the username, the
   // password or a code: the row says which site, which request and whether a saved login was used.
   "computer.sign_in_requested",

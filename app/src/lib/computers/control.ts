@@ -12,6 +12,7 @@ import { tryClient } from "@/lib/client";
  */
 
 export type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
+
 import type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
 
 async function callControl(
@@ -71,6 +72,28 @@ export function cancelControl(computerId: string, requestId: string) {
  * The one call here that reports why it failed, because a person is waiting on the answer and a
  * silent failure would leave them typing into something that is not listening.
  */
+/** The person declining the value the Bot asked for: the Bot is told it was cancelled. */
+export async function declineSecret(
+  computerId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const response = await tryClient(
+      `/api/computers/${computerId}/human/secret/cancel`,
+      { method: "POST", body: {} },
+    );
+    if (response.ok) return { ok: true };
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    return { ok: false, error: body?.error ?? "That could not be declined." };
+  } catch {
+    return {
+      ok: false,
+      error: "The assistant's computer could not be reached.",
+    };
+  }
+}
+
 export async function supplySecret(
   computerId: string,
   text: string,

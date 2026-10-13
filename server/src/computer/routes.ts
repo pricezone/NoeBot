@@ -11,11 +11,11 @@ import {
   ActionRefusedError,
   type ComputerGateway,
   ComputerUnavailableError,
-  NavigationTimeoutError,
   ElementNotFoundError,
   HandoffRequestError,
   HumanHasControlError,
   NavigationRefusedError,
+  NavigationTimeoutError,
   StaleSnapshotError,
   WorkspaceNotFoundError,
   WorkspaceRefusedError,
@@ -502,6 +502,11 @@ export function createComputerRoutes(
       }
       return gateway.supplySecret(botId, actor, body.text);
     }),
+  );
+
+  /** A person declining to enter the value: the Bot is told it was cancelled, not that it was entered. */
+  routes.post("/:botId/human/secret/cancel", (context) =>
+    act(context, (botId, actor) => gateway.cancelSecret(botId, actor)),
   );
 
   /**

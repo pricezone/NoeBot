@@ -81,18 +81,22 @@ test("the card offers the private form while the request it opened is waiting", 
       result: undefined,
     };
     const view = render(wrap(<Card {...props} />));
-    // Nothing opened yet: no form to offer.
-    expect(view.queryByText("Open private sign-in")).toBeNull();
+    // Nothing opened yet: no form to offer, the row says it is being prepared.
+    expect(view.queryByRole("button", { name: "Open" })).toBeNull();
+    expect(view.getByText("Preparing…")).toBeDefined();
 
     const controller = new AbortController();
     const answer = tool?.handler?.({ site: "https://example.com" }, {
       signal: controller.signal,
       toolCall: { id: "call-1" },
     } as never);
-    // The once-registered render, with nothing re-registered, now shows the way to the form.
+    // The once-registered render, with nothing re-registered, now shows the way to the form: the
+    // secure form row, titled for the site, with its Open pill.
     await waitFor(() =>
-      expect(view.getByText("Open private sign-in")).toBeDefined(),
+      expect(view.getByRole("button", { name: "Open" })).toBeDefined(),
     );
+    expect(view.getByText("Sign in to example.com")).toBeDefined();
+    expect(view.getByText("Secure Form")).toBeDefined();
 
     status = "signed_in";
     expect(await answer).toMatchObject({
@@ -102,8 +106,68 @@ test("the card offers the private form while the request it opened is waiting", 
     });
     // The request is answered: the way to the form goes, and nothing is left to redraw after this.
     await waitFor(() =>
-      expect(view.queryByText("Open private sign-in")).toBeNull(),
+      expect(view.queryByRole("button", { name: "Open" })).toBeNull(),
     );
+    view.unmount();
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("a tab that did not run the call still offers the form, found by the call's id", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = Object.assign(
+    async (path: Parameters<typeof fetch>[0]) => {
+      const url = String(path);
+      if (url.endsWith("/api/sign-in-requests"))
+        return Response.json({
+          requests: [
+            { ...request, id: "other", toolCallId: "call-other" },
+            {
+              ...request,
+              id: "req-2",
+              toolCallId: "call-2",
+              origin: "https://oauth2.gsis.gr",
+              title: "Σύνδεση Taxisnet",
+            },
+          ],
+        });
+      if (url.includes("/api/sign-in-requests/req-2"))
+        return Response.json({
+          ...request,
+          id: "req-2",
+          toolCallId: "call-2",
+          origin: "https://oauth2.gsis.gr",
+          title: "Σύνδεση Taxisnet",
+        });
+      return Response.json({}, { status: 404 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const wrap = (node: ReactNode) => (
+    <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>
+  );
+  try {
+    render(wrap(<SignInTool />));
+    const tool = registered.find(
+      (entry) => entry.name === "computer_request_sign_in",
+    );
+    const Card = tool?.render as (props: Record<string, unknown>) => ReactNode;
+    // Another tab: the call is running, but this tab never ran its handler.
+    const view = render(
+      wrap(
+        <Card
+          args={{ site: "https://www.gov.gr" }}
+          result={undefined}
+          status="executing"
+          toolCallId="call-2"
+        />,
+      ),
+    );
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "Open" })).toBeDefined(),
+    );
+    expect(view.getByText("Σύνδεση Taxisnet")).toBeDefined();
     view.unmount();
   } finally {
     global.fetch = originalFetch;

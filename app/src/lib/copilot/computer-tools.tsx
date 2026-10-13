@@ -1,11 +1,28 @@
+import { IconPointer } from "@tabler/icons-react";
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 import { z } from "zod";
 import { ToolLine } from "@/components/channels/tool-line";
+import {
+  PILL_CLASS,
+  SecureField,
+  SecureFormDialog,
+  SecureFormRow,
+  type SecureFormState,
+  SecureNote,
+} from "@/components/chat-cards/secure-form";
 import { CommandOutput } from "@/components/computer/command-output";
 import { ComputerView } from "@/components/computer/computer-view";
+import { Button } from "@/components/ui/button";
 import { tryClient } from "@/lib/client";
 import { noteBrowsed, recordActivity } from "@/lib/computers/activity";
 import { callComputer, type ToolOutcome } from "@/lib/computers/call";
-import { type ControlState, readControl } from "@/lib/computers/control";
+import {
+  type ControlState,
+  declineSecret,
+  readControl,
+  supplySecret,
+} from "@/lib/computers/control";
 import {
   runBrowserRead,
   runHelpRequest,
@@ -486,24 +503,52 @@ export function ComputerTools() {
       );
       if (!asked.ok) return asked;
 
+      const askedAt = new Date().toISOString();
       // Completion is `secretWanted` clearing; the value never returns to the model.
-      const outcome = await waitForSecret(
+      const waited = await waitForSecret(
         botId,
         (state) => state.secretWanted === undefined,
         signal,
       );
-      return {
-        ok: true,
-        result:
-          outcome === "answered"
-            ? `The person has entered ${input.label} into the field. It was typed straight into the page and you were not told what it is.`
-            : outcome === "cancelled"
+      if (waited !== "answered")
+        return {
+          ok: false,
+          outcome: waited === "cancelled" ? "cancelled" : "expired",
+          result:
+            waited === "cancelled"
               ? "The request was cancelled."
               : `Nobody entered ${input.label}. Do not ask for it another way.`,
+        };
+      // How it ended, from the computer's own record: the request can clear because the value landed,
+      // because the person declined, because ten minutes passed, or because the field had gone. Only
+      // the first is "entered"; telling the Bot otherwise had it press Submit on an empty field.
+      const state = await readControl(botId).catch(() => null);
+      const last =
+        state?.lastSecret && state.lastSecret.at >= askedAt
+          ? state.lastSecret.outcome
+          : "supplied";
+      return {
+        ok: last === "supplied",
+        outcome: last,
+        result:
+          last === "supplied"
+            ? `The person has entered ${input.label} into the field. It was typed straight into the page and you were not told what it is.`
+            : last === "field-gone"
+              ? `The field had gone from the page before ${input.label} could be entered, so nothing was typed. Take a fresh snapshot, click the field again and ask again.`
+              : last === "cancelled"
+                ? `The person declined to enter ${input.label}. Do not ask for it another way.`
+                : `Nobody entered ${input.label} in time. Do not ask for it another way.`,
       };
     },
-    // Rendered by ComputerView as a masked prompt.
-    render: () => null,
+    // In the conversation, like a sign-in: a secure form row whose Open asks for the one value.
+    render: ({ args, result, status }) => (
+      <SecretCard
+        computerId={bot.current}
+        label={typeof args?.label === "string" ? args.label : "the value"}
+        result={result}
+        running={status !== "complete"}
+      />
+    ),
   });
 
   /** Self-reported model declines: audit evidence, not an enforcement control. */
@@ -570,8 +615,15 @@ export function ComputerTools() {
         toolCall,
       }: { signal?: AbortSignal; toolCall?: { id?: string } } = {},
     ) => runHelpRequest(bot.current, input.reason, toolCall?.id, signal),
-    // Rendered by ComputerView as the take-the-wheel prompt.
-    render: () => null,
+    // In the conversation as well as in the panel: the person is reading the chat, not the panel.
+    render: ({ args, result, status }) => (
+      <HelpCard
+        computerId={bot.current}
+        reason={typeof args?.reason === "string" ? args.reason : ""}
+        result={result}
+        running={status !== "complete"}
+      />
+    ),
   });
 
   useFrontendTool({
@@ -857,4 +909,159 @@ export function ComputerTools() {
   });
 
   return null;
+}
+
+/** A label the Bot wrote ("the code sent to your phone"), as a row title. */
+function titleOf(label: string): string {
+  const trimmed = label.trim();
+  return trimmed
+    ? trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+    : "A value";
+}
+
+const CODE_LIKE = /code|otp|pin|κωδικ|sms/i;
+
+/**
+ * One value the Bot must not see, asked for in the conversation: a secure form row, and a dialog with
+ * the single masked field. What is typed goes to the computer's own route and into the field the Bot
+ * named, never into the conversation.
+ */
+function SecretCard({
+  computerId,
+  label,
+  running,
+  result,
+}: {
+  computerId: string;
+  label: string;
+  running: boolean;
+  result?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  let outcome: string | undefined;
+  try {
+    outcome = result
+      ? (JSON.parse(result) as { outcome?: string }).outcome
+      : undefined;
+  } catch {
+    outcome = undefined;
+  }
+  const state: SecureFormState = running
+    ? "open"
+    : outcome === "supplied" || outcome === undefined
+      ? "submitted"
+      : outcome === "cancelled"
+        ? "cancelled"
+        : outcome === "expired"
+          ? "expired"
+          : "failed";
+  const title = titleOf(label);
+  const kind = CODE_LIKE.test(label) ? "code" : "password";
+  return (
+    <>
+      <SecureFormRow onOpen={() => setOpen(true)} state={state} title={title} />
+      <SecureFormDialog
+        onOpenChange={setOpen}
+        open={open && running}
+        title={title}
+      >
+        <form
+          autoComplete="off"
+          className="flex flex-col gap-5"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!value || sending) return;
+            setSending(true);
+            const sent = await supplySecret(computerId, value);
+            setSending(false);
+            // Cleared whatever happened, so the value is not left in the page.
+            setValue("");
+            setProblem(sent.ok ? null : (sent.error ?? null));
+            if (sent.ok) setOpen(false);
+          }}
+        >
+          <SecureField
+            autoFocus
+            kind={kind}
+            label={title}
+            name="secret"
+            onChange={setValue}
+            value={value}
+          />
+          <SecureNote />
+          {problem ? (
+            <p className="text-destructive text-sm" role="alert">
+              {problem}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              disabled={sending}
+              onClick={async () => {
+                const declined = await declineSecret(computerId);
+                setProblem(declined.ok ? null : (declined.error ?? null));
+                if (declined.ok) setOpen(false);
+              }}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Decline
+            </Button>
+            <Button
+              className={PILL_CLASS}
+              disabled={!value || sending}
+              type="submit"
+              variant="secondary"
+            >
+              {sending ? "Sending…" : "Continue"}
+            </Button>
+          </div>
+        </form>
+      </SecureFormDialog>
+    </>
+  );
+}
+
+/**
+ * The Bot asking the person to take over its browser (a CAPTCHA, a step only a person can do): the
+ * same row as a secure form, whose Open goes to the Bot's screen with the wheel offered.
+ */
+function HelpCard({
+  computerId,
+  reason,
+  running,
+  result,
+}: {
+  computerId: string;
+  reason: string;
+  running: boolean;
+  result?: string;
+}) {
+  const navigate = useNavigate();
+  let ok: boolean | undefined;
+  try {
+    ok = result ? (JSON.parse(result) as { ok?: boolean }).ok : undefined;
+  } catch {
+    ok = undefined;
+  }
+  return (
+    <SecureFormRow
+      doneLabel="Handed back"
+      fallbackIcon={<IconPointer className="size-5" />}
+      onOpen={() =>
+        void navigate({
+          to: "/bot",
+          search: { agent: computerId, watch: true },
+        })
+      }
+      openLabel="Open screen"
+      state={running ? "open" : ok === false ? "failed" : "submitted"}
+      subtitle="Take over the browser"
+      title={reason || "Your Bot needs you on its screen"}
+    />
+  );
 }

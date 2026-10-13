@@ -361,12 +361,16 @@ export type HeadlessSignInRequester = {
     toolCallId?: string;
     continuation?: Record<string, unknown>;
     notify?: boolean;
+    title?: string;
+    usernameLabel?: string;
+    passwordLabel?: string;
+    codeLabel?: string;
   }): Promise<{ id: string; origin: string }>;
 };
 
 /** Shared by the headless tool and the browser's registration, so both promise the same thing. */
 export const SIGN_IN_TOOL_DESCRIPTION =
-  "Ask the person you work for to sign you in to a website. They get a private sign-in form outside this conversation (or take over the browser), and their login is typed straight into your browser by the computer. You never see the username, password or code, and must never ask for them any other way. Open the site's sign-in page first, then call this with the site's address. This turn pauses until they answer; you are then told only whether it worked.";
+  "Ask the person you work for to sign you in to a website: Taxisnet and gov.gr, a bank, any login. They get a private Secure Form in this conversation (or take over the browser), and what they type goes straight into your browser by the computer. You never see the username, password or code, so do not refuse a login as too personal and never ask for credentials any other way. Open the site's sign-in page first (click its Sign in or Είσοδος button and wait for the login fields), then call this with the site's address and a short title such as 'Σύνδεση Taxisnet'. For a code that arrives later on a page of its own (an SMS confirmation), call this again on that page: it asks for the code alone. This turn pauses until they answer; you are then told only whether it worked.";
 
 /** Shipped browser/file/command tools, with identity bound before the model supplies arguments. */
 export function createHeadlessComputerTools(options: {
@@ -577,29 +581,53 @@ export function createHeadlessComputerTools(options: {
       tool(
         "computer_request_sign_in",
         SIGN_IN_TOOL_DESCRIPTION,
-        z.strictObject({ site: text, reason: z.string().optional() }),
-        async ({ site, reason }, { toolCallId }) => {
+        z.strictObject({
+          site: text,
+          reason: z.string().optional(),
+          title: z.string().optional(),
+          usernameLabel: z.string().optional(),
+          passwordLabel: z.string().optional(),
+          codeLabel: z.string().optional(),
+        }),
+        async (
+          { site, reason, title, usernameLabel, passwordLabel, codeLabel },
+          { toolCallId },
+        ) => {
           const continuation = currentApprovalContext();
-          const request = await signIn.request({
-            ownerUserId: actor.userId ?? actor.id,
-            botId,
-            site,
-            ...(reason ? { reason } : {}),
-            actor,
-            ...(continuation?.threadId
-              ? { threadId: continuation.threadId }
-              : {}),
-            toolCallId,
-            ...(continuation
-              ? {
-                  continuation: continuation as unknown as Record<
-                    string,
-                    unknown
-                  >,
-                }
-              : {}),
-            notify: true,
-          });
+          let request: Awaited<ReturnType<typeof signIn.request>>;
+          try {
+            request = await signIn.request({
+              ownerUserId: actor.userId ?? actor.id,
+              botId,
+              site,
+              ...(reason ? { reason } : {}),
+              ...(title ? { title } : {}),
+              ...(usernameLabel ? { usernameLabel } : {}),
+              ...(passwordLabel ? { passwordLabel } : {}),
+              ...(codeLabel ? { codeLabel } : {}),
+              actor,
+              ...(continuation?.threadId
+                ? { threadId: continuation.threadId }
+                : {}),
+              toolCallId,
+              ...(continuation
+                ? {
+                    continuation: continuation as unknown as Record<
+                      string,
+                      unknown
+                    >,
+                  }
+                : {}),
+              notify: true,
+            });
+          } catch (error) {
+            // A page with no form on it yet, or a site that cannot be signed in to: the Bot is told
+            // why and what to do, and nobody is sent a form that could only fail.
+            // By name: this module does not import the passwords module it is handed.
+            if (error instanceof Error && error.name === "SignInRefusedError")
+              return { ok: false, reason: error.message };
+            throw error;
+          }
           throw new HeadlessToolSuspension(
             `Waiting for the person to sign in to ${request.origin} in a private form.`,
             {

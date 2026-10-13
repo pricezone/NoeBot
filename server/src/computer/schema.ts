@@ -330,9 +330,23 @@ export type ComputerProfile = {
 export type SignInFillInput = {
   origin: string;
   username?: string;
-  password: string;
+  /** Absent for a page that asks for a one-time code alone (an SMS confirmation after the login). */
+  password?: string;
   /** A one-time code the person entered alongside, typed if the site asks for one. */
   code?: string;
+};
+
+/**
+ * What the Bot's page asks for, read by the computer before a person is shown a sign-in form. The
+ * origin is where the form really is (an identity provider the site redirected to, say), and the icon
+ * is the site's own, fetched by the Bot's browser and handed over as a small data URL.
+ */
+export type SignInProbe = {
+  url: string;
+  origin: string;
+  host: string;
+  form: "login" | "username" | "code" | "none";
+  icon?: string;
 };
 
 /** What the computer reports. No field here ever carries a credential. */

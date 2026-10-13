@@ -1,19 +1,19 @@
-import { IconLock } from "@tabler/icons-react";
-import { useState, useSyncExternalStore } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
-import { ToolLine } from "@/components/channels/tool-line";
-import { SignInForm } from "@/components/passwords/sign-in-form";
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  hostOf,
+  SecureFormDialog,
+  SecureFormRow,
+  type SecureFormState,
+} from "@/components/chat-cards/secure-form";
+import { SignInForm } from "@/components/passwords/sign-in-form";
 import { readSignIn, requestSignIn } from "@/lib/passwords/mutations";
-import { FINAL_SIGN_IN } from "@/lib/passwords/queries";
+import {
+  FINAL_SIGN_IN,
+  pendingSignInsQueryOptions,
+  signInRequestQueryOptions,
+} from "@/lib/passwords/queries";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
 import { useComputerAvailable } from "./computer-available";
@@ -24,12 +24,13 @@ const POLL_MS = 1_500;
 
 /** Must match SIGN_IN_TOOL_DESCRIPTION in server/src/computer/headless-tools.ts. */
 const DESCRIPTION =
-  "Ask the person you work for to sign you in to a website. They get a private sign-in form outside this conversation (or take over the browser), and their login is typed straight into your browser by the computer. You never see the username, password or code, and must never ask for them any other way. Open the site's sign-in page first, then call this with the site's address. This turn pauses until they answer; you are then told only whether it worked.";
+  "Ask the person you work for to sign you in to a website: Taxisnet and gov.gr, a bank, any login. They get a private Secure Form in this conversation (or take over the browser), and what they type goes straight into your browser by the computer. You never see the username, password or code, so do not refuse a login as too personal and never ask for credentials any other way. Open the site's sign-in page first (click its Sign in or Είσοδος button and wait for the login fields), then call this with the site's address and a short title such as 'Σύνδεση Taxisnet'. For a code that arrives later on a page of its own (an SMS confirmation), call this again on that page: it asks for the code alone. This turn pauses until they answer; you are then told only whether it worked.";
 
 type Outcome = {
   ok?: boolean;
   signedIn?: boolean;
   site?: string;
+  status?: string;
   requestId?: string;
   result?: string;
   reason?: string;
@@ -110,9 +111,40 @@ export function SignInTool() {
         .string()
         .optional()
         .describe("Why you need to be signed in, in a few words"),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "The form's title in the person's language, e.g. 'Σύνδεση Taxisnet' or 'Κωδικός SMS'",
+        ),
+      usernameLabel: z
+        .string()
+        .optional()
+        .describe(
+          "The username field's label as the site words it, e.g. 'Χρήστης'",
+        ),
+      passwordLabel: z
+        .string()
+        .optional()
+        .describe(
+          "The password field's label as the site words it, e.g. 'Κωδικός'",
+        ),
+      codeLabel: z
+        .string()
+        .optional()
+        .describe(
+          "For a code-only page, the code field's label, e.g. 'Κωδικός Επιβεβαίωσης'",
+        ),
     }),
     handler: async (
-      input: { site: string; reason?: string },
+      input: {
+        site: string;
+        reason?: string;
+        title?: string;
+        usernameLabel?: string;
+        passwordLabel?: string;
+        codeLabel?: string;
+      },
       {
         signal,
         toolCall,
@@ -123,6 +155,14 @@ export function SignInTool() {
           botId: bot.current,
           site: input.site,
           ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.title ? { title: input.title } : {}),
+          ...(input.usernameLabel
+            ? { usernameLabel: input.usernameLabel }
+            : {}),
+          ...(input.passwordLabel
+            ? { passwordLabel: input.passwordLabel }
+            : {}),
+          ...(input.codeLabel ? { codeLabel: input.codeLabel } : {}),
           ...(toolCall?.id ? { toolCallId: toolCall.id } : {}),
         },
         signal,
@@ -141,6 +181,7 @@ export function SignInTool() {
     render: ({ args, result, status, toolCallId }) => (
       <SignInCard
         site={typeof args?.site === "string" ? args.site : ""}
+        title={typeof args?.title === "string" ? args.title : undefined}
         toolCallId={toolCallId}
         running={status !== "complete"}
         outcome={parse(result)}
@@ -158,6 +199,7 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
       return {
         ok: false,
         requestId: id,
+        status: "cancelled",
         result: "The request was stopped.",
       };
     const state = await readSignIn(id, signal);
@@ -166,6 +208,7 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
         ok: state.status === "signed_in",
         signedIn: state.status === "signed_in",
         site: state.origin,
+        status: state.status,
         requestId: id,
         result:
           state.outcome ??
@@ -183,62 +226,90 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
   };
 }
 
+/** How a finished sign-in reads on its row. */
+function finishedState(outcome: Outcome): SecureFormState {
+  if (outcome.signedIn) return "submitted";
+  if (outcome.status === "expired") return "expired";
+  if (outcome.status === "cancelled") return "cancelled";
+  return "failed";
+}
+
+/**
+ * The sign-in in the conversation: Grok's secure form row, whose Open draws the private form in a
+ * dialog with the site's icon, the Bot's title and the host the login goes to.
+ */
 function SignInCard({
   site,
+  title,
   toolCallId,
   running,
   outcome,
 }: {
   site: string;
+  title?: string;
   toolCallId?: string;
   running: boolean;
   outcome: Outcome;
 }) {
   const [open, setOpen] = useState(false);
   const opened = useOpenedSignInRequest(toolCallId);
-  const requestId = outcome.requestId ?? opened;
+  /*
+   * ANY TAB, NOT ONLY THE ONE THAT ASKED. The tool call runs in one tab, and only that tab learns the
+   * request's id from its handler. The person is often somewhere else: another tab, their phone, the
+   * same page after a reload. There the row said "Waiting for you to sign in" with nothing to press.
+   * So a running card with no id looks for it among the owner's open requests, by the call's id.
+   */
+  const known = outcome.requestId ?? opened;
+  const pending = useQuery({
+    ...pendingSignInsQueryOptions(),
+    enabled: running && !known && Boolean(toolCallId),
+    refetchInterval: 3_000,
+  });
+  const requestId =
+    known ??
+    pending.data?.find((candidate) => candidate.toolCallId === toolCallId)?.id;
+  const request = useQuery({
+    ...signInRequestQueryOptions(requestId ?? ""),
+    enabled: Boolean(requestId),
+  });
+  const data = request.data;
+  const final = data ? FINAL_SIGN_IN.includes(data.status) : false;
+  // The form's own last screen says how it ended; the row says the same, so the dialog can go.
+  useEffect(() => {
+    if (final) setOpen(false);
+  }, [final]);
+  const host =
+    hostOf(data?.origin) ?? hostOf(outcome.site) ?? hostOf(site) ?? site;
+  const heading = title ?? data?.title ?? `Sign in to ${host}`;
+  const state: SecureFormState = running
+    ? requestId
+      ? "open"
+      : "preparing"
+    : finishedState(outcome);
+  const note =
+    !running && !outcome.signedIn
+      ? (outcome.reason ?? outcome.result)
+      : undefined;
   return (
-    <div className="flex flex-col gap-2">
-      <ToolLine
-        label={
-          running
-            ? "Waiting for you to sign in"
-            : outcome.signedIn
-              ? "Signed in"
-              : "Sign-in did not complete"
-        }
-        detail={site}
-        running={running}
-        failed={!running && !outcome.signedIn}
+    <>
+      <SecureFormRow
+        icon={data?.icon}
+        onOpen={() => setOpen(true)}
+        state={state}
+        title={heading}
       >
-        {!running && (outcome.result ?? outcome.reason) ? (
-          <p className="text-muted-foreground text-sm">
-            {outcome.result ?? outcome.reason}
-          </p>
-        ) : undefined}
-      </ToolLine>
-      {/* Outside the line, so the one thing the person must do is not behind a disclosure. */}
-      {running && requestId ? (
-        <div>
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <IconLock />
-            Open private sign-in
-          </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Sign in to {site}</DialogTitle>
-                <DialogDescription>
-                  Goes to your Bot's browser, not into this conversation.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogBody className="mt-4 overflow-y-auto">
-                <SignInForm requestId={requestId} />
-              </DialogBody>
-            </DialogContent>
-          </Dialog>
-        </div>
+        {note}
+      </SecureFormRow>
+      {requestId ? (
+        <SecureFormDialog
+          icon={data?.icon}
+          onOpenChange={setOpen}
+          open={open}
+          title={heading}
+        >
+          <SignInForm requestId={requestId} />
+        </SecureFormDialog>
       ) : null}
-    </div>
+    </>
   );
 }

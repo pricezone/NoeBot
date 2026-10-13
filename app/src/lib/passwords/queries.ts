@@ -31,6 +31,19 @@ export type SignInRequest = {
   resolvedAt: string | null;
   passwordManager: boolean;
   savedLogins: { id: string; username: string }[];
+  /** The tool call that asked, so any tab drawing that call can find its request. */
+  toolCallId?: string | null;
+  /** What the Bot's page asked for when the request was made, read by its computer. */
+  form?: "login" | "username" | "code";
+  /** The site's icon, a small data URL from the Bot's browser. */
+  icon?: string;
+  /** The site the Bot named, when the form turned out to be on another (an identity provider). */
+  requestedOrigin?: string;
+  /** How the Bot titled the form and labelled its fields. */
+  title?: string;
+  usernameLabel?: string;
+  passwordLabel?: string;
+  codeLabel?: string;
 };
 
 export type SavedLogin = {
@@ -46,6 +59,7 @@ export const passwordKeys = {
   all: ["passwords"] as const,
   logins: () => ["passwords", "logins"] as const,
   signIn: (id: string) => ["passwords", "sign-in", id] as const,
+  pending: () => ["passwords", "sign-in", "pending"] as const,
 };
 
 export const FINAL_SIGN_IN: readonly SignInStatus[] = [
@@ -64,6 +78,25 @@ export function signInRequestQueryOptions(id: string) {
           fallback: "Could not load this sign-in request",
         })
       ).json(),
+  });
+}
+
+/**
+ * The owner's open sign-in requests. A sign-in card drawn in a tab that did not run the tool call
+ * (another tab, another device, after a reload) finds its request here by the call's id; the tab that
+ * ran it knows the id already.
+ */
+export function pendingSignInsQueryOptions() {
+  return queryOptions({
+    queryKey: passwordKeys.pending(),
+    queryFn: async (): Promise<SignInRequest[]> =>
+      (
+        (await (
+          await client("/api/sign-in-requests", {
+            fallback: "Could not load sign-in requests",
+          })
+        ).json()) as { requests: SignInRequest[] }
+      ).requests,
   });
 }
 

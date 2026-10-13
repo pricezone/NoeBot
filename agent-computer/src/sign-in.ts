@@ -6,6 +6,10 @@
  * values, and what comes back says only whether a form was submitted and whether a password field is
  * still showing.
  *
+ * Before a person is shown the form at all, `probeSignIn` says what the page actually asks for (a
+ * login, a username alone, a one-time code, or nothing), on which origin, and with which icon, so
+ * the form names the real site and is never offered for a page that has no form on it.
+ *
  * Three refusals, before anything is typed:
  *  - the page must be on the exact origin the person was asked to sign in to, so a login cannot be
  *    carried to a page that redirected somewhere else (or that the Bot navigated to afterwards);
@@ -16,14 +20,25 @@
  * Every failure is one of this module's own sentences. A Playwright error can quote the call it was
  * making, and this call's arguments are a password.
  */
-import type { Locator, Page } from "playwright";
+import type { Frame, Locator, Page } from "playwright";
 import { markElementSecret, SECRET_ATTRIBUTE } from "./secret-masking";
 
 export type SignInFillInput = {
   origin: string;
   username?: string;
-  password: string;
+  /** Absent for a page that asks for a one-time code alone. */
+  password?: string;
   code?: string;
+};
+
+/** What the page the Bot has open asks for, read before the person is shown a form. */
+export type SignInProbe = {
+  url: string;
+  origin: string;
+  host: string;
+  form: "login" | "username" | "code" | "none";
+  /** The site's icon as a small data URL, read through the Bot's own browser. */
+  icon?: string;
 };
 
 export type SignInFillResult = {
@@ -54,15 +69,17 @@ export function parseSignInFill(body: unknown): SignInFillInput | string {
   const input = body as Record<string, unknown>;
   if (typeof input.origin !== "string" || !originOfUrl(input.origin))
     return "A sign-in names the website's origin.";
-  if (typeof input.password !== "string" || !input.password)
-    return "A sign-in needs a password.";
+  if (input.password !== undefined && typeof input.password !== "string")
+    return "The password must be text.";
   if (input.username !== undefined && typeof input.username !== "string")
     return "The username must be text.";
   if (input.code !== undefined && typeof input.code !== "string")
     return "The code must be text.";
+  if (!input.password && !input.code)
+    return "A sign-in needs a password, or a code for a page that asks for one alone.";
   return {
     origin: originOfUrl(input.origin),
-    password: input.password,
+    ...(input.password ? { password: input.password } : {}),
     ...(input.username ? { username: input.username } : {}),
     ...(input.code ? { code: input.code } : {}),
   };
@@ -215,10 +232,10 @@ function markSubmit(
   return "key";
 }
 
-async function submitFrom(page: Page, field: Locator) {
+async function submitFrom(frame: Frame, field: Locator) {
   const how = await field.evaluate(markSubmit, LOGIN_ATTRIBUTE);
   if (how === "button")
-    await page
+    await frame
       .locator(`[${LOGIN_ATTRIBUTE}="submit"]`)
       .click({ timeout: STEP_TIMEOUT_MS });
   else if (how === "form")
@@ -242,6 +259,96 @@ async function passwordVisible(page: Page) {
   return (await page.locator("input[type=password]:visible").count()) > 0;
 }
 
+/**
+ * The frame that holds the form, the main frame first.
+ *
+ * A login is often in the page itself and sometimes in a frame the page embeds (a bank's or an
+ * identity provider's widget), so every frame is asked in turn, with the page's own marker run in
+ * each. Frames that refuse to be evaluated (still loading, gone) are skipped.
+ */
+async function frameWith<T extends { found: boolean }>(
+  page: Page,
+  ask: (frame: Frame) => Promise<T>,
+): Promise<{ frame: Frame; answer: T } | null> {
+  const main = page.mainFrame();
+  for (const frame of [main, ...page.frames().filter((f) => f !== main)]) {
+    try {
+      const answer = await ask(frame);
+      if (answer.found) return { frame, answer };
+    } catch {
+      // A frame mid-navigation or detached: not this one.
+    }
+  }
+  return null;
+}
+
+const loginIn = (frame: Frame) =>
+  frame
+    .evaluate(markLoginFields, LOGIN_ATTRIBUTE)
+    .then((marked) => ({
+      ...marked,
+      found: marked.password || marked.username,
+    }));
+
+const codeIn = (frame: Frame) =>
+  frame.evaluate(markCodeField, LOGIN_ATTRIBUTE).then((found) => ({ found }));
+
+/**
+ * The page's icon, small, as a data URL, fetched by the Bot's own browser (so through its own egress
+ * and never by the server). Anything that is not a small image is no icon.
+ */
+async function pageIcon(page: Page): Promise<string | undefined> {
+  try {
+    const href = await page.evaluate(() => {
+      const link = document.querySelector<HTMLLinkElement>(
+        'link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]',
+      );
+      return link?.href || new URL("/favicon.ico", location.origin).href;
+    });
+    if (!/^https?:/.test(href)) return undefined;
+    const response = await page.request.get(href, {
+      timeout: 4_000,
+      maxRedirects: 3,
+    });
+    if (!response.ok()) return undefined;
+    const type =
+      (response.headers()["content-type"] ?? "").split(";")[0]?.trim() ?? "";
+    if (
+      !/^image\/(png|x-icon|vnd\.microsoft\.icon|svg\+xml|jpeg|gif|webp)$/.test(
+        type,
+      )
+    )
+      return undefined;
+    const body = await response.body();
+    if (body.length === 0 || body.length > 32_768) return undefined;
+    return `data:${type};base64,${body.toString("base64")}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the Bot's page asks for right now. Reads and marks fields; types nothing. */
+export async function probeSignIn(page: Page): Promise<SignInProbe> {
+  const url = page.url();
+  const origin = originOfUrl(url);
+  let host = "";
+  try {
+    host = origin ? new URL(origin).host : "";
+  } catch {
+    host = "";
+  }
+  const login = await frameWith(page, loginIn);
+  const form: SignInProbe["form"] = login
+    ? login.answer.password
+      ? "login"
+      : "username"
+    : (await frameWith(page, codeIn))
+      ? "code"
+      : "none";
+  const icon = origin ? await pageIcon(page) : undefined;
+  return { url, origin, host, form, ...(icon ? { icon } : {}) };
+}
+
 async function typeSecret(field: Locator, value: string) {
   await field.fill(value, { timeout: STEP_TIMEOUT_MS });
   await field.evaluate(markElementSecret, SECRET_ATTRIBUTE);
@@ -262,19 +369,38 @@ export async function fillSignIn(
       `The Bot's browser is not on ${input.origin}. Ask it to open that site's sign-in page and try again.`,
     );
   try {
-    let found = await page.evaluate(markLoginFields, LOGIN_ATTRIBUTE);
-    if (!found.password && !found.username)
+    if (!input.password) {
+      // A one-time code on a page of its own, sent after the login (an SMS confirmation, say).
+      const code = await frameWith(page, codeIn);
+      if (!code)
+        return answer("There is no code field on the page the Bot has open.");
+      const codeField = code.frame.locator(`[${LOGIN_ATTRIBUTE}="code"]`);
+      await typeSecret(codeField, input.code ?? "");
+      await submitFrom(code.frame, codeField);
+      await settle(page);
+      return {
+        submitted: true,
+        passwordFieldVisible: await passwordVisible(page),
+        url: page.url(),
+      };
+    }
+    let login = await frameWith(page, loginIn);
+    if (!login)
       return answer("There is no sign-in form on the page the Bot has open.");
-    const usernameField = page.locator(`[${LOGIN_ATTRIBUTE}="username"]`);
-    if (found.username && input.username)
-      await usernameField.fill(input.username, { timeout: STEP_TIMEOUT_MS });
-    if (!found.password) {
+    let frame = login.frame;
+    const usernameField = () =>
+      frame.locator(`[${LOGIN_ATTRIBUTE}="username"]`);
+    // Masked like the password: "never shown to your Bot" covers the username too, and a username
+    // field is not a type the snapshot hides on its own.
+    if (login.answer.username && input.username)
+      await typeSecret(usernameField(), input.username);
+    if (!login.answer.password) {
       // Two steps: username first, then the site shows the password field.
       if (!input.username)
         return answer(
           "This site asks for a username first. Enter one and try again.",
         );
-      await submitFrom(page, usernameField);
+      await submitFrom(frame, usernameField());
       await page
         .locator("input[type=password]:visible")
         .first()
@@ -285,16 +411,17 @@ export async function fillSignIn(
           `The sign-in moved to ${originOfUrl(page.url()) || "another page"}. Take over the browser to finish signing in there.`,
           true,
         );
-      found = await page.evaluate(markLoginFields, LOGIN_ATTRIBUTE);
-      if (!found.password)
+      login = await frameWith(page, loginIn);
+      if (!login?.answer.password)
         return answer(
           "The site did not ask for a password after the username.",
           true,
         );
+      frame = login.frame;
     }
-    const passwordField = page.locator(`[${LOGIN_ATTRIBUTE}="password"]`);
+    const passwordField = frame.locator(`[${LOGIN_ATTRIBUTE}="password"]`);
     await typeSecret(passwordField, input.password);
-    await submitFrom(page, passwordField);
+    await submitFrom(frame, passwordField);
     await settle(page);
     if (input.code) {
       if (originOfUrl(page.url()) !== input.origin)
@@ -302,15 +429,15 @@ export async function fillSignIn(
           `The sign-in moved to ${originOfUrl(page.url()) || "another page"} before the code was asked for. Take over the browser to finish.`,
           true,
         );
-      let hasCode = await page.evaluate(markCodeField, LOGIN_ATTRIBUTE);
-      if (!hasCode) {
+      let code = await frameWith(page, codeIn);
+      if (!code) {
         await page.waitForTimeout(2_000);
-        hasCode = await page.evaluate(markCodeField, LOGIN_ATTRIBUTE);
+        code = await frameWith(page, codeIn);
       }
-      if (hasCode) {
-        const codeField = page.locator(`[${LOGIN_ATTRIBUTE}="code"]`);
+      if (code) {
+        const codeField = code.frame.locator(`[${LOGIN_ATTRIBUTE}="code"]`);
         await typeSecret(codeField, input.code);
-        await submitFrom(page, codeField);
+        await submitFrom(code.frame, codeField);
         await settle(page);
       }
     }

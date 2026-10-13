@@ -84,6 +84,10 @@ export function createSignInRoutes(
       actor: actorOf(context),
       threadId: field(body, "threadId", { max: 200 }),
       toolCallId: field(body, "toolCallId", { max: 200 }),
+      title: field(body, "title", { max: 200 }),
+      usernameLabel: field(body, "usernameLabel", { max: 100 }),
+      passwordLabel: field(body, "passwordLabel", { max: 100 }),
+      codeLabel: field(body, "codeLabel", { max: 100 }),
     });
     return context.json(
       await service.get(context.var.actor.id, request.id),
@@ -110,7 +114,7 @@ export function createSignInRoutes(
         actorOf(context),
         {
           username: field(body, "username", { max: 512 }),
-          password: field(body, "password", { required: true }) as string,
+          password: field(body, "password"),
           code: field(body, "code", { max: 64 }),
           save: body?.save === true,
         },

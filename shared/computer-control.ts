@@ -34,7 +34,14 @@ export type ComputerControlState = {
   secretWanted?: string;
   secretRef?: string;
   secretSnapshotId?: number;
+  /**
+   * How the most recent secret request ended, so the Bot is told the truth: the value landed in the
+   * field, nobody entered it in time, it was cancelled, or the field had gone by the time it came.
+   * Never the value.
+   */
+  lastSecret?: { label: string; outcome: SecretOutcome; at: string };
 };
+export type SecretOutcome = "supplied" | "expired" | "cancelled" | "field-gone";
 export type RequestHelpInput = { reason: string; toolCallId?: string };
 export type ControlRequestInput = { requestId: string };
 export type BrowserChallenge = {

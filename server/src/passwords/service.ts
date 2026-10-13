@@ -36,7 +36,8 @@ export type SignInService = ReturnType<typeof createSignInService>;
 
 export type SignInServiceDependencies = {
   store: PasswordStore;
-  gateway: Pick<ComputerGateway, "signIn" | "requestHelp">;
+  gateway: Pick<ComputerGateway, "signIn" | "requestHelp"> &
+    Partial<Pick<ComputerGateway, "probeSignIn">>;
   /** The deployment's KEY_ENCRYPTION_KEY, the same one `credentials.ts` encrypts under. */
   encryptionKey: string;
   auditStore?: AuditStore;
@@ -119,6 +120,33 @@ export function createSignInService(deps: SignInServiceDependencies) {
   const ttlMs = deps.ttlMs ?? DEFAULT_TTL_MS;
   const managerOn = async (owner: string) =>
     deps.passwordManagerEnabled ? deps.passwordManagerEnabled(owner) : true;
+  /**
+   * What the probe read for each open request: which fields the page wants, the site's icon, and the
+   * site the Bot named when the form was elsewhere. In memory only, beside the row rather than in it:
+   * it is presentation, it expires with the request, and losing it on a restart only means the
+   * form shows its default fields and a globe.
+   */
+  const probed = new Map<
+    string,
+    {
+      form?: "login" | "username" | "code";
+      icon?: string;
+      requestedOrigin?: string;
+      title?: string;
+      usernameLabel?: string;
+      passwordLabel?: string;
+      codeLabel?: string;
+      until: number;
+    }
+  >();
+  const probeOf = (id: string) => {
+    const entry = probed.get(id);
+    if (entry && entry.until < Date.now()) {
+      probed.delete(id);
+      return undefined;
+    }
+    return entry;
+  };
 
   async function audit(
     eventType:
@@ -205,6 +233,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
       ownerUserId: _owner,
       ...rest
     } = request;
+    const probe = probeOf(request.id);
     return {
       ...rest,
       passwordManager,
@@ -212,6 +241,13 @@ export function createSignInService(deps: SignInServiceDependencies) {
         id: login.id,
         username: login.username,
       })),
+      ...(probe
+        ? Object.fromEntries(
+            Object.entries(probe).filter(
+              ([key, value]) => key !== "until" && value !== undefined,
+            ),
+          )
+        : {}),
     };
   }
 
@@ -225,7 +261,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
     owner: string,
     id: string,
     actor: ActionActor,
-    credential: { username?: string; password: string; code?: string },
+    credential: { username?: string; password?: string; code?: string },
     method: "typed" | "saved",
     extra: { loginId?: string; save?: boolean },
   ): Promise<SignInRequestRecord> {
@@ -262,13 +298,13 @@ export function createSignInService(deps: SignInServiceDependencies) {
       result = await gateway.signIn(claimed.botId, {
         origin: claimed.origin,
         ...(credential.username ? { username: credential.username } : {}),
-        password: credential.password,
+        ...(credential.password ? { password: credential.password } : {}),
         ...(credential.code ? { code: credential.code } : {}),
       });
       if (result.error) failure = scrub(result.error, secrets);
       else if (!result.submitted)
         failure = "The sign-in form could not be submitted.";
-      else if (result.passwordFieldVisible)
+      else if (credential.password && result.passwordFieldVisible)
         failure =
           "The site still shows a password field, so the login was probably not accepted.";
     } catch (error) {
@@ -323,7 +359,7 @@ export function createSignInService(deps: SignInServiceDependencies) {
       ...(extra.loginId ? { savedLogin: extra.loginId } : {}),
     });
     await resolved(done);
-    if (saving && credential.username) {
+    if (saving && credential.username && credential.password) {
       try {
         const saved = await store.saveLogin({
           ownerUserId: owner,
@@ -369,8 +405,39 @@ export function createSignInService(deps: SignInServiceDependencies) {
       continuation?: Record<string, unknown>;
       /** Send it to the owner's delivery channels. Unattended turns do; the open chat need not. */
       notify?: boolean;
+      /** How the Bot titles the form and labels its fields, shown as given (trimmed, short). */
+      title?: string;
+      usernameLabel?: string;
+      passwordLabel?: string;
+      codeLabel?: string;
     }): Promise<SignInRequestRecord> {
-      const origin = originOf(input.site);
+      const requested = originOf(input.site);
+      let origin = requested;
+      /*
+       * LOOK BEFORE ASKING. A Bot that asks on a page with no form on it (still on the service's
+       * description page, before its "Sign in" button) had the person type a password into a form
+       * that could only fail. The computer reads the page first: no form, and the Bot is told to open
+       * the sign-in page and ask again; a form on another origin than the one named (gov.gr sends
+       * Taxisnet to oauth2.gsis.gr), and the request is for where the form really is, which is the
+       * host the person is shown before typing. A computer that cannot be asked leaves today's
+       * behaviour: the named origin, checked again at fill time.
+       */
+      let probe:
+        | Awaited<ReturnType<NonNullable<typeof gateway.probeSignIn>>>
+        | undefined;
+      if (gateway.probeSignIn) {
+        try {
+          probe = await gateway.probeSignIn(input.botId);
+        } catch {
+          probe = undefined;
+        }
+      }
+      if (probe?.form === "none")
+        throw new SignInRefusedError(
+          `There is no sign-in form on ${probe.host || "the page you have open"} yet. Open the site's sign-in page first (its "Sign in", "Log in" or "Είσοδος" button), wait for the login fields to show, then ask again.`,
+          409,
+        );
+      if (probe?.origin) origin = probe.origin;
       const request = await store.createRequest({
         id: randomUUID(),
         ownerUserId: input.ownerUserId,
@@ -381,6 +448,21 @@ export function createSignInService(deps: SignInServiceDependencies) {
         toolCallId: input.toolCallId ?? null,
         continuation: input.continuation ?? null,
         expiresAt: new Date(Date.now() + ttlMs),
+      });
+      const short = (value: string | undefined, max: number) =>
+        value?.trim().slice(0, max) || undefined;
+      const shown = {
+        title: short(input.title, 80),
+        usernameLabel: short(input.usernameLabel, 40),
+        passwordLabel: short(input.passwordLabel, 40),
+        codeLabel: short(input.codeLabel, 60),
+      };
+      probed.set(request.id, {
+        ...(probe ? { form: probe.form } : {}),
+        ...(probe?.icon ? { icon: probe.icon } : {}),
+        ...(origin !== requested ? { requestedOrigin: requested } : {}),
+        ...shown,
+        until: Date.now() + ttlMs,
       });
       await audit(
         "computer.sign_in_requested",
@@ -427,13 +509,18 @@ export function createSignInService(deps: SignInServiceDependencies) {
       actor: ActionActor,
       input: {
         username?: string;
-        password: string;
+        password?: string;
         code?: string;
         save?: boolean;
       },
     ) {
-      if (!input.password)
-        throw new SignInRefusedError("Enter the password for this site.");
+      // A page that asks for a one-time code alone takes the code without a password.
+      if (!input.password && !input.code)
+        throw new SignInRefusedError(
+          probeOf(id)?.form === "code"
+            ? "Enter the code."
+            : "Enter the password for this site.",
+        );
       return view(
         await fill(owner, id, actor, input, "typed", {
           save: input.save === true,

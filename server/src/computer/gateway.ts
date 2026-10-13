@@ -80,6 +80,7 @@ import type {
   SecretResult,
   SignInFillInput,
   SignInFillResult,
+  SignInProbe,
   SnapshotElement,
   SnapshotResult,
   TypeInput,
@@ -243,6 +244,10 @@ export interface ComputerGateway {
     actor: ActionActor,
     text: string,
   ): Promise<SecretResult>;
+  /** A person declining the value the Bot asked for. Audited without any value. */
+  cancelSecret(botId: string, actor: ActionActor): Promise<ControlState>;
+  /** What the Bot's page asks for before a sign-in form is shown. Types nothing. */
+  probeSignIn(botId: string, signal?: AbortSignal): Promise<SignInProbe>;
   /** Fill and submit a login form on the Bot's current page. See passwords/service.ts. */
   signIn(
     botId: string,
@@ -949,6 +954,20 @@ export function createComputerGateway(
      * The credential arrives from the passwords module and goes straight to the computer. It is not
      * audited here, not returned, and not logged; the passwords module writes the row, without it.
      */
+    async cancelSecret(botId: string, actor: ActionActor) {
+      const state = await post<ControlState>(botId, "/human/secret/cancel", {});
+      await writeControlEvent(auditStore, "computer.secret_cancelled", {
+        botId,
+        actor,
+        reason: "The person declined to enter it.",
+      });
+      return state;
+    },
+
+    probeSignIn(botId: string, signal?: AbortSignal) {
+      return post<SignInProbe>(botId, "/sign-in/probe", {}, signal, 20_000);
+    },
+
     signIn(botId: string, input: SignInFillInput, signal?: AbortSignal) {
       return post<SignInFillResult>(
         botId,
@@ -1421,6 +1440,7 @@ async function writeControlEvent(
     | "computer.control_released"
     | "computer.secret_requested"
     | "computer.secret_supplied"
+    | "computer.secret_cancelled"
     | "computer.stopped"
     | "computer.reset"
     | "computer.updated",

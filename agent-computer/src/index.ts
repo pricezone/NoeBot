@@ -68,7 +68,7 @@ import {
 } from "./secret-masking";
 import { type BotSession, createSessions } from "./sessions";
 import { createShell } from "./shell";
-import { fillSignIn, parseSignInFill } from "./sign-in";
+import { fillSignIn, parseSignInFill, probeSignIn } from "./sign-in";
 import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
 import {
   createWorkspace,
@@ -968,7 +968,7 @@ serve<StreamData>({
           // Keeping it open is right for a mistyped value and wrong here: the person would retype their
           // password into the same dead ref for ever. Clearing it also unblocks the Bot, which can see
           // on its next turn that nothing is pending and ask again against a fresh snapshot.
-          session.control.secretSupplied();
+          session.control.secretSupplied("field-gone");
           return json(
             {
               error: describe(
@@ -989,6 +989,27 @@ serve<StreamData>({
        * whether a form was submitted and whether a password field is still showing, and every error
        * in it is `fillSignIn`'s own sentence rather than a browser's.
        */
+      /**
+       * What the Bot's page asks for, before a person is shown a sign-in form: a login, a username
+       * alone, a one-time code, or nothing, on which origin, with the site's icon. Reads and marks
+       * fields, types nothing, so it is not on the acting list and works while a person holds the
+       * wheel.
+       */
+      if (url.pathname === "/sign-in/probe" && request.method === "POST") {
+        const target = await currentPage(botId);
+        return json(await probeSignIn(target));
+      }
+
+      /** A person declining to enter the value the Bot asked for. */
+      if (
+        url.pathname === "/human/secret/cancel" &&
+        request.method === "POST"
+      ) {
+        if (!session.control.pendingSecret())
+          return json({ error: NO_SECRET_PENDING }, 409);
+        return json(session.control.cancelSecret());
+      }
+
       if (url.pathname === "/sign-in/fill" && request.method === "POST") {
         const input = parseSignInFill(await request.json().catch(() => null));
         if (typeof input === "string") return json({ error: input }, 400);
