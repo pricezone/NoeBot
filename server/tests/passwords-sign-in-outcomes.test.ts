@@ -361,6 +361,66 @@ describe("a login that moves on to another origin", () => {
   });
 });
 
+describe("a form in a frame on another site's page", () => {
+  test("is never asked for: the Bot is told to open the frame as a page first", async () => {
+    const store = createMemoryPasswordStore();
+    const service = createSignInService({
+      store,
+      encryptionKey: KEY,
+      gateway: {
+        signIn: async () => {
+          throw new Error("nothing should be typed");
+        },
+        requestHelp: async () =>
+          ({}) as Awaited<ReturnType<ComputerGateway["requestHelp"]>>,
+        probeSignIn: async () => ({
+          url: "https://shop.example/account",
+          origin: "https://id.example.net",
+          host: "id.example.net",
+          form: "login",
+          frameUrl: "https://id.example.net/embedded-login",
+        }),
+      },
+    });
+    const refusal = await service
+      .request({
+        ownerUserId: "owner",
+        botId: "bot",
+        site: "shop.example",
+        actor,
+      })
+      .catch((error: Error) => error.message);
+    expect(refusal).toContain(
+      "Open https://id.example.net/embedded-login with computer_navigate",
+    );
+    expect(await store.pendingRequests("owner")).toEqual([]);
+  });
+
+  test("found only at fill time, ends the request with the same instruction and types nothing more", async () => {
+    const { service, fills, resolved, ask } = setup({
+      fills: [
+        {
+          submitted: false,
+          openFrame: `https://id.example.net/embedded?hint=${encodeURIComponent(USERNAME)}`,
+        },
+      ],
+    });
+    const request = await ask();
+    const view = await service.submit("owner", request.id, actor, {
+      username: USERNAME,
+      password: PASSWORD,
+    });
+    expect(view.status).toBe("failed");
+    expect(fills).toHaveLength(1);
+    const result = signInToolResult(resolved[0] as SignInRequestRecord);
+    expect(result.result).toContain(
+      "Open https://id.example.net/embedded?hint=[hidden] with computer_navigate",
+    );
+    expect(JSON.stringify(result)).not.toContain(PASSWORD);
+    expect(JSON.stringify(result)).not.toContain(encodeURIComponent(USERNAME));
+  });
+});
+
 describe("one fill at a time, and none after the request closed", () => {
   test("a Cancel during a login that moves on stops it before the next host", async () => {
     let service: ReturnType<typeof setup>["service"] | undefined;

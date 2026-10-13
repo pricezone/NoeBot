@@ -512,6 +512,8 @@ export type SignInProbe = {
   icon?: string;
   /** The page read as the answer to a login just sent (read while an approval is awaited). */
   check?: { outcome: SignInOutcome; pageMessage?: string };
+  /** The form is in a frame from another site than its page: that frame's own address. */
+  frameUrl?: string;
 };
 
 /** What the computer reports. No field here ever carries a credential. */
@@ -529,6 +531,8 @@ export type SignInFillResult = {
   rememberDeviceLeftUnchecked?: boolean;
   /** The login went on to another origin that still asks for a password or code; nothing typed there. */
   movedTo?: { origin: string; form: "login" | "code" };
+  /** The form is in a frame on another site's page; nothing typed. The frame's own address. */
+  openFrame?: string;
 };
 
 export type SecretResult = {
