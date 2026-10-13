@@ -110,4 +110,15 @@ instance end to end, using tasks on the-internet.herokuapp.com.
 |---|---|---|---|---|
 | Before (production, 2026-10-13) | 4 steps on the-internet.herokuapp.com: dropdown, checkboxes, dynamic loading, JS confirm | 3 min 10 s | 0 / 4 | Three 30 s navigation timeouts with raw call logs. A click on the `<select>` could not choose. The turn ended silently after the click. |
 
-The rows for this build, with in-run tools off and on, are added after the live benchmark.
+| After (53b5a71/66d190d, tools in the run, 2026-10-13 23:17) | same task | 4 min 15 s | 4 / 4 | One run for the whole turn: model 3.5–5 s per step (first token about 3 s), actions 0.1–0.5 s. Six navigations to the-internet.herokuapp.com took 30–35 s each: about 170 of the 249 s. Two failed calls at the start came from the snapshot-after-restart gate. |
+
+**Where the after-run spent its time.** The per-step overhead is gone: there is no new run, lock,
+history read or saved-call wait per step. What remained was one site's network path. From this
+server, a connection to the-internet.herokuapp.com sometimes got no answer for 30 s, while the next
+attempt answered in 1.5 s. Other sites (example.com, wikipedia.org, gov.gr, httpbin.org) answered
+in about 1 s.
+
+**Fixed in 3f3f8ae:**
+- **Fresh look:** opening a page is no longer held for a fresh look after a restart.
+- **Retry:** navigation waits 12 s for a first answer, then tries again on a fresh connection,
+  within the same 30 s deadline.
