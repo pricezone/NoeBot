@@ -126,6 +126,7 @@ test("a person's own Chrome keeps its language, its keychain and its sandbox", (
   const local = launchArgs({ sandbox: true, localChrome: true });
   expect(local).not.toContain("--lang=en-US");
   expect(local).not.toContain("--password-store=basic");
+  expect(local).not.toContain("--use-mock-keychain");
   expect(local).not.toContain("--no-sandbox");
   expect(managed).toContain("--no-sandbox");
 });
@@ -150,4 +151,11 @@ test.skipIf(
     .map((match) => match[1])
     .slice(0, PLAYWRIGHT_DISABLED_FEATURES.length);
   expect(shipped).toEqual([...PLAYWRIGHT_DISABLED_FEATURES]);
+});
+
+test("the managed browser on a Mac never asks for the login keychain", () => {
+  const args = launchArgs({ sandbox: true, localChrome: false });
+  expect(args.includes("--use-mock-keychain")).toBe(
+    process.platform === "darwin",
+  );
 });

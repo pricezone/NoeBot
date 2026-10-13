@@ -124,6 +124,12 @@ export function launchArgs({
     ...(sandbox ? [] : ["--no-sandbox"]),
     "--disable-dev-shm-usage",
     ...(localChrome ? [] : ["--password-store=basic"]),
+    // The managed browser on a Mac (a developer's test run) must not ask for the login keychain:
+    // `--password-store` only chooses a Linux keyring, and macOS Chromium otherwise prompts for
+    // "Chromium Safe Storage". A person's own Chrome keeps its keychain.
+    ...(localChrome || process.platform !== "darwin"
+      ? []
+      : ["--use-mock-keychain"]),
     // Drop the automation signals Chromium sets for itself, so a real person who takes the wheel can
     // sign in to a site that refuses obvious automation (Google among them). This is the flag, not a
     // JS patch of `navigator.webdriver`: the flag turns the property off at the source, where
