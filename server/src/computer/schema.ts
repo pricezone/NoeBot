@@ -2,6 +2,7 @@ import type {
   BrowserChallenge,
   ComputerControlState,
 } from "../../../shared/computer-control";
+import type { SignInOutcome } from "../../../shared/sign-in-guidance";
 /**
  * The computer-use contract.
  *
@@ -347,6 +348,8 @@ export type SignInProbe = {
   host: string;
   form: "login" | "username" | "code" | "none";
   icon?: string;
+  /** The page read as the answer to a login just sent (read while an approval is awaited). */
+  check?: { outcome: SignInOutcome; pageMessage?: string };
 };
 
 /** What the computer reports. No field here ever carries a credential. */
@@ -356,6 +359,14 @@ export type SignInFillResult = {
   passwordFieldVisible: boolean;
   url: string;
   error?: string;
+  /** How the page answered, read by the computer after the submit. Absent from an older computer. */
+  outcome?: SignInOutcome;
+  /** The site's own message near the form, such as its error. */
+  pageMessage?: string;
+  /** A "remember this device" box was left unchecked. */
+  rememberDeviceLeftUnchecked?: boolean;
+  /** The login went on to another origin that still asks for a password or code; nothing typed there. */
+  movedTo?: { origin: string; form: "login" | "code" };
 };
 
 export type SecretResult = {

@@ -60,15 +60,18 @@ import {
 } from "./request-validation";
 import { type InputMessage, startScreencast } from "./screencast";
 import {
-  markElementSecret,
   maskSensitiveValues,
-  SECRET_ATTRIBUTE,
   SENSITIVE_FIELD_SELECTOR,
   sensitiveRefs,
 } from "./secret-masking";
 import { type BotSession, createSessions } from "./sessions";
 import { createShell } from "./shell";
-import { fillSignIn, parseSignInFill, probeSignIn } from "./sign-in";
+import {
+  fillSignIn,
+  parseSignInFill,
+  probeSignIn,
+  typeSecretValue,
+} from "./sign-in";
 import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
 import {
   createWorkspace,
@@ -950,11 +953,9 @@ serve<StreamData>({
           // nothing is typed, which is the outcome the generation check existed to guarantee.
           const field = locateRef(session, target, pending.ref, undefined);
           await field.click({ timeout: ACTION_TIMEOUT_MS });
-          await field.fill(body.text, { timeout: ACTION_TIMEOUT_MS });
-          // Marked so the snapshot, screenshots and the live screen never show it back.
-          await field
-            .evaluate(markElementSecret, SECRET_ATTRIBUTE)
-            .catch(() => undefined);
+          // Typed into the field, or spread one character per box over a code split into boxes,
+          // and marked so the snapshot, screenshots and the live screen never show it back.
+          await typeSecretValue(target, field, body.text, ACTION_TIMEOUT_MS);
           const characters = body.text.length;
           // Cleared only after it actually landed, so a failure leaves the request open and the person
           // can try again rather than being told to start over.

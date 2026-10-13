@@ -77,7 +77,7 @@ beforeAll(async () => {
             else document.body.insertAdjacentHTML('beforeend', '<p>Wrong</p>');
           ">Submit</button></div>`);
       if (url.pathname === "/home") return page("<h1>Welcome back</h1>");
-      // A confirmation code on a page of its own, after the login (gov.gr's SMS step).
+      // A confirmation code on a page of its own, after the login (an SMS step, labelled in Greek).
       if (url.pathname === "/code")
         return page(`<form method="post" action="/code-check">
           <label>Κωδικός Επιβεβαίωσης <input name="otp" autocomplete="one-time-code"></label>
@@ -173,12 +173,13 @@ describe.skipIf(!asked)("typing a login", () => {
       submitted: true,
       passwordFieldVisible: false,
       url: `${origin}/home`,
+      outcome: "signed-in",
     });
     expect(JSON.stringify(result)).not.toContain(PASSWORD);
     await tab.close();
   });
 
-  test("a rejected password leaves a password field showing, which is the failure signal", async () => {
+  test("a rejected password comes back as an error, quoting what the site said", async () => {
     const tab = await open("/login");
     const result = await fillSignIn(tab, {
       origin,
@@ -187,6 +188,8 @@ describe.skipIf(!asked)("typing a login", () => {
     });
     expect(result.submitted).toBe(true);
     expect(result.passwordFieldVisible).toBe(true);
+    expect(result.outcome).toBe("error");
+    expect(result.pageMessage).toBe("Wrong password");
     await tab.close();
   });
 
@@ -216,6 +219,7 @@ describe.skipIf(!asked)("typing a login", () => {
       submitted: true,
       passwordFieldVisible: false,
       url: `${origin}/home`,
+      outcome: "signed-in",
     });
     await tab.close();
   });
@@ -296,8 +300,23 @@ describe.skipIf(!asked)(
     test("a code page takes the code alone, masked, and submits it", async () => {
       const tab = await open("/code");
       const result = await fillSignIn(tab, { origin, code: CODE });
-      expect(result).toMatchObject({ submitted: true, url: `${origin}/home` });
+      expect(result).toMatchObject({
+        submitted: true,
+        url: `${origin}/home`,
+        outcome: "signed-in",
+      });
       expect(JSON.stringify(result)).not.toContain(CODE);
+      await tab.close();
+    });
+
+    test("a wrong code is reported as wrong, never as signed in", async () => {
+      const tab = await open("/code");
+      const result = await fillSignIn(tab, { origin, code: "000000" });
+      expect(result).toMatchObject({
+        submitted: true,
+        outcome: "error",
+        pageMessage: "Wrong code",
+      });
       await tab.close();
     });
 

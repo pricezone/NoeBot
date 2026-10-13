@@ -47,6 +47,14 @@ export function confirmSavedLoginMutationOptions(queryClient: QueryClient) {
   });
 }
 
+/** The person saying they approved the sign-in on their phone: the server reads the page now. */
+export function continueSignInMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationFn: (id: string) => post(id, "continue"),
+    onSettled: () => invalidate(queryClient),
+  });
+}
+
 export function takeOverSignInMutationOptions(queryClient: QueryClient) {
   return mutationOptions({
     mutationFn: (id: string) => post(id, "take-over"),
