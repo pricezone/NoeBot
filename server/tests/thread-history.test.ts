@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { historyOrEmpty, isMissingThread } from "../src/copilot";
+import {
+  historyOrEmpty,
+  isMissingThread,
+  isPassingPlatformFailure,
+  PLATFORM_RETRY_DELAYS_MS,
+  withPlatformRetry,
+} from "../src/copilot";
 
 /**
  * Reading history on a thread the platform has never seen.
@@ -95,5 +101,89 @@ describe("reading a history that may not exist yet", () => {
         throw new Error("the network went away");
       }, empty),
     ).rejects.toThrow("the network went away");
+  });
+});
+
+describe("asking the platform again", () => {
+  const noWait = { sleep: async () => {} };
+
+  test("a 502 then an answer is the answer", async () => {
+    let calls = 0;
+    const answer = await withPlatformRetry(async () => {
+      calls += 1;
+      if (calls < 3) throw platformError(502);
+      return "locked for you";
+    }, noWait);
+
+    expect(answer).toBe("locked for you");
+    expect(calls).toBe(3);
+  });
+
+  test("a network failure before any answer is asked again", async () => {
+    let calls = 0;
+    const answer = await withPlatformRetry(async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      return 1;
+    }, noWait);
+
+    expect(answer).toBe(1);
+  });
+
+  test("a 409 is waited out only where it was asked for", async () => {
+    let calls = 0;
+    const attempt = async () => {
+      calls += 1;
+      if (calls === 1) throw platformError(409);
+      return "ok";
+    };
+
+    await expect(withPlatformRetry(attempt, noWait)).rejects.toThrow("409");
+    calls = 0;
+    expect(
+      await withPlatformRetry(attempt, {
+        ...noWait,
+        statuses: new Set([409]),
+      }),
+    ).toBe("ok");
+  });
+
+  test("a 404 or a 401 is not asked again", async () => {
+    for (const status of [404, 401, 500]) {
+      let calls = 0;
+      await expect(
+        withPlatformRetry(async () => {
+          calls += 1;
+          throw platformError(status);
+        }, noWait),
+      ).rejects.toThrow(String(status));
+      expect(calls).toBe(1);
+    }
+  });
+
+  test("it gives up when the delays run out, with the last failure", async () => {
+    let calls = 0;
+    const waited: number[] = [];
+    await expect(
+      withPlatformRetry(
+        async () => {
+          calls += 1;
+          throw platformError(503);
+        },
+        {
+          delaysMs: [1, 2],
+          sleep: async (ms) => {
+            waited.push(ms);
+          },
+        },
+      ),
+    ).rejects.toThrow("503");
+    expect(calls).toBe(3);
+    expect(waited).toEqual([1, 2]);
+  });
+
+  test("the delays add up to about sixteen seconds", () => {
+    expect(PLATFORM_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)).toBe(15750);
+    expect(isPassingPlatformFailure(platformError(429))).toBe(true);
   });
 });

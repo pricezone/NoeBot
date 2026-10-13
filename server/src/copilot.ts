@@ -2096,23 +2096,106 @@ export async function historyOrEmpty<T>(
 }
 
 /**
- * The platform client, with one answer corrected.
+ * Platform answers that pass on their own, by HTTP status, for a call that is safe to make again.
+ *
+ * A 502, 503 or 504 is the platform's edge or a node of it being briefly unreachable, and 429 is it
+ * asking for a pause. A network failure before any answer (`fetch` throws a `TypeError`) is the same
+ * thing from this side. None of them says anything about the request itself.
+ */
+const PASSING_STATUSES: ReadonlySet<number> = new Set([429, 502, 503, 504]);
+
+/**
+ * Taking a conversation's lock also waits out a 409: a lock still held by a run that has just
+ * ended. Its release is a request of its own after the run's last event, so a person who answers
+ * quickly reaches the platform before it has, and was told the thread is locked.
+ */
+const LOCK_STATUSES: ReadonlySet<number> = new Set([...PASSING_STATUSES, 409]);
+
+/** Whether this failure is one of `statuses`, or a network failure with no answer at all. */
+export function isPassingPlatformFailure(
+  error: unknown,
+  statuses: ReadonlySet<number> = PASSING_STATUSES,
+): boolean {
+  if (error instanceof TypeError) return true;
+  if (!(error instanceof Error) || error.name !== "PlatformRequestError")
+    return false;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" && statuses.has(status);
+}
+
+/**
+ * About sixteen seconds in all, rising: long enough for a platform blip and for a finished run's lock
+ * release to land, short enough that a real outage still says so while the person is looking.
+ */
+export const PLATFORM_RETRY_DELAYS_MS: readonly number[] = [
+  250, 500, 1000, 2000, 3000, 4000, 5000,
+];
+
+/**
+ * Make a platform call, asking again after each passing failure until the delays run out.
+ *
+ * WHY THIS EXISTS. In the gov.gr run (docs/gov-gr-declaration-run.md, O16 and O18) the platform
+ * answered the run's lock request with a 502 several times in an hour, and once with a 409 for a lock
+ * the previous turn was still letting go of. The runtime asks once and turns any failure into a
+ * failed run: the Bot's turn ended without a word, or the person's message came back "Thread is
+ * locked". The same request a second later went through every time.
+ */
+export async function withPlatformRetry<T>(
+  attempt: () => Promise<T>,
+  {
+    statuses = PASSING_STATUSES,
+    delaysMs = PLATFORM_RETRY_DELAYS_MS,
+    sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms)),
+  }: {
+    statuses?: ReadonlySet<number>;
+    delaysMs?: readonly number[];
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<T> {
+  for (let tried = 0; ; tried++) {
+    try {
+      return await attempt();
+    } catch (error) {
+      const delay = delaysMs[tried];
+      if (delay === undefined || !isPassingPlatformFailure(error, statuses))
+        throw error;
+      await sleep(delay);
+    }
+  }
+}
+
+/**
+ * The platform client, with a new thread's history corrected and two calls made patient.
  *
  * A subclass rather than a wrapper. The runtime is handed this object and calls many methods on it,
  * and the base class keeps its state in `#private` fields. Extending keeps every other method on
  * the instance that owns those fields. The authentication observer separately binds methods to
  * that original instance, so it preserves this override and its private-field receiver.
  *
- * `getThreadMessages` is the only override. `handleGetThreadMessages` in the runtime calls it and
- * returns `Response.json` of whatever comes back, so an empty history here is the `{ messages: [] }`
- * the browser expects and a 200 instead of a 500.
+ * `getThreadMessages`: `handleGetThreadMessages` in the runtime calls it and returns
+ * `Response.json` of whatever comes back, so an empty history here is the `{ messages: [] }` the
+ * browser expects and a 200 instead of a 500. It is also asked again through a passing failure.
+ *
+ * `ɵacquireThreadLock`: the first thing every run does, asked again through a passing failure or a
+ * 409 for a lock the previous run is still releasing (see `withPlatformRetry`).
  */
 class IntelligenceKnowingANewThread extends CopilotKitIntelligence {
   override getThreadMessages(
     params: Parameters<CopilotKitIntelligence["getThreadMessages"]>[0],
   ) {
-    return historyOrEmpty(() => super.getThreadMessages(params), {
-      messages: [],
+    return withPlatformRetry(() =>
+      historyOrEmpty(() => super.getThreadMessages(params), {
+        messages: [],
+      }),
+    );
+  }
+
+  /** Asked again through a passing failure or a lock still being let go: see `withPlatformRetry`. */
+  override ɵacquireThreadLock(
+    params: Parameters<CopilotKitIntelligence["ɵacquireThreadLock"]>[0],
+  ) {
+    return withPlatformRetry(() => super.ɵacquireThreadLock(params), {
+      statuses: LOCK_STATUSES,
     });
   }
 }
