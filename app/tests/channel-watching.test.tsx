@@ -166,6 +166,18 @@ beforeAll(() => {
                   threadId: body.threadId,
                   runId: body.runId,
                 },
+                // The continuation answers. An empty one is retried once (a silent end is a failure).
+                {
+                  type: "TEXT_MESSAGE_START",
+                  messageId: "signed-in-reply",
+                  role: "assistant",
+                },
+                {
+                  type: "TEXT_MESSAGE_CONTENT",
+                  messageId: "signed-in-reply",
+                  delta: "Signed in.",
+                },
+                { type: "TEXT_MESSAGE_END", messageId: "signed-in-reply" },
                 {
                   type: "RUN_FINISHED",
                   threadId: body.threadId,
