@@ -34,6 +34,14 @@ export const COMPUTER_TOOLS = [
   "computer_download_file",
   "computer_write_file",
   "computer_list_files",
+  "computer_fill",
+  "computer_select",
+  "computer_check",
+  "computer_upload",
+  "computer_hover",
+  "computer_dialog",
+  "computer_tabs",
+  "computer_back",
 ] as const;
 
 /**
@@ -62,6 +70,18 @@ export const COMPUTER_ACTING_TOOLS = [
   "computer_download_file",
   "computer_write_file",
   "computer_list_files",
+  // A whole form at once. Governed field by field under the single-field tools' names (see
+  // `ComputerGateway.fill`), so a rule about typing or ticking applies inside a fill as well.
+  "computer_fill",
+  "computer_select",
+  "computer_check",
+  // A file leaves the workspace for a website: governed with the file's path, like a download.
+  "computer_upload",
+  "computer_hover",
+  // Accepting "Are you sure you want to delete this?" is pressing its OK button.
+  "computer_dialog",
+  "computer_tabs",
+  "computer_back",
 ] as const;
 
 export type ComputerActingToolName = (typeof COMPUTER_ACTING_TOOLS)[number];
@@ -73,6 +93,44 @@ export function isActingTool(name: string): name is ComputerActingToolName {
 export type ComputerToolName = (typeof COMPUTER_TOOLS)[number];
 
 export type NavigateInput = { url: string; toolCallId?: string };
+
+/** A JavaScript dialog the page is paused on, or one that was dismissed for nobody answering. */
+export type PageDialog = {
+  type: "alert" | "confirm" | "prompt" | "beforeunload";
+  message: string;
+  defaultValue?: string;
+  /** Dismissed after a minute without an answer: nothing is left to answer. */
+  dismissed?: true;
+};
+
+/**
+ * The page an acting call left behind. Every acting result carries one, so the Bot does not spend
+ * a second round trip on a snapshot to find out what its click did.
+ *
+ * `elements` are compact lines, one per element (`e5 textbox "Email" = "a@b.c"`); with `changed`
+ * they list only what is new or different since the previous snapshot of the same page, and refs
+ * from that earlier list stay valid with this `snapshotId`.
+ */
+export type PageReport = {
+  url: string;
+  title: string;
+  /** The HTTP status, when the action navigated the page. */
+  status?: number;
+  /** Send this with the next action's refs. */
+  snapshotId: number;
+  elements: string[];
+  changed?: true;
+  dialog?: PageDialog;
+  /** The action opened a new tab or window, which is now the active page. */
+  opened?: { url: string };
+  /** A file the action downloaded, saved in the workspace. */
+  download?: { path: string; bytes: number };
+  /** The page had not finished loading; this is what it showed so far. */
+  loading?: true;
+  /** Things worth knowing that are not elements: a download still saving, a pop-up note. */
+  notes?: string[];
+};
+
 export type NavigateResult = {
   /** The untrusted-content notice for the page's own fields. See untrusted-content.ts. */
   untrusted?: string;
@@ -93,6 +151,12 @@ export type NavigateResult = {
   truncated: boolean;
   /** Wall-clock ms the navigation took, for the progress line in the transcript. */
   elapsedMs: number;
+  /** The page as it arrived: status, elements and refs to act on without a snapshot. */
+  page?: PageReport;
+  stillLoading?: boolean;
+  note?: string;
+  /** Said when the Bot navigated inside a pop-up window the site opened. */
+  warning?: string;
 };
 
 export type ScreenshotResult = {
@@ -136,6 +200,8 @@ export type SnapshotElement = {
   type?: string;
   disabled?: boolean;
   checked?: boolean;
+  /** A drop-down's choices, by label. */
+  options?: string[];
 };
 
 export type SnapshotResult = {
@@ -166,7 +232,32 @@ export type TypeInput = ActionTarget & {
   submit?: boolean;
 };
 export type KeyInput = Partial<ActionTarget> & { key: string };
-export type ScrollInput = { deltaY?: number };
+/** With a ref: scroll it into view, or with `deltaY` too, scroll inside the panel it is in. */
+export type ScrollInput = { deltaY?: number } & Partial<ActionTarget>;
+/** `option` is the visible label or the value. */
+export type SelectInput = ActionTarget & { option: string };
+export type CheckInput = ActionTarget & { checked: boolean };
+/** `path` is relative to the Bot's workspace. */
+export type UploadInput = ActionTarget & { path: string };
+export type HoverInput = ActionTarget;
+export type DialogInput = { accept: boolean; text?: string };
+export type TabsInput = { action: "list" | "switch" | "close"; index?: number };
+
+/** One field of a fill: a ref and exactly one thing to put in it. */
+export type FillField = {
+  ref: string;
+  text?: string;
+  checked?: boolean;
+  option?: string;
+  file?: string;
+};
+
+/** A whole page of fields in one call, then a click on a ref or a submit of the form. */
+export type FillInput = {
+  fields: FillField[];
+  then?: { click: string } | { submit: true };
+  snapshotId: number;
+};
 
 /**
  * What an action reports back.
@@ -177,7 +268,19 @@ export type ScrollInput = { deltaY?: number };
  * secret into two places that keep it. `characters` is enough to confirm the field was filled.
  */
 export type ActionResult = {
-  action: "click" | "type" | "key" | "scroll";
+  action:
+    | "click"
+    | "type"
+    | "key"
+    | "scroll"
+    | "select"
+    | "check"
+    | "upload"
+    | "hover"
+    | "fill"
+    | "dialog"
+    | "tabs"
+    | "back";
   ref?: string;
   /**
    * The label of the element acted on, as the gateway resolved it.
@@ -193,7 +296,66 @@ export type ActionResult = {
   /** Where the page ended up, which is how a Bot notices that its click navigated. */
   url: string;
   elapsedMs: number;
+  /** The page the action produced. Absent only from a computer that predates it. */
+  page?: PageReport;
+  /** For `select` (and a `type` carried out as one): the option chosen, by label. */
+  chosen?: string;
+  /** For `check`. */
+  checked?: boolean;
+  /** A `type` into a drop-down or checkbox is carried out with the tool that fits; this names it. */
+  routed?: string;
+  note?: string;
+  /** For `upload`: the workspace file sent. */
+  path?: string;
+  /** For `dialog`: what was answered. */
+  accepted?: boolean;
+  dialog?: { type: string; message: string };
+  /** For `tabs`. */
+  tabs?: Array<{ index: number; url: string; title: string; active: boolean }>;
+  /** For `back`: false when there was no earlier page. */
+  wentBack?: boolean;
+  /** A challenge the page showed after the action; the takeover request is already open. */
+  challenge?: BrowserChallenge;
 };
+
+/**
+ * What a fill reports: the fields that went in, the first that did not (and why), or the one the
+ * policy refused, and what happened afterwards.
+ */
+export type FillResult = Omit<ActionResult, "action"> & {
+  action: "fill";
+  filled: Array<{
+    index: number;
+    ref: string;
+    kind: "text" | "checked" | "option" | "file";
+    element?: { role: string; name: string };
+    characters?: number;
+    chosen?: string;
+    checked?: boolean;
+    routed?: string;
+  }>;
+  /** The field (or `then`) that did not work. Fields after it were not attempted. */
+  failed?: {
+    index: number | "then";
+    ref?: string;
+    error: string;
+    problem?: string;
+    stale?: boolean;
+  };
+  /** The field (or `then`) a rule refused. Nothing from it on was sent to the computer. */
+  refused?: {
+    index: number | "then";
+    ref: string;
+    element?: { role: string; name: string };
+    reason: string;
+    rule: string | null;
+  };
+  /** What `then` did. */
+  afterwards?: { clicked: string } | { submitted: true };
+};
+
+/** The browser warmed: started if it was not running, and sent nowhere. */
+export type WarmResult = { warm: true; launched: boolean; ms: number };
 
 /** Absent path means the whole workspace. */
 export type ListFilesInput = { path?: string };

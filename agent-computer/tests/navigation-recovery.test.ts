@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import type { Page } from "playwright";
-import { assertPageAccess, navigateWebPage } from "../src/navigation";
+import {
+  assertPageAccess,
+  isSiteFailure,
+  type NavigablePage,
+  navigateWebPage,
+  type SiteFailure,
+  siteFailureOf,
+} from "../src/navigation";
 
 function fixture() {
   let url = "https://example.com/";
@@ -122,4 +129,73 @@ test("a navigation that loads in time says it is not still loading", async () =>
   expect(
     await navigateWebPage(page, "https://example.com/done", "managed", 1000),
   ).toEqual({ response: null, stillLoading: false });
+});
+
+/** What the site said, as a site error with a hint: not Chrome's code and not a broken computer. */
+test("network failures become site errors that say what to do", async () => {
+  const failing = (message: string): NavigablePage => ({
+    url: () => "about:blank",
+    goto: async () => {
+      throw new Error(
+        `page.goto: ${message} at https://x.test/\nCall log:\n  - navigating`,
+      );
+    },
+  });
+  const cases: Array<[string, string]> = [
+    ["net::ERR_NAME_NOT_RESOLVED", "dns"],
+    ["net::ERR_CONNECTION_REFUSED", "refused"],
+    ["net::ERR_CONNECTION_TIMED_OUT", "timeout"],
+    ["net::ERR_CERT_AUTHORITY_INVALID", "certificate"],
+    ["net::ERR_SSL_PROTOCOL_ERROR", "certificate"],
+    ["net::ERR_TUNNEL_CONNECTION_FAILED", "blocked"],
+    ["net::ERR_ABORTED", "aborted"],
+    ["Download is starting", "aborted"],
+    ["net::ERR_CONNECTION_RESET", "network"],
+  ];
+  for (const [message, problem] of cases) {
+    let thrown: unknown;
+    try {
+      await navigateWebPage(
+        failing(message),
+        "https://x.test/",
+        "managed",
+        1000,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isSiteFailure(thrown)).toBe(true);
+    if (!isSiteFailure(thrown)) continue;
+    expect(thrown.problem).toBe(problem as SiteFailure["problem"]);
+    expect(thrown.message).not.toContain("Call log");
+  }
+  expect(siteFailureOf(new Error("Something else entirely"))).toBeUndefined();
+});
+
+test("the navigation waits for the site to answer, then a bounded time for the document", async () => {
+  const waits: Array<{ state: string; timeout?: number }> = [];
+  let waitUntil: string | undefined;
+  const page: NavigablePage = {
+    url: () => "https://slow.example/",
+    goto: async (_url, options) => {
+      waitUntil = options?.waitUntil;
+      return null;
+    },
+    waitForLoadState: async (state, options) => {
+      waits.push({ state: String(state), timeout: options?.timeout });
+      const error = new Error("Timeout exceeded");
+      error.name = "TimeoutError";
+      throw error;
+    },
+  };
+  const result = await navigateWebPage(
+    page,
+    "https://slow.example/",
+    "managed",
+    30_000,
+    { documentWaitMs: 500 },
+  );
+  expect(waitUntil).toBe("commit");
+  expect(waits).toEqual([{ state: "domcontentloaded", timeout: 500 }]);
+  expect(result.stillLoading).toBe(true);
 });

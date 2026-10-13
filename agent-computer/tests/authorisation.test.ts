@@ -3,6 +3,7 @@ import {
   actsOnTheComputer,
   isOpenPath,
   matchesToken,
+  mutatesBrowser,
   offeredToken,
 } from "../src/authorisation";
 
@@ -118,11 +119,25 @@ describe("what the wheel stops while a person is driving", () => {
       "/type",
       "/key",
       "/scroll",
+      "/select",
+      "/check",
+      "/upload",
+      "/hover",
+      "/fill",
+      "/dialog",
+      "/tabs",
+      "/back",
       "/exec",
       "/files/write",
     ]) {
       expect(actsOnTheComputer(path)).toBeTrue();
     }
+  });
+
+  test("the new page actions need a fresh snapshot after a handback, like a click does", () => {
+    for (const path of ["/select", "/check", "/upload", "/fill", "/back"])
+      expect(mutatesBrowser(path)).toBeTrue();
+    expect(mutatesBrowser("/exec")).toBeFalse();
   });
 
   test("reading, looking and the handover itself are not acting", () => {
@@ -136,6 +151,8 @@ describe("what the wheel stops while a person is driving", () => {
       "/control/take",
       "/control/release",
       "/stream",
+      // Starting the browser early changes no page, so a person driving loses nothing to it.
+      "/warm",
     ]) {
       expect(actsOnTheComputer(path)).toBeFalse();
     }

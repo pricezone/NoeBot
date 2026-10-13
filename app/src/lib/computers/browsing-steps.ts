@@ -56,6 +56,69 @@ function issue(
 }
 
 /**
+ * What any acting call's page adds: a tab it opened, a file it downloaded, a check it met.
+ *
+ * Read from `page` and `challenge`, which are the page's own facts, never from the arguments.
+ */
+function pageSteps(outcome: Fields): Step[] {
+  const page = fieldsOf(outcome.page);
+  const steps: Step[] = [];
+  const opened = text(fieldsOf(page.opened).url);
+  if (opened)
+    steps.push({
+      kind: "page",
+      subject: text(page.title) ?? hostOf(opened) ?? opened,
+      output: "",
+      ...(hostOf(opened) ? { detail: `${hostOf(opened)}, in a new tab` } : {}),
+    });
+  const download = fieldsOf(page.download);
+  const saved = text(download.path);
+  if (saved)
+    steps.push({
+      kind: "write_file",
+      subject: saved,
+      output:
+        typeof download.bytes === "number"
+          ? `${download.bytes} bytes, downloaded`
+          : "downloaded",
+    });
+  if (outcome.challenge)
+    steps.push(
+      issue(
+        `Met a check on ${hostOf(text(page.url) ?? text(outcome.url)) ?? "the page"}`,
+        text(fieldsOf(outcome.challenge).reason),
+      ),
+    );
+  return steps;
+}
+
+/** The fields a fill put in, by the labels the server resolved; then its click and any stop. */
+function fillSteps(outcome: Fields): Step[] {
+  const steps: Step[] = [];
+  const filled = Array.isArray(outcome.filled) ? outcome.filled : [];
+  for (const field of filled) {
+    const entry = fieldsOf(field);
+    steps.push({
+      kind: entry.kind === "checked" ? "click" : "type",
+      subject: text(fieldsOf(entry.element).name) ?? "A field",
+      output: "",
+      // A drop-down's choice is page text, not something the Bot typed.
+      ...(text(entry.chosen) ? { detail: text(entry.chosen) } : {}),
+    });
+  }
+  const refused = fieldsOf(outcome.refused);
+  if (text(refused.reason))
+    steps.push(issue("A field was not filled in", text(refused.reason), true));
+  const failed = fieldsOf(outcome.failed);
+  if (text(failed.error))
+    steps.push(issue("A field could not be filled in", text(failed.error)));
+  const clicked = text(fieldsOf(outcome.afterwards).clicked);
+  if (clicked)
+    steps.push({ kind: "click", subject: "The form's button", output: "" });
+  return steps;
+}
+
+/**
  * The lines one tool call adds, or none.
  *
  * None for a call the approval gate is holding (`waiting`), which has not happened yet and will be
@@ -116,6 +179,7 @@ export function browsingStepsFor(
               subject: elementOf(outcome) ?? "Something on the page",
               output: "",
             },
+            ...pageSteps(outcome),
           ];
     case "computer_type":
       // The field, by the label the server resolved. `args` carries the text and is not read.
@@ -127,7 +191,93 @@ export function browsingStepsFor(
               subject: elementOf(outcome) ?? "A field",
               output: "",
             },
+            ...pageSteps(outcome),
           ];
+    case "computer_select":
+      return failed
+        ? [issue("Could not choose an option", reason, refused)]
+        : [
+            {
+              kind: "type",
+              subject: elementOf(outcome) ?? "A drop-down",
+              output: "",
+              ...(text(outcome.chosen) ? { detail: text(outcome.chosen) } : {}),
+            },
+            ...pageSteps(outcome),
+          ];
+    case "computer_check":
+      return failed
+        ? [issue("Could not tick a box", reason, refused)]
+        : [
+            {
+              kind: "click",
+              subject: elementOf(outcome) ?? "A box",
+              output: "",
+              detail: outcome.checked === false ? "unticked" : "ticked",
+            },
+            ...pageSteps(outcome),
+          ];
+    case "computer_upload":
+      return failed
+        ? [issue("Could not upload a file", reason, refused)]
+        : [
+            {
+              kind: "type",
+              subject: elementOf(outcome) ?? "An upload",
+              output: "",
+              ...(text(outcome.path) ? { detail: text(outcome.path) } : {}),
+            },
+            ...pageSteps(outcome),
+          ];
+    case "computer_fill":
+      return failed
+        ? [issue("Could not fill in the form", reason, refused)]
+        : [...fillSteps(outcome), ...pageSteps(outcome)];
+    case "computer_dialog": {
+      const dialog = fieldsOf(outcome.dialog);
+      return failed
+        ? [issue("Could not answer a dialog", reason, refused)]
+        : [
+            {
+              kind: "click",
+              subject: text(dialog.message) ?? "A dialog",
+              output: "",
+              detail: outcome.accepted === false ? "Cancel" : "OK",
+            },
+            ...pageSteps(outcome),
+          ];
+    }
+    case "computer_back":
+    case "computer_tabs": {
+      if (failed)
+        return [
+          issue(
+            toolName === "computer_back"
+              ? "Could not go back"
+              : "Could not switch tab",
+            reason,
+            refused,
+          ),
+        ];
+      const page = fieldsOf(outcome.page);
+      const url = text(page.url);
+      const title = text(page.title);
+      const moved =
+        toolName === "computer_back"
+          ? outcome.wentBack !== false
+          : typeof outcome.switched === "number" ||
+            typeof outcome.closed === "number";
+      return moved && (title || url)
+        ? [
+            {
+              kind: "page",
+              subject: title ?? hostOf(url) ?? url ?? "A page",
+              output: "",
+              ...(title && hostOf(url) ? { detail: hostOf(url) } : {}),
+            },
+          ]
+        : [];
+    }
     case "computer_request_sign_in": {
       const site = text(outcome.site) ?? text(fieldsOf(args).site);
       const where = hostOf(site) ?? site ?? "the site";

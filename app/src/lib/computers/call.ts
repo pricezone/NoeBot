@@ -61,9 +61,31 @@ export async function callComputer(
               requestId: body?.requestId,
               handoff: body?.handoff,
             }
-          : body?.snapshotRequired === true
-            ? { staleRefs: true, snapshotRequired: true }
-            : { staleRefs: true }
+          : // A page paused on a dialog: answer it with computer_dialog, not a new snapshot.
+            body?.dialog && typeof body.dialog === "object"
+            ? { dialog: body.dialog }
+            : body?.snapshotRequired === true
+              ? { staleRefs: true, snapshotRequired: true }
+              : { staleRefs: true }
+        : {}),
+      // The element is there and would not take it: what is wrong, and what fits instead.
+      ...(response.status === 422
+        ? {
+            ...(typeof body?.problem === "string"
+              ? { problem: body.problem }
+              : {}),
+            ...(typeof body?.useTool === "string"
+              ? { useTool: body.useTool }
+              : {}),
+            ...(Array.isArray(body?.options) ? { options: body.options } : {}),
+            ...(body?.coveredBy && typeof body.coveredBy === "object"
+              ? { coveredBy: body.coveredBy }
+              : {}),
+          }
+        : {}),
+      // The site failed, not the computer: a hint about what to try instead is in the reason.
+      ...(body?.siteError && typeof body.siteError === "object"
+        ? { siteError: body.siteError }
         : {}),
     };
   }

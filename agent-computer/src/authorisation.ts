@@ -65,12 +65,25 @@ export function isOpenPath(pathname: string): boolean {
  * still read its own notes and explain what it was doing, which is the answer the person handing the
  * wheel back usually wants.
  */
-const ACTING_PATHS = new Set([
+/** The paths that change what is on the Bot's page. */
+const PAGE_ACTIONS = [
   "/navigate",
   "/click",
   "/type",
   "/key",
   "/scroll",
+  "/select",
+  "/check",
+  "/upload",
+  "/hover",
+  "/fill",
+  "/dialog",
+  "/tabs",
+  "/back",
+];
+
+const ACTING_PATHS = new Set([
+  ...PAGE_ACTIONS,
   "/exec",
   "/files/write",
   // Typing a person's login into the page. Refused while they hold the wheel, like any other typing.
@@ -83,5 +96,5 @@ export function actsOnTheComputer(pathname: string): boolean {
 
 /** Only page mutations need a fresh browser snapshot after handback. */
 export function mutatesBrowser(pathname: string): boolean {
-  return ["/navigate", "/click", "/type", "/key", "/scroll"].includes(pathname);
+  return PAGE_ACTIONS.includes(pathname);
 }
