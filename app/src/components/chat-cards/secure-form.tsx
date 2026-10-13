@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { type UiStrings, useUiStrings } from "@/lib/i18n/strings";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,12 +61,16 @@ export type SecureFormState =
   | "cancelled"
   | "failed";
 
-const STATE_WORDS: Record<Exclude<SecureFormState, "open">, string> = {
-  preparing: "Preparing…",
-  submitted: "Submitted",
-  expired: "Expired",
-  cancelled: "Cancelled",
-  failed: "Not completed",
+/** The word for each way a request ends, in the conversation's language. */
+const STATE_WORDS: Record<
+  Exclude<SecureFormState, "open">,
+  (ui: UiStrings) => string
+> = {
+  preparing: (ui) => ui.preparing,
+  submitted: (ui) => ui.submitted,
+  expired: (ui) => ui.expired,
+  cancelled: (ui) => ui.cancelled,
+  failed: (ui) => ui.notCompleted,
 };
 
 /**
@@ -74,12 +79,12 @@ const STATE_WORDS: Record<Exclude<SecureFormState, "open">, string> = {
  */
 export function SecureFormRow({
   title,
-  subtitle = "Secure Form",
+  subtitle,
   icon,
   fallbackIcon,
   state,
   onOpen,
-  openLabel = "Open",
+  openLabel,
   doneLabel,
   children,
 }: {
@@ -95,6 +100,7 @@ export function SecureFormRow({
   /** A short line under the row: why it did not complete, say. */
   children?: ReactNode;
 }) {
+  const ui = useUiStrings();
   return (
     <div
       className="my-1 flex max-w-md flex-col gap-2 rounded-2xl bg-muted p-3 dark:bg-card"
@@ -107,7 +113,9 @@ export function SecureFormRow({
           <p className="truncate font-medium text-[15px] text-foreground">
             {title}
           </p>
-          <p className="truncate text-muted-foreground text-sm">{subtitle}</p>
+          <p className="truncate text-muted-foreground text-sm">
+            {subtitle ?? ui.secureForm}
+          </p>
         </div>
         {state === "open" ? (
           <Button
@@ -116,7 +124,7 @@ export function SecureFormRow({
             type="button"
             variant="secondary"
           >
-            {openLabel}
+            {openLabel ?? ui.open}
           </Button>
         ) : (
           <span
@@ -129,7 +137,7 @@ export function SecureFormRow({
           >
             {state === "submitted" && doneLabel
               ? doneLabel
-              : STATE_WORDS[state]}
+              : STATE_WORDS[state](ui)}
           </span>
         )}
       </div>
@@ -145,7 +153,7 @@ export function SecureFormDialog({
   open,
   onOpenChange,
   title,
-  subtitle = "Secure Form",
+  subtitle,
   icon,
   fallbackIcon,
   children,
@@ -158,6 +166,7 @@ export function SecureFormDialog({
   fallbackIcon?: ReactNode;
   children: ReactNode;
 }) {
+  const ui = useUiStrings();
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-xl gap-6 rounded-3xl p-6">
@@ -168,7 +177,7 @@ export function SecureFormDialog({
               {title}
             </DialogTitle>
             <DialogDescription className="text-[15px]">
-              {subtitle}
+              {subtitle ?? ui.secureForm}
             </DialogDescription>
           </div>
         </div>
@@ -201,6 +210,7 @@ export function SecureField({
   autoComplete?: string;
   name?: string;
 }) {
+  const ui = useUiStrings();
   const id = useId();
   const [shown, setShown] = useState(false);
   const masked = kind !== "text";
@@ -239,7 +249,7 @@ export function SecureField({
         />
         {masked ? (
           <button
-            aria-label={shown ? `Hide ${label}` : `Show ${label}`}
+            aria-label={shown ? ui.hideValue(label) : ui.showValue(label)}
             aria-pressed={shown}
             className="absolute top-1/2 right-3 flex size-8 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/40"
             onClick={() => setShown((now) => !now)}
@@ -259,15 +269,11 @@ export function SecureField({
 
 /** The promise the dialog makes, naming where the values go. */
 export function SecureNote({ host }: { host?: string }) {
+  const ui = useUiStrings();
   return (
     <p className="flex items-start gap-2 text-muted-foreground text-sm">
       <IconLock aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      <span>
-        Never shown to your Bot.
-        {host
-          ? ` Filled directly to ${host}.`
-          : " Filled directly into the page."}
-      </span>
+      <span>{ui.lockNote(host)}</span>
     </p>
   );
 }

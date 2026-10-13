@@ -5,6 +5,7 @@ import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import type { AvatarChoice } from "@/components/noe-bot/pixel-art";
 import { Button } from "@/components/ui/button";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
+import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
  * The Bot's face as its profile has it: the detail when it is in the cache (the bot panel always
@@ -59,6 +60,7 @@ export function ComputerAsleep({
   large?: boolean;
 }) {
   const look = useBotLook(botId);
+  const ui = useUiStrings();
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center text-foreground">
       <button
@@ -89,7 +91,7 @@ export function ComputerAsleep({
         </span>
       </span>
       <span className="pointer-events-none relative font-medium text-sm">
-        Computer is asleep
+        {ui.computerAsleep}
       </span>
       <Button
         className="relative rounded-full px-4"
@@ -97,7 +99,7 @@ export function ComputerAsleep({
         size="sm"
         variant="secondary"
       >
-        Wake
+        {ui.wake}
       </Button>
     </div>
   );
