@@ -400,6 +400,8 @@ export function createApprovalService(
       if (!questions) return { resolved: [] as string[] };
       return questions.answerInConversation(ownerUserId, input);
     },
+    /** Decision cards waiting on the person; absent where questions are not kept. */
+    decisions: questions?.decisions,
     async inbox(ownerUserId: string) {
       const requests = await store.list(ownerUserId);
       const policy = store.policy;

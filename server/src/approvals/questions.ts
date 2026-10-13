@@ -2,6 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "../db/client";
 import { workItems } from "../db/schema/work";
+import { createWaitingDecisionStore } from "./decisions";
 import { ApprovalNotFoundError, ApprovalRefusedError } from "./types";
 
 const questionSchema = z.object({
@@ -149,6 +150,11 @@ export function createApprovalQuestions(
   };
 
   return {
+    /**
+     * The decision cards a Bot's run is waiting on (`askChoice`, `askApproval`): questions too, kept
+     * beside these so every place that reads "what is waiting on this person" has both.
+     */
+    decisions: createWaitingDecisionStore(database),
     async list(owner: string) {
       const rows = await database
         .select()

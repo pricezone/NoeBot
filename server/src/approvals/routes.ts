@@ -1,6 +1,11 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { type AppVariables, requireAdmin } from "../auth/guards";
+import {
+  DecisionConflictError,
+  openDecisionSchema,
+  type WaitingDecisionStore,
+} from "./decisions";
 import type { ApprovalService } from "./service";
 import {
   ApprovalNotFoundError,
@@ -64,6 +69,9 @@ export function createApprovalRoutes(
   routes.onError((error, context) => {
     if (error instanceof ApprovalNotFoundError)
       return context.json({ error: error.message }, 404);
+    // Not a mistake: answered already, or the asking tab is gone and the answer must go as a message.
+    if (error instanceof DecisionConflictError)
+      return context.json({ error: error.message, reason: error.reason }, 409);
     if (error instanceof ApprovalRefusedError || error instanceof z.ZodError)
       return context.json({ error: error.message }, 400);
     // The gate could not reach the conversation service. Not the request's fault, and the same
@@ -225,6 +233,80 @@ export function createApprovalRoutes(
         input.response,
       ),
     );
+  });
+  /*
+   * Decision cards a run is waiting on, one record per card, the person's own only. The tab running
+   * the turn opens and heartbeats its card; any tab may answer it; the running tab closes it. See
+   * `decisions.ts`.
+   */
+  const decisions = (): WaitingDecisionStore => {
+    if (!service.decisions)
+      throw new ApprovalRefusedError(
+        "Waiting questions are unavailable in this deployment.",
+      );
+    return service.decisions;
+  };
+  const toolCallId = (value: string) =>
+    z.string().trim().min(1).max(200).parse(value);
+  routes.get("/decisions", async (context) => {
+    const channelId = context.req.query("channelId")?.trim();
+    return context.json({
+      decisions: await decisions().list(
+        context.var.actor.id,
+        channelId ? { channelId } : {},
+      ),
+    });
+  });
+  routes.post("/decisions", async (context) =>
+    context.json(
+      {
+        decision: await decisions().open(
+          context.var.actor.id,
+          openDecisionSchema.parse(await readBody(context)),
+        ),
+      },
+      201,
+    ),
+  );
+  routes.get("/decisions/:toolCallId", async (context) =>
+    context.json({
+      decision: await decisions().get(
+        context.var.actor.id,
+        toolCallId(context.req.param("toolCallId")),
+      ),
+    }),
+  );
+  routes.post("/decisions/:toolCallId/heartbeat", async (context) =>
+    context.json({
+      decision: await decisions().heartbeat(
+        context.var.actor.id,
+        toolCallId(context.req.param("toolCallId")),
+      ),
+    }),
+  );
+  routes.post("/decisions/:toolCallId/answer", async (context) => {
+    const input = z
+      .strictObject({ answer: z.unknown() })
+      .parse(await readBody(context));
+    return context.json({
+      decision: await decisions().answer(
+        context.var.actor.id,
+        toolCallId(context.req.param("toolCallId")),
+        input.answer,
+      ),
+    });
+  });
+  routes.post("/decisions/:toolCallId/close", async (context) => {
+    const input = z
+      .strictObject({ answer: z.unknown().optional() })
+      .parse(await readBody(context));
+    return context.json({
+      decision: await decisions().close(
+        context.var.actor.id,
+        toolCallId(context.req.param("toolCallId")),
+        input.answer,
+      ),
+    });
   });
   routes.post("/:id/decision", async (context) => {
     const input = z
