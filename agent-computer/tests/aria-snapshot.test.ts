@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   cutAtCodeUnits,
+  normaliseText,
   parseAriaSnapshot,
   parseDescriptor,
 } from "../src/aria-snapshot";
@@ -162,12 +163,84 @@ describe("parseAriaSnapshot, against captured output", () => {
 
   test("the element list is bounded, and says when it was cut", () => {
     const many = Array.from(
-      { length: 250 },
+      { length: 450 },
       (_, index) => `- button "B${index}" [ref=e${index}]`,
     ).join("\n");
     const { elements, truncated } = parseAriaSnapshot(many);
-    expect(elements).toHaveLength(200);
+    expect(elements).toHaveLength(400);
     expect(truncated).toBe(true);
+  });
+
+  test("controls are kept ahead of pictures and clickable text when the list is cut", () => {
+    const pictures = Array.from(
+      { length: 420 },
+      (_, index) => `- img "Photo ${index}" [ref=p${index}]`,
+    );
+    const yaml = [...pictures, '- button "Pay now" [ref=e1]'].join("\n");
+    const { elements, truncated } = parseAriaSnapshot(yaml);
+    expect(truncated).toBe(true);
+    expect(elements[0]).toEqual({ ref: "e1", role: "button", name: "Pay now" });
+    expect(elements).toHaveLength(400);
+  });
+});
+
+describe("what else a Bot can click", () => {
+  test("a pointer-cursor element is listed as clickable, named by its text", () => {
+    const yaml = `- generic [ref=e7] [cursor=pointer]:
+  - heading "Card title" [level=3] [ref=e8]
+  - paragraph [ref=e9]: desc
+- listitem [ref=e10] [cursor=pointer]: Item one`;
+    expect(parseAriaSnapshot(yaml).elements).toEqual([
+      { ref: "e7", role: "clickable", name: "Card title desc" },
+      { ref: "e10", role: "clickable", name: "Item one" },
+    ]);
+  });
+
+  test("a clickable wrapper around a link is not listed twice", () => {
+    const yaml = `- listitem [ref=e8] [cursor=pointer]:
+  - link "Linked" [ref=e9]:
+    - /url: "#"`;
+    expect(parseAriaSnapshot(yaml).elements).toEqual([
+      { ref: "e9", role: "link", name: "Linked" },
+    ]);
+  });
+
+  test("a plain element with a click handler is listed when the page says so", () => {
+    const yaml = `- generic [ref=e3]: Onclick div
+- generic [ref=e4]: Just text`;
+    const { elements } = parseAriaSnapshot(yaml, {
+      clickableTexts: new Set(["onclick div"]),
+    });
+    expect(elements).toEqual([
+      { ref: "e3", role: "clickable", name: "Onclick div" },
+    ]);
+  });
+
+  test("text is compared collapsed and lower-cased", () => {
+    expect(normaliseText("  Accept\n  ALL ")).toBe("accept all");
+  });
+
+  test("pictures with alt text are listed, pictures without are not", () => {
+    const yaml = `- img "Logo" [ref=e4]
+- img [ref=e5]`;
+    expect(parseAriaSnapshot(yaml).elements).toEqual([
+      { ref: "e4", role: "img", name: "Logo" },
+    ]);
+  });
+
+  test("a native drop-down carries its options and the chosen one as its value", () => {
+    const yaml = `- combobox "Pick" [ref=e2]:
+  - option "Alpha"
+  - option "Beta" [selected]`;
+    expect(parseAriaSnapshot(yaml).elements).toEqual([
+      {
+        ref: "e2",
+        role: "combobox",
+        name: "Pick",
+        value: "Beta",
+        options: ["Alpha", "Beta"],
+      },
+    ]);
   });
 });
 

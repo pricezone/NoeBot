@@ -1,10 +1,32 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ServerWebSocket, serve } from "bun";
-import type { Page } from "playwright";
+import type { Page, Response as PageResponse } from "playwright";
+import type { BrowserChallenge } from "../../shared/computer-control";
 import { downloadHeaders } from "../../shared/file-download";
 import {
-  cutAtCodeUnits,
+  type ActingOptions,
+  chooseOption,
+  clickElement,
+  type FillOutcome,
+  fillForm,
+  guarded,
+  hoverElement,
+  parseFill,
+  scrollElement,
+  setChecked,
+  typeInto,
+  uploadFile,
+} from "./acting";
+import {
+  elementProblem,
+  isElementProblem,
+  isRequestError,
+  requestError,
+  summariseError,
+} from "./action-errors";
+import {
+  normaliseText,
   parseAriaSnapshot,
   type SnapshotElement,
 } from "./aria-snapshot";
@@ -38,14 +60,21 @@ import {
   startDesktopCast,
   streamSettingsFromEnv,
 } from "./desktop-cast";
+import { createDialogKeeper, type DialogInfo } from "./dialogs";
+import { createDownloadKeeper, type SavedDownload } from "./downloads";
 import { handleEgressPolicyRequest, startEgressFilter } from "./egress";
 import { identity } from "./identity";
 import { inOrder } from "./in-order";
 import {
   assertPageAccess,
+  isSiteFailure,
   navigateWebPage,
   type PagePurpose,
+  siteFailureOf,
 } from "./navigation";
+import { observeAction } from "./observe";
+import { pageLines } from "./page-lines";
+import { clickableHints, readablePageText, settlePage } from "./page-text";
 import {
   createProfiles,
   managedBrowserExecutable,
@@ -178,6 +207,14 @@ const ACTION_TIMEOUT_MS = numberFromEnv("ACTION_TIMEOUT_MS", 10000);
 const TEXT_EXTRACT_LIMIT = 6000;
 
 /**
+ * How much page text a navigation hands back, now that it also hands back the page's elements.
+ *
+ * The first screen of an ordinary page fits, which is usually the answer; `computer_read` has the
+ * full extract for the rest.
+ */
+const NAVIGATE_TEXT_LIMIT = 2000;
+
+/**
  * Which snapshot the caller's refs came from.
  *
  * Kept as a caller-facing guard even though Playwright enforces the real thing underneath. The
@@ -267,6 +304,19 @@ const workspace = createWorkspace(
 );
 
 /**
+ * JavaScript dialogs, held for the Bot to answer, and downloads, saved into its workspace. Both
+ * listen on every browser as it launches (the hook on `createProfiles` below).
+ *
+ * A dialog is dismissed at once while a person holds the wheel, as every dialog was before: the
+ * live screen cannot draw one, so holding it would freeze the page under them.
+ */
+const dialogs = createDialogKeeper({
+  dismissAtOnce: (botId) =>
+    sessions.get(botId)?.control.get().holder === "human",
+});
+const downloads = createDownloadKeeper(workspace);
+
+/**
  * Who has the wheel, as a state machine in its own module.
  *
  * The state machine lives in `control.ts` so it can be tested without importing Playwright.
@@ -300,7 +350,14 @@ const profiles = createProfiles(
   process.env.PROFILES_DIR?.trim() || "/profiles",
   async (botId) => {
     if (sessions.get(botId)) sessions.renewRun(botId);
+    dialogs.forget(botId);
+    downloads.forget(botId);
     await sessions.get(botId)?.viewer.releaseAll(COMPUTER_STOPPED);
+  },
+  // Before any page is used, so no dialog is auto-dismissed and no download lost. See dialogs.ts.
+  (botId, context) => {
+    dialogs.attach(botId, context);
+    downloads.attach(botId, context);
   },
 );
 /*
@@ -390,43 +447,6 @@ const BROWSER_REQUESTS = DESKTOP
   : null;
 
 /**
- * The page as text, the way a reader sees it.
- *
- * Script and style bodies are dropped rather than included: they are the bulk of a modern page and
- * none of it is what anybody asked about, so leaving them in spends the extract on noise and pushes
- * the actual article past the limit.
- */
-async function readablePageText(
-  target: Page,
-): Promise<{ text: string; truncated: boolean }> {
-  const raw = await target.evaluate(() => {
-    const clone = document.body?.cloneNode(true) as HTMLElement | undefined;
-    if (!clone) return "";
-    for (const node of clone.querySelectorAll("script, style, noscript, svg")) {
-      node.remove();
-    }
-    return clone.innerText ?? "";
-  });
-
-  const collapsed = raw.replace(/\n{3,}/g, "\n\n").trim();
-  return {
-    /*
-     * Cut between characters, not through one. #539 fixed this for a control's name and value in the
-     * snapshot and left the page text, which is the same bug at thirty times the length: `slice`
-     * counts UTF-16 code units, an emoji is two, and a limit landing between the halves hands the Bot
-     * a lone high surrogate that reads as U+FFFD — a character that is not on the page.
-     *
-     * More likely to bite here than there, for the reason the limit is bigger. A 200-unit control
-     * name rarely reaches an emoji; 6000 units of somebody's page usually passes through several, and
-     * whether the cut lands mid-character is decided by whatever was above it.
-     */
-    text: cutAtCodeUnits(collapsed, TEXT_EXTRACT_LIMIT),
-    // Unaffected by the line above: dropping one more unit cannot make an over-limit string fit.
-    truncated: collapsed.length > TEXT_EXTRACT_LIMIT,
-  };
-}
-
-/**
  * Describe everything on the page a Bot can act on.
  *
  * Uses Playwright's AI snapshot rather than stamping attributes into the DOM. `ariaSnapshot` keeps
@@ -445,26 +465,193 @@ async function snapshotPage(
 }> {
   const snapshotId = ++session.snapshotId;
   const before = session.control.get();
-  const yaml = await target.ariaSnapshot({ mode: "ai" });
-  const title = await target.title();
+  // In parallel: three questions to the same page, none of which waits on another.
+  const [yaml, title, clickableTexts] = await Promise.all([
+    target.ariaSnapshot({ mode: "ai" }),
+    target.title(),
+    clickableHints(target),
+  ]);
   if (
     session.snapshotId === snapshotId &&
     before.holder === "bot" &&
     !before.requested
   )
     session.control.snapshotTaken();
-  const parsed = parseAriaSnapshot(yaml);
-  return {
-    snapshotId,
-    url: target.url(),
-    title,
-    truncated: parsed.truncated,
-    // A password field's value is in the aria snapshot in plain text. See secret-masking.ts.
-    elements: maskSensitiveValues(
-      parsed.elements,
-      await sensitiveRefs(target, parsed.elements),
-    ),
+  const parsed = parseAriaSnapshot(yaml, { clickableTexts });
+  // A password field's value is in the aria snapshot in plain text. See secret-masking.ts.
+  const elements = maskSensitiveValues(
+    parsed.elements,
+    await sensitiveRefs(target, parsed.elements),
+  );
+  const url = target.url();
+  session.lastSnapshot = { snapshotId, url, elements };
+  return { snapshotId, url, title, truncated: parsed.truncated, elements };
+}
+
+/** The ref the latest snapshot gave a button or link with this label, for naming a banner's. */
+function refFor(session: BotSession): (label: string) => string | undefined {
+  const PRESSABLE = new Set([
+    "button",
+    "link",
+    "clickable",
+    "menuitem",
+    "tab",
+    "checkbox",
+    "switch",
+  ]);
+  return (label) => {
+    const wanted = normaliseText(label);
+    return session.lastSnapshot?.elements.find(
+      (element) =>
+        PRESSABLE.has(element.role) && normaliseText(element.name) === wanted,
+    )?.ref;
   };
+}
+
+/**
+ * The page an action left behind, as every acting result carries it.
+ *
+ * `elements` are compact lines (page-lines.ts), only what changed when the URL did not; `snapshot`
+ * is the full list for the server to store, so the refs in those lines resolve for the next action.
+ * The server takes `snapshot` off before the model sees the result.
+ */
+type ReportedPage = {
+  url: string;
+  title: string;
+  status?: number;
+  snapshotId: number;
+  elements: string[];
+  changed?: true;
+  dialog?: DialogInfo;
+  opened?: { url: string };
+  download?: SavedDownload;
+  loading?: true;
+  notes?: string[];
+  snapshot?: { elements: SnapshotElement[]; truncated: boolean };
+};
+
+/** A page that is waiting on a dialog can answer nothing that runs script, so it is not snapshotted. */
+function frozenPage(
+  session: BotSession,
+  target: Page,
+  dialog: DialogInfo,
+  extras: { status?: number; opened?: { url: string } } = {},
+): ReportedPage {
+  return {
+    url: target.url(),
+    title: "",
+    ...(extras.status !== undefined ? { status: extras.status } : {}),
+    snapshotId: session.snapshotId,
+    elements: [],
+    dialog,
+    ...(extras.opened ? { opened: extras.opened } : {}),
+    notes: [
+      `The page is showing a ${dialog.type} dialog and is paused until it is answered: use computer_dialog to accept or dismiss it.`,
+    ],
+  };
+}
+
+/**
+ * Settle, then describe the page an action produced.
+ *
+ * Follows a window the action opened (the profile's live page moves to it), waits for the page to
+ * settle (at most 1.5 s, never network idle), saves any download it started, takes the snapshot the
+ * next action's refs come from, and looks for a challenge in every frame. A dialog appearing on the
+ * way stops it there and says so, because a page waiting on one runs no script.
+ */
+async function reportPage(
+  botId: string,
+  session: BotSession,
+  started: { page: Page; pages: ReadonlySet<Page> },
+  extras: {
+    status?: number;
+    loading?: boolean;
+    notes?: string[];
+    /** What the challenge check is told: the turn that asked, and Cloudflare's own header. */
+    challenge?: { toolCallId?: string; cfMitigated?: string | null };
+  } = {},
+): Promise<{ page: ReportedPage; challenge?: BrowserChallenge }> {
+  const watch = dialogs.next(botId);
+  try {
+    /*
+     * The page the action ran on settles first: that is also the moment a window it opened arrives
+     * (Playwright reports it a beat after the click resolves), so the live page is asked after.
+     */
+    const startedAt = Date.now();
+    if (!started.page.isClosed() && !dialogs.pending(botId))
+      await Promise.race([
+        settlePage(started.page),
+        watch.opened.then(() => undefined),
+      ]);
+    const live = await currentPage(botId);
+    const opened =
+      live !== started.page && !started.pages.has(live)
+        ? { url: live.url() }
+        : undefined;
+    const pending = dialogs.pending(botId);
+    if (pending)
+      return {
+        page: frozenPage(session, live, pending, {
+          ...(extras.status !== undefined ? { status: extras.status } : {}),
+          ...(opened ? { opened } : {}),
+        }),
+      };
+    const report = async (): Promise<{
+      page: ReportedPage;
+      challenge?: BrowserChallenge;
+    }> => {
+      if (live !== started.page)
+        await settlePage(live, Math.max(300, 1_500 - (Date.now() - startedAt)));
+      const saved = downloads.started(botId)
+        ? await downloads.take(botId)
+        : { notes: [] as string[] };
+      const previous = session.lastSnapshot;
+      const snapshot = await snapshotPage(session, live);
+      const challenge = await detectChallenge(
+        live,
+        session.control,
+        extras.challenge ?? {},
+      ).catch(() => undefined);
+      const expired = dialogs.takeExpired(botId);
+      const notes = [...(extras.notes ?? []), ...saved.notes];
+      return {
+        page: {
+          url: snapshot.url,
+          title: snapshot.title,
+          ...(extras.status !== undefined ? { status: extras.status } : {}),
+          snapshotId: snapshot.snapshotId,
+          ...pageLines(previous, snapshot),
+          ...(expired ? { dialog: expired } : {}),
+          ...(opened ? { opened } : {}),
+          ...(saved.download ? { download: saved.download } : {}),
+          ...(extras.loading ? { loading: true as const } : {}),
+          ...(notes.length ? { notes } : {}),
+          snapshot: {
+            elements: snapshot.elements,
+            truncated: snapshot.truncated,
+          },
+        },
+        ...(challenge ? { challenge } : {}),
+      };
+    };
+    const reporting = report();
+    // Left to finish in the background when a dialog wins the race; its failure is not news.
+    reporting.catch(() => undefined);
+    const raced = await Promise.race([
+      reporting,
+      watch.opened.then((dialog) => ({ dialog })),
+    ]);
+    if ("dialog" in raced)
+      return {
+        page: frozenPage(session, live, raced.dialog, {
+          ...(extras.status !== undefined ? { status: extras.status } : {}),
+          ...(opened ? { opened } : {}),
+        }),
+      };
+    return raced;
+  } finally {
+    watch.cancel();
+  }
 }
 
 /**
@@ -1119,6 +1306,33 @@ serve<StreamData>({
       }
 
       /**
+       * Start this Bot's browser if it is not running, and go nowhere.
+       *
+       * The app asks for it the moment a person opens a conversation with a Bot, so the cold launch
+       * (seconds on a small machine) is spent while they type rather than after they press send.
+       * Not on the acting list: it changes no page, and a person holding the wheel loses nothing.
+       */
+      if (url.pathname === "/warm" && request.method === "POST") {
+        const startedAt = Date.now();
+        const wasRunning = profiles.isLive(botId);
+        try {
+          const page = await profiles.page(botId);
+          lastBrowserBot = botId;
+          sessions.observeBrowser(botId, page.context());
+          return json({
+            warm: true,
+            launched: !wasRunning,
+            ms: Date.now() - startedAt,
+          });
+        } catch (error) {
+          return json(
+            { error: describe(error, "The browser could not be started.") },
+            502,
+          );
+        }
+      }
+
+      /**
        * The computers this process holds. The shape is a list because the admin surface is a
        * list, and because a Bot that has a profile has a computer whether or not a browser is running
        * for it this second.
@@ -1181,39 +1395,79 @@ serve<StreamData>({
         try {
           const target = await currentPage(botId, "navigate");
           session.control.assertBotMayAct(true);
-          const { response, stillLoading } = await navigateWebPage(
-            target,
-            parsed.url,
-            RUNTIME.backend,
-            NAVIGATION_TIMEOUT_MS,
-          );
+          const frozen = dialogs.pending(botId);
+          if (frozen) return dialogOpen(frozen);
+          /*
+           * A sign-in pop-up the site opened is the live page until it closes. Navigating inside it
+           * strands the sign-in, so the Bot is told where it is rather than stopped: it may mean it.
+           */
+          const warning = (await target.opener().catch(() => null))
+            ? "You navigated inside a pop-up window the site opened (often a sign-in window). The page that opened it is still open in another tab; use computer_tabs to go back to it, or close this one."
+            : undefined;
+          const before = {
+            page: target,
+            pages: new Set(target.context().pages()),
+          };
+          let response: Awaited<
+            ReturnType<typeof navigateWebPage>
+          >["response"] = null;
+          let stillLoading = false;
+          try {
+            ({ response, stillLoading } = await dialogs.leaving(botId, () =>
+              navigateWebPage(
+                target,
+                parsed.url,
+                RUNTIME.backend,
+                NAVIGATION_TIMEOUT_MS,
+              ),
+            ));
+          } catch (error) {
+            // An address that is a file download is not a failed navigation: the file is saved.
+            if (
+              !(isSiteFailure(error) && error.problem === "aborted") ||
+              !downloads.started(botId)
+            )
+              throw error;
+          }
           // A new document wipes every stamp, so every ref handed out before now is meaningless.
           // Bumping the generation makes an action carrying one fail with "take a new snapshot" rather
           // than fall through to a selector that matches nothing and read as a missing element.
           session.snapshotId += 1;
-          const extract = await readablePageText(target);
+          const status = response?.status();
+          const reported = await reportPage(botId, session, before, {
+            ...(status !== undefined ? { status } : {}),
+            ...(stillLoading ? { loading: true } : {}),
+            challenge: {
+              cfMitigated: response
+                ? await response.headerValue("cf-mitigated").catch(() => null)
+                : undefined,
+              ...(typeof body?.toolCallId === "string"
+                ? { toolCallId: body.toolCallId }
+                : {}),
+            },
+          });
+          const live = await currentPage(botId, "navigate");
+          const extract =
+            reported.page.dialog && !reported.page.dialog.dismissed
+              ? { text: "", truncated: false }
+              : await readablePageText(live, NAVIGATE_TEXT_LIMIT);
+          const challenge = reported.challenge;
           return json({
-            url: target.url(),
-            title: await target.title(),
+            url: reported.page.url,
+            title: reported.page.title,
             text: extract.text,
             truncated: extract.truncated,
             // Said to the Bot in words, so it reads what is there rather than navigating again.
             ...(stillLoading
               ? {
                   stillLoading: true,
-                  note: `The page had not finished loading after ${Math.round(NAVIGATION_TIMEOUT_MS / 1000)} seconds. This is what it showed so far; read or snapshot it rather than opening it again.`,
+                  note: "The page had not finished loading. This is what it showed so far; read or snapshot it rather than opening it again.",
                 }
               : {}),
+            ...(warning ? { warning } : {}),
             elapsedMs: Date.now() - startedAt,
-            challenge: await detectChallenge(target, session.control, {
-              cfMitigated: response
-                ? await response.headerValue("cf-mitigated")
-                : undefined,
-              toolCallId:
-                typeof body?.toolCallId === "string"
-                  ? body.toolCallId
-                  : undefined,
-            }),
+            ...(challenge ? { challenge } : {}),
+            page: reported.page,
           });
         } catch (error) {
           if (
@@ -1223,13 +1477,16 @@ serve<StreamData>({
             throw error;
           // The page is the Bot's working surface, so a failed navigation is reported rather than
           // thrown: the transcript needs to say what happened, and the browser stays usable.
-          return json(
-            {
-              error:
-                error instanceof Error ? error.message : "Navigation failed.",
-            },
-            502,
-          );
+          const site = isSiteFailure(error) ? error : siteFailureOf(error);
+          if (site)
+            return json(
+              {
+                error: site.message,
+                siteError: { problem: site.problem, code: site.code },
+              },
+              502,
+            );
+          return json({ error: describe(error, "Navigation failed.") }, 502);
         }
       }
 
@@ -1433,7 +1690,9 @@ serve<StreamData>({
       if (url.pathname === "/read" && request.method === "GET") {
         try {
           const target = await currentPage(botId);
-          const extract = await readablePageText(target);
+          const frozen = dialogs.pending(botId);
+          if (frozen) return dialogOpen(frozen);
+          const extract = await readablePageText(target, TEXT_EXTRACT_LIMIT);
           return json({
             url: target.url(),
             title: await target.title(),
@@ -1455,6 +1714,8 @@ serve<StreamData>({
       if (url.pathname === "/snapshot" && request.method === "POST") {
         try {
           const target = await currentPage(botId);
+          const frozen = dialogs.pending(botId);
+          if (frozen) return dialogOpen(frozen);
           const snapshot = await snapshotPage(session, target);
           return json({
             ...snapshot,
@@ -1483,16 +1744,53 @@ serve<StreamData>({
         try {
           const target = await currentPage(botId);
           session.control.assertBotMayAct(true);
-          const detail = await performAction(
-            session,
-            target,
-            url.pathname,
-            body,
-            // The caller going away is the stop signal: the surface aborts its request, the server
-            // aborts the one it made to this computer, and Bun aborts this one in turn.
-            request.signal,
+          // A page waiting on a dialog runs no script: every other action would hang on it.
+          const frozen = dialogs.pending(botId);
+          if (frozen && url.pathname !== "/dialog" && url.pathname !== "/tabs")
+            return dialogOpen(frozen);
+          const before = {
+            page: target,
+            pages: new Set(target.context().pages()),
+          };
+          const detail: ActionDetail = { action: url.pathname.slice(1) };
+          const observed = await observeAction(dialogs, botId, target, () =>
+            performAction(
+              botId,
+              session,
+              target,
+              url.pathname,
+              body,
+              detail,
+              // The caller going away is the stop signal: the surface aborts its request, the server
+              // aborts the one it made to this computer, and Bun aborts this one in turn.
+              request.signal,
+            ),
           );
-          return json({ ...detail, elapsedMs: Date.now() - startedAt });
+          const reported = observed.dialog
+            ? {
+                page: frozenPage(session, target, observed.dialog, {
+                  ...(observed.status !== undefined
+                    ? { status: observed.status }
+                    : {}),
+                }),
+              }
+            : await reportPage(botId, session, before, {
+                ...(observed.status !== undefined
+                  ? { status: observed.status }
+                  : {}),
+                ...(detail.loading ? { loading: true } : {}),
+                ...(detail.notes?.length ? { notes: detail.notes } : {}),
+              });
+          const { notes: _notes, loading: _loading, ...shown } = detail;
+          return json({
+            ...shown,
+            url: reported.page.url,
+            ...("challenge" in reported && reported.challenge
+              ? { challenge: reported.challenge }
+              : {}),
+            page: reported.page,
+            elapsedMs: Date.now() - startedAt,
+          });
         } catch (error) {
           /*
            * Stopped, not failed. The signal is checked rather than the error text: Playwright words an
@@ -1520,12 +1818,7 @@ serve<StreamData>({
             // failing, and a 502 here would be counted as one.
             return json({ error: "Stopped.", stopped: true }, 499);
           }
-          // A stale ref is the caller's mistake and is fixable by taking a new snapshot, so it is a 409
-          // rather than a 502: the computer is fine and retrying the same call unchanged will not help.
-          if (error instanceof StaleSnapshotError) {
-            return json({ error: error.message, stale: true }, 409);
-          }
-          return json({ error: describe(error, "The action failed.") }, 502);
+          return actionFailure(error);
         }
       }
 
@@ -1567,9 +1860,39 @@ type ActionBody = {
   key?: unknown;
   deltaY?: unknown;
   submit?: unknown;
+  option?: unknown;
+  checked?: unknown;
+  path?: unknown;
+  accept?: unknown;
+  action?: unknown;
+  index?: unknown;
+  fields?: unknown;
+  then?: unknown;
 };
 
-const ACTIONS = new Set(["/click", "/type", "/key", "/scroll"]);
+/** What an acting call reports about itself, beside the page it produced. */
+type ActionDetail = Record<string, unknown> & {
+  action: string;
+  /** Said on the page instead of here: a download still saving, a slow page. */
+  notes?: string[];
+  /** The page had not finished loading when the wait ran out. */
+  loading?: boolean;
+};
+
+const ACTIONS = new Set([
+  "/click",
+  "/type",
+  "/key",
+  "/scroll",
+  "/select",
+  "/check",
+  "/upload",
+  "/hover",
+  "/fill",
+  "/dialog",
+  "/tabs",
+  "/back",
+]);
 
 const HUMAN_INPUT = new Set([
   "/human/click",
@@ -1652,7 +1975,7 @@ async function performHumanInput(
 /**
  * Carry out one action on the page.
  *
- * Every action that addresses an element goes through {@link locateRef}, so the staleness check
+ * Every action that addresses an element goes through {@link resolveRef}, so the staleness check
  * cannot be forgotten at a call site. `/key` and `/scroll` may omit a ref and act on the page itself,
  * which is how a Bot presses Enter to submit or scrolls to bring more of a long form into view.
  *
@@ -1660,79 +1983,390 @@ async function performHumanInput(
  * Stop, and the abort travels from the surface, through the server, to here. Without passing it on,
  * pressing Stop ended the run in the transcript while the click it was meant to prevent carried on
  * landing on a live page. Stop must reach the browser before a high-impact click lands.
+ *
+ * Writes what it did into `detail` as it goes rather than returning it, so a fill that a dialog
+ * interrupts can still say which fields it had filled.
  */
 async function performAction(
+  botId: string,
   session: BotSession,
   target: Page,
   action: string,
   body: ActionBody,
+  detail: ActionDetail,
   signal?: AbortSignal,
-): Promise<Record<string, unknown>> {
-  // Passed to every Playwright call below. It does not disable the timeout, which still applies.
-  const acting = { timeout: ACTION_TIMEOUT_MS, ...(signal ? { signal } : {}) };
+): Promise<void> {
+  const options = {
+    timeoutMs: ACTION_TIMEOUT_MS,
+    ...(signal ? { signal } : {}),
+    refFor: refFor(session),
+  };
   const expected =
     typeof body.snapshotId === "number" ? body.snapshotId : undefined;
   const ref = typeof body.ref === "string" && body.ref ? body.ref : undefined;
+  const roleOf = (wanted: string) =>
+    session.lastSnapshot?.elements.find((element) => element.ref === wanted)
+      ?.role;
+  const element = async (verb: string) => {
+    if (!ref) throw requestError(`${verb} needs the ref of an element.`);
+    return resolveRef(session, target, ref, expected);
+  };
 
   if (action === "/click") {
-    if (!ref) throw new Error("A click needs the ref of an element to click.");
-    await (await resolveRef(session, target, ref, expected)).click(acting);
-    return { action: "click", ref, url: target.url() };
+    const locator = await element("A click");
+    await clickElement(locator, ref as string, roleOf(ref as string), options);
+    Object.assign(detail, { ref });
+    return;
   }
 
   if (action === "/type") {
-    if (!ref) throw new Error("Typing needs the ref of a field to type into.");
-    if (typeof body.text !== "string") {
-      throw new Error("Typing needs the text to enter.");
-    }
-    const field = await resolveRef(session, target, ref, expected);
-    // `fill` rather than keystrokes: it clears the field first, which is what "put this value in
-    // this box" means. Typing into a field a previous attempt half-filled otherwise appends, and the
-    // form ends up with "AlicAlice" in it.
-    await field.fill(body.text, acting);
-    if (body.submit === true) {
-      await field.press("Enter", acting);
-    }
+    if (typeof body.text !== "string")
+      throw requestError("Typing needs the text to enter.");
+    const locator = await element("Typing");
+    const outcome = await typeInto(
+      target,
+      locator,
+      ref as string,
+      body.text,
+      body.submit === true,
+      options,
+    );
     // The text itself is deliberately NOT returned. It is echoed nowhere: this response is read by
     // the model and logged by the server, and a value typed into a form is exactly where a password
     // or a card number lives. The caller already knows what it sent.
-    return {
-      action: "type",
+    Object.assign(detail, {
       ref,
       characters: body.text.length,
-      submitted: body.submit === true,
-      url: target.url(),
-    };
+      submitted: body.submit === true && !outcome.routed,
+      ...(outcome.routed
+        ? {
+            routed: outcome.routed,
+            ...(outcome.chosen !== undefined ? { chosen: outcome.chosen } : {}),
+            note: `${ref} is not a text field, so this was done with ${outcome.routed} instead. Use ${outcome.routed} for it next time.`,
+          }
+        : {}),
+    });
+    return;
   }
 
   if (action === "/key") {
-    if (typeof body.key !== "string" || !body.key) {
-      throw new Error("A key press needs a key name, such as Enter or Tab.");
-    }
+    if (typeof body.key !== "string" || !body.key)
+      throw requestError("A key press needs a key name, such as Enter or Tab.");
+    const key = body.key;
     if (ref) {
-      await (await resolveRef(session, target, ref, expected)).press(
-        body.key,
-        acting,
+      const locator = await element("A key press");
+      await guarded(locator, ref, "press a key on", options, (abort) =>
+        locator.press(key, { timeout: ACTION_TIMEOUT_MS, signal: abort }),
       );
     } else {
-      await target.keyboard.press(body.key);
+      await target.keyboard.press(key);
     }
-    return { action: "key", key: body.key, ref, url: target.url() };
+    Object.assign(detail, { key, ...(ref ? { ref } : {}) });
+    return;
   }
 
-  // Scroll. A plain wheel event on the page, which is what moves a long form, rather than scrolling a
-  // specific element into view: the Bot asked to see further down, not to hunt for one control.
-  const parsed = parseScrollDelta(body.deltaY);
-  if (!parsed.ok) {
-    throw new Error(parsed.error);
+  if (action === "/scroll") {
+    const parsed = parseScrollDelta(body.deltaY);
+    if (!parsed.ok) throw requestError(parsed.error);
+    if (ref) {
+      // Into view, or inside the panel it is in: a page-level wheel never moves an inner panel.
+      const locator = await element("Scrolling to an element");
+      const moved = await scrollElement(locator, ref, parsed.deltaY, options);
+      Object.assign(detail, {
+        ref,
+        ...(parsed.deltaY !== undefined ? { deltaY: parsed.deltaY } : {}),
+        ...moved,
+      });
+      return;
+    }
+    // A plain wheel event on the page, which is what moves a long form.
+    const deltaY = parsed.deltaY ?? 600;
+    await target.mouse.wheel(0, deltaY);
+    Object.assign(detail, { deltaY });
+    return;
   }
-  const deltaY = parsed.deltaY ?? 600;
-  await target.mouse.wheel(0, deltaY);
-  return { action: "scroll", deltaY, url: target.url() };
+
+  if (action === "/select") {
+    if (typeof body.option !== "string" || !body.option.trim())
+      throw requestError(
+        "Say which option to choose, by its label or its value.",
+      );
+    const locator = await element("Choosing an option");
+    const { chosen } = await chooseOption(
+      target,
+      locator,
+      ref as string,
+      body.option,
+      options,
+    );
+    Object.assign(detail, { ref, chosen });
+    return;
+  }
+
+  if (action === "/check") {
+    if (typeof body.checked !== "boolean")
+      throw requestError(
+        "Say whether it should be ticked: checked true or false.",
+      );
+    const locator = await element("Ticking a box");
+    await setChecked(target, locator, ref as string, body.checked, options);
+    Object.assign(detail, { ref, checked: body.checked });
+    return;
+  }
+
+  if (action === "/upload") {
+    const full = await uploadPath(body.path);
+    const locator = await element("An upload");
+    await uploadFile(target, locator, ref as string, full, options);
+    Object.assign(detail, { ref, path: String(body.path).trim() });
+    return;
+  }
+
+  if (action === "/hover") {
+    const locator = await element("Hovering");
+    await hoverElement(locator, ref as string, options);
+    Object.assign(detail, { ref });
+    return;
+  }
+
+  if (action === "/dialog") {
+    if (typeof body.accept !== "boolean")
+      throw requestError(
+        "Say whether to accept the dialog (OK) or dismiss it (Cancel): accept true or false.",
+      );
+    if (body.text !== undefined && typeof body.text !== "string")
+      throw requestError("A prompt's answer must be text.");
+    let answered: DialogInfo;
+    try {
+      answered = await dialogs.answer(
+        botId,
+        body.accept,
+        typeof body.text === "string" ? body.text : undefined,
+      );
+    } catch (error) {
+      throw elementProblem("no_dialog", describe(error, "No dialog is open."));
+    }
+    // What it said, never what was typed into a prompt: that is a field like any other.
+    Object.assign(detail, {
+      accepted: body.accept,
+      dialog: { type: answered.type, message: answered.message },
+    });
+    return;
+  }
+
+  if (action === "/tabs") {
+    await performTabs(botId, body, detail);
+    return;
+  }
+
+  if (action === "/back") {
+    const from = target.url();
+    let response: PageResponse | null = null;
+    try {
+      response = await dialogs.leaving(botId, () =>
+        target.goBack({ waitUntil: "commit", timeout: NAVIGATION_TIMEOUT_MS }),
+      );
+    } catch (error) {
+      throw siteFailureOf(error) ?? error;
+    }
+    const wentBack = response !== null || target.url() !== from;
+    if (!wentBack) {
+      Object.assign(detail, {
+        wentBack: false,
+        notes: ["There is no earlier page in this tab to go back to."],
+      });
+      return;
+    }
+    try {
+      await target.waitForLoadState("domcontentloaded", { timeout: 10_000 });
+    } catch {
+      detail.loading = true;
+    }
+    session.snapshotId += 1;
+    Object.assign(detail, { wentBack: true });
+    return;
+  }
+
+  // Fill.
+  await performFill(session, target, body, detail, options, expected);
 }
 
+/** A workspace path, confined by workspace.ts, that must name an existing file. */
+async function uploadPath(path: unknown): Promise<string> {
+  if (typeof path !== "string" || !path.trim())
+    throw new WorkspaceFileError(
+      "Say which file to upload, by its path in your workspace.",
+    );
+  const full = await workspace.resolvePath(path.trim(), false);
+  const info = await stat(full);
+  if (!info.isFile())
+    throw new WorkspaceFileError(`${path.trim()} is a folder, not a file.`);
+  return full;
+}
+
+/** A page's title, or empty when it does not answer quickly (one paused on a dialog, say). */
+async function titleWithin(page: Page, ms = 500): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve(""), ms);
+  });
+  try {
+    return await Promise.race([page.title().catch(() => ""), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `computer_tabs`: list this browser's tabs, switch to one, or close one. */
+async function performTabs(
+  botId: string,
+  body: ActionBody,
+  detail: ActionDetail,
+): Promise<void> {
+  const which = body.action;
+  if (which !== "list" && which !== "switch" && which !== "close")
+    throw requestError("Say what to do with the tabs: list, switch or close.");
+  const listed = async () => {
+    const { pages, live } = profiles.tabs(botId);
+    return Promise.all(
+      pages.map(async (page, index) => ({
+        index,
+        url: page.url(),
+        title: await titleWithin(page),
+        active: page === live,
+      })),
+    );
+  };
+  if (which === "list") {
+    Object.assign(detail, { tabs: await listed() });
+    return;
+  }
+  const { pages } = profiles.tabs(botId);
+  const index = body.index;
+  const page =
+    typeof index === "number" && Number.isInteger(index)
+      ? pages[index]
+      : undefined;
+  if (!page)
+    throw requestError(
+      `There is no tab ${String(index)}. The open tabs are numbered 0 to ${pages.length - 1}; list them first.`,
+    );
+  if (which === "switch") {
+    await profiles.activate(botId, page);
+  } else {
+    // The last tab is the browser: closing it would read as a browser that died, and relaunch.
+    if (pages.length === 1)
+      throw requestError(
+        "This is the only tab. Open another page with computer_navigate instead of closing it.",
+      );
+    await page.close({ runBeforeUnload: false });
+  }
+  Object.assign(detail, {
+    [which === "switch" ? "switched" : "closed"]: index,
+    tabs: await listed(),
+  });
+}
+
+/** Why one field of a fill did not work, in the shape every other acting error has. */
+function fieldFailure(error: unknown): Record<string, unknown> {
+  if (error instanceof StaleSnapshotError)
+    return { error: error.message, stale: true };
+  if (isElementProblem(error))
+    return {
+      error: error.message,
+      problem: error.problem,
+      ...error.details,
+      ...(error.problem === "detached" ? { stale: true } : {}),
+    };
+  return { error: describe(error, "That field could not be filled.") };
+}
+
+/**
+ * Fill a whole form in one call, then click or submit when asked. See `fillForm` in acting.ts.
+ *
+ * The server has already decided and recorded every field (and the click) before this is called,
+ * so nothing here is a new decision.
+ */
+async function performFill(
+  session: BotSession,
+  target: Page,
+  body: ActionBody,
+  detail: ActionDetail,
+  options: ActingOptions,
+  expected: number | undefined,
+): Promise<void> {
+  const { fields, after } = parseFill(body.fields, body.then);
+  const outcome: FillOutcome = { filled: [] };
+  detail.filled = outcome.filled;
+  try {
+    await fillForm(
+      target,
+      fields,
+      after,
+      {
+        locate: (ref) => resolveRef(session, target, ref, expected),
+        roleOf: (ref) =>
+          session.lastSnapshot?.elements.find((element) => element.ref === ref)
+            ?.role,
+        uploadPath,
+        failure: fieldFailure,
+      },
+      options,
+      outcome,
+    );
+  } finally {
+    if (outcome.failed) detail.failed = outcome.failed;
+    if (outcome.afterwards) detail.afterwards = outcome.afterwards;
+  }
+}
+
+/** An acting failure as the HTTP answer the server maps onto its own errors. */
+function actionFailure(error: unknown): Response {
+  // A stale ref is the caller's mistake and is fixable by taking a new snapshot, so it is a 409
+  // rather than a 502: the computer is fine and retrying the same call unchanged will not help.
+  if (error instanceof StaleSnapshotError)
+    return json({ error: error.message, stale: true }, 409);
+  if (isRequestError(error))
+    return json({ error: describe(error, "That request is malformed.") }, 400);
+  if (isElementProblem(error)) {
+    // Gone from the page is the one problem a new snapshot fixes.
+    if (error.problem === "detached")
+      return json({ error: error.message, stale: true }, 409);
+    return json(
+      { error: error.message, problem: error.problem, ...error.details },
+      422,
+    );
+  }
+  if (
+    error instanceof WorkspaceFileError ||
+    error instanceof WorkspacePathError
+  )
+    return json({ error: error.message }, fileStatus(error));
+  if (isSiteFailure(error))
+    return json(
+      {
+        error: error.message,
+        siteError: { problem: error.problem, code: error.code },
+      },
+      502,
+    );
+  return json({ error: describe(error, "The action failed.") }, 502);
+}
+
+/** A page paused on a dialog: nothing else can run until it is answered. */
+function dialogOpen(dialog: DialogInfo): Response {
+  return json(
+    {
+      error: `A ${dialog.type} dialog is open on the page ("${dialog.message.slice(0, 120)}"). Answer it with computer_dialog (accept or dismiss) before doing anything else.`,
+      dialog,
+    },
+    409,
+  );
+}
+
+/** An error as one plain sentence: never Playwright's call log. See action-errors.ts. */
 function describe(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  return error instanceof Error ? summariseError(error.message) : fallback;
 }
 
 /**

@@ -316,7 +316,17 @@ const IDLE_SWEEP_MS = 60_000;
  */
 export type BrowserClosed = (botId: string) => void | Promise<void>;
 
-export function createProfiles(root: string, onClosed: BrowserClosed) {
+/**
+ * Told about every browser as it launches, before any page in it is used: where dialogs and
+ * downloads are listened for (dialogs.ts, downloads.ts), so none is missed or auto-dismissed.
+ */
+export type BrowserLaunched = (botId: string, context: BrowserContext) => void;
+
+export function createProfiles(
+  root: string,
+  onClosed: BrowserClosed = () => undefined,
+  onLaunched?: BrowserLaunched,
+) {
   type LiveBrowser = {
     context: BrowserContext;
     page: Page;
@@ -325,6 +335,10 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
     usedAt: number;
     /** Point `page` at whatever is open now. Called on every page opening and closing. */
     retarget: () => void;
+    /** When each page was opened or switched to, so the newest of those is the live one. */
+    rank: WeakMap<Page, number>;
+    /** The clock `rank` counts on. */
+    ranked: number;
     /** Keeps this browser's session cookies on the profile volume. Absent for a native Chrome. */
     sessionCookies?: SessionCookieKeeper;
   };
@@ -664,6 +678,7 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           handleSIGHUP: false,
           ...(proxy ? { proxy } : {}),
         });
+        onLaunched?.(botId, context);
         /*
          * Session cookies back before anything navigates, so the first request a site sees from this
          * launch is already signed in. Not for a native Chrome: its cookies are protected by the OS
@@ -726,10 +741,15 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
           startedAt: new Date().toISOString(),
           usedAt: Date.now(),
           retarget: () => {},
+          rank: new WeakMap(),
+          ranked: 0,
           ...(sessionCookies ? { sessionCookies } : {}),
         };
         record.retarget = () => {
-          const next = chooseLivePage(context.pages());
+          const next = chooseLivePage(
+            context.pages(),
+            (candidate) => record.rank.get(candidate) ?? 0,
+          );
           if (!next || next === record.page) return;
           record.page = next;
           console.info(
@@ -743,6 +763,8 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         // Without this the Bot stays pinned to the page it launched with, so a sign-in the site opens
         // in a new window is neither shown to the person taking the wheel nor reachable by input.
         context.on("page", (opened) => {
+          record.ranked += 1;
+          record.rank.set(opened, record.ranked);
           record.retarget();
           // A popup closes itself when it succeeds, and the record must move back to the opener
           // rather than leave a closed page to be read as a dead browser.
@@ -832,6 +854,34 @@ export function createProfiles(root: string, onClosed: BrowserClosed) {
         await closeOnRequest(botId, "it was reset");
         await rm(directoryFor(botId), { recursive: true, force: true });
       });
+    },
+
+    /**
+     * The open tabs of this Bot's browser, oldest first, and which is live. Empty with no browser
+     * running: listing tabs is not a reason to start one.
+     */
+    tabs(botId: string): { pages: Page[]; live: Page | undefined } {
+      const running = live.get(botId);
+      if (!running) return { pages: [], live: undefined };
+      running.retarget();
+      return {
+        pages: running.context.pages().filter((page) => !page.isClosed()),
+        live: running.page.isClosed() ? undefined : running.page,
+      };
+    },
+
+    /**
+     * Make one of this Bot's open tabs the live one (`computer_tabs` switch), and bring it to the
+     * front so the live screen and a person taking the wheel see it too.
+     */
+    async activate(botId: string, page: Page): Promise<void> {
+      const running = live.get(botId);
+      if (!running || page.isClosed() || page.context() !== running.context)
+        throw new Error("That tab is not open in this browser any more.");
+      running.ranked += 1;
+      running.rank.set(page, running.ranked);
+      running.retarget();
+      await page.bringToFront().catch(() => undefined);
     },
 
     /** Every Bot that has a computer, whether or not one is running. See `known` above. */

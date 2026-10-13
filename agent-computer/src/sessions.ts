@@ -25,6 +25,7 @@
  * separate control store retains their outcomes and marks active handoffs interrupted on reload.
  */
 import type { Page } from "playwright";
+import type { SnapshotElement } from "./aria-snapshot";
 import { type Control, createControl } from "./control";
 import { createControlStore } from "./control-store";
 import { createViewerSlot, type ViewerSlot } from "./viewer";
@@ -44,6 +45,15 @@ export type BotSession = {
   run: string;
   /** The page this Bot was last handed, so a change of page can retire its refs. */
   livePage?: Page;
+  /**
+   * The last snapshot handed out, for the next acting result to list only what changed since it,
+   * and for naming the refs of a covering banner's buttons. Per run: forgotten with the browser.
+   */
+  lastSnapshot?: {
+    snapshotId: number;
+    url: string;
+    elements: SnapshotElement[];
+  };
   /** Context identity separates popup changes from actual browser replacement. */
   browserContext?: object;
   /**
@@ -209,6 +219,7 @@ export function createSessions(options: SessionsOptions) {
         );
       }
       existing.livePage = undefined;
+      existing.lastSnapshot = undefined;
       existing.browserContext = undefined;
       existing.run = mintRun();
       return existing.run;
