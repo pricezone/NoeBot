@@ -2134,36 +2134,101 @@ export function createRequestAgents(
   markAttachmentsSentForActor?: (actorId: string) => MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemoryForActor?: (actorId: string) => LoadPersonalMemory,
+  /** Named rather than positional, so what comes next does not shift anybody's arguments. */
+  extras: RequestAgentExtras = {},
 ) {
+  const buildTtlMs = extras.buildTtlMs ?? AGENT_BUILD_TTL_MS;
+  /*
+   * One person's built Bots, reused for a few seconds.
+   *
+   * Every runtime request (a run, a connect, a stop, the info call) built every Bot this person can
+   * see: their grants, their skills, their instructions, the vendors, all read again. A browser turn
+   * makes several of those requests in a row. The map is a template the runtime clones before each
+   * run, so sharing it across requests changes nothing a run can see beyond the build's own reads,
+   * and those are what {@link invalidateAgentBuilds} and the time limit bound.
+   */
+  const builds = new Map<
+    string,
+    {
+      at: number;
+      generation: number;
+      agents: Promise<Record<string, AbstractAgent>>;
+    }
+  >();
   return async ({ request }: { request: Request }) =>
     // The per-person agent build, measured: it runs on every runtime request. See run-timing.ts.
     timed("agent_build", async () => {
       const actor = await identifyActor(request);
-      return resolveRuntimeAgents(
-        () => loadAgents(actor),
-        model,
-        resolveModelApiKey,
-        stallGuard,
-        loadToolsForActor?.(actor.id),
-        signRunForActor?.(actor.id),
-        computerGuidance,
-        loadVendors,
-        selectionForActor?.(actor.id),
-        agentFetch,
-        handoffForActor?.(actor.id),
-        // Every Bot this person can see, so no `onlyBotId` here; the instructions follow it.
-        undefined,
-        loadInstructionsForActor?.(actor.id),
-        // No initiator: a request is a person asking, which is the default this path has always
-        // carried. Named only so the attachments after it land in the right position.
-        undefined,
-        loadAttachmentForActor?.(actor.id),
-        markAttachmentsSentForActor?.(actor.id),
-        acquireLearnedSkills,
-        loadPersonalMemoryForActor?.(actor.id),
-      );
+      const key = JSON.stringify([actor.id, actor.role]);
+      const cached = builds.get(key);
+      if (
+        cached &&
+        cached.generation === agentBuildGeneration &&
+        Date.now() - cached.at < buildTtlMs
+      )
+        return cached.agents;
+      for (const [other, entry] of builds)
+        if (Date.now() - entry.at >= buildTtlMs) builds.delete(other);
+      const agents = buildForActor(actor);
+      builds.set(key, {
+        at: Date.now(),
+        generation: agentBuildGeneration,
+        agents,
+      });
+      // A failed build is never served again: the next request tries afresh.
+      agents.catch(() => {
+        if (builds.get(key)?.agents === agents) builds.delete(key);
+      });
+      return agents;
     });
+
+  async function buildForActor(
+    actor: AgentActor,
+  ): Promise<Record<string, AbstractAgent>> {
+    const agents = await resolveRuntimeAgents(
+      () => loadAgents(actor),
+      model,
+      resolveModelApiKey,
+      stallGuard,
+      loadToolsForActor?.(actor.id),
+      signRunForActor?.(actor.id),
+      computerGuidance,
+      loadVendors,
+      selectionForActor?.(actor.id),
+      agentFetch,
+      handoffForActor?.(actor.id),
+      // Every Bot this person can see, so no `onlyBotId` here; the instructions follow it.
+      undefined,
+      loadInstructionsForActor?.(actor.id),
+      // No initiator: a request is a person asking, which is the default this path has always
+      // carried. Named only so the attachments after it land in the right position.
+      undefined,
+      loadAttachmentForActor?.(actor.id),
+      markAttachmentsSentForActor?.(actor.id),
+      acquireLearnedSkills,
+      loadPersonalMemoryForActor?.(actor.id),
+    );
+    return agents;
+  }
 }
+
+/** How long one person's built Bots are reused across runtime requests. */
+export const AGENT_BUILD_TTL_MS = 10_000;
+let agentBuildGeneration = 0;
+
+/**
+ * Something a person's Bots are built from changed (a Bot, a grant, an instruction): every request
+ * after this builds them again rather than reusing a build from before the change.
+ */
+export function invalidateAgentBuilds(): void {
+  agentBuildGeneration += 1;
+}
+
+/** The request path's named options. See {@link createRequestAgents}. */
+export type RequestAgentExtras = {
+  /** How long a build is reused; zero builds on every request. */
+  buildTtlMs?: number;
+};
 
 /**
  * Mount the CopilotKit endpoint onto the host Hono app.

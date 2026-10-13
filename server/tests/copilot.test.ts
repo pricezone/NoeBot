@@ -15,6 +15,7 @@ import {
   buildAgents,
   builtInAgentConfiguration,
   createRequestAgents,
+  invalidateAgentBuilds,
   type LoadInstructions,
   registeredAgentFromRow,
   resolveRuntimeAgents,
@@ -798,6 +799,8 @@ describe("standing agent roles", () => {
 
     const before = await factory({ request });
     roleDescription = "Reconcile corporate card statements.";
+    // An edit made through the API invalidates the reused builds (index.ts does it on every change).
+    invalidateAgentBuilds();
     const after = await factory({ request });
 
     expect(before.agent_expense).not.toBe(after.agent_expense);
@@ -2500,5 +2503,80 @@ describe("where an attachment reaches the model, and where it deliberately does 
       (messages[4] as { content?: { source?: unknown }[] }).content?.[0]
         ?.source,
     ).toMatchObject({ type: "data" });
+  });
+});
+
+describe("one person's built Bots, reused across requests", () => {
+  const loader = () => {
+    let reads = 0;
+    return {
+      reads: () => reads,
+      load: async () => {
+        reads++;
+        return [
+          {
+            id: "general-assistant",
+            name: "General Assistant",
+            type: "built_in" as const,
+            systemPrompt: "Be helpful.",
+          },
+        ];
+      },
+    };
+  };
+  const request = new Request("http://openbot.test/api/copilotkit");
+
+  test("are built once for a burst of requests, and concurrent requests share the build", async () => {
+    const roster = loader();
+    const factory = createRequestAgents(
+      async () => ({ id: "user-cache", role: "user" as const }),
+      roster.load,
+      { provider: "openai", defaultModel: "gpt-5.6-terra" },
+      async () => null,
+    );
+    const [first, second] = await Promise.all([
+      factory({ request }),
+      factory({ request }),
+    ]);
+    const third = await factory({ request });
+    expect(first).toBe(second);
+    expect(third).toBe(first);
+    expect(roster.reads()).toBe(1);
+  });
+
+  test("are built again after a change, and never shared between people", async () => {
+    const roster = loader();
+    let person = "user-a";
+    const factory = createRequestAgents(
+      async () => ({ id: person, role: "user" as const }),
+      roster.load,
+      { provider: "openai", defaultModel: "gpt-5.6-terra" },
+      async () => null,
+    );
+    const first = await factory({ request });
+    person = "user-b";
+    const other = await factory({ request });
+    expect(other).not.toBe(first);
+    person = "user-a";
+    invalidateAgentBuilds();
+    const rebuilt = await factory({ request });
+    expect(rebuilt).not.toBe(first);
+    expect(roster.reads()).toBe(3);
+  });
+
+  test("a zero time limit builds on every request, as before", async () => {
+    const roster = loader();
+    const factory = createRequestAgents(
+      async () => ({ id: "user-zero", role: "user" as const }),
+      roster.load,
+      { provider: "openai", defaultModel: "gpt-5.6-terra" },
+      async () => null,
+      // stallGuard through loadPersonalMemoryForActor: thirteen positions nobody needs here.
+      ...Array.from({ length: 13 }, () => undefined),
+      { buildTtlMs: 0 },
+    );
+    await factory({ request });
+    await factory({ request });
+    expect(roster.reads()).toBe(2);
   });
 });

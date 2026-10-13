@@ -147,6 +147,7 @@ import { loadConfig } from "./config";
 import {
   type IdentifyActor,
   type IdentifyUser,
+  invalidateAgentBuilds,
   mountCopilotRuntime,
   normalizeModelBaseUrls,
   resolveRuntimeAgents,
@@ -3327,6 +3328,32 @@ const isProxiedStream = (data: SocketData): data is StreamData =>
 const asChannelSocket = (ws: { data: SocketData }) =>
   ws as unknown as ChannelSocket;
 
+/**
+ * Whether a request may change what a person's Bots are built from: a Bot, a grant, a connector, an
+ * instruction. Any write outside the busy paths that never do (a run, a computer action, channel
+ * activity) counts, so a write nobody listed still drops the reused builds. See
+ * `invalidateAgentBuilds` in copilot.ts; a change that arrives any other way waits out its ten seconds.
+ */
+const BUILD_NEUTRAL_WRITES = [
+  "/api/copilotkit",
+  "/api/approvals/computer",
+  "/api/computers/",
+  "/api/channels",
+  "/api/runs/",
+  "/api/attachments",
+  "/api/dictation",
+  "/api/voice",
+  "/api/audio/",
+];
+function changesAgentBuilds(request: Request): boolean {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) return false;
+  const path = new URL(request.url).pathname;
+  return (
+    path.startsWith("/api/") &&
+    !BUILD_NEUTRAL_WRITES.some((prefix) => path.startsWith(prefix))
+  );
+}
+
 serve<SocketData>({
   port,
   /*
@@ -3415,7 +3442,15 @@ serve<SocketData>({
       }
       return new Response("Expected a WebSocket upgrade.", { status: 400 });
     }
-    return timedFetch(request, () => app.fetch(request, { server }));
+    if (!changesAgentBuilds(request))
+      return timedFetch(request, () => app.fetch(request, { server }));
+    // Before and after: a run that starts while the change is being written must not keep the old build.
+    invalidateAgentBuilds();
+    try {
+      return await app.fetch(request, { server });
+    } finally {
+      invalidateAgentBuilds();
+    }
   },
   websocket: {
     open(ws) {
