@@ -55,6 +55,31 @@ export type ChannelActivityEvent = {
    * streams. A missed one costs at most a stuck-looking dot until the next real event, never data.
    */
   busy?: boolean;
+  /**
+   * Which moment of a person's turn this busy signal marks: a run starting or ending, or a card
+   * starting to wait on them. Only on a busy event a browser sent; a headless turn has none.
+   *
+   * A number the sending tab only ever raises, so a tab watching the same conversation can tell
+   * "something happened in that turn" from a repeat, and read the transcript again at once instead
+   * of waiting for the turn to end. Like `busy`, announced and never written.
+   */
+  step?: number;
+  /** The card that began waiting on the person at this step, by its tool call. */
+  waiting?: ChannelWaiting;
+};
+
+/** What a card waiting on the person is, so a watching tab knows what to look for. */
+export const CHANNEL_WAITING_KINDS = [
+  "sign_in",
+  "secret",
+  "help",
+  "choice",
+  "approval",
+  "question",
+] as const;
+export type ChannelWaiting = {
+  kind: (typeof CHANNEL_WAITING_KINDS)[number];
+  toolCallId: string;
 };
 
 /** "The roster you hold may be wrong." Carries no delta, because what was lost is not recoverable. */

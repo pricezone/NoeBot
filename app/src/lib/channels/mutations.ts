@@ -74,10 +74,14 @@ export function recordChannelActivityMutationOptions() {
 export async function setChannelBusy(variables: {
   channelId: string;
   busy: boolean;
+  /** Which moment of the turn this is, and the card that began waiting at it. See `./steps.ts`. */
+  step?: number;
+  waiting?: { kind: string; toolCallId: string };
 }) {
-  await tryClient(`/api/channels/${variables.channelId}/busy`, {
+  const { channelId, ...body } = variables;
+  await tryClient(`/api/channels/${channelId}/busy`, {
     method: "POST",
-    body: { busy: variables.busy },
+    body,
   });
 }
 

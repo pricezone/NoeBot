@@ -1,9 +1,22 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import {
   type QuestionAnswer,
   QuestionCard,
+  QuestionScreen,
 } from "@/components/chat-cards/question-card";
+import {
+  answerWaitingDecision,
+  closeWaitingDecision,
+  heartbeatWaitingDecision,
+  openWaitingDecision,
+  readWaitingDecision,
+  type WaitingDecision,
+  type WaitingDecisionArgs,
+  type WaitingDecisionKind,
+} from "@/lib/approvals";
+import { useChannelStep } from "@/lib/channels/steps";
+import { isForwardedPlaceholder } from "@/lib/channels/watch";
 import { useConversation } from "@/lib/copilot/conversation";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
 
@@ -29,18 +42,76 @@ type Waiting<T> =
   | { status: "complete"; args: T; respond: undefined; result: string };
 
 /**
- * A decision card this tab cannot answer through the run, answered through the chat instead.
+ * A card whose only result is the runtime's "forwarded to client" placeholder, read back by another
+ * tab while the tab running the turn still waits on it, is still waiting: drawn as in progress, so it
+ * can be answered from here (`useChatAnswer`), never as answered with nothing.
+ */
+function stillWaiting<P extends { status: string; result?: unknown }>(
+  props: P,
+): P {
+  return props.status === "complete" && isForwardedPlaceholder(props.result)
+    ? { ...props, status: "inProgress", result: undefined, respond: undefined }
+    : props;
+}
+
+/** What a card says under its rows when an answer did not leave, so it can be given again. */
+const NOT_SENT = "Your answer could not be sent. Try again.";
+
+/** The sentence for a failed answer: the server's or the card's own, never nothing. */
+function sendError(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : NOT_SENT;
+}
+
+/** How often the tab holding the run says so, and how often it looks for an answer given elsewhere. */
+const HEARTBEAT_MS = 5000;
+const ANSWER_POLL_MS = 1000;
+/** How often a card this tab cannot answer through the run looks for an answer given elsewhere. */
+const STORED_ANSWER_POLL_MS = 3000;
+
+/**
+ * Answer a decision whose run this tab does not hold.
+ *
+ * Through its record first: while the tab holding the run is still there, the answer is written to
+ * the record and that tab hands it to the waiting run, which carries on exactly where it stopped.
+ * When no tab holds the run — the record is stale or was never written — the answer goes as the
+ * person's next message instead (`text`), and the record is closed with it so no tab offers the
+ * card again. Throws when neither could be done, so the card can say so and take the answer again.
+ */
+export async function answerElsewhere(
+  conversation: ReturnType<typeof useConversation>,
+  toolCallId: string | undefined,
+  value: unknown,
+  text: string,
+): Promise<void> {
+  if (toolCallId && conversation?.channelId) {
+    const outcome = await answerWaitingDecision(toolCallId, value);
+    if (outcome === "delivered") return;
+    if (outcome === "answered")
+      throw new Error("This question was already answered.");
+  }
+  // Not sent at all: the card takes an answer again.
+  if ((await conversation?.ask(text)) === false)
+    throw new Error("The answer was not sent.");
+  if (toolCallId && conversation?.channelId)
+    void closeWaitingDecision(toolCallId, value);
+}
+
+/**
+ * A decision card this tab cannot answer through the run, answered from here anyway.
  *
  * A decision suspends the run in the tab that started it, and only that tab holds what resumes it.
  * Drawn anywhere else — the person's own tab while the Bot was driven from another, or the same tab
  * after a reload — the card arrives with no result and nothing executing it, which the runtime calls
  * "in progress" for good: the options were hidden as if still being written, and the question could
  * not be answered at all. So when this tab has no turn going and the question is written, the card
- * takes an answer and sends it as the person's next message, the way a Bot's `ask_person` question
- * is answered; the history repair then tells the Bot that message is the answer.
+ * takes an answer: handed to the tab holding the run when there is one, and otherwise sent as the
+ * person's next message, the way a Bot's `ask_person` question is answered; the history repair then
+ * tells the Bot that message is the answer. See `answerElsewhere`.
  *
  * `answer` is what the person said after the question, read off the transcript (see
- * `question-answers.ts`), for a card whose own result does not hold one.
+ * `question-answers.ts`), for a card whose own result does not hold one. `stored` is the answer the
+ * server's record of the card holds, given in another tab, so the card is drawn answered there too
+ * — and after a reload — before the run's own result has reached this tab's history.
  */
 function useChatAnswer(props: {
   status: "inProgress" | "executing" | "complete";
@@ -59,12 +130,127 @@ function useChatAnswer(props: {
     conversation?.turnActive === false &&
     Boolean(id) &&
     Boolean(props.args.title);
-  const send = async (text: string) => {
-    // Not sent at all: the card takes an answer again.
-    if ((await conversation?.ask(text)) === false)
-      throw new Error("The answer was not sent.");
+  const channelId = conversation?.channelId;
+  const [stored, setStored] = useState<WaitingDecision | null>(null);
+  useEffect(() => {
+    if (!answerable || !id || !channelId) return;
+    let current = true;
+    const read = () =>
+      void readWaitingDecision(id).then((record) => {
+        if (current) setStored(record);
+      });
+    read();
+    const timer = setInterval(read, STORED_ANSWER_POLL_MS);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, [answerable, id, channelId]);
+  const send = (value: unknown, text: string) =>
+    answerElsewhere(conversation, id, value, text);
+  return {
+    answer,
+    answerable,
+    send,
+    stored: answerable ? (stored?.answer ?? null) : null,
   };
-  return { answer, answerable, send };
+}
+
+/**
+ * The record of a decision this tab's run is waiting on, kept while it waits.
+ *
+ * Opened when the card starts waiting, heartbeated every five seconds, and read every second (and on
+ * every step another tab reports) for an answer given in another tab, which is then handed to the
+ * waiting run through `respond` — the same call an answer picked on this card makes. Gone with the
+ * card: a tab that closes stops heartbeating, the record goes stale, and an answer given elsewhere
+ * then travels as a message instead.
+ *
+ * `answered` tells the hook this card already has its answer on the way, so a late one from another
+ * tab is not handed over as well.
+ */
+function useHeldDecision({
+  kind,
+  toolCallId,
+  args,
+  respond,
+  answered,
+  onAnswered,
+}: {
+  kind: WaitingDecisionKind;
+  toolCallId?: string;
+  args: WaitingDecisionArgs | undefined;
+  respond: ((result: unknown) => Promise<void>) | undefined;
+  answered: () => boolean;
+  /** An answer from another tab reached the run. */
+  onAnswered: (answer: unknown) => void;
+}) {
+  const conversation = useConversation();
+  const botId = conversation?.botId;
+  const channelId = conversation?.channelId;
+  const step = useChannelStep(channelId ?? "")?.step;
+  const holding = Boolean(
+    respond && toolCallId && botId && channelId && args?.title,
+  );
+  const latest = useRef({ args, respond, answered, onAnswered });
+  latest.current = { args, respond, answered, onAnswered };
+  const check = useRef<() => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    if (!holding || !toolCallId || !botId || !channelId) return;
+    let current = true;
+    let handing = false;
+    const open = () => {
+      const recordArgs = latest.current.args;
+      if (!recordArgs) return Promise.resolve(null);
+      return openWaitingDecision({
+        botId,
+        channelId,
+        toolCallId,
+        kind,
+        args: recordArgs,
+      });
+    };
+    check.current = async () => {
+      if (!current || handing || latest.current.answered()) return;
+      const record = await readWaitingDecision(toolCallId);
+      if (!current || !record || record.closed || record.answer === null)
+        return;
+      const answer =
+        kind === "approval"
+          ? readApproval(JSON.stringify(record.answer))
+          : readChoiceAnswer(JSON.stringify(record.answer));
+      const run = latest.current.respond;
+      if (!answer || !run || latest.current.answered()) return;
+      handing = true;
+      try {
+        await run(answer);
+        latest.current.onAnswered(answer);
+        void closeWaitingDecision(toolCallId);
+      } catch {
+        // The run is gone; the record stays answered for whoever reads it next.
+      } finally {
+        handing = false;
+      }
+    };
+    void open();
+    const beat = setInterval(() => {
+      void heartbeatWaitingDecision(toolCallId).then((record) => {
+        // Never written (or lost): written again, so the other tabs can still see the card.
+        if (current && record === null) void open();
+      });
+    }, HEARTBEAT_MS);
+    const poll = setInterval(() => void check.current(), ANSWER_POLL_MS);
+    return () => {
+      current = false;
+      clearInterval(beat);
+      clearInterval(poll);
+    };
+  }, [holding, toolCallId, botId, channelId, kind]);
+
+  // Another tab moved: look for its answer now rather than at the next poll.
+  useEffect(() => {
+    if (step !== undefined) void check.current();
+  }, [step]);
 }
 
 export const ApprovalCardProps = z.object({
@@ -87,6 +273,20 @@ type ApprovalArgs = z.infer<typeof ApprovalCardProps>;
 /** The decision an approval records, with the reason typed beside it, when there was one. */
 type ApprovalAnswer = { decision: "approved" | "declined"; note?: string };
 
+/** What a record keeps of an approval card, so another tab can draw the same one. */
+function approvalRecordArgs(
+  args: Partial<ApprovalArgs>,
+): WaitingDecisionArgs | undefined {
+  if (!args.title) return undefined;
+  return {
+    title: args.title,
+    ...(args.summary ? { summary: args.summary } : {}),
+    ...(args.details?.length ? { details: args.details } : {}),
+    ...(args.approveLabel ? { approveLabel: args.approveLabel } : {}),
+    ...(args.rejectLabel ? { rejectLabel: args.rejectLabel } : {}),
+  };
+}
+
 /**
  * Approve or decline, drawn as the question card: the request as its question, the summary and the
  * facts under it, Approve and Decline as rows A and B.
@@ -95,13 +295,23 @@ type ApprovalAnswer = { decision: "approved" | "declined"; note?: string };
  * decision, as the reason box always did. Typed and sent on its own it is an answer that is not
  * "approve", so it goes out as a decline carrying the person's words: the Bot learns what they want
  * instead, and nothing irreversible happens on an answer that never said yes.
+ *
+ * `record` draws the card from the server's record of it (`PendingRequests`), for a tab whose
+ * transcript does not hold the question: answered there, it goes to the tab holding the run.
  */
 export function ApprovalCard(
-  props: Waiting<ApprovalArgs> & { name?: string; toolCallId?: string },
+  drawn: Waiting<ApprovalArgs> & {
+    name?: string;
+    toolCallId?: string;
+    record?: WaitingDecision;
+  },
 ) {
-  const { args } = props;
+  const props = stillWaiting(drawn);
+  const { args, record } = props;
+  const conversation = useConversation();
   const [sending, setSending] = useState<ApprovalAnswer | null>(null);
   const [sent, setSent] = useState<ApprovalAnswer | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const chat = useChatAnswer(props);
   const approveLabel = args.approveLabel ?? "Approve";
   const rejectLabel = args.rejectLabel ?? "Decline";
@@ -113,6 +323,27 @@ export function ApprovalCard(
     recorded || chat.answer === undefined
       ? undefined
       : approvalFromText(chat.answer, approveLabel, rejectLabel);
+  /** Answered in another tab and not yet handed to the run: drawn as answered all the same. */
+  const recordAnswer = record?.answer ?? chat.stored;
+  const fromRecord = recordAnswer
+    ? readApproval(JSON.stringify(recordAnswer))
+    : undefined;
+  const decided =
+    recorded ??
+    (inChat && "decision" in inChat ? inChat : (sent ?? fromRecord ?? null));
+
+  // The run waits in this tab: keep its record, and take an answer given in another tab.
+  const holdsRun = props.status === "executing" && !record;
+  const sendingRef = useRef(false);
+  sendingRef.current = sending !== null || decided !== null;
+  useHeldDecision({
+    kind: "approval",
+    toolCallId: props.toolCallId,
+    args: holdsRun ? approvalRecordArgs(args) : undefined,
+    respond: holdsRun ? props.respond : undefined,
+    answered: () => sendingRef.current,
+    onAnswered: (answer) => setSent(answer as ApprovalAnswer),
+  });
 
   if (props.status === "inProgress" && !chat.answerable && !inChat) {
     return (
@@ -123,24 +354,36 @@ export function ApprovalCard(
     );
   }
 
-  const respond = chat.answerable
-    ? (value: ApprovalAnswer) =>
-        chat.send(
-          `${value.decision === "approved" ? approveLabel : rejectLabel}${value.note ? `: ${value.note}` : ""}`,
-        )
-    : props.respond;
-  const decided = recorded ?? (inChat && "decision" in inChat ? inChat : sent);
+  const asText = (value: ApprovalAnswer) =>
+    `${value.decision === "approved" ? approveLabel : rejectLabel}${value.note ? `: ${value.note}` : ""}`;
+  const respond =
+    chat.answerable || record
+      ? (value: ApprovalAnswer) =>
+          record
+            ? answerElsewhere(
+                conversation,
+                record.toolCallId,
+                value,
+                asText(value),
+              )
+            : chat.send(value, asText(value))
+      : props.respond;
 
   const answer = async (decision: ApprovalAnswer["decision"], note: string) => {
     if (!respond || sending || decided) return;
     // Include the note in the same tool result that resumes the Bot.
     const value = { decision, note: note.trim() || undefined };
     setSending(value);
+    setError(null);
     try {
       await respond(value);
       setSent(value);
-    } catch {
-      // Not sent, so not decided: the card takes an answer again.
+      // Answered here: the record, if this tab keeps one, is done with.
+      if (holdsRun && props.toolCallId)
+        void closeWaitingDecision(props.toolCallId, value);
+    } catch (failure) {
+      // Not sent, so not decided: the card takes an answer again, and says why.
+      setError(sendError(failure));
     } finally {
       setSending(null);
     }
@@ -164,6 +407,13 @@ export function ApprovalCard(
             ? inChat
             : undefined
       }
+      footer={
+        error ? (
+          <p className="text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null
+      }
       onOwnAnswer={
         respond ? (text) => void answer("declined", text) : undefined
       }
@@ -177,6 +427,13 @@ export function ApprovalCard(
           : undefined
       }
       options={options}
+      screen={
+        <QuestionScreen
+          computerId={conversation?.botId}
+          toolCallId={props.toolCallId}
+          waiting={!decided}
+        />
+      }
       sending={sending ? asAnswer(sending) : undefined}
       subtitle={args.summary}
       title={args.title ?? ""}
@@ -223,6 +480,21 @@ type ChoiceArgs = z.infer<typeof ChoiceCardProps>;
  */
 export type ChoiceAnswer = { choice: string; label: string; typed?: true };
 
+/** What a record keeps of a choice card, so another tab can draw the same one. */
+function choiceRecordArgs(
+  args: Partial<ChoiceArgs>,
+): WaitingDecisionArgs | undefined {
+  if (!args.title) return undefined;
+  return {
+    title: args.title,
+    ...(args.summary ? { summary: args.summary } : {}),
+    options: (args.options ?? []).filter(
+      (option): option is ChoiceArgs["options"][number] =>
+        Boolean(option?.id && option.label),
+    ),
+  };
+}
+
 /**
  * A question with lettered options and a field for an answer of the person's own.
  *
@@ -233,27 +505,41 @@ export type ChoiceAnswer = { choice: string; label: string; typed?: true };
  * `respond`, so typing is never a second-class way to answer.
  *
  * `onDismiss` puts an X beside the question for a caller that can do without the card: the person
- * then answers in the composer like any other message.
+ * then answers in the composer like any other message. `record` draws it from the server's record,
+ * as for an approval; `held: false` is for a caller whose `respond` is not a run waiting in this tab
+ * (an `ask_person` question), so no record is kept for it.
  */
 export function ChoiceCard(
-  props: Waiting<ChoiceArgs> & { onDismiss?: () => void; toolCallId?: string },
+  drawn: Waiting<ChoiceArgs> & {
+    onDismiss?: () => void;
+    toolCallId?: string;
+    record?: WaitingDecision;
+    held?: false;
+  },
 ) {
-  const { args, onDismiss } = props;
+  const props = stillWaiting(drawn);
+  const { args, onDismiss, record } = props;
+  const conversation = useConversation();
   /** The answer on its way out, so the card stops taking answers at once. */
   const [sending, setSending] = useState<ChoiceAnswer | null>(null);
   /** Sent, before the transcript has caught up with it. */
   const [sent, setSent] = useState<ChoiceAnswer | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const chat = useChatAnswer(props);
-  // Answerable here only by message: drawn as waiting on an answer, and an answer goes out as one.
-  const status = chat.answerable ? "executing" : props.status;
-  const respond = chat.answerable
-    ? (value: unknown) =>
-        chat.send(
-          value && typeof value === "object" && "label" in value
-            ? String(value.label)
-            : "",
-        )
-    : props.respond;
+  // Answerable here without the run: drawn as waiting on an answer, and an answer goes out from here.
+  const status = chat.answerable || record ? "executing" : props.status;
+  const respond =
+    chat.answerable || record
+      ? (value: unknown) => {
+          const text =
+            value && typeof value === "object" && "label" in value
+              ? String(value.label)
+              : "";
+          return record
+            ? answerElsewhere(conversation, record.toolCallId, value, text)
+            : chat.send(value, text);
+        }
+      : props.respond;
 
   const recorded =
     props.status === "complete" ? readChoiceAnswer(props.result) : undefined;
@@ -261,18 +547,41 @@ export function ChoiceCard(
     recorded || chat.answer === undefined
       ? undefined
       : choiceFromText(chat.answer, args.options ?? []);
-  const given = recorded ?? inChat ?? sent ?? undefined;
+  const recordAnswer = record?.answer ?? chat.stored;
+  const fromRecord = recordAnswer
+    ? readChoiceAnswer(JSON.stringify(recordAnswer))
+    : undefined;
+  const given = recorded ?? inChat ?? sent ?? fromRecord ?? undefined;
   const options = status === "inProgress" && !given ? [] : (args.options ?? []);
   const open = status === "executing" && Boolean(respond) && !given;
+
+  // The run waits in this tab: keep its record, and take an answer given in another tab.
+  const holdsRun =
+    props.status === "executing" && !record && props.held !== false;
+  const answeredRef = useRef(false);
+  answeredRef.current = sending !== null || given !== undefined;
+  useHeldDecision({
+    kind: "choice",
+    toolCallId: props.toolCallId,
+    args: holdsRun ? choiceRecordArgs(args) : undefined,
+    respond: holdsRun ? props.respond : undefined,
+    answered: () => answeredRef.current,
+    onAnswered: (answer) => setSent(answer as ChoiceAnswer),
+  });
 
   const answer = async (value: ChoiceAnswer) => {
     if (!respond || !open || sending) return;
     setSending(value);
+    setError(null);
     try {
       await respond(value);
       setSent(value);
-    } catch {
-      // Not sent, so not answered: the card takes an answer again.
+      // Answered here: the record, if this tab keeps one, is done with.
+      if (holdsRun && props.toolCallId)
+        void closeWaitingDecision(props.toolCallId, value);
+    } catch (failure) {
+      // Not sent, so not answered: the card takes an answer again, and says why.
+      setError(sendError(failure));
     } finally {
       setSending(null);
     }
@@ -287,6 +596,13 @@ export function ChoiceCard(
   return (
     <QuestionCard
       answered={given ? asAnswer(given) : undefined}
+      footer={
+        error ? (
+          <p className="text-destructive text-sm" role="alert">
+            {error}
+          </p>
+        ) : null
+      }
       onDismiss={given ? undefined : onDismiss}
       onOwnAnswer={
         open
@@ -299,6 +615,15 @@ export function ChoiceCard(
           : undefined
       }
       options={options}
+      screen={
+        status === "inProgress" ? undefined : (
+          <QuestionScreen
+            computerId={conversation?.botId}
+            toolCallId={props.toolCallId}
+            waiting={!given}
+          />
+        )
+      }
       sending={sending ? asAnswer(sending) : undefined}
       subtitle={
         status === "inProgress"
@@ -306,6 +631,49 @@ export function ChoiceCard(
           : args.summary
       }
       title={args.title ?? "Waiting for the assistant…"}
+    />
+  );
+}
+
+/**
+ * A decision card drawn from the server's record of it, for a tab whose transcript does not hold
+ * the question (`PendingRequests`). Answered here, the answer goes to the tab holding the run, or as
+ * a message when no tab holds it any more.
+ */
+export function RecordedDecision({ record }: { record: WaitingDecision }) {
+  if (record.kind === "approval")
+    return (
+      <ApprovalCard
+        args={{
+          title: record.args.title,
+          summary: record.args.summary ?? "",
+          ...(record.args.details ? { details: record.args.details } : {}),
+          ...(record.args.approveLabel
+            ? { approveLabel: record.args.approveLabel }
+            : {}),
+          ...(record.args.rejectLabel
+            ? { rejectLabel: record.args.rejectLabel }
+            : {}),
+        }}
+        record={record}
+        respond={async () => {}}
+        result={undefined}
+        status="executing"
+        toolCallId={record.toolCallId}
+      />
+    );
+  return (
+    <ChoiceCard
+      args={{
+        title: record.args.title,
+        ...(record.args.summary ? { summary: record.args.summary } : {}),
+        options: record.args.options ?? [],
+      }}
+      record={record}
+      respond={async () => {}}
+      result={undefined}
+      status="executing"
+      toolCallId={record.toolCallId}
     />
   );
 }

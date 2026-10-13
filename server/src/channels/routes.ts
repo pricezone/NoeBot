@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
+import { z } from "zod";
 import {
   AgentNotFoundError,
   type AgentProfileStore,
@@ -33,8 +34,10 @@ import {
 } from "../db/schema";
 import {
   CHANNEL_ACTIVITY_TOPIC,
+  CHANNEL_WAITING_KINDS,
   type ChannelActivityEvent,
   type ChannelEventHub,
+  type ChannelWaiting,
 } from "./events";
 import {
   createSectionRoutes,
@@ -273,13 +276,32 @@ export type ChannelStore = SidebarSectionStore & {
    * the browser reports it, and this checks the caller belongs to the channel before announcing —
    * the membership check `signalBusy` does not need, because that one is only ever called by the
    * server about work it started itself.
+   *
+   * `moment` is the step within the turn, and the card that began waiting on the person at it, so
+   * the person's other tabs can read the transcript again at that moment rather than at the end.
    */
   signalChannelBusy(
     actor: AgentActor,
     channelId: string,
     busy: boolean,
+    moment?: ChannelMoment,
   ): Promise<void>;
 };
+
+/** Which step of a turn a browser's busy signal marks. See `ChannelActivityEvent.step`. */
+export type ChannelMoment = { step?: number; waiting?: ChannelWaiting };
+
+/** A busy signal as a browser sends it: the flag, and optionally the step and the waiting card. */
+export const busySignalSchema = z.object({
+  busy: z.boolean(),
+  step: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+  waiting: z
+    .strictObject({
+      kind: z.enum(CHANNEL_WAITING_KINDS),
+      toolCallId: z.string().trim().min(1).max(200),
+    })
+    .optional(),
+});
 
 const PRIVATE_AGENT_CHANNEL_DESCRIPTION = "Private agent channel.";
 const MAX_CHANNEL_NAME_CODE_POINTS = 120;
@@ -1100,7 +1122,7 @@ export function createChannelStore(
       );
     },
 
-    async signalChannelBusy(actor, channelId, busy) {
+    async signalChannelBusy(actor, channelId, busy, moment = {}) {
       const [membership] = await database
         .select({ userId: channelMemberships.userId })
         .from(channelMemberships)
@@ -1133,6 +1155,8 @@ export function createChannelStore(
         lastMessageAt: null,
         lastMessageAgentId: null,
         busy,
+        ...(moment.step === undefined ? {} : { step: moment.step }),
+        ...(moment.waiting ? { waiting: moment.waiting } : {}),
       };
       await database.execute(
         sql`select pg_notify(${CHANNEL_ACTIVITY_TOPIC}, ${JSON.stringify(event)})`,
@@ -1405,15 +1429,31 @@ export function createChannelRoutes(
     if (typeof body?.busy !== "boolean") {
       return context.json({ error: "busy must be true or false" }, 400);
     }
+    // The step and the waiting card are optional; present, they must be what a tab sends.
+    const signal = busySignalSchema.safeParse(body);
+    if (!signal.success) {
+      return context.json(
+        {
+          error:
+            "step must be a whole number, and waiting a card kind with its tool call id.",
+        },
+        400,
+      );
+    }
     if (!context.req.param("channelId").trim()) {
       return context.json({ error: "A channel id is required." }, 400);
     }
 
     try {
+      const { busy, step, waiting } = signal.data;
       await store.signalChannelBusy(
         context.var.actor,
         context.req.param("channelId"),
-        body.busy,
+        busy,
+        {
+          ...(step === undefined ? {} : { step }),
+          ...(waiting ? { waiting } : {}),
+        },
       );
       return context.body(null, 204);
     } catch (error) {

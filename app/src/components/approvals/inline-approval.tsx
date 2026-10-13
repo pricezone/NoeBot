@@ -103,19 +103,24 @@ const DECISIONS = new Set<string>([
  */
 export function InlineApproval({
   toolCallId,
+  requestId,
   fallback,
 }: {
   toolCallId?: string;
+  /** The request itself, for a caller that has it and may have no tool call id (`PendingRequests`). */
+  requestId?: string;
   fallback: ReactNode;
 }) {
   const cache = useQueryClient();
   const inbox = useQuery(approvalInboxOptions());
   const decidedHere = useDecidedHere();
-  const request = toolCallId
-    ? inbox.data?.requests.find(
-        (candidate) => candidate.action.toolCallId === toolCallId,
-      )
-    : undefined;
+  const request = requestId
+    ? inbox.data?.requests.find((candidate) => candidate.id === requestId)
+    : toolCallId
+      ? inbox.data?.requests.find(
+          (candidate) => candidate.action.toolCallId === toolCallId,
+        )
+      : undefined;
   const decision = useMutation({
     mutationFn: (choice: ApprovalDecision) =>
       decideApproval(request?.id ?? "", choice),

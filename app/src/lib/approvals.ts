@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { client } from "@/lib/client";
+import { client, tryClient } from "@/lib/client";
 export type ApprovalDecision =
   | "allow_once"
   | "allow_always"
@@ -167,3 +167,113 @@ export const updateTeamApprovalRule = (
     body: input,
     fallback: "The team rule could not be changed.",
   });
+
+/**
+ * A decision card a Bot's run is waiting on (`askChoice`, `askApproval`), as the server keeps it so
+ * every tab can draw it and answer it. The tab running the turn opens it and heartbeats it; any tab
+ * answers it; the running tab hands the answer to its run and closes it. `live` is the server's word
+ * that the running tab was heard from in the last fifteen seconds. See the server's `decisions.ts`.
+ */
+export type WaitingDecisionKind = "choice" | "approval";
+export type WaitingDecisionArgs = {
+  title: string;
+  summary?: string;
+  options?: { id: string; label: string; description?: string }[];
+  details?: { label: string; value: string }[];
+  approveLabel?: string;
+  rejectLabel?: string;
+};
+export type WaitingDecision = {
+  botId: string;
+  channelId: string;
+  toolCallId: string;
+  kind: WaitingDecisionKind;
+  args: WaitingDecisionArgs;
+  createdAt: string;
+  heartbeatAt: string;
+  live: boolean;
+  answer: unknown;
+  answeredAt: string | null;
+  closed: boolean;
+};
+export const waitingDecisionKeys = {
+  all: ["waiting-decisions"] as const,
+  channel: (channelId: string) => ["waiting-decisions", channelId] as const,
+};
+/** The cards still waiting on the person in one conversation. */
+export const waitingDecisionsQueryOptions = (channelId: string) =>
+  queryOptions({
+    queryKey: waitingDecisionKeys.channel(channelId),
+    queryFn: () =>
+      client<WaitingDecision[]>(
+        `/api/approvals/decisions?channelId=${encodeURIComponent(channelId)}`,
+        "decisions",
+        { fallback: "The questions waiting on you could not be loaded." },
+      ),
+  });
+const decisionPath = (toolCallId: string, action = "") =>
+  `/api/approvals/decisions/${encodeURIComponent(toolCallId)}${action}`;
+/** The record a successful decision call answers with, or nothing. Never throws. */
+async function decisionFrom(response: Promise<Response>) {
+  try {
+    const answered = await response;
+    if (!answered.ok) return null;
+    const body = (await answered.json().catch(() => null)) as {
+      decision?: WaitingDecision;
+    } | null;
+    return body?.decision ?? null;
+  } catch {
+    return null;
+  }
+}
+/** Start waiting, or say this tab is still waiting. Idempotent on the server. */
+export const openWaitingDecision = (input: {
+  botId: string;
+  channelId: string;
+  toolCallId: string;
+  kind: WaitingDecisionKind;
+  args: WaitingDecisionArgs;
+}) =>
+  decisionFrom(
+    tryClient("/api/approvals/decisions", { method: "POST", body: input }),
+  );
+export const heartbeatWaitingDecision = (toolCallId: string) =>
+  decisionFrom(
+    tryClient(decisionPath(toolCallId, "/heartbeat"), {
+      method: "POST",
+      body: {},
+    }),
+  );
+export const readWaitingDecision = (toolCallId: string) =>
+  decisionFrom(tryClient(decisionPath(toolCallId)));
+/** Done with: the run has its answer, or it went as a message. Keeps the answer for a reload. */
+export const closeWaitingDecision = (toolCallId: string, answer?: unknown) =>
+  decisionFrom(
+    tryClient(decisionPath(toolCallId, "/close"), {
+      method: "POST",
+      body: answer === undefined ? {} : { answer },
+    }),
+  );
+/**
+ * Answer a card whose run another tab holds. `delivered`: that tab picks it up. `stale` or
+ * `missing`: no tab holds the run, so the caller sends the answer as a message. `answered`: somebody
+ * already did. Throws when the server could not be reached, so the card can say so and stay open.
+ */
+export async function answerWaitingDecision(
+  toolCallId: string,
+  answer: unknown,
+): Promise<"delivered" | "stale" | "missing" | "answered"> {
+  const response = await tryClient(decisionPath(toolCallId, "/answer"), {
+    method: "POST",
+    body: { answer },
+  });
+  if (response.ok) return "delivered";
+  if (response.status === 404) return "missing";
+  const body = (await response.json().catch(() => null)) as {
+    error?: string;
+    reason?: string;
+  } | null;
+  if (response.status === 409)
+    return body?.reason === "stale" ? "stale" : "answered";
+  throw new Error(body?.error ?? "Your answer could not be sent.");
+}
