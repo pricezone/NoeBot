@@ -430,6 +430,10 @@ export function createApp(
     botTemplates?: Hono<{ Variables: AppVariables }>;
     /** The Keys page's model-key read (`/api/settings/model-key`); mounted here for the same reason. */
     modelKey?: Hono<{ Variables: AppVariables }>;
+    /** In-run computer waits the open tab watches and claims (runs/waits.ts), at /api/runs. */
+    runWaits?: (
+      requireUser: MiddlewareHandler<{ Variables: AppVariables }>,
+    ) => Hono<{ Variables: AppVariables }>;
   },
   /**
    * Whether to offer help self-hosting, which also hides it from a deployment that pays for
@@ -481,6 +485,8 @@ export function createApp(
         : config.selfHostBanner,
       transcription: Boolean(config.transcription),
       voice: Boolean(config.voice),
+      // Whether chat runs carry out computer tools on the server; the browser then only draws them.
+      computerToolsInRun: Boolean(config.computer && config.computerToolsInRun),
       /*
        * Whether this deployment has a usage meter to show. A boolean, never the endpoint or the
        * bearer that reads it: both stay in `config.usage`, and the figures themselves are served by
@@ -1881,6 +1887,9 @@ export function createApp(
       }
     });
   }
+
+  if (coworker?.runWaits)
+    app.route("/api/runs", coworker.runWaits(requireUser));
 
   if (sandboxedStore) {
     app.route(

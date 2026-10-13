@@ -46,7 +46,11 @@ import {
   type StoredAttachment,
 } from "./channels/attachment-parts";
 import type { AgentFetch, StallGuard } from "./channels/stall-guard";
-import { HeadlessToolsMiddleware } from "./computer/headless-tools";
+import {
+  type HeadlessTool,
+  HeadlessToolsMiddleware,
+  type HeadlessWait,
+} from "./computer/headless-tools";
 import type { DeploymentConfig } from "./config";
 import { observeModelConnection } from "./desktop-connection-failure";
 import { desktopTelemetryProperties } from "./desktop-telemetry";
@@ -563,6 +567,8 @@ export async function buildAgents(
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemory?: LoadPersonalMemory,
+  /** How built-in Bots carry out computer tools inside the run. Absent, the browser does. */
+  computerInRun?: ComputerInRun,
 ): Promise<Record<string, AbstractAgent>> {
   let vendors: readonly string[] = [];
   try {
@@ -619,6 +625,7 @@ export async function buildAgents(
           loadAttachment,
           markAttachmentsSent,
           acquireLearnedSkills,
+          computerInRun,
         );
         if (loadPersonalMemory)
           built.use(new PersonalMemoryMiddleware(agent.id, loadPersonalMemory));
@@ -881,6 +888,7 @@ async function buildAgent(
   /** How this run records that those files were sent. See {@link buildAgents}. */
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
+  computerInRun?: ComputerInRun,
 ): Promise<AbstractAgent> {
   if (agent.type === "unavailable") {
     return new UnavailableAgent(agent);
@@ -987,6 +995,8 @@ async function buildAgent(
     );
   }
 
+  // With COMPUTER_TOOLS_IN_RUN, the computer tools run here, between model turns, in one run.
+  const inRun = inRunExecutor(agent.id, computerInRun);
   /*
    * A built-in Bot takes its tools in its configuration, so narrowing means building it again once
    * the message is known. The guidance it is given is generated from the tools passed here, which is
@@ -1000,36 +1010,39 @@ async function buildAgent(
   ) =>
     new BuiltInAgentWithSaneHistory(
       // The model wrapped for the prompt cache, old page observations and the reasoning effort.
-      tunedConfiguration(
-        builtInAgentConfiguration(
-          agent,
-          model,
-          apiKey,
-          tools,
-          computerGuidance,
-          connectedVendors,
-          standingInstructions,
-          model.plan && input
-            ? new PlanModel(
-                model.plan,
-                agent.id,
-                input,
-                new Set(input.tools.map((tool) => tool.name)),
-                signal,
-              )
-            : undefined,
-          learnedSkills,
+      withComputerSteps(
+        inRun !== undefined,
+        tunedConfiguration(
+          builtInAgentConfiguration(
+            agent,
+            model,
+            apiKey,
+            tools,
+            computerGuidance,
+            connectedVendors,
+            standingInstructions,
+            model.plan && input
+              ? new PlanModel(
+                  model.plan,
+                  agent.id,
+                  input,
+                  new Set(input.tools.map((tool) => tool.name)),
+                  signal,
+                )
+              : undefined,
+            learnedSkills,
+          ),
+          {
+            provider: model.provider,
+            ...(model.reasoningEffort
+              ? { reasoningEffort: model.reasoningEffort }
+              : {}),
+          },
         ),
-        {
-          provider: model.provider,
-          ...(model.reasoningEffort
-            ? { reasoningEffort: model.reasoningEffort }
-            : {}),
-        },
       ),
       loadAttachment,
       markAttachmentsSent,
-      { botId: agent.id },
+      { botId: agent.id, inRun },
     );
 
   const whole = withTools(granted);
@@ -1991,6 +2004,8 @@ export async function resolveRuntimeAgents(
   markAttachmentsSent?: MarkAttachmentsSent,
   acquireLearnedSkills?: AcquireLearnedSkills,
   loadPersonalMemory?: LoadPersonalMemory,
+  /** Appended last, positionally. See {@link buildAgents}. */
+  computerInRun?: ComputerInRun,
 ): Promise<Record<string, AbstractAgent>> {
   const all = await loadAgents();
   if (all.length === 0) {
@@ -2027,6 +2042,7 @@ export async function resolveRuntimeAgents(
     markAttachmentsSent,
     acquireLearnedSkills,
     loadPersonalMemory,
+    computerInRun,
   );
 }
 
@@ -2207,6 +2223,7 @@ export function createRequestAgents(
       markAttachmentsSentForActor?.(actor.id),
       acquireLearnedSkills,
       loadPersonalMemoryForActor?.(actor.id),
+      extras.computerInRun?.(actor),
     );
     extras.decorate?.(actor, agents);
     return agents;
@@ -2234,7 +2251,75 @@ export type RequestAgentExtras = {
    * gets: the saved-call ledger's observer (runs/ledger.ts).
    */
   decorate?: (actor: AgentActor, agents: Record<string, AbstractAgent>) => void;
+  /**
+   * COMPUTER_TOOLS_IN_RUN: how this person's built-in Bots carry out computer tools inside the run.
+   * Absent (the flag off, or no computer), every computer tool stays the browser's, as before.
+   */
+  computerInRun?: (actor: AgentActor) => ComputerInRun | undefined;
 };
+
+/**
+ * The server's computer tools for one person's chat runs, and where a run that stops to wait for
+ * them is recorded. See `HeadlessToolsMiddleware` (interactive) and runs/waits.ts.
+ */
+export type ComputerInRun = {
+  /** This Bot's computer tools for this person; empty when they may not use its computer. */
+  tools(botId: string): Promise<HeadlessTool[]>;
+  onWaiting?(botId: string, wait: HeadlessWait): Promise<void>;
+};
+
+/** How many model turns a run with computer tools may take: a browser task is many small steps. */
+export const COMPUTER_TOOL_STEPS = 60;
+
+/** A computer turn's tool loop may take {@link COMPUTER_TOOL_STEPS} steps rather than eight. */
+function withComputerSteps(
+  computer: boolean,
+  configuration: BuiltInAgentConfiguration,
+): BuiltInAgentConfiguration {
+  return computer &&
+    !("factory" in configuration) &&
+    configuration.maxSteps !== undefined
+    ? { ...configuration, maxSteps: COMPUTER_TOOL_STEPS }
+    : configuration;
+}
+
+/** An agent whose run is one model segment, for the in-run executor to call between tools. */
+class SegmentAgent extends AbstractAgent {
+  constructor(
+    private readonly segment: (input: RunAgentInput) => Observable<BaseEvent>,
+  ) {
+    super();
+  }
+  run(input: RunAgentInput): Observable<BaseEvent> {
+    return this.segment(input);
+  }
+}
+
+/**
+ * The in-run executor for one built-in Bot, or undefined when its computer tools stay the browser's.
+ *
+ * The tools are resolved per run, as the person whose run it is, so a Bot they may no longer use the
+ * computer of gets none; with none, the run is the plain segment it always was.
+ */
+function inRunExecutor(
+  botId: string,
+  computerInRun: ComputerInRun | undefined,
+): InRunExecutor | undefined {
+  if (!computerInRun) return undefined;
+  return (input, segment) =>
+    defer(() => from(computerInRun.tools(botId))).pipe(
+      switchMap((tools) =>
+        tools.length === 0
+          ? segment(input)
+          : new HeadlessToolsMiddleware(tools, undefined, {
+              interactive: true,
+              maxSegments: COMPUTER_TOOL_STEPS,
+              onWaiting: (wait) =>
+                computerInRun.onWaiting?.(botId, wait) ?? Promise.resolve(),
+            }).run(input, new SegmentAgent(segment)),
+      ),
+    );
+}
 
 /**
  * Mount the CopilotKit endpoint onto the host Hono app.

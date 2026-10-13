@@ -12,6 +12,7 @@ import {
 import { Observable, type Subscription } from "rxjs";
 import { z } from "zod";
 import {
+  type ApprovalContinuation,
   currentApprovalContext,
   withApprovalContext,
 } from "../approvals/types";
@@ -20,6 +21,7 @@ import {
   type AuditStore,
   recordAuditEvent,
 } from "../audit";
+import { now, recordPhase } from "../run-timing";
 import {
   type ActionActor,
   type ComputerGateway,
@@ -60,6 +62,44 @@ export class HeadlessToolSuspension extends Error {
 
 const MAX_TOOL_SEGMENTS = 30;
 
+/** What a person's chat run is told when it ends silently twice in a row after a tool step. */
+export const SILENT_TURN_MESSAGE =
+  "The Bot stopped after a computer step without saying what happened. Ask it to continue.";
+
+/** One suspension, as the run hands it to whoever will resume it. */
+export type HeadlessWait = {
+  threadId: string;
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  waiting: HeadlessWaiting;
+  message: string;
+};
+
+export type HeadlessToolsOptions = {
+  /**
+   * A person's chat run, with the browser still offering its own same-named tools.
+   *
+   * Only the tools the caller offered are taken over, and the caller's definitions are kept, so the
+   * model sees exactly the tools it saw when the browser carried them out; a computer tool the server
+   * has no executor for stays the browser's. Each call starts executing as soon as the model has
+   * finished writing it. A suspended run ends with a plain finish, not an interrupt outcome: the tab
+   * or the server resumes it with the tool result, and the browser agent must not be left holding an
+   * interrupt the next turn cannot answer. A run that ends without a word after a tool step is given
+   * one more model turn, and failed out loud if that is silent too.
+   */
+  interactive?: boolean;
+  /** How many model turns one run may take. */
+  maxSegments?: number;
+  /** Told about each suspension before the run ends, so whoever resumes it can find it. */
+  onWaiting?: (wait: HeadlessWait) => Promise<void>;
+};
+
+type Outcome =
+  | { message: Message & { role: "tool" }; error?: string }
+  | { suspension: HeadlessToolSuspension; continuation: ApprovalContinuation }
+  | { skipped: true };
+
 /**
  * Executes AG-UI client tools inside the Intelligence run. Backend results are
  * forwarded unchanged; only newly emitted unanswered calls can be executed.
@@ -68,6 +108,7 @@ export class HeadlessToolsMiddleware extends Middleware {
   constructor(
     private readonly tools: HeadlessTool[],
     private readonly initiator?: AuditInitiator,
+    private readonly options: HeadlessToolsOptions = {},
   ) {
     super();
     const names = tools.map((tool) => tool.definition.name);
@@ -81,23 +122,38 @@ export class HeadlessToolsMiddleware extends Middleware {
   ): Observable<BaseEvent> {
     return new Observable((subscriber) => {
       const controller = new AbortController();
+      const interactive = this.options.interactive === true;
+      const offered = new Set(originalInput.tools.map((tool) => tool.name));
       const tools = new Map(
-        this.tools.map((tool) => [tool.definition.name, tool]),
+        this.tools
+          .filter((tool) => !interactive || offered.has(tool.definition.name))
+          .map((tool) => [tool.definition.name, tool]),
       );
+      /*
+       * Unattended, every computer call is answered here, a governed refusal for one the Bot does not
+       * hold. In a chat, one the server has no executor for is the browser's to carry out.
+       */
+      const owns = (name: string) =>
+        tools.has(name) || (!interactive && name.startsWith("computer_"));
+      const maxSegments = this.options.maxSegments ?? MAX_TOOL_SEGMENTS;
       const executed = new Set<string>();
+      let answeredInRun = 0;
+      let nudged = false;
       let subscription: Subscription | undefined;
       let started = false;
       const work = async () => {
-        let request: RunAgentInput = {
-          ...originalInput,
-          tools: [
-            ...originalInput.tools.filter((tool) => !tools.has(tool.name)),
-            ...this.tools
-              .filter((tool) => !tool.hidden)
-              .map((tool) => tool.definition),
-          ],
-        };
-        for (let segment = 0; segment <= MAX_TOOL_SEGMENTS; segment += 1) {
+        let request: RunAgentInput = interactive
+          ? originalInput
+          : {
+              ...originalInput,
+              tools: [
+                ...originalInput.tools.filter((tool) => !tools.has(tool.name)),
+                ...this.tools
+                  .filter((tool) => !tool.hidden)
+                  .map((tool) => tool.definition),
+              ],
+            };
+        for (let segment = 0; segment <= maxSegments; segment += 1) {
           if (subscriber.closed) return;
           const historical = new Set(
             request.messages.flatMap((message) =>
@@ -111,6 +167,50 @@ export class HeadlessToolsMiddleware extends Middleware {
           let state = request.state;
           let terminal: RunFinishedEvent | undefined;
           let failed = false;
+          let spoke = false;
+          /** Results of this model turn's calls, in the order they finished. */
+          const answered: Message[] = [];
+          const scheduled = new Map<string, Promise<Outcome>>();
+          let queue: Promise<unknown> = Promise.resolve();
+          let suspended = false;
+          const current = request;
+          /** Carry out one call, after every call scheduled before it. Never rejects. */
+          const schedule = (call: ToolCall): Promise<Outcome> => {
+            executed.add(call.id);
+            const outcome = queue.then(async (): Promise<Outcome> => {
+              if (suspended || subscriber.closed) return { skipped: true };
+              const context = {
+                runId: current.runId,
+                threadId: current.threadId,
+                toolCallId: call.id,
+                toolName: call.function.name,
+                args: parsedArguments(call.function.arguments),
+                // What the conversation is as this call starts, with the calls before it answered.
+                messages: [
+                  ...messages,
+                  ...answered.filter(
+                    (result) => !messages.some((m) => m.id === result.id),
+                  ),
+                ],
+                state,
+                context: current.context,
+                forwardedProps: current.forwardedProps,
+                initiator: this.initiator,
+              };
+              const outcome = await this.execute(
+                tools.get(call.function.name),
+                call,
+                context,
+                controller.signal,
+              );
+              if ("suspension" in outcome) suspended = true;
+              if ("message" in outcome) answered.push(outcome.message);
+              return outcome;
+            });
+            queue = outcome;
+            scheduled.set(call.id, outcome);
+            return outcome;
+          };
           await new Promise<void>((resolve, reject) => {
             subscription = this.runNextWithState(
               request,
@@ -123,8 +223,16 @@ export class HeadlessToolsMiddleware extends Middleware {
               }) => {
                 messages = updatedMessages;
                 state = updatedState;
-                if (event.type === EventType.TOOL_CALL_START)
+                if (event.type === EventType.TOOL_CALL_START) {
                   emitted.add(String(event.toolCallId));
+                  spoke = true;
+                }
+                if (
+                  event.type === EventType.TEXT_MESSAGE_CONTENT &&
+                  typeof event.delta === "string" &&
+                  event.delta.length > 0
+                )
+                  spoke = true;
                 if (event.type === EventType.MESSAGES_SNAPSHOT) {
                   for (const message of messages) {
                     if (message.role !== "assistant") continue;
@@ -132,6 +240,17 @@ export class HeadlessToolsMiddleware extends Middleware {
                       if (!historical.has(call.id)) emitted.add(call.id);
                     }
                   }
+                }
+                // A chat run starts each call the moment the model has finished writing it.
+                if (interactive && event.type === EventType.TOOL_CALL_END) {
+                  const call = callIn(messages, String(event.toolCallId));
+                  if (
+                    call &&
+                    owns(call.function.name) &&
+                    !historical.has(call.id) &&
+                    !executed.has(call.id)
+                  )
+                    schedule(call);
                 }
                 if (event.type === EventType.RUN_FINISHED) {
                   terminal = event as RunFinishedEvent;
@@ -153,7 +272,7 @@ export class HeadlessToolsMiddleware extends Middleware {
             throw new Error(
               "The headless agent ended without a terminal event.",
             );
-          const answered = new Set(
+          const answeredBefore = new Set(
             messages.flatMap((message) =>
               message.role === "tool" ? [message.toolCallId] : [],
             ),
@@ -164,121 +283,115 @@ export class HeadlessToolsMiddleware extends Middleware {
                   (call) =>
                     emitted.has(call.id) &&
                     !historical.has(call.id) &&
-                    !answered.has(call.id) &&
-                    !executed.has(call.id),
+                    !answeredBefore.has(call.id) &&
+                    (!executed.has(call.id) || scheduled.has(call.id)),
                 )
               : [],
           );
-          const owned = pending.filter(
-            (call) =>
-              tools.has(call.function.name) ||
-              call.function.name.startsWith("computer_"),
-          );
+          const owned = pending.filter((call) => owns(call.function.name));
           if (owned.length === 0) {
+            /*
+             * A chat turn that just ran a tool and then said nothing would end as "Done" with no
+             * answer. One more model turn on the same conversation; if that is silent too, the run
+             * fails out loud rather than pretending it finished.
+             */
+            const silent =
+              interactive &&
+              answeredInRun > 0 &&
+              !spoke &&
+              terminal.outcome?.type !== "interrupt" &&
+              pending.length === 0;
+            if (silent && !nudged && segment < maxSegments) {
+              nudged = true;
+              request = { ...request, messages, state, resume: undefined };
+              continue;
+            }
+            if (silent) {
+              subscriber.next({
+                type: EventType.RUN_ERROR,
+                code: "OPENBOT_SILENT_TURN",
+                message: SILENT_TURN_MESSAGE,
+              });
+              return;
+            }
             subscriber.next(terminal);
             return;
           }
-          if (segment === MAX_TOOL_SEGMENTS)
+          if (segment === maxSegments)
             throw new Error(
               "The headless tool continuation limit was reached.",
             );
           const results = new Map<string, string>();
           for (const call of owned) {
             if (subscriber.closed) return;
-            executed.add(call.id);
-            let content: string;
-            let error: string | undefined;
-            try {
-              const tool = tools.get(call.function.name);
-              if (!tool)
-                throw new Error(
-                  `The tool ${call.function.name} is unavailable for this headless turn.`,
-                );
-              const args: unknown = JSON.parse(call.function.arguments || "{}");
-              const continuation = {
-                runId: request.runId,
-                threadId: request.threadId,
-                toolCallId: call.id,
-                toolName: call.function.name,
-                args,
-                messages,
-                state,
-                context: request.context,
-                forwardedProps: request.forwardedProps,
-                initiator: this.initiator,
-              };
-              const result = await withApprovalContext(continuation, () =>
-                tool.execute(args, {
+            const outcome = await (scheduled.get(call.id) ?? schedule(call));
+            if (subscriber.closed) return;
+            if ("skipped" in outcome) continue;
+            if ("suspension" in outcome) {
+              const failure = outcome.suspension;
+              failure.waiting.continuation ??= outcome.continuation;
+              subscriber.next({
+                type: EventType.CUSTOM,
+                name: "openbot.headless.waiting",
+                value: {
+                  ...failure.waiting,
+                  message: failure.message,
                   toolCallId: call.id,
-                  signal: controller.signal,
-                }),
-              );
-              content =
-                typeof result === "string" ? result : JSON.stringify(result);
-              if (content === undefined)
-                throw new Error(
-                  `The tool ${call.function.name} returned no result.`,
-                );
-            } catch (failure) {
-              if (failure instanceof HeadlessToolSuspension) {
-                failure.waiting.continuation ??= {
-                  runId: request.runId,
+                },
+              });
+              // Recorded before the run ends: whoever resumes it looks for this first.
+              await this.options
+                .onWaiting?.({
                   threadId: request.threadId,
+                  runId: request.runId,
                   toolCallId: call.id,
                   toolName: call.function.name,
-                  args: JSON.parse(call.function.arguments || "{}"),
-                  messages,
-                  state,
-                  context: request.context,
-                  forwardedProps: request.forwardedProps,
-                  initiator: this.initiator,
-                };
-                subscriber.next({
-                  type: EventType.CUSTOM,
-                  name: "openbot.headless.waiting",
-                  value: {
-                    ...failure.waiting,
-                    message: failure.message,
-                    toolCallId: call.id,
-                  },
+                  waiting: failure.waiting,
+                  message: failure.message,
+                })
+                .catch((error: unknown) => {
+                  console.error({
+                    error: "headless_wait_record_failed",
+                    context: {
+                      threadId: request.threadId,
+                      toolName: call.function.name,
+                      name: error instanceof Error ? error.name : "unknown",
+                    },
+                    timestamp: new Date().toISOString(),
+                  });
                 });
-                subscriber.next({
-                  ...terminal,
-                  outcome: {
-                    type: "interrupt",
-                    interrupts: [
-                      {
-                        id: call.id,
-                        toolCallId: call.id,
-                        reason: "human_input",
-                        message: failure.message,
-                        metadata: { openbotWaiting: failure.waiting },
+              if (subscriber.closed) return;
+              subscriber.next(
+                interactive
+                  ? terminal
+                  : {
+                      ...terminal,
+                      outcome: {
+                        type: "interrupt",
+                        interrupts: [
+                          {
+                            id: call.id,
+                            toolCallId: call.id,
+                            reason: "human_input",
+                            message: failure.message,
+                            metadata: { openbotWaiting: failure.waiting },
+                          },
+                        ],
                       },
-                    ],
-                  },
-                });
-                return;
-              }
-              error =
-                failure instanceof Error ? failure.message : String(failure);
-              content = JSON.stringify({ ok: false, error });
+                    },
+              );
+              return;
             }
-            if (subscriber.closed) return;
-            const message: Message = {
-              id: crypto.randomUUID(),
-              role: "tool",
-              toolCallId: call.id,
-              content,
-              ...(error ? { error } : {}),
-            };
+            const { message, error } = outcome;
             messages = [...messages, message];
-            results.set(call.id, content);
+            results.set(call.id, message.content);
+            answeredInRun += 1;
             subscriber.next({
               type: EventType.TOOL_CALL_RESULT,
               messageId: message.id,
               toolCallId: call.id,
               role: "tool",
-              content,
+              content: message.content,
               ...(error ? { error } : {}),
             });
           }
@@ -334,6 +447,70 @@ export class HeadlessToolsMiddleware extends Middleware {
       };
     });
   }
+
+  /** One call, carried out under its approval context, timed, and turned into an outcome. */
+  private async execute(
+    tool: HeadlessTool | undefined,
+    call: ToolCall,
+    continuation: ApprovalContinuation,
+    signal: AbortSignal,
+  ): Promise<Outcome> {
+    const begun = now();
+    let content: string;
+    let error: string | undefined;
+    try {
+      if (!tool)
+        throw new Error(
+          `The tool ${call.function.name} is unavailable for this headless turn.`,
+        );
+      const args: unknown = JSON.parse(call.function.arguments || "{}");
+      const result = await withApprovalContext(continuation, () =>
+        tool.execute(args, { toolCallId: call.id, signal }),
+      );
+      content = typeof result === "string" ? result : JSON.stringify(result);
+      if (content === undefined)
+        throw new Error(`The tool ${call.function.name} returned no result.`);
+    } catch (failure) {
+      if (failure instanceof HeadlessToolSuspension)
+        return { suspension: failure, continuation };
+      error = failure instanceof Error ? failure.message : String(failure);
+      content = JSON.stringify({ ok: false, error });
+    } finally {
+      recordPhase(
+        `tool.${call.function.name}`,
+        now() - begun,
+        continuation.threadId,
+      );
+    }
+    return {
+      message: {
+        id: crypto.randomUUID(),
+        role: "tool",
+        toolCallId: call.id,
+        content,
+        ...(error ? { error } : {}),
+      },
+      ...(error ? { error } : {}),
+    };
+  }
+}
+
+/** A call's arguments as a value, or the raw text when they are not JSON (execute then refuses). */
+function parsedArguments(text: string): unknown {
+  try {
+    return JSON.parse(text || "{}");
+  } catch {
+    return text;
+  }
+}
+
+/** The assistant call with this id in the conversation so far. */
+function callIn(messages: Message[], id: string): ToolCall | undefined {
+  for (const message of messages)
+    if (message.role === "assistant")
+      for (const call of message.toolCalls ?? [])
+        if (call.id === id) return call;
+  return undefined;
 }
 
 /** AG-UI accumulation reads transport history, so seed each continuation explicitly. */

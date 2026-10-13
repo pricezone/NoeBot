@@ -400,6 +400,16 @@ export type DeploymentConfig = {
    */
   selfHostBanner: boolean;
   /**
+   * Whether a person's chat run carries out its computer tools on the server, inside the run.
+   *
+   * Off by default while it is proven. Off, every computer tool is a browser tool: the run ends at
+   * each call, the browser carries it out and starts another run. On (COMPUTER_TOOLS_IN_RUN=true or
+   * 1), the server executes each call as soon as the model has finished writing it and continues
+   * the model in the same run; the browser only draws the calls, and resumes a run that stopped to
+   * wait for the person. Projected on /api/capabilities so both halves agree.
+   */
+  computerToolsInRun: boolean;
+  /**
    * Where the built app is, when this process serves it.
    *
    * Set in a container image that carries both. Unset in development, where Vite serves the app and
@@ -1478,6 +1488,12 @@ function generativeUiEnabled(environment: Environment): boolean {
   return value !== "false" && value !== "0";
 }
 
+/** Off unless explicitly "true" or "1": a new execution path is opted into, never fallen into. */
+function computerToolsInRunEnabled(environment: Environment): boolean {
+  const value = optional(environment, "COMPUTER_TOOLS_IN_RUN")?.toLowerCase();
+  return value === "true" || value === "1";
+}
+
 /** Same rule as generated interfaces: on unless explicitly "false" or "0". */
 function selfHostBannerEnabled(environment: Environment): boolean {
   const value = optional(environment, "OPENBOT_SELF_HOST_BANNER");
@@ -1641,6 +1657,7 @@ export function loadConfig(
     accessibility: accessibilityEnabled(environment),
     generativeUi: generativeUiEnabled(environment),
     selfHostBanner: selfHostBannerEnabled(environment),
+    computerToolsInRun: computerToolsInRunEnabled(environment),
     ...(optional(environment, "APP_DIST_DIR")
       ? { appDistDir: optional(environment, "APP_DIST_DIR") as string }
       : {}),

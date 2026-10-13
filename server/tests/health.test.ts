@@ -49,6 +49,8 @@ describe("runtime capabilities", () => {
       selfHostBanner: true,
       transcription: false,
       voice: false,
+      // Off unless COMPUTER_TOOLS_IN_RUN is set and the deployment has a computer.
+      computerToolsInRun: false,
       // Off unless the platform that meters this deployment named where to read usage from.
       usage: false,
       // No billing page on an unmetered deployment; null so the browser can tell it from an older server.
@@ -82,6 +84,7 @@ describe("runtime capabilities", () => {
       "selfHostBanner",
       "transcription",
       "voice",
+      "computerToolsInRun",
       "usage",
       "billingUrl",
       "authProviders",
