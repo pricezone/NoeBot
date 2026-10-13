@@ -63,6 +63,16 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * What a Bot is told when nobody took the wheel before the request lapsed.
+ *
+ * In words it acts on, because the bare status was read as "try again": in the gov.gr run a Bot
+ * whose person had stepped away asked for a takeover every ten minutes for as long as its tab stayed
+ * open (O13). Nobody is watching a request that lapsed, so another one reaches nobody either.
+ */
+export const NOBODY_TOOK_OVER =
+  "Nobody took over before this request lapsed: the person is not at the screen. Do not ask again now. Say in one or two sentences what you need them to do and where you stopped, then end your turn. They will answer when they are back.";
+
 /** No human-control deadline: waiting expiry and all terminal outcomes belong to the server. */
 export async function awaitHandoff(
   botId: string,
@@ -152,7 +162,9 @@ export async function awaitHandoff(
           handoffStatus: lastRequest.status,
           reason:
             lastRequest.interruption ??
-            `The handoff was ${lastRequest.status}. The person has not completed this request.`,
+            (lastRequest.status === "expired"
+              ? NOBODY_TOOK_OVER
+              : `The handoff was ${lastRequest.status}. The person has not completed this request.`),
         };
       }
       await pause(pollMs, signal);

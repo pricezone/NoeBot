@@ -53,6 +53,8 @@ const COMPUTER_GUIDANCE_LINES = [
   "and the page stays exactly where it is. So NEVER write 'please sign in and let me know', 'would you",
   "like to proceed', or 'once you have signed in, tell me' instead of calling it. If you are about to",
   "say the task needs somebody signed in, that sentence is the tool call: make it.",
+  "If a request lapses because nobody took over, do not call it again in the same turn: say what you",
+  "need and where you stopped, and end your turn.",
   "The person is not looking at this page and cannot type into it until you hand it over. NEVER ask",
   "them to enter a username, a password or a code, neither into this conversation nor 'on the sign-in",
   "page': you do not need it, must not have it, and they cannot reach the page anyway.",

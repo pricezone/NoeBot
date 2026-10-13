@@ -12,6 +12,7 @@ import type {
 } from "../../shared/computer-control";
 import {
   awaitHandoff,
+  NOBODY_TOOK_OVER,
   runHelpRequest,
   runNavigation,
 } from "../src/lib/computers/handoff";
@@ -91,6 +92,15 @@ test.each(["expired", "cancelled", "interrupted"] as const)(
     expect(requests).toHaveLength(1);
   },
 );
+
+test("a lapsed request tells the Bot to stop asking and end its turn", async () => {
+  serve(() => state("expired"));
+  const outcome = await awaitHandoff("bot-1", "request-1");
+
+  // In the gov.gr run the bare status was read as "try again", every ten minutes (O13).
+  expect(outcome.reason).toBe(NOBODY_TOOK_OVER);
+  expect(String(outcome.reason)).toContain("Do not ask again");
+});
 
 test("taken remains pending even past a ten-minute wall-clock jump", async () => {
   const clock = spyOn(Date, "now");
