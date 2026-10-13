@@ -1,9 +1,10 @@
-import { IconArrowUp, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 import { z } from "zod";
-import { Button } from "@/components/ui/button";
+import {
+  type QuestionAnswer,
+  QuestionCard,
+} from "@/components/chat-cards/question-card";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
-import { Badge, GalleryFrame } from "./frame";
 
 /**
  * Human-in-the-loop gallery components. `respond` resolves the suspended Bot run, and completed
@@ -43,46 +44,83 @@ export const ApprovalCardProps = z.object({
 
 type ApprovalArgs = z.infer<typeof ApprovalCardProps>;
 
+/** The decision an approval records, with the reason typed beside it, when there was one. */
+type ApprovalAnswer = { decision: "approved" | "declined"; note?: string };
+
+/**
+ * Approve or decline, drawn as the question card: the request as its question, the summary and the
+ * facts under it, Approve and Decline as rows A and B.
+ *
+ * The field under the rows is the reason. Typed and then a row picked, it travels with that
+ * decision, as the reason box always did. Typed and sent on its own it is an answer that is not
+ * "approve", so it goes out as a decline carrying the person's words: the Bot learns what they want
+ * instead, and nothing irreversible happens on an answer that never said yes.
+ */
 export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
   const { args, status, respond } = props;
-  const [note, setNote] = useState("");
-  const [sending, setSending] = useState<"approved" | "declined" | null>(null);
-
-  const answer = async (decision: "approved" | "declined") => {
-    if (!respond) return;
-    setSending(decision);
-    // Include the note in the same tool result that resumes the Bot.
-    await respond({ decision, note: note.trim() || undefined });
-  };
+  const [sending, setSending] = useState<ApprovalAnswer | null>(null);
+  const [sent, setSent] = useState<ApprovalAnswer | null>(null);
 
   if (status === "inProgress") {
     return (
-      <GalleryFrame title={args.title ?? "Waiting for the assistant…"}>
-        <p className="text-sm text-muted-foreground">Preparing the request…</p>
-      </GalleryFrame>
+      <QuestionCard
+        subtitle="Preparing the request…"
+        title={args.title ?? "Waiting for the assistant…"}
+      />
     );
   }
 
   const decided =
-    status === "complete" ? readDecision(props.result) : undefined;
+    (status === "complete" ? readApproval(props.result) : undefined) ??
+    sent ??
+    undefined;
+
+  const answer = async (decision: ApprovalAnswer["decision"], note: string) => {
+    if (!respond || sending || decided) return;
+    // Include the note in the same tool result that resumes the Bot.
+    const value = { decision, note: note.trim() || undefined };
+    setSending(value);
+    try {
+      await respond(value);
+      setSent(value);
+    } catch {
+      // Not sent, so not decided: the card takes an answer again.
+    } finally {
+      setSending(null);
+    }
+  };
+
+  const options = [
+    { id: "approved", label: args.approveLabel ?? "Approve" },
+    { id: "declined", label: args.rejectLabel ?? "Decline" },
+  ];
+  const asAnswer = (value: ApprovalAnswer): QuestionAnswer => ({
+    optionId: value.decision,
+    note: value.note,
+  });
 
   return (
-    <GalleryFrame
-      action={
-        decided ? (
-          <Badge tone={decided === "approved" ? "positive" : "negative"}>
-            {decided === "approved" ? "Approved" : "Declined"}
-          </Badge>
-        ) : (
-          <Badge tone="caution">Waiting on you</Badge>
-        )
+    <QuestionCard
+      answered={decided ? asAnswer(decided) : undefined}
+      onOwnAnswer={
+        respond ? (text) => void answer("declined", text) : undefined
       }
+      onPick={
+        respond
+          ? (option, typed) =>
+              void answer(
+                option.id === "approved" ? "approved" : "declined",
+                typed,
+              )
+          : undefined
+      }
+      options={options}
+      sending={sending ? asAnswer(sending) : undefined}
+      subtitle={args.summary}
       title={args.title}
     >
-      <p className="text-sm">{args.summary}</p>
-
       {args.details?.length ? (
-        <dl className="mt-3 grid grid-cols-[minmax(0,9rem)_1fr] gap-x-4 gap-y-1.5 text-sm">
+        <dl className="grid grid-cols-[minmax(0,9rem)_1fr] gap-x-4 gap-y-1 text-sm">
           {args.details.map((detail) => (
             <div className="contents" key={detail.label}>
               <dt className="truncate text-muted-foreground">{detail.label}</dt>
@@ -91,41 +129,7 @@ export function ApprovalCard(props: Waiting<ApprovalArgs> & { name?: string }) {
           ))}
         </dl>
       ) : null}
-
-      {decided ? null : (
-        <div className="mt-4 space-y-2">
-          <input
-            aria-label="A reason, if you want to give one"
-            className="w-full rounded-md border border-border bg-transparent px-3 py-1.5 text-sm"
-            disabled={Boolean(sending)}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="A reason, if you want to give one"
-            value={note}
-          />
-          <div className="flex gap-2">
-            <Button
-              disabled={Boolean(sending)}
-              onClick={() => void answer("approved")}
-              size="sm"
-            >
-              {sending === "approved"
-                ? "Sending…"
-                : (args.approveLabel ?? "Approve")}
-            </Button>
-            <Button
-              disabled={Boolean(sending)}
-              onClick={() => void answer("declined")}
-              size="sm"
-              variant="outline"
-            >
-              {sending === "declined"
-                ? "Sending…"
-                : (args.rejectLabel ?? "Decline")}
-            </Button>
-          </div>
-        </div>
-      )}
-    </GalleryFrame>
+    </QuestionCard>
   );
 }
 
@@ -150,11 +154,6 @@ export const ChoiceCardProps = z.object({
 
 type ChoiceArgs = z.infer<typeof ChoiceCardProps>;
 
-/** A, B, C… for the rows, and past Z the row's number, so a long list still has a name per row. */
-function letterFor(index: number): string {
-  return index < 26 ? String.fromCharCode(65 + index) : String(index + 1);
-}
-
 /**
  * The answer a person gave, in the shape it is recorded: the option's id, or — for an answer they
  * typed themselves — their words, marked as typed. One shape for both, so a reader of the result
@@ -163,7 +162,7 @@ function letterFor(index: number): string {
 export type ChoiceAnswer = { choice: string; label: string; typed?: true };
 
 /**
- * A question with lettered options and a last row for an answer of the person's own.
+ * A question with lettered options and a field for an answer of the person's own.
  *
  * Drawn the same for the two things that ask one. `askChoice` suspends the run and its answer is
  * the tool result (`respond`); a Bot's `ask_person` question with options has already ended its turn,
@@ -178,159 +177,59 @@ export function ChoiceCard(
   props: Waiting<ChoiceArgs> & { onDismiss?: () => void },
 ) {
   const { args, status, respond, onDismiss } = props;
-  /** The option id or typed words on their way out, so the card stops taking answers at once. */
-  const [sending, setSending] = useState<string | null>(null);
-  const [typing, setTyping] = useState(false);
-  const [draft, setDraft] = useState("");
+  /** The answer on its way out, so the card stops taking answers at once. */
+  const [sending, setSending] = useState<ChoiceAnswer | null>(null);
+  /** Sent, before the transcript has caught up with it. */
+  const [sent, setSent] = useState<ChoiceAnswer | null>(null);
 
   const recorded =
     status === "complete" ? readChoiceAnswer(props.result) : undefined;
-  const chosen = recorded?.choice ?? sending ?? undefined;
-  const options = args.options ?? [];
-  const pickedOption = options.find((option) => option.id === chosen);
-  /** An answer that is none of the options: what the person typed. */
-  const ownAnswer =
-    chosen !== undefined && !pickedOption
-      ? (recorded?.label ?? chosen)
-      : undefined;
-  const settled = chosen !== undefined || status !== "executing";
+  const given = recorded ?? sent ?? undefined;
+  const options = status === "inProgress" ? [] : (args.options ?? []);
+  const open = status === "executing" && Boolean(respond) && !given;
 
   const answer = async (value: ChoiceAnswer) => {
-    if (!respond || settled) return;
-    setSending(value.choice);
+    if (!respond || !open || sending) return;
+    setSending(value);
     try {
       await respond(value);
+      setSent(value);
     } catch {
       // Not sent, so not answered: the card takes an answer again.
+    } finally {
       setSending(null);
     }
   };
 
-  const submitOwn = () => {
-    const text = draft.trim();
-    if (!text) return;
-    void answer({ choice: text, label: text, typed: true });
-  };
+  /** A picked option is drawn as its row; anything else is what the person typed. */
+  const asAnswer = (value: ChoiceAnswer): QuestionAnswer =>
+    options.some((option) => option.id === value.choice)
+      ? { optionId: value.choice }
+      : { text: value.label };
 
   return (
-    <figure className="my-2 w-full max-w-2xl rounded-2xl bg-muted p-4 dark:bg-card">
-      <figcaption className="flex items-start justify-between gap-4 pb-3">
-        <div className="min-w-0">
-          <p className="text-[15px] font-medium">
-            {args.title ?? "Waiting for the assistant…"}
-          </p>
-          {args.summary ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {args.summary}
-            </p>
-          ) : null}
-        </div>
-        {recorded ? (
-          <Badge tone="positive">Answered</Badge>
-        ) : onDismiss && !settled ? (
-          <button
-            aria-label="Dismiss"
-            className="-m-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-            onClick={onDismiss}
-            type="button"
-          >
-            <IconX className="size-4" />
-          </button>
-        ) : null}
-      </figcaption>
-
-      {status === "inProgress" ? (
-        <p className="text-sm text-muted-foreground">Preparing the question…</p>
-      ) : (
-        <>
-          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-background">
-            {options.map((option, index) => {
-              const picked = pickedOption?.id === option.id;
-              return (
-                <li key={option.id}>
-                  <button
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors ${
-                      picked
-                        ? "bg-emerald-500/10"
-                        : settled
-                          ? "opacity-50"
-                          : "hover:bg-foreground/5"
-                    }`}
-                    disabled={settled}
-                    onClick={() =>
-                      void answer({ choice: option.id, label: option.label })
-                    }
-                    type="button"
-                  >
-                    <span
-                      aria-hidden
-                      className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border text-xs text-muted-foreground"
-                    >
-                      {letterFor(index)}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block">{option.label}</span>
-                      {option.description ? (
-                        <span className="block text-xs text-muted-foreground">
-                          {option.description}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          {ownAnswer !== undefined ? (
-            <p className="mt-3 rounded-xl border border-border bg-emerald-500/10 px-3 py-2.5 text-sm">
-              {ownAnswer}
-            </p>
-          ) : typing && !settled ? (
-            <form
-              className="mt-3 flex items-center gap-2 rounded-xl border border-ring bg-background px-3 py-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitOwn();
-              }}
-            >
-              <input
-                aria-label="Your own answer"
-                // Opened by a click on the row it replaced, so the caret belongs here at once.
-                // biome-ignore lint/a11y/noAutofocus: the person just asked to type.
-                autoFocus
-                className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none"
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setTyping(false);
-                  }
-                }}
-                placeholder="Type your own answer"
-                value={draft}
-              />
-              <Button
-                aria-label="Send answer"
-                disabled={!draft.trim()}
-                size="icon-xs"
-                type="submit"
-              >
-                <IconArrowUp />
-              </Button>
-            </form>
-          ) : settled ? null : (
-            <button
-              className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-left text-sm text-muted-foreground hover:bg-foreground/5"
-              onClick={() => setTyping(true)}
-              type="button"
-            >
-              Type your own answer
-            </button>
-          )}
-        </>
-      )}
-    </figure>
+    <QuestionCard
+      answered={given ? asAnswer(given) : undefined}
+      onDismiss={given ? undefined : onDismiss}
+      onOwnAnswer={
+        open
+          ? (text) => void answer({ choice: text, label: text, typed: true })
+          : undefined
+      }
+      onPick={
+        open
+          ? (option) => void answer({ choice: option.id, label: option.label })
+          : undefined
+      }
+      options={options}
+      sending={sending ? asAnswer(sending) : undefined}
+      subtitle={
+        status === "inProgress"
+          ? (args.summary ?? "Preparing the question…")
+          : args.summary
+      }
+      title={args.title ?? "Waiting for the assistant…"}
+    />
   );
 }
 
@@ -351,11 +250,15 @@ function readResult(
   }
 }
 
-function readDecision(
-  result: string | undefined,
-): "approved" | "declined" | undefined {
-  const value = readResult(result)?.decision;
-  return value === "approved" || value === "declined" ? value : undefined;
+function readApproval(result: string | undefined): ApprovalAnswer | undefined {
+  const recorded = readResult(result);
+  const decision = recorded?.decision;
+  if (decision !== "approved" && decision !== "declined") return undefined;
+  const note =
+    typeof recorded?.note === "string" && recorded.note
+      ? recorded.note
+      : undefined;
+  return note ? { decision, note } : { decision };
 }
 
 /** The recorded answer, typed or picked, or nothing for a result that does not hold one. */

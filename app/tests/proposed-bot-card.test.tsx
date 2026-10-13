@@ -217,9 +217,10 @@ test("a refusal keeps the run open with the buttons still live", async () => {
 
   await view.findByText("A coworker called Renewal Desk already exists.");
   expect(answers).toEqual([]);
-  expect((view.getByText("Create it") as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  expect(
+    (view.getByRole("button", { name: "Create it" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
 });
 
 test("declining answers without creating anything", async () => {
@@ -294,6 +295,27 @@ test("a completed card links to the coworker, rebuilt from the answer alone", as
 
   const link = await view.findByText("Open Renewal Desk");
   expect(link.closest("a")?.getAttribute("href")).toContain("agent=agent_1");
+  // Collapsed to the row that was picked, with nothing left to press.
+  expect(view.getByText("Create it")).toBeTruthy();
+  expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+  expect(view.queryByText("Don't create")).toBeNull();
+  expect(view.queryByRole("button")).toBeNull();
+});
+
+test("declined, the card collapses to the declining row", async () => {
+  const view = routed(
+    <ProposedBotCard
+      args={DRAFT}
+      create={async () => MADE}
+      result={botCardAnswer.declined()}
+    />,
+  );
+
+  expect(await view.findByText("Don't create")).toBeTruthy();
+  expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+  expect(view.queryByText("Create it")).toBeNull();
+  expect(view.queryByText(INSTRUCTIONS)).toBeNull();
+  expect(view.queryByRole("link")).toBeNull();
 });
 
 /**

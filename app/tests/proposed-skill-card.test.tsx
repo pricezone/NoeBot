@@ -134,7 +134,7 @@ test("a refusal from the server stays on the card and leaves the run suspended",
 test("declining answers the run and tells the Bot to ask rather than retry", async () => {
   const answers: unknown[] = [];
   const saved: unknown[] = [];
-  const { getByRole } = render(
+  const { getByRole, queryByRole, queryByText } = render(
     <ProposedSkillCard
       args={DRAFT}
       respond={async (result) => {
@@ -151,6 +151,14 @@ test("declining answers the run and tells the Bot to ask rather than retry", asy
   await waitFor(() => expect(answers).toHaveLength(1));
   expect(answers[0]).toBe(skillCardAnswer.declined());
   expect(saved).toHaveLength(0);
+  // Answered, the card is the question and the row that was picked, and nothing else.
+  await waitFor(() =>
+    expect(getByRole("img", { name: "Answered" })).toBeTruthy(),
+  );
+  expect(queryByRole("button")).toBeNull();
+  expect(
+    queryByText("List what moved this week, newest first. Name each source."),
+  ).toBeNull();
 });
 
 test("a draft the fields refuse answers once with the problems, and never asks the person", async () => {

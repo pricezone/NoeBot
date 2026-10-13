@@ -11,15 +11,15 @@ import type { Message } from "@ag-ui/core";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { ChoiceCard } from "@/components/gallery/decisions";
+import { ConversationProvider } from "@/lib/copilot/conversation";
+import { AskWithOptions } from "@/lib/copilot/escalation-tool";
+import { questionAnswers } from "@/lib/copilot/question-answers";
 import {
   FIRST_TURN_OPTIONS,
   FIRST_TURN_QUESTION,
   frameFirstTurn,
 } from "../../shared/first-turn";
-import { ChoiceCard } from "@/components/gallery/decisions";
-import { ConversationProvider } from "@/lib/copilot/conversation";
-import { AskWithOptions } from "@/lib/copilot/escalation-tool";
-import { questionAnswers } from "@/lib/copilot/question-answers";
 import { settleReactWork } from "./settle-react-work";
 
 /**
@@ -91,7 +91,7 @@ describe("the choice card", () => {
     ]);
   });
 
-  test("Type your own answer turns into an input, and Enter sends the words through the same respond", async () => {
+  test("Type your own answer is a field under the rows, and Enter sends the words through the same respond", async () => {
     const answers: unknown[] = [];
     const view = render(
       <ChoiceCard
@@ -104,11 +104,8 @@ describe("the choice card", () => {
       />,
     );
 
-    await user.click(
-      view.getByRole("button", { name: "Type your own answer" }),
-    );
     const input = view.getByRole("textbox", { name: "Your own answer" });
-    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute("placeholder")).toBe("Type your own answer");
     await user.type(input, "Sorting my inbox{Enter}");
 
     expect(answers).toEqual([
@@ -130,11 +127,13 @@ describe("the choice card", () => {
       />,
     );
 
-    expect(view.getByText("Answered")).toBeTruthy();
+    // Collapsed to the question and the typed words, with the check and nothing else.
+    expect(view.getByText(FIRST_TURN_QUESTION)).toBeTruthy();
     expect(view.getByText("Sorting my inbox")).toBeTruthy();
-    expect(view.queryByRole("button", { name: "Type your own answer" })).toBe(
-      null,
-    );
+    expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+    expect(view.queryAllByRole("listitem")).toHaveLength(0);
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(view.queryByRole("button")).toBeNull();
   });
 });
 
@@ -188,9 +187,6 @@ describe("a Bot's question with options", () => {
   test("a typed answer is said the same way", async () => {
     const { asked, view } = renderAsked();
 
-    await user.click(
-      view.getByRole("button", { name: "Type your own answer" }),
-    );
     await user.type(
       view.getByRole("textbox", { name: "Your own answer" }),
       "Planning a trip",
@@ -205,13 +201,15 @@ describe("a Bot's question with options", () => {
       new Map([["call-1", "Research and writing"]]),
     );
 
-    expect(view.getByText("Answered")).toBeTruthy();
-    const picked = view.getByRole("button", { name: /Research and writing/ });
-    expect(picked.hasAttribute("disabled")).toBe(true);
+    // The picked row alone, checked; the other options and the field are gone.
+    expect(view.getByText("Research and writing")).toBeTruthy();
+    expect(view.getByRole("img", { name: "Answered" })).toBeTruthy();
+    expect(view.queryByText("Code and GitHub work")).toBeNull();
+    expect(view.queryByRole("button")).toBeNull();
     expect(asked).toEqual([]);
   });
 
-  test("dismissed, it is the plain line and the person answers in the composer", async () => {
+  test("dismissed, it is the question alone and the person answers in the composer", async () => {
     const { view } = renderAsked();
 
     await user.click(view.getByRole("button", { name: "Dismiss" }));
@@ -219,7 +217,10 @@ describe("a Bot's question with options", () => {
     await waitFor(() =>
       expect(view.queryAllByRole("listitem")).toHaveLength(0),
     );
-    expect(view.getByText("Asked you")).toBeTruthy();
+    expect(view.getByText(FIRST_TURN_QUESTION)).toBeTruthy();
+    expect(view.getByText("Answer in the chat")).toBeTruthy();
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(view.queryByRole("button")).toBeNull();
   });
 });
 

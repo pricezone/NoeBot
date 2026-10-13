@@ -5,13 +5,6 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { type InfiniteData, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {
-  FIRST_TURN_GREETING,
-  FIRST_TURN_OPTIONS,
-  FIRST_TURN_QUESTION,
-  frameFirstTurn,
-} from "../../shared/first-turn";
-import { PUT_TO } from "../../shared/handoff-markers";
 import { ChannelChat } from "@/components/channels/channel-chat";
 import {
   type AgentChannel,
@@ -21,6 +14,14 @@ import {
 import { EscalationTool } from "@/lib/copilot/escalation-tool";
 import { openQuestions } from "@/lib/copilot/question-answers";
 import { queryClient } from "@/query-client";
+import {
+  FIRST_TURN_GREETING,
+  FIRST_TURN_OPTIONS,
+  FIRST_TURN_QUESTION,
+  frameFirstTurn,
+} from "../../shared/first-turn";
+import { PUT_TO } from "../../shared/handoff-markers";
+import { settleReactWork } from "./settle-react-work";
 
 /**
  * A Bot's question answered in the conversation must not stay waiting in Approvals: picking an
@@ -142,7 +143,8 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReactWork();
   globalThis.fetch = originalFetch;
   GlobalRegistrator.unregister();
 });
@@ -198,17 +200,18 @@ test("picking an option answers the question in Approvals too", async () => {
     ]),
   );
   await waitFor(() => expect(runs).toBe(1));
-  expect(await view.findByText("Answered")).toBeTruthy();
+  // Collapsed to the picked row with its check.
+  expect(await view.findByRole("img", { name: "Answered" })).toBeTruthy();
+  expect(view.queryByRole("button", { name: /Research and writing/ })).toBe(
+    null,
+  );
 });
 
 test("a typed answer answers it the same way", async () => {
   const { view, user } = mount([frame, asked, reached]);
 
-  await user.click(
-    await view.findByRole("button", { name: "Type your own answer" }),
-  );
   await user.type(
-    view.getByRole("textbox", { name: "Your own answer" }),
+    await view.findByRole("textbox", { name: "Your own answer" }),
     "Sorting my inbox{Enter}",
   );
 
@@ -231,9 +234,14 @@ test("read back after a reload, an answered question shows its answer and asks n
     { id: "answer", role: "user", content: "Research and writing" },
   ]);
 
-  expect(await view.findByText("Answered")).toBeTruthy();
-  const picked = view.getByRole("button", { name: /Research and writing/ });
-  expect(picked.hasAttribute("disabled")).toBe(true);
+  expect(await view.findByRole("img", { name: "Answered" })).toBeTruthy();
+  // The answer is drawn as the one row left (beside the person's own message), not as a button to
+  // press again.
+  expect(view.getAllByText("Research and writing")).toHaveLength(2);
+  expect(view.queryByRole("button", { name: /Research and writing/ })).toBe(
+    null,
+  );
+  expect(view.queryByText("Code and GitHub work")).toBeNull();
   // The frame is never drawn, and restoring history settles nothing on the server.
   expect(view.queryByText(/You were created a moment ago/)).toBeNull();
   expect(answered).toEqual([]);

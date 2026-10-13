@@ -1,7 +1,7 @@
 import { useRenderTool } from "@copilotkit/react-core/v2";
 import { useState } from "react";
 import { z } from "zod";
-import { ToolLine } from "@/components/channels/tool-line";
+import { QuestionCard } from "@/components/chat-cards/question-card";
 import { ChoiceCard } from "@/components/gallery/decisions";
 import { useConversation } from "@/lib/copilot/conversation";
 import { PUT_TO } from "@/lib/copilot/markers";
@@ -33,35 +33,63 @@ function reached(result: unknown): boolean {
   return saidItWentAhead(result, PUT_TO);
 }
 
-/** The plain line: what was asked, and why, behind a disclosure. */
+/**
+ * A question with nothing to pick from, or one waved away: the question card's header alone.
+ *
+ * The answer is whatever the person says next in the chat, so the card says so rather than offering
+ * controls. Why the Bot stopped stays on it, because it is the half a person is owed: "I need a
+ * decision only you can make" and "I could not find the answer" look the same from the outside and
+ * are not. A question the route could not put to anybody says that instead, since nobody is waiting
+ * on an answer to it.
+ *
+ * Once the person has said something after it, that is its answer, and the card collapses to it the
+ * way every answered question card does.
+ */
 function AskedLine({
   question,
   why,
   result,
   running,
+  answer,
 }: {
   question?: string;
   why?: string;
   result: unknown;
   running: boolean;
+  answer?: string;
 }) {
+  const refused = !running && !reached(result);
   return (
-    <ToolLine
-      label="Asked you"
-      detail={question}
-      running={running}
-      refused={!running && !reached(result)}
-    >
-      <div className="space-y-1 text-sm">
-        {question ? <p>{question}</p> : null}
-        {/*
-         * Why it stopped, which is the half a person is owed. "I need a decision only you can
-         * make" and "I could not find the answer" look the same from the outside and are not.
-         */}
-        {why ? <p className="text-muted-foreground">{why}</p> : null}
-      </div>
-    </ToolLine>
+    <QuestionCard
+      answered={answer !== undefined ? { text: answer } : undefined}
+      subtitle={
+        <>
+          {why ? <span className="block">{why}</span> : null}
+          <span className="block">
+            {refused
+              ? "Blocked: this question could not be put to anyone."
+              : "Answer in the chat"}
+          </span>
+        </>
+      }
+      title={question ?? "Asking you…"}
+    />
   );
+}
+
+/** A question with no options, answered by what the person says next in this conversation. */
+export function AskWithoutOptions({
+  toolCallId,
+  ...asked
+}: {
+  toolCallId: string;
+  question?: string;
+  why?: string;
+  result: unknown;
+  running: boolean;
+}) {
+  const answer = useConversation()?.answers?.get(toolCallId);
+  return <AskedLine {...asked} answer={answer} />;
 }
 
 /**
@@ -73,7 +101,7 @@ function AskedLine({
  * message the person sent after the question), so a reload, or an answer typed into the composer
  * instead, draws the card answered too.
  *
- * Outside a conversation that can take a message, or once dismissed, it is the plain line.
+ * Outside a conversation that can take a message, or once dismissed, it is the header alone.
  */
 export function AskWithOptions({
   toolCallId,
@@ -122,6 +150,7 @@ export function AskWithOptions({
     return (
       <ChoiceCard
         args={{ options: args.options }}
+        onDismiss={() => setDismissed(true)}
         respond={undefined}
         result={undefined}
         status="inProgress"
@@ -181,11 +210,12 @@ export function EscalationTool() {
         );
       }
       return (
-        <AskedLine
+        <AskWithoutOptions
           question={given?.question}
-          why={given?.why}
           result={result}
           running={running}
+          toolCallId={toolCallId}
+          why={given?.why}
         />
       );
     },

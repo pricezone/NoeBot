@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Badge, GalleryFrame } from "@/components/gallery/frame";
-import { Button } from "@/components/ui/button";
+import { QuestionCard } from "@/components/chat-cards/question-card";
 import type { SkillFormValues } from "@/lib/skills/form";
 import {
   checkProposal,
@@ -20,7 +19,9 @@ import {
  * saving is how an edit is spelled, so an unattended save can replace a skill somebody is using.
  *
  * So the whole tool is this card. There is no handler behind it — the run suspends here, and nothing
- * is written until a button is pressed.
+ * is written until a row is picked. Drawn as the question card everybody's questions share: "Create
+ * it" (or "Replace it") and "Don't save" are its rows, and once answered it collapses to the one
+ * picked, with the next step under it.
  */
 
 export type ProposedSkillCardProps = {
@@ -40,6 +41,11 @@ export type ProposedSkillCardProps = {
   save: (values: SkillFormValues) => Promise<void>;
 };
 
+/** The two rows, and the answer each one is. */
+const SAVE = "save";
+const DECLINE = "decline";
+type Choice = typeof SAVE | typeof DECLINE;
+
 export function ProposedSkillCard({
   args,
   replaces,
@@ -47,7 +53,12 @@ export function ProposedSkillCard({
   result,
   save,
 }: ProposedSkillCardProps) {
-  const [sending, setSending] = useState<"save" | "decline" | null>(null);
+  const [sending, setSending] = useState<Choice | null>(null);
+  /**
+   * Answered, before the recorded result has come back to say so — and for good when it never does,
+   * because the run this card belonged to has gone (see `answer`).
+   */
+  const [done, setDone] = useState<Choice | null>(null);
   /**
    * A refusal from the server, kept on the card rather than answered with.
    *
@@ -56,27 +67,42 @@ export function ProposedSkillCard({
    * with the error would end the turn and leave the person re-typing their request.
    */
   const [refusal, setRefusal] = useState<string | null>(null);
+  const title = titleFor(args.slug, replaces);
+  const rows = [
+    { id: SAVE, label: replaces ? "Replace it" : "Create it" },
+    { id: DECLINE, label: "Don't save" },
+  ];
 
-  if (result !== undefined) {
+  if (result !== undefined || done) {
+    const choice =
+      result === undefined
+        ? done
+        : wasSaved(result)
+          ? SAVE
+          : result === skillCardAnswer.declined()
+            ? DECLINE
+            : null;
+    if (!choice) {
+      // Answered without asking anybody: a draft that was not a valid skill.
+      return <QuestionCard subtitle={result} title={title} />;
+    }
     return (
-      <GalleryFrame
-        action={<Badge tone="neutral">Done</Badge>}
-        title={titleFor(args.slug, replaces)}
-      >
-        <p className="text-sm">{result}</p>
-        {args.slug && wasSaved(result) ? (
-          <PutItOnABot slug={args.slug} />
-        ) : null}
-      </GalleryFrame>
+      <QuestionCard
+        answered={{ optionId: choice }}
+        footer={
+          // Off the recorded answer only, as before: it is what a reload has to go on.
+          result !== undefined && wasSaved(result) && args.slug ? (
+            <PutItOnABot slug={args.slug} />
+          ) : null
+        }
+        options={rows}
+        title={title}
+      />
     );
   }
 
   if (!respond) {
-    return (
-      <GalleryFrame title={titleFor(args.slug, replaces)}>
-        <p className="text-sm text-muted-foreground">Writing the skill…</p>
-      </GalleryFrame>
-    );
+    return <QuestionCard subtitle="Writing the skill…" title={title} />;
   }
 
   const checked = checkProposal(args);
@@ -86,12 +112,12 @@ export function ProposedSkillCard({
   const values = checked.values;
 
   const create = async () => {
-    setSending("save");
+    setSending(SAVE);
     setRefusal(null);
     try {
       await save(values);
     } catch (cause) {
-      // Left on the card with the buttons still live. See `refusal` above.
+      // Left on the card with the rows still live. See `refusal` above.
       setSending(null);
       setRefusal(
         cause instanceof Error ? cause.message : "The skill was not saved.",
@@ -99,17 +125,28 @@ export function ProposedSkillCard({
       return;
     }
     await answer(respond, skillCardAnswer.saved(values.slug));
+    setDone(SAVE);
   };
 
   const decline = async () => {
-    setSending("decline");
+    setSending(DECLINE);
     await answer(respond, skillCardAnswer.declined());
+    setDone(DECLINE);
   };
 
   return (
-    <GalleryFrame
-      action={<Badge tone="caution">Waiting on you</Badge>}
-      caption={
+    <QuestionCard
+      footer={
+        refusal ? (
+          <p className="text-destructive text-sm" role="alert">
+            {refusal}
+          </p>
+        ) : null
+      }
+      onPick={(option) => void (option.id === SAVE ? create() : decline())}
+      options={rows}
+      sending={sending ? { optionId: sending } : undefined}
+      subtitle={
         replaces
           ? `This replaces ${replaces.title}, which is ${replaces.ownership}.`
           : "Nothing is saved until you press the button."
@@ -139,7 +176,7 @@ export function ProposedSkillCard({
 
       <p className="mt-3 text-muted-foreground text-xs">Instructions</p>
       {/* Scrolled rather than clamped: this is the part worth reading before agreeing to it. */}
-      <p className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+      <p className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background/60 px-3 py-2 text-sm dark:bg-muted/40">
         {values.instructions}
       </p>
 
@@ -149,35 +186,7 @@ export function ProposedSkillCard({
           administrator has already granted them to it.
         </p>
       ) : null}
-
-      {refusal ? (
-        <p className="mt-3 text-destructive text-sm" role="alert">
-          {refusal}
-        </p>
-      ) : null}
-
-      <div className="mt-4 flex gap-2">
-        <Button
-          disabled={Boolean(sending)}
-          onClick={() => void create()}
-          size="sm"
-        >
-          {sending === "save"
-            ? "Saving…"
-            : replaces
-              ? "Replace it"
-              : "Create it"}
-        </Button>
-        <Button
-          disabled={Boolean(sending)}
-          onClick={() => void decline()}
-          size="sm"
-          variant="outline"
-        >
-          {sending === "decline" ? "…" : "Don't save"}
-        </Button>
-      </div>
-    </GalleryFrame>
+    </QuestionCard>
   );
 }
 
@@ -231,15 +240,10 @@ function Unwritable({
   }, [problems, respond]);
 
   return (
-    <GalleryFrame
-      action={<Badge tone="negative">Not saved</Badge>}
+    <QuestionCard
+      subtitle="The Bot's draft was not a valid skill, so nothing was saved. It has been told what to fix."
       title="Skill"
-    >
-      <p className="text-sm">
-        The Bot's draft was not a valid skill, so nothing was saved. It has been
-        told what to fix.
-      </p>
-    </GalleryFrame>
+    />
   );
 }
 

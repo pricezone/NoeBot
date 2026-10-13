@@ -1,7 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Badge, GalleryFrame } from "@/components/gallery/frame";
-import { Button } from "@/components/ui/button";
+import { QuestionCard } from "@/components/chat-cards/question-card";
 import type { AgentFormValues } from "@/lib/agents/form";
 import {
   botCardAnswer,
@@ -21,7 +20,9 @@ import {
  * is created, because a person cannot agree to instructions they were not shown.
  *
  * The whole tool is this card. There is no handler behind it: the run suspends here, and nothing is
- * written until a button is pressed.
+ * written until a row is picked. Drawn as the question card everybody's questions share: "Create it"
+ * and "Don't create" are its rows, and once answered it collapses to the one picked, with the link
+ * to the new coworker under it.
  *
  * WHAT IT DELIBERATELY CANNOT DO. No address, no connector, no tool, no boundary and no visibility
  * change. The coworker arrives private, holding whatever skills were agreed and nothing else, and
@@ -56,6 +57,11 @@ export type ProposedBotCardProps = {
   create: (values: AgentFormValues, skills: string[]) => Promise<CreatedBot>;
 };
 
+/** The two rows, and the answer each one is. */
+const CREATE = "create";
+const DECLINE = "decline";
+type Choice = typeof CREATE | typeof DECLINE;
+
 export function ProposedBotCard({
   args,
   clashes,
@@ -63,7 +69,12 @@ export function ProposedBotCard({
   result,
   create,
 }: ProposedBotCardProps) {
-  const [sending, setSending] = useState<"create" | "decline" | null>(null);
+  const [sending, setSending] = useState<Choice | null>(null);
+  /**
+   * Answered, before the recorded result has come back to say so — and for good when it never does,
+   * because the run this card belonged to has gone (see `answer`).
+   */
+  const [done, setDone] = useState<Choice | null>(null);
   /**
    * A refusal from the server, kept on the card rather than answered with.
    *
@@ -72,32 +83,47 @@ export function ProposedBotCard({
    * error would end the turn and leave the person retyping their request.
    */
   const [refusal, setRefusal] = useState<string | null>(null);
+  const title = titleFor(args.name, clashes);
+  const rows = [
+    { id: CREATE, label: "Create it" },
+    { id: DECLINE, label: "Don't create" },
+  ];
 
-  if (result !== undefined) {
+  if (result !== undefined || done) {
     /*
      * The coworker read back out of the answer rather than out of state. This card is re-rendered
      * from the transcript on every reload, when whatever this component remembered is gone; the id
      * is the server's, so unlike a skill's slug it is not in the arguments either. See
      * `createdBotIdIn`.
      */
-    const madeId = wasCreated(result) ? createdBotIdIn(result) : null;
+    const choice =
+      result === undefined
+        ? done
+        : wasCreated(result)
+          ? CREATE
+          : result === botCardAnswer.declined()
+            ? DECLINE
+            : undefined;
+    if (!choice) {
+      // Answered without asking anybody: a proposal that could not be created as written.
+      return <QuestionCard subtitle={result} title={title} />;
+    }
+    const madeId =
+      result !== undefined && wasCreated(result)
+        ? createdBotIdIn(result)
+        : null;
     return (
-      <GalleryFrame
-        action={<Badge tone="neutral">Done</Badge>}
-        title={titleFor(args.name, clashes)}
-      >
-        <p className="text-sm">{result}</p>
-        {madeId ? <TalkToIt agentId={madeId} name={args.name} /> : null}
-      </GalleryFrame>
+      <QuestionCard
+        answered={{ optionId: choice }}
+        footer={madeId ? <TalkToIt agentId={madeId} name={args.name} /> : null}
+        options={rows}
+        title={title}
+      />
     );
   }
 
   if (!respond) {
-    return (
-      <GalleryFrame title={titleFor(args.name, clashes)}>
-        <p className="text-muted-foreground text-sm">Writing the coworker…</p>
-      </GalleryFrame>
-    );
+    return <QuestionCard subtitle="Writing the coworker…" title={title} />;
   }
 
   const checked = checkProposal(args);
@@ -107,13 +133,13 @@ export function ProposedBotCard({
   const { values, skills } = checked;
 
   const make = async () => {
-    setSending("create");
+    setSending(CREATE);
     setRefusal(null);
     let outcome: CreatedBot;
     try {
       outcome = await create(values, skills);
     } catch (cause) {
-      // Left on the card with the buttons still live. See `refusal` above.
+      // Left on the card with the rows still live. See `refusal` above.
       setSending(null);
       setRefusal(
         cause instanceof Error
@@ -123,21 +149,32 @@ export function ProposedBotCard({
       return;
     }
     /*
-     * Pressing again is not offered from here on: the coworker exists, and a second press would make
+     * Picking again is not offered from here on: the coworker exists, and a second pick would make
      * a second one. The answer carries its id, which is what the completed card links to.
      */
     await answer(respond, botCardAnswer.created(outcome));
+    setDone(CREATE);
   };
 
   const decline = async () => {
-    setSending("decline");
+    setSending(DECLINE);
     await answer(respond, botCardAnswer.declined());
+    setDone(DECLINE);
   };
 
   return (
-    <GalleryFrame
-      action={<Badge tone="caution">Waiting on you</Badge>}
-      caption={
+    <QuestionCard
+      footer={
+        refusal ? (
+          <p className="text-destructive text-sm" role="alert">
+            {refusal}
+          </p>
+        ) : null
+      }
+      onPick={(option) => void (option.id === CREATE ? make() : decline())}
+      options={rows}
+      sending={sending ? { optionId: sending } : undefined}
+      subtitle={
         clashes
           ? `There is already a ${clashes.title} here, which is ${clashes.ownership}. Names do not have to be unique, but two with the same name are hard to tell apart in a channel list.`
           : "Nothing is created until you press the button."
@@ -169,7 +206,7 @@ export function ProposedBotCard({
        * hides the second half of an instruction that will run on somebody's behalf from the one
        * person being asked to agree to it; a scroller keeps every character reachable.
        */}
-      <p className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+      <p className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background/60 px-3 py-2 text-sm dark:bg-muted/40">
         {values.roleDescription}
       </p>
 
@@ -177,31 +214,7 @@ export function ProposedBotCard({
         It arrives private, with no address, no connector and no tool. Anything
         it needs to reach is granted on its profile afterwards.
       </p>
-
-      {refusal ? (
-        <p className="mt-3 text-destructive text-sm" role="alert">
-          {refusal}
-        </p>
-      ) : null}
-
-      <div className="mt-4 flex gap-2">
-        <Button
-          disabled={Boolean(sending)}
-          onClick={() => void make()}
-          size="sm"
-        >
-          {sending === "create" ? "Creating…" : "Create it"}
-        </Button>
-        <Button
-          disabled={Boolean(sending)}
-          onClick={() => void decline()}
-          size="sm"
-          variant="outline"
-        >
-          {sending === "decline" ? "…" : "Don't create"}
-        </Button>
-      </div>
-    </GalleryFrame>
+    </QuestionCard>
   );
 }
 
@@ -267,15 +280,10 @@ function Unwritable({
   }, [problems, respond]);
 
   return (
-    <GalleryFrame
-      action={<Badge tone="neutral">Not created</Badge>}
+    <QuestionCard
+      subtitle="The coworker could not be created as written, so nothing was asked of you. It is being redrafted."
       title="Create a coworker"
-    >
-      <p className="text-sm">
-        The coworker could not be created as written, so nothing was asked of
-        you. It is being redrafted.
-      </p>
-    </GalleryFrame>
+    />
   );
 }
 

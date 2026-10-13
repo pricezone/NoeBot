@@ -8,7 +8,13 @@ import {
 } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApprovalInbox } from "@/components/approvals/inbox";
 import { InlineApproval } from "@/components/approvals/inline-approval";
@@ -251,6 +257,80 @@ test("a pending change is drawn in the conversation where the action was, and de
       body: { decision: "handled" },
     }),
   );
+  // Decided, the card stays as the question and the row picked, above the tool's own line.
+  await view.findByRole("img", { name: "Answered" });
+  expect(
+    view.queryByRole("region", { name: "Waiting for your approval" }),
+  ).toBeNull();
+  expect(view.getByText(/This needs you: click on shop.example/)).toBeTruthy();
+  expect(view.getByText("I did it myself")).toBeTruthy();
+  expect(view.queryByText("Don't do it")).toBeNull();
+  expect(view.queryByRole("button")).toBeNull();
+  expect(view.getByText("Clicked on page")).toBeTruthy();
+});
+
+test("an approval offers Allow once, Always allow here and Deny as lettered rows, and stays as the answered row once decided", async () => {
+  const asked = {
+    ...inbox.requests[0],
+    id: "request-2",
+    action: {
+      ...inbox.requests[0].action,
+      toolRef: "computer_type",
+      toolCallId: "type-call",
+      policy: {
+        behaviour: "ask",
+        source: "rule",
+        reason: "You asked to approve changes on this site.",
+      },
+    },
+  };
+  inbox.requests.push(asked);
+  try {
+    const view = render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <InlineApproval
+          toolCallId="type-call"
+          fallback={<p>Typed into field</p>}
+        />
+      </QueryClientProvider>,
+    );
+    const card = await view.findByRole("region", {
+      name: "Waiting for your approval",
+    });
+    expect(
+      within(card)
+        .getAllByRole("listitem")
+        .map((row) => row.textContent),
+    ).toEqual(["AAllow once", "BAlways allow here", "CDeny"]);
+    expect(
+      within(card).getByText("You asked to approve changes on this site."),
+    ).toBeTruthy();
+    expect(view.queryByText("Typed into field")).toBeNull();
+
+    fireEvent.click(view.getByRole("button", { name: "Always allow here" }));
+    await waitFor(() =>
+      expect(sent).toContainEqual({
+        path: "/api/approvals/request-2/decision",
+        method: "POST",
+        body: { decision: "allow_always" },
+      }),
+    );
+
+    await view.findByRole("img", { name: "Answered" });
+    expect(
+      view.queryByRole("region", { name: "Waiting for your approval" }),
+    ).toBeNull();
+    expect(view.getByText("Always allow here")).toBeTruthy();
+    expect(view.queryByText("Allow once")).toBeNull();
+    expect(view.queryByText("Deny")).toBeNull();
+    expect(view.getByText("Typed into field")).toBeTruthy();
+  } finally {
+    inbox.requests.pop();
+  }
 });
 
 test("in the real transcript shape a waiting click is folded into browser activity, so its card is drawn beside the group", async () => {
@@ -307,5 +387,11 @@ test("in the real transcript shape a waiting click is folded into browser activi
   expect(
     view.getAllByRole("region", { name: "Waiting for your approval" }),
   ).toHaveLength(1);
-  expect(view.getByRole("button", { name: "I did it myself" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "I did it myself" }));
+  // Decided beside the group, it stays there as the answered row rather than vanishing.
+  await view.findByRole("img", { name: "Answered" });
+  expect(
+    view.queryByRole("region", { name: "Waiting for your approval" }),
+  ).toBeNull();
+  expect(view.getByText("I did it myself")).toBeTruthy();
 });
