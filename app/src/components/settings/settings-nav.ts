@@ -6,12 +6,14 @@ import {
   IconKey,
   IconLock,
   IconPlug,
+  IconPointer,
   IconRobot,
   IconSettings,
   IconShieldLock,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import type { ModalNavItem } from "@/components/ui/modal-shell";
+import { CLICKY_NAME } from "@/lib/clicky/notices";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
 import { msg } from "@/lib/i18n";
 
@@ -86,6 +88,18 @@ export const SETTINGS_NAV: ModalNavItem[] = [
 ];
 
 /**
+ * Clicky Mode's section: its settings and the linked phones. Only where the deployment offers
+ * Clicky, after Notifications, the other "where else can this reach me" page.
+ */
+const CLICKY_NAV: ModalNavItem = {
+  id: "clicky",
+  // A product name, the same in every language.
+  label: CLICKY_NAME,
+  icon: IconPointer,
+  to: "/settings/clicky",
+};
+
+/**
  * The sections this deployment has, before the per-person admin filter.
  *
  * Usage & Billing only where there is something to show: a metered deployment has a meter, and
@@ -99,7 +113,11 @@ export function useSettingsNav(): ModalNavItem[] {
   const hasBilling =
     capabilities.data?.usage === true ||
     typeof capabilities.data?.billingUrl === "string";
-  return hasBilling
+  const hasClicky = capabilities.data?.clicky?.enabled === true;
+  const nav = hasBilling
     ? SETTINGS_NAV
     : SETTINGS_NAV.filter((item) => item.id !== "usage");
+  if (!hasClicky) return nav;
+  const after = nav.findIndex((item) => item.id === "notifications") + 1;
+  return [...nav.slice(0, after), CLICKY_NAV, ...nav.slice(after)];
 }
