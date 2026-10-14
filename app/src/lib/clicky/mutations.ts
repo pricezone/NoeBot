@@ -56,20 +56,6 @@ export function keepClickySession(
 }
 
 /**
- * Stop, now, from wherever the person pressed it: the shortcut, the live screen's Escape, the
- * app-wide pill. The answer is kept; a failure is left for the next look at the session to show,
- * since there is no button here to say it beside.
- */
-export function stopClickyNow(
-  queryClient: QueryClient,
-  botId: string,
-): Promise<void> {
-  return sendClickyCommand(botId, { type: "stop" })
-    .then((result) => keepClickySession(queryClient, botId, result.session))
-    .catch(() => {});
-}
-
-/**
  * A command from Clicky's bar, cards and launcher.
  *
  * The answer is written into the cache rather than invalidated, against the usual rule, because it
@@ -125,12 +111,26 @@ export async function postClickyGuide(
       `/api/computers/${encodeURIComponent(botId)}/clicky/guide`,
       { method: "POST", body: input, ...(signal ? { signal } : {}) },
     );
-    if (response.ok)
+    if (response.ok) {
+      /*
+       * Answered, but not necessarily drawn: the session's reducer can refuse the walkthrough (busy,
+       * guide-only…) and says so as `rejected` beside the unchanged session.
+       */
+      const answer = (await response.json().catch(() => null)) as {
+        rejected?: unknown;
+      } | null;
+      if (answer?.rejected)
+        return {
+          ok: false,
+          reason:
+            "Clicky could not show this right now; describe the steps in words.",
+        };
       return {
         ok: true,
         shown:
           "Clicky is now pointing at each step on the person's view of your screen. Tell them in one short line what to do; they may follow it or ignore it.",
       };
+    }
     if (response.status === 404)
       return {
         ok: false,

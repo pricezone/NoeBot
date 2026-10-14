@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { useClickyAttention } from "@/lib/clicky/use-clicky-attention";
 import { takeClickyViewerRequest } from "@/lib/clicky/viewer-request";
 import { useComputerAttention } from "@/lib/computers/attention";
 import { useComputerControl } from "@/lib/computers/use-control";
@@ -22,19 +23,24 @@ import { settleReactWork } from "./settle-react-work";
 
 /**
  * When the Bot needs the person on its computer, Clicky opens by itself for somebody who lets it:
- * the screen is asked to open full-window, and if the server has not already woken Clicky for this
- * request, the browser sends one `activate` with the request's own id. Once per request, however
- * often the control poll says the same thing.
+ * the screen is asked to open full-window at once, and after a grace period that leaves the server
+ * time to wake Clicky itself, the browser sends one `activate` only if Clicky is still not awake on
+ * that need, with the server's own request ids. Once per need, however often the control poll says
+ * the same thing; a need that clears and comes back is new.
  */
 
 let commands: { botId: string; command: ClickyCommand }[] = [];
 let sessions: Record<string, ClickySession> = {};
 let preferences: Record<string, unknown> = {};
-let secret = false;
+let need: "help" | "secret" | "none" = "help";
+let requestId = "request-1";
 const originalFetch = globalThis.fetch;
 
 function session(botId: string, patch: Partial<ClickySession> = {}) {
-  return { ...newClickySession({ id: `s-${botId}`, botId, now: 0 }), ...patch };
+  return {
+    ...newClickySession({ id: `s-${botId}`, botId, now: 0 }),
+    ...patch,
+  };
 }
 
 beforeAll(() => {
@@ -43,25 +49,32 @@ beforeAll(() => {
   queryClient.clear();
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    const control = /^\/api\/computers\/([^/]+)\/control$/.exec(url);
-    if (control)
+    if (/^\/api\/computers\/[^/]+\/control$/.test(url))
       return Response.json({
         holder: "bot",
         since: "2026-10-14T09:00:00Z",
-        requested: !secret,
-        ...(secret
-          ? { secretWanted: "One-time code", secretRef: "e42" }
-          : {
+        requested: need === "help",
+        ...(need === "secret"
+          ? {
+              secretWanted: "One-time code",
+              secretRef: "e42",
+              secretSnapshotId: 7,
+            }
+          : {}),
+        ...(need === "help"
+          ? {
               reason: "Please sign in to the bank.",
               request: {
-                id: "request-1",
+                id: requestId,
                 status: "waiting",
                 reason: "Please sign in to the bank.",
                 source: "model",
+                pointAt: "e7",
                 createdAt: "2026-10-14T09:00:00Z",
                 updatedAt: "2026-10-14T09:00:00Z",
               },
-            }),
+            }
+          : {}),
         transitioning: false,
         resumeSnapshotRequired: false,
       });
@@ -100,7 +113,8 @@ afterEach(() => {
   queryClient.clear();
   commands = [];
   sessions = {};
-  secret = false;
+  need = "help";
+  requestId = "request-1";
 });
 
 afterAll(async () => {
@@ -110,79 +124,134 @@ afterAll(async () => {
 });
 
 let refresh: (() => Promise<void>) | undefined;
-function Probe({ botId }: { botId: string }) {
+
+/** The whole path: the panel's attention hook, with Clicky's real grace period. */
+function Attention({ botId }: { botId: string }) {
   useComputerAttention(botId);
   refresh = useComputerControl(botId).refresh;
+  return null;
+}
+
+/** Clicky's part alone, with a short grace, for the cases about what happens after it. */
+function Quick({ botId, grace = 40 }: { botId: string; grace?: number }) {
+  const { control, refresh: read } = useComputerControl(botId);
+  refresh = read;
+  useClickyAttention(botId, control, grace);
   return null;
 }
 
 const settle = (ms = 60) =>
   act(() => new Promise((resolve) => setTimeout(resolve, ms)));
 
-test("a pending help request opens the screen and activates Clicky once, with the request's id", async () => {
-  const view = render(<Probe botId="attention-1" />);
+test("a pending help request opens the screen at once and, after the grace, activates Clicky once", async () => {
+  const view = render(<Attention botId="attention-1" />);
   await waitFor(() =>
-    expect(commands).toEqual([
-      {
-        botId: "attention-1",
-        command: {
-          type: "activate",
-          trigger: {
-            kind: "takeover",
-            requestId: "request-1",
-            reason: "Please sign in to the bank.",
+    expect(takeClickyViewerRequest("attention-1")).toBe(true),
+  );
+  // The server is given its moment first.
+  expect(commands).toEqual([]);
+
+  await waitFor(
+    () =>
+      expect(commands).toEqual([
+        {
+          botId: "attention-1",
+          command: {
+            type: "activate",
+            trigger: {
+              kind: "takeover",
+              requestId: "request-1",
+              reason: "Please sign in to the bank.",
+              targetRef: "e7",
+            },
           },
         },
-      },
-    ]),
+      ]),
+    { timeout: 3_000 },
   );
-  expect(takeClickyViewerRequest("attention-1")).toBe(true);
 
   // The same request, seen again on the next poll and the next render, asks nothing more.
   await act(async () => void (await refresh?.()));
-  view.rerender(<Probe botId="attention-1" />);
+  view.rerender(<Attention botId="attention-1" />);
   await settle();
   expect(commands).toHaveLength(1);
   expect(takeClickyViewerRequest("attention-1")).toBe(false);
 });
 
-test("when the server has already woken Clicky for this request, nothing is sent", async () => {
+test("when the server has woken Clicky for this request meanwhile, nothing is sent", async () => {
   sessions["attention-2"] = session("attention-2", {
     awake: true,
     state: "thinking",
     trigger: { kind: "takeover", requestId: "request-1" },
     seq: 4,
   });
-  render(<Probe botId="attention-2" />);
+  render(<Quick botId="attention-2" />);
   await waitFor(() =>
     expect(takeClickyViewerRequest("attention-2")).toBe(true),
   );
-  await settle();
+  await settle(150);
   expect(commands).toEqual([]);
 });
 
-test("a secret wanted points Clicky at its field", async () => {
-  secret = true;
-  render(<Probe botId="attention-3" />);
+test("a secret is named the way the server names it, and points at its field", async () => {
+  need = "secret";
+  render(<Quick botId="attention-3" />);
   await waitFor(() =>
     expect(commands).toEqual([
       {
         botId: "attention-3",
         command: {
           type: "activate",
-          trigger: { kind: "secret", targetRef: "e42" },
+          trigger: {
+            kind: "secret",
+            requestId: "secret:e42:7",
+            targetRef: "e42",
+          },
         },
       },
     ]),
   );
 });
 
+test("a need that clears within the grace sends nothing; one that comes back is new", async () => {
+  render(<Quick botId="attention-4" grace={400} />);
+  await waitFor(() =>
+    expect(takeClickyViewerRequest("attention-4")).toBe(true),
+  );
+  // Answered before the grace ran out.
+  need = "none";
+  await act(async () => void (await refresh?.()));
+  await settle(500);
+  expect(commands).toEqual([]);
+
+  // The Bot asks again: a new request, handled as one.
+  need = "help";
+  requestId = "request-2";
+  await act(async () => void (await refresh?.()));
+  await waitFor(
+    () =>
+      expect(commands.map(({ command }) => command)).toEqual([
+        {
+          type: "activate",
+          trigger: {
+            kind: "takeover",
+            requestId: "request-2",
+            reason: "Please sign in to the bank.",
+            targetRef: "e7",
+          },
+        },
+      ]),
+    { timeout: 2_000 },
+  );
+  expect(takeClickyViewerRequest("attention-4")).toBe(true);
+});
+
 test("somebody who turned auto-open off is left alone", async () => {
   preferences = { messageListEmphasis: "agent", clickyAutoActivate: false };
-  render(<Probe botId="attention-4" />);
+  render(<Quick botId="attention-5" />);
   await settle(150);
   expect(commands).toEqual([]);
-  expect(takeClickyViewerRequest("attention-4")).toBe(false);
+  expect(takeClickyViewerRequest("attention-5")).toBe(false);
 });
 
 test("nothing happens on a deployment without Clicky", async () => {
@@ -190,8 +259,8 @@ test("nothing happens on a deployment without Clicky", async () => {
     generativeUi: false,
     selfHostBanner: false,
   });
-  render(<Probe botId="attention-5" />);
+  render(<Quick botId="attention-6" />);
   await settle(150);
   expect(commands).toEqual([]);
-  expect(takeClickyViewerRequest("attention-5")).toBe(false);
+  expect(takeClickyViewerRequest("attention-6")).toBe(false);
 });

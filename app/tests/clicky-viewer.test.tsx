@@ -70,14 +70,41 @@ function clickySession(): ClickySession {
   };
 }
 
+/** Every card is on screen at once, so the preview polls its picture straight away. */
+class SeenObserver {
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+  observe(target: Element) {
+    queueMicrotask(() =>
+      this.callback(
+        [{ target, isIntersecting: true } as IntersectionObserverEntry],
+        this as unknown as IntersectionObserver,
+      ),
+    );
+  }
+  unobserve() {}
+  disconnect() {}
+}
+let originalObserver: typeof IntersectionObserver | undefined;
+
 beforeAll(() => {
   GlobalRegistrator.register({ url: "http://localhost/" });
+  originalObserver = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver =
+    SeenObserver as unknown as typeof IntersectionObserver;
   // Whatever an earlier file left in the shared cache (a signed-out person, say) is not ours.
   queryClient.clear();
   originalWebSocket = globalThis.WebSocket;
   globalThis.WebSocket = SocketDouble as unknown as typeof WebSocket;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.endsWith("/screenshot"))
+      return Response.json({
+        base64: "AAAA",
+        width: 1920,
+        height: 1080,
+        capturedAt: "2026-10-14T09:00:00Z",
+        url: "https://example.com",
+      });
     if (url.endsWith("/control"))
       return Response.json({
         holder: "bot",
@@ -118,6 +145,7 @@ afterAll(async () => {
   await settleReactWork();
   globalThis.fetch = originalFetch;
   globalThis.WebSocket = originalWebSocket;
+  if (originalObserver) globalThis.IntersectionObserver = originalObserver;
   GlobalRegistrator.unregister();
 });
 
@@ -172,10 +200,9 @@ test("awake, Clicky shows on the preview, and the viewer has its switch and its 
   );
 
   const viewer = await openViewer(view);
+  // One name whatever its state; pressed means awake.
   expect(
-    viewer
-      .getByRole("button", { name: "Put Clicky to sleep" })
-      .getAttribute("aria-pressed"),
+    viewer.getByRole("button", { name: "Clicky" }).getAttribute("aria-pressed"),
   ).toBe("true");
   const bar = await viewer.findByRole("region", { name: "Clicky" });
   expect(within(bar).getByText("Click Sign in, top right.")).toBeTruthy();
@@ -189,8 +216,9 @@ test("asleep, the switch wakes Clicky and the bar appears", async () => {
   awake = false;
   const view = preview();
   const viewer = await openViewer(view);
-  const wake = await viewer.findByRole("button", { name: "Wake Clicky" });
+  const wake = await viewer.findByRole("button", { name: "Clicky" });
   await waitFor(() => expect(wake.hasAttribute("disabled")).toBe(false));
+  expect(wake.getAttribute("aria-pressed")).toBe("false");
   expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
 
   fireEvent.click(wake);
@@ -202,7 +230,7 @@ test("without Clicky on the deployment there is no switch, no bar and no socket"
   offerClicky(false);
   const view = preview();
   const viewer = await openViewer(view);
-  expect(viewer.queryByRole("button", { name: "Wake Clicky" })).toBeNull();
+  expect(viewer.queryByRole("button", { name: "Clicky" })).toBeNull();
   expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
   expect(
     view.container.querySelector('[data-slot="clicky-panel-row"]'),
@@ -228,11 +256,19 @@ async function drivingScreen(clicky?: { acting: boolean; onStop: () => void }) {
   return SocketDouble.all.at(-1) as SocketDouble;
 }
 
-const press = (init: KeyboardEventInit) => {
+/**
+ * A keystroke as a browser reports it. happy-dom says AltGraph whenever Alt is down; a browser says
+ * it only for the AltGr key, so a left Control and Alt are not AltGraph here either.
+ */
+const press = (init: KeyboardEventInit, altGraph = false) => {
   const event = new KeyboardEvent("keydown", {
     bubbles: true,
     cancelable: true,
     ...init,
+  });
+  const own = event.getModifierState.bind(event);
+  Object.defineProperty(event, "getModifierState", {
+    value: (name: string) => (name === "AltGraph" ? altGraph : own(name)),
   });
   window.dispatchEvent(event);
   return event;
@@ -289,4 +325,71 @@ test("without Clicky awake, the same keys go to the computer as before", async (
       modifiers: 3,
     },
   ]);
+});
+
+test("on the preview, Clicky covers a 16:9 picture letterboxed in its 1.6 card, not the bands", async () => {
+  offerClicky(true);
+  const view = preview();
+  const frame = await waitFor(() => {
+    const found = view.container.querySelector<HTMLElement>(
+      '[data-slot="clicky-frame"]',
+    );
+    expect(found).toBeTruthy();
+    return found as HTMLElement;
+  });
+  expect(frame.style.top).toBe("5%");
+  expect(frame.style.height).toBe("90%");
+  expect(frame.style.width).toBe("100%");
+  const arrow = await waitFor(() => {
+    const found = frame.querySelector<HTMLElement>(
+      '[data-clicky="clicky-pointer"]',
+    );
+    expect(found).toBeTruthy();
+    return found as HTMLElement;
+  });
+  expect(arrow.style.left).toBe("90%");
+  expect(arrow.style.top).toBe("10%");
+});
+
+test("Escape in Clicky's menu closes the menu, not the viewer", async () => {
+  offerClicky(true);
+  const view = preview();
+  const viewer = await openViewer(view);
+  const bar = await viewer.findByRole("region", { name: "Clicky" });
+  fireEvent.click(within(bar).getByRole("button", { name: "More for Clicky" }));
+  const menu = await view.findByRole("menu");
+  fireEvent.keyDown(menu, { key: "Escape" });
+  await waitFor(() => expect(view.queryByRole("menu")).toBeNull());
+  expect(
+    view.baseElement.querySelector('[aria-label="The assistant\'s screen"]'),
+  ).toBeTruthy();
+});
+
+test("while driving, keys pressed in Clicky's own controls stay in the page", async () => {
+  const socket = await drivingScreen({ acting: false, onStop: () => {} });
+  const menu = document.createElement("div");
+  menu.setAttribute("data-clicky-ui", "");
+  const item = document.createElement("button");
+  menu.append(item);
+  document.body.append(menu);
+  try {
+    for (const key of ["ArrowDown", "Enter", " "])
+      item.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
+      );
+    expect(socket.sent).toEqual([]);
+  } finally {
+    menu.remove();
+  }
+});
+
+test("AltGr and S, which writes a letter on some keyboards, is not Stop and reaches the computer", async () => {
+  let stops = 0;
+  const socket = await drivingScreen({ acting: false, onStop: () => stops++ });
+  press(
+    { key: "ś", code: "KeyS", keyCode: 83, ctrlKey: true, altKey: true },
+    true,
+  );
+  expect(stops).toBe(0);
+  expect(socket.sent).toHaveLength(1);
 });

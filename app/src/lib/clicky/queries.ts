@@ -1,4 +1,8 @@
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import {
+  queryOptions,
+  replaceEqualDeep,
+  useQuery,
+} from "@tanstack/react-query";
 import { client, httpStatusOf } from "@/lib/client";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
@@ -27,27 +31,20 @@ export const clickyKeys = {
   devices: () => ["clicky", "devices"] as const,
 };
 
-/** The copy to keep: the one with the higher `seq`, and the incoming one on a tie. */
+/**
+ * The copy to keep: the one with the higher `seq`, and the incoming one on a tie (the same change,
+ * answered twice: by the command's POST and by the events socket).
+ *
+ * Only snapshots are compared here. The words of an answer still arriving are not part of the
+ * session in this cache (`use-clicky-session.ts` keeps them apart), so a copy taken before them never
+ * wipes them.
+ */
 export function newerSession(
   held: ClickySession | undefined,
   incoming: ClickySession,
 ): ClickySession {
   if (!held || held.id !== incoming.id) return incoming;
-  if (incoming.seq < held.seq) return held;
-  /*
-   * The same `seq` with a reply still arriving: the words the events socket appended
-   * (`reply.delta`) are newer than a snapshot taken before them, so the longer one stays.
-   */
-  if (
-    incoming.seq === held.seq &&
-    held.reply &&
-    !held.reply.final &&
-    incoming.reply &&
-    !incoming.reply.final &&
-    incoming.reply.text.length < held.reply.text.length
-  )
-    return held;
-  return incoming;
+  return incoming.seq < held.seq ? held : incoming;
 }
 
 function isSession(value: unknown): value is ClickySession {
@@ -72,12 +69,15 @@ export function clickySessionQueryOptions(botId: string) {
       }),
     /*
      * Never let an older copy replace a newer one, whichever way it arrived: this runs for the
-     * fetch's own answer and for every `setQueryData` the socket and the commands make.
+     * fetch's own answer and for every `setQueryData` the socket and the commands make. It also
+     * runs for each surface's `select`, so a view that came out the same (the bar while words
+     * stream into the reply) keeps its reference, and whatever drew it is not drawn again.
      */
-    structuralSharing: (held: unknown, incoming: unknown) =>
-      isSession(incoming)
-        ? newerSession(isSession(held) ? held : undefined, incoming)
-        : incoming,
+    structuralSharing: (held: unknown, incoming: unknown) => {
+      if (!isSession(incoming)) return replaceEqualDeep(held, incoming);
+      const kept = newerSession(isSession(held) ? held : undefined, incoming);
+      return kept === held ? held : replaceEqualDeep(held, kept);
+    },
     // The events socket keeps it current; a refetch on focus would only race it.
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,

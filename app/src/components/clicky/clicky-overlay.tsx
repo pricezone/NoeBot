@@ -5,7 +5,9 @@ import {
   THEMED_INK_CLASS,
   THEMED_PALETTE,
 } from "@/components/noe-bot/anim/palette";
+import { replyText } from "@/lib/clicky/notices";
 import { usePrefersReducedMotion } from "@/lib/clicky/reduced-motion";
+import { useClickySessionView } from "@/lib/clicky/use-clicky-session";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
@@ -16,15 +18,17 @@ import {
   clampUnit,
   visibleOverlays,
 } from "../../../../shared/clicky";
-import { useClickyAnnouncement } from "./clicky-words";
+import { stepOf } from "./clicky-words";
 
 /**
  * What Clicky draws over the Bot's screen: its pointer, highlight boxes, numbered markers and
  * captions, from the session's normalized overlays (`visibleOverlays`).
  *
  * DRAWN HERE, NEVER ON THE DESKTOP. A point is a fraction of the computer's screen, so placing it is
- * a percentage of this box, which is the screen's own shape: the inverse of `take-the-wheel.ts`'s
- * click mapping, and the same in the full-window viewer and the panel's preview. The model never sees
+ * a percentage of the element this layer fills, which must be exactly the frame as it is drawn: the
+ * viewer wraps its canvas and this layer in one element, and the preview, whose picture is letterboxed
+ * inside its card (`object-contain`), places this layer over the picture's own rectangle
+ * (`containedFrame`). It is the inverse of `take-the-wheel.ts`'s click mapping. The model never sees
  * this pointer in a screenshot.
  *
  * NOTHING HERE TAKES A CLICK (`pointer-events: none`), so the person's mouse reaches the screen
@@ -33,12 +37,19 @@ import { useClickyAnnouncement } from "./clicky-words";
  * Clicky's own pointer is a small arrow, unlike the person's, with a soft glow and Noë Bot beside it
  * acting out what Clicky is doing. It glides from where it was to where it points in about a third
  * of a second; with reduced motion it simply appears there. A point Clicky guessed (`approximate`)
- * says "around here" rather than pretending to precision.
+ * says "around here" rather than pretending to precision. Words that would run off the screen's top
+ * or bottom edge are put on the other side of what they label.
  */
 
 /** Clicky's colour: a blue that reads on light and dark pages, and is nobody's cursor. */
 const CLICKY_BLUE = "#3b82f6";
 const GLIDE = "350ms cubic-bezier(0.23, 1, 0.32, 1)";
+/** Nearer than this to the top edge, a box's words go under it. */
+const NEAR_TOP = 0.08;
+/** Nearer than this to the bottom edge, the pointer's words and Noë Bot go above it. */
+const NEAR_BOTTOM = 0.8;
+/** Nearer than this to the right edge, words go to the left. */
+const NEAR_RIGHT = 0.62;
 
 /** Noë Bot beside the pointer, acting out the state (`docs/noe-bot-animations.md`). */
 const SPRITE_FOR: Record<ClickyState, AnimationId> = {
@@ -57,7 +68,60 @@ export function percent(value: number): string {
   return `${Math.round(clampUnit(value) * 100_000) / 1000}%`;
 }
 
+/**
+ * Where a frame of shape `frame` (width over height) is drawn inside a box of shape `box` when it is
+ * fitted whole and centred (`object-contain`), as percentages of the box. A wider frame fills the
+ * width with bands above and below; a taller one fills the height with bands either side.
+ */
+export function containedFrame(
+  box: number,
+  frame: number,
+): { left: string; top: string; width: string; height: string } {
+  const round = (value: number) => `${Math.round(value * 1000) / 1000}%`;
+  if (!(box > 0) || !(frame > 0) || Math.abs(box - frame) < 1e-6)
+    return { left: "0%", top: "0%", width: "100%", height: "100%" };
+  if (frame > box) {
+    const height = (box / frame) * 100;
+    return {
+      left: "0%",
+      top: round((100 - height) / 2),
+      width: "100%",
+      height: round(height),
+    };
+  }
+  const width = (frame / box) * 100;
+  return {
+    left: round((100 - width) / 2),
+    top: "0%",
+    width: round(width),
+    height: "100%",
+  };
+}
+
 type Pointer = Extract<Overlay, { kind: "pointer" }>;
+
+/** What the overlay draws, picked from the session: words still arriving are not part of it. */
+export type ClickyOverlayView = {
+  awake: boolean;
+  state: ClickyState;
+  overlays: Overlay[];
+  step: { number: number; total: number; title: string } | null;
+  /** Clicky's last reply once it is whole, for the announcement. */
+  reply: ClickySession["reply"];
+};
+
+export function selectClickyOverlay(session: ClickySession): ClickyOverlayView {
+  const step = stepOf(session);
+  return {
+    awake: session.awake,
+    state: session.state,
+    overlays: session.awake ? visibleOverlays(session) : [],
+    step: step
+      ? { number: step.number, total: step.total, title: step.title }
+      : null,
+    reply: session.reply?.final ? session.reply : null,
+  };
+}
 
 /** The arrow, tip at the origin. */
 function Arrow({ size }: { size: number }) {
@@ -105,11 +169,11 @@ function Bubble({
 }
 
 export const ClickyOverlay = memo(function ClickyOverlay({
-  session,
+  view,
   colour = CLICKY_BLUE,
   compact = false,
 }: {
-  session: ClickySession;
+  view: ClickyOverlayView;
   /** The Bot's own colour, for Noë Bot beside the pointer. */
   colour?: string;
   /** The panel's small preview: the pointer and boxes only, no words and no Noë Bot. */
@@ -117,7 +181,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
 }) {
   const { t } = useTranslation();
   const reduced = usePrefersReducedMotion();
-  const overlays = session.awake ? visibleOverlays(session) : [];
+  const overlays = view.overlays;
   const pointers = overlays.filter(
     (overlay): overlay is Pointer => overlay.kind === "pointer",
   );
@@ -148,9 +212,15 @@ export const ClickyOverlay = memo(function ClickyOverlay({
           ? t("{{label}}, around here", { label: given })
           : t("Around here")
         : given || null;
-  const flip = (at?.x ?? 0) > 0.62;
+  const flip = (at?.x ?? 0) > NEAR_RIGHT;
+  const above = (at?.y ?? 0) > NEAR_BOTTOM;
   const glide = reduced ? "none" : `left ${GLIDE}, top ${GLIDE}, opacity 200ms`;
-  const announcement = useClickyAnnouncement(session);
+  // What a screen reader hears: the step being worked on, or else Clicky's last whole reply.
+  const announcement = !view.awake
+    ? ""
+    : view.step
+      ? t("Step {{number}} of {{total}} — {{title}}", view.step)
+      : replyText(view.reply, (key) => t(key));
 
   return (
     <div
@@ -182,21 +252,29 @@ export const ClickyOverlay = memo(function ClickyOverlay({
         </svg>
 
         {overlays.map((overlay) => {
-          // A box's own words sit just above its top-left corner.
-          if (overlay.kind === "highlight" && overlay.label && !compact)
+          // A box's own words sit just above its top-left corner, or under it near the top edge.
+          if (overlay.kind === "highlight" && overlay.label && !compact) {
+            const below = overlay.rect.y < NEAR_TOP;
             return (
               <span
-                className="absolute w-max max-w-56 -translate-y-full rounded-lg bg-white px-2 py-1 text-[12px] leading-snug text-zinc-900 shadow-md ring-1 ring-black/10"
+                className={cn(
+                  "absolute w-max max-w-56 rounded-lg bg-white px-2 py-1 text-[12px] leading-snug text-zinc-900 shadow-md ring-1 ring-black/10",
+                  below ? "translate-y-1" : "-translate-y-full",
+                )}
                 data-clicky="highlight-label"
+                data-placement={below ? "below" : "above"}
                 key={`${overlay.id}-label`}
                 style={{
                   left: percent(overlay.rect.x),
-                  top: `calc(${percent(overlay.rect.y)} - 4px)`,
+                  top: below
+                    ? percent(overlay.rect.y + overlay.rect.height)
+                    : `calc(${percent(overlay.rect.y)} - 4px)`,
                 }}
               >
                 {overlay.label}
               </span>
             );
+          }
           if (overlay.kind === "marker")
             return (
               <span
@@ -218,7 +296,9 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                   {overlay.index}
                 </span>
                 {overlay.label && !compact ? (
-                  <Bubble flip={overlay.at.x > 0.62}>{overlay.label}</Bubble>
+                  <Bubble flip={overlay.at.x > NEAR_RIGHT}>
+                    {overlay.label}
+                  </Bubble>
                 ) : null}
               </span>
             );
@@ -233,7 +313,10 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                   top: percent(overlay.at.y),
                 }}
               >
-                <Bubble className="-translate-y-1/2" flip={overlay.at.x > 0.62}>
+                <Bubble
+                  className="-translate-y-1/2"
+                  flip={overlay.at.x > NEAR_RIGHT}
+                >
                   {overlay.text}
                 </Bubble>
               </span>
@@ -268,9 +351,11 @@ export const ClickyOverlay = memo(function ClickyOverlay({
             {compact ? null : (
               <span
                 className={cn(
-                  "absolute top-4 flex items-start",
+                  "absolute flex items-start",
+                  above ? "bottom-full mb-1" : "top-4",
                   flip ? "right-1 flex-row-reverse" : "left-3",
                 )}
+                data-placement={above ? "above" : "below"}
               >
                 <span
                   className={cn(
@@ -280,7 +365,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                   style={{ color: colour }}
                 >
                   <NoeBotSprite
-                    animation={SPRITE_FOR[session.state]}
+                    animation={SPRITE_FOR[view.state]}
                     mode="terminal"
                     palette={THEMED_PALETTE}
                     props={false}
@@ -330,3 +415,29 @@ export const ClickyOverlay = memo(function ClickyOverlay({
 });
 
 ClickyOverlay.displayName = "ClickyOverlay";
+
+/**
+ * The overlay for a Bot, from the session the surface around it keeps current. Words arriving in a
+ * reply do not draw it again: its view leaves them out.
+ */
+export const ClickyScreenOverlay = memo(function ClickyScreenOverlay({
+  botId,
+  colour,
+  compact = false,
+}: {
+  botId: string;
+  colour?: string;
+  compact?: boolean;
+}) {
+  const view = useClickySessionView(botId, selectClickyOverlay);
+  if (!view?.awake) return null;
+  return (
+    <ClickyOverlay
+      compact={compact}
+      view={view}
+      {...(colour ? { colour } : {})}
+    />
+  );
+});
+
+ClickyScreenOverlay.displayName = "ClickyScreenOverlay";

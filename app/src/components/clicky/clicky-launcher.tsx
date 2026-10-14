@@ -13,17 +13,18 @@ import { ClickyStateChip } from "./clicky-state-chip";
 /**
  * Clicky on and off: the viewer's header toggle, pressed while Clicky is awake.
  *
- * Waking it says hello and shows the bar; putting it to sleep clears its pointer, drops anything it
- * was asking, and stops it acting (`sleep` in `shared/clicky-state.ts`).
+ * One name, "Clicky", whatever its state: a toggle says on or off with `aria-pressed`, and a name
+ * that changed with it would announce the opposite of what a press does. Waking it says hello and
+ * shows the bar; putting it to sleep clears its pointer, drops anything it was asking, and stops it
+ * acting (`sleep` in `shared/clicky-state.ts`).
  */
 export const ClickyLauncher = memo(function ClickyLauncher({
   botId,
   session,
 }: {
   botId: string;
-  session: ClickySession | undefined;
+  session: Pick<ClickySession, "awake" | "state"> | undefined;
 }) {
-  const { t } = useTranslation();
   const command = useMutation(
     clickyCommandMutationOptions(queryClient, botId),
     queryClient,
@@ -31,7 +32,6 @@ export const ClickyLauncher = memo(function ClickyLauncher({
   const awake = session?.awake === true;
   return (
     <Button
-      aria-label={awake ? t("Put Clicky to sleep") : t("Wake Clicky")}
       aria-pressed={awake}
       className={cn(
         "gap-1.5",
@@ -62,7 +62,7 @@ export const ClickyPanelRow = memo(function ClickyPanelRow({
   onOpenScreen,
 }: {
   botId: string;
-  session: ClickySession | undefined;
+  session: Pick<ClickySession, "awake" | "state"> | undefined;
   onOpenScreen: () => void;
 }) {
   const { t } = useTranslation();

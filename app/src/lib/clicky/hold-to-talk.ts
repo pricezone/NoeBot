@@ -5,19 +5,23 @@ import {
   transcribeRecording,
 } from "@/lib/dictation/recording";
 import { i18n } from "@/lib/i18n";
+import { hush } from "./speech";
 
 /**
  * Press and hold to talk to Clicky; release to send.
  *
  * Bluey's gesture, on the dictation recorder the composer already uses (`lib/dictation/recording.ts`:
- * MediaRecorder, then `POST /api/audio/transcriptions`). Pressing tells Clicky it is being listened
- * to (`listen: true`, so the phone and the viewer both say "Listening") and starts recording;
- * releasing stops, transcribes, tells Clicky the listening is over and asks with the words.
+ * MediaRecorder, then `POST /api/audio/transcriptions`). Pressing quiets Clicky if it was speaking,
+ * tells it it is being listened to (`listen: true`, so the phone and the viewer both say
+ * "Listening") and starts recording; releasing stops, transcribes, tells Clicky the listening is over
+ * and asks with the words.
  *
- * A TAP IS NOT A QUESTION. Released within a quarter of a second, nothing is sent to be transcribed:
- * the recording is thrown away and only `listen: false` goes out, so a stray click on the microphone
- * costs nothing and asks nothing. A release that comes while the microphone is still being opened
- * is honoured as soon as it opens.
+ * NOTHING IS ASKED BY ACCIDENT. Only `listen: false` goes out, and nothing is transcribed, when:
+ * - the press was a tap: released within a quarter of a second, measured from press to release;
+ * - it was let go while the microphone was still opening (the browser's permission prompt, say):
+ *   whatever is recorded after somebody let go is not something they meant to say;
+ * - it was cancelled: the pointer was cancelled by the system (`cancel`).
+ * Losing the pointer capture or the window's focus counts as letting go.
  *
  * Whatever goes wrong ends as one plain sentence in `error`, and the listening is always ended, so
  * Clicky is never left showing "Listening" to somebody who has let go.
@@ -66,8 +70,9 @@ export function useHoldToTalk({
   const phaseRef = useRef<HoldToTalkPhase>("idle");
   const recording = useRef<Recording | null>(null);
   const pressedAt = useRef(0);
-  const released = useRef(false);
-  /** Bumped by every press and by unmounting, so a late answer for an old press is dropped. */
+  /** Let go while the microphone was still opening: whatever it records is dropped. */
+  const droppedEarly = useRef(false);
+  /** Bumped by every press, cancel and unmount, so a late answer for an old press is dropped. */
   const generation = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const callbacks = useRef({ onListen, onAsk });
@@ -78,17 +83,19 @@ export function useHoldToTalk({
     setPhase(next);
   }, []);
 
-  const finish = useCallback(
+  /** Drops the recording and ends the listening, asking nothing. */
+  const drop = useCallback(() => {
+    recording.current?.cancel();
+    recording.current = null;
+    move("idle");
+    callbacks.current.onListen(false);
+  }, [move]);
+
+  const send = useCallback(
     async (mine: number) => {
       const held = recording.current;
       recording.current = null;
       if (!held) return;
-      if (Date.now() - pressedAt.current < minHoldMs) {
-        held.cancel();
-        move("idle");
-        callbacks.current.onListen(false);
-        return;
-      }
       move("sending");
       const controller = new AbortController();
       abort.current = controller;
@@ -106,15 +113,16 @@ export function useHoldToTalk({
         if (mine === generation.current) move("idle");
       }
     },
-    [minHoldMs, move, transcribe],
+    [move, transcribe],
   );
 
   const press = useCallback(async () => {
     if (phaseRef.current !== "idle") return;
     const mine = ++generation.current;
-    released.current = false;
+    droppedEarly.current = false;
     pressedAt.current = Date.now();
     setError(null);
+    hush();
     move("starting");
     callbacks.current.onListen(true);
     try {
@@ -130,26 +138,53 @@ export function useHoldToTalk({
         return;
       }
       recording.current = started;
+      if (droppedEarly.current) {
+        drop();
+        return;
+      }
       move("recording");
-      if (released.current) await finish(mine);
     } catch (failure) {
       if (mine !== generation.current) return;
       setError(plainMessage(failure));
       move("idle");
       callbacks.current.onListen(false);
     }
-  }, [finish, move, record]);
+  }, [drop, move, record]);
 
   const release = useCallback(async () => {
+    const releasedAt = Date.now();
     if (phaseRef.current === "starting") {
-      // The microphone is still opening: let go is remembered and honoured when it opens.
-      released.current = true;
+      droppedEarly.current = true;
       return;
     }
     if (phaseRef.current !== "recording") return;
-    released.current = true;
-    await finish(generation.current);
-  }, [finish]);
+    if (releasedAt - pressedAt.current < minHoldMs) {
+      generation.current += 1;
+      drop();
+      return;
+    }
+    await send(generation.current);
+  }, [drop, minHoldMs, send]);
+
+  /** The press was cancelled (by the system, not let go): nothing is asked. */
+  const cancel = useCallback(() => {
+    if (phaseRef.current === "starting") {
+      droppedEarly.current = true;
+      return;
+    }
+    if (phaseRef.current !== "recording") return;
+    generation.current += 1;
+    drop();
+  }, [drop]);
+
+  // Leaving the window while holding (another app, a dialog) is letting go.
+  const holding = phase === "starting" || phase === "recording";
+  useEffect(() => {
+    if (!holding) return;
+    const onBlur = () => void release();
+    window.addEventListener("blur", onBlur);
+    return () => window.removeEventListener("blur", onBlur);
+  }, [holding, release]);
 
   // Unmounted mid-recording: drop the microphone and anything in flight, and stop listening.
   useEffect(
@@ -169,6 +204,7 @@ export function useHoldToTalk({
     error,
     press,
     release,
+    cancel,
     clearError: () => setError(null),
   };
 }

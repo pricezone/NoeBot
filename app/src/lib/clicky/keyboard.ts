@@ -9,24 +9,35 @@ import { keyOf } from "@/lib/hotkeys/hotkeys";
  * every shortcut here is (`keyOf`): Option+S writes "ß" on a Mac and Ctrl+Alt+S may write a letter
  * of another script, and the physical key is still S.
  *
+ * AltGr is not Control and Alt, even though Windows reports it as both: on a Polish keyboard AltGr
+ * and S writes "ś", and typing a word must never stop anything. The browser says which it was with
+ * the AltGraph modifier. Not on a Mac, which has no AltGr, and where a browser may report Option as
+ * AltGraph: there Control, Option and S is always the shortcut.
+ *
  * Not in `HOTKEYS`: that registry spells `mod` as Command on a Mac and has no way to say Control.
  */
 export function isClickyStopShortcut(event: KeyboardEvent): boolean {
+  const altGraph = !onMac() && event.getModifierState?.("AltGraph") === true;
   return (
     event.ctrlKey &&
     event.altKey &&
     !event.metaKey &&
     !event.shiftKey &&
+    !altGraph &&
     keyOf(event) === "s"
+  );
+}
+
+function onMac(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform)
   );
 }
 
 /** The shortcut as keycaps, the way this keyboard writes them, for the places that teach it. */
 export function clickyStopKeys(): readonly string[] {
-  const mac =
-    typeof navigator !== "undefined" &&
-    /Mac|iPhone|iPad/.test(navigator.platform);
-  return mac ? ["⌃", "⌥", "S"] : ["Ctrl", "Alt", "S"];
+  return onMac() ? ["⌃", "⌥", "S"] : ["Ctrl", "Alt", "S"];
 }
 
 /** The same, for `aria-keyshortcuts`. */
