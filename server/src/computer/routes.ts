@@ -120,8 +120,17 @@ export function createComputerRoutes(
 
   routes.get("/:botId/desktop/screenshot", async (context) => {
     try {
+      /*
+       * `?width=` asks for a smaller picture: the phone's Clicky shows the screen as a thumbnail and
+       * never the live stream (one viewer socket per Bot belongs to the web app). Clamped, and
+       * anything unreadable is the full size, as before the parameter existed.
+       */
+      const width = thumbnailWidth(context.req.query("width"));
       return context.json(
-        await gateway.desktopScreenshot(context.req.param("botId")),
+        await gateway.desktopScreenshot(
+          context.req.param("botId"),
+          width === undefined ? undefined : { width },
+        ),
       );
     } catch (error) {
       return context.json(errorBody(error), statusFor(error));
@@ -565,16 +574,27 @@ export function createComputerRoutes(
   });
 
   routes.post("/:botId/control/request", (context) =>
-    acting(context, (botId, actor, body) =>
-      gateway.requestHelp(
+    acting(context, (botId, actor, body) => {
+      /*
+       * `pointAt`: the element the person should use first, an aria ref from the Bot's snapshot, so
+       * Clicky can point at it when it opens. Optional; anything that is not a short ref is ignored
+       * rather than refused, because the request for help matters more than where to point.
+       */
+      const pointAt =
+        typeof body?.pointAt === "string" &&
+        /^[A-Za-z0-9_-]{1,64}$/.test(body.pointAt)
+          ? body.pointAt
+          : undefined;
+      return gateway.requestHelp(
         botId,
         actor,
         typeof body?.reason === "string" && body.reason.trim()
           ? body.reason.trim()
           : "The assistant needs a person to continue.",
         typeof body?.toolCallId === "string" ? body.toolCallId : undefined,
-      ),
-    ),
+        pointAt ? { pointAt } : undefined,
+      );
+    }),
   );
 
   /**
@@ -1070,6 +1090,12 @@ const badRef: BadRequest = {
 const badDeltaY: BadRequest = {
   error: "deltaY must be a finite number of pixels.",
 };
+
+/** A thumbnail's width: a whole number of pixels, clamped to 160–1440, or none at all. */
+function thumbnailWidth(raw: string | undefined): number | undefined {
+  if (raw === undefined || !/^\d{1,5}$/.test(raw.trim())) return undefined;
+  return Math.min(1440, Math.max(160, Number(raw.trim())));
+}
 
 /**
  * Whether a wheel delta from an untrusted body can be carried out.

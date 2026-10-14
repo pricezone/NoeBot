@@ -161,11 +161,19 @@ export function captureDesktopFrame(
   display: string,
   size: DisplaySize,
   spawnImpl: Spawn = spawn,
+  /**
+   * A smaller size to scale the one frame to: the phone's thumbnail, or the frame Clicky's model
+   * looks at. Absent, the screen's own size, as the panel's preview always had.
+   */
+  scale?: DisplaySize | null,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(
       "ffmpeg",
-      ffmpegGrabArguments(display, size, { once: true }),
+      ffmpegGrabArguments(display, size, {
+        once: true,
+        ...(scale ? { stream: { ...DEFAULT_STREAM, scale } } : {}),
+      }),
       {
         stdio: ["ignore", "pipe", "pipe"],
       },

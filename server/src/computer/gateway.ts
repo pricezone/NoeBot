@@ -69,10 +69,12 @@ import type {
   ActionResult,
   CheckInput,
   ClickInput,
+  ClickyFrame,
   ComputerStatus,
   ControlState,
   DialogInput,
   DownloadFileInput,
+  ElementAtResult,
   FillInput,
   FillResult,
   HoverInput,
@@ -89,6 +91,7 @@ import type {
   RunCommandInput,
   RunCommandResult,
   ScreenshotResult,
+  ScreenElements,
   ScrollInput,
   SecretRequest,
   SecretResult,
@@ -193,6 +196,11 @@ export type ComputerControlEvent = {
   /** The Bot's own words, for a request. */
   reason?: string;
   toolCallId?: string;
+  /**
+   * The element the Bot asked the person to use first (`point_at` on a help request), an aria ref
+   * from its latest snapshot, so Clicky can point at it. Only on `help_requested`.
+   */
+  pointAt?: string;
   /** The computer's control state right after it, including the request it is about. */
   state: ControlState;
 };
@@ -212,8 +220,31 @@ export interface ComputerGateway {
     options?: { browser?: boolean },
   ): Promise<ComputerStatus>;
   screenshot(botId: string): Promise<ScreenshotResult>;
-  /** The whole desktop, for a computer that draws one. The computer answers 404 without one. */
-  desktopScreenshot(botId: string): Promise<ScreenshotResult>;
+  /**
+   * The whole desktop, for a computer that draws one. The computer answers 404 without one. `width`
+   * scales the picture down (a phone's thumbnail); the size it reports stays the screen's.
+   */
+  desktopScreenshot(
+    botId: string,
+    options?: { width?: number },
+  ): Promise<ScreenshotResult>;
+  /**
+   * Clicky Mode: the visible controls and their boxes on the screen. Read-only and not governed, like
+   * a screenshot: it changes nothing and the Bot's own snapshot is untouched by it.
+   */
+  elements(botId: string): Promise<ScreenElements>;
+  /** Clicky Mode: what is under one screen point, asked of the page now. */
+  elementAt(
+    botId: string,
+    point: { x: number; y: number },
+  ): Promise<ElementAtResult>;
+  /** Clicky Mode: the masked picture its model is shown, no wider than `width`. */
+  clickyFrame(botId: string, width: number): Promise<ClickyFrame>;
+  /**
+   * The boundary in force for a Bot, as the gateway reads it for every action. Clicky checks a
+   * person's approved action against its deny rules before carrying it out.
+   */
+  actionPolicy(botId: string): ActionPolicy | undefined;
   snapshot(botId: string): Promise<SnapshotResult>;
   /** `waitFor`: wait on the page, up to `timeoutMs` (20 s at most), for these words to appear. */
   read(
@@ -347,6 +378,8 @@ export interface ComputerGateway {
     actor: ActionActor,
     reason: string,
     toolCallId?: string,
+    /** The element the person should use first, for Clicky to point at. */
+    options?: { pointAt?: string },
   ): Promise<ControlState>;
   takeControl(
     botId: string,
@@ -640,8 +673,18 @@ export function createComputerGateway(
   }
 
   /** Read-only like the page screenshot, and of the screen rather than the page. */
-  async function desktopScreenshot(botId: string): Promise<ScreenshotResult> {
-    return get<ScreenshotResult>(botId, "/desktop/screenshot");
+  async function desktopScreenshot(
+    botId: string,
+    options?: { width?: number },
+  ): Promise<ScreenshotResult> {
+    const width =
+      options?.width !== undefined && Number.isFinite(options.width)
+        ? Math.round(options.width)
+        : undefined;
+    return get<ScreenshotResult>(
+      botId,
+      `/desktop/screenshot${width !== undefined ? `?width=${width}` : ""}`,
+    );
   }
 
   /**
@@ -779,6 +822,34 @@ export function createComputerGateway(
    * later fails is still part of the audit sequence, and a trail that only contains successes cannot
    * show that sequence.
    */
+  /**
+   * A challenge the page showed after an action (a CAPTCHA, a Cloudflare check) opens a takeover
+   * inside the computer itself, not through `requestHelp`, so the listener never heard the Bot need
+   * the person. Told now as a help request, with the computer's own state read back so the request
+   * and its source are the computer's. Never awaited and never in the action's way.
+   */
+  function announceChallenge(
+    botId: string,
+    actor: ActionActor,
+    result: unknown,
+  ) {
+    const listener = options.onControlEvent;
+    if (!listener || !result || typeof result !== "object") return;
+    const challenge = (result as { challenge?: { reason?: string } }).challenge;
+    if (!challenge) return;
+    void get<ControlState>(botId, "/control")
+      .then((state) =>
+        notifyControl(listener, {
+          type: "help_requested",
+          botId,
+          actor,
+          ...(challenge.reason ? { reason: challenge.reason } : {}),
+          state,
+        }),
+      )
+      .catch(() => undefined);
+  }
+
   async function govern<T>(
     toolName: string,
     botId: string,
@@ -988,6 +1059,7 @@ export function createComputerGateway(
       });
       throw error;
     }
+    announceChallenge(botId, actor, result);
     // The element's label, attached on the way out, so the transcript can say what was acted on
     // instead of quoting a ref. The computer cannot supply this: it knows the ref, and the resolved
     // snapshot lives here. File calls carry their own path already, so there is nothing to add.
@@ -1299,6 +1371,27 @@ export function createComputerGateway(
     snapshot,
     read,
 
+    /*
+     * Clicky's reads. Passed straight through like a screenshot: nothing changes and there is
+     * nothing to decide. Not marked untrusted here because no model reads these results as they
+     * are; Clicky's brain wraps every name in the envelope before its model sees one.
+     */
+    elements(botId: string) {
+      return get<ScreenElements>(botId, "/elements");
+    },
+    elementAt(botId: string, point: { x: number; y: number }) {
+      return post<ElementAtResult>(botId, "/elements/at", point);
+    },
+    clickyFrame(botId: string, width: number) {
+      return get<ClickyFrame>(
+        botId,
+        `/elements/frame?width=${Math.round(width)}`,
+      );
+    },
+    actionPolicy(botId: string) {
+      return policyFor(botId);
+    },
+
     async status(
       botId: string,
       options?: { browser?: boolean },
@@ -1323,6 +1416,7 @@ export function createComputerGateway(
       actor: ActionActor,
       reason: string,
       toolCallId?: string,
+      requestOptions?: { pointAt?: string },
     ) {
       const state = await post<ControlState>(botId, "/control/request", {
         reason,
@@ -1339,6 +1433,7 @@ export function createComputerGateway(
         actor,
         reason,
         toolCallId,
+        ...(requestOptions?.pointAt ? { pointAt: requestOptions.pointAt } : {}),
         state,
       });
       return state;
