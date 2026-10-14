@@ -472,6 +472,18 @@ const DECISIONS: Record<string, string> = {
   "computer.updated": msg("The computer was updated"),
   "computer.stopped": msg("A person pressed stop"),
 
+  // Clicky Mode: the companion beside the screen, and the phones linked to it.
+  "clicky.session_started": msg("Clicky opened"),
+  "clicky.action_proposed": msg("Clicky asked to do something"),
+  "clicky.action_approved": msg("A person let Clicky do it"),
+  "clicky.action_denied": msg("A person said no to Clicky"),
+  "clicky.action_performed": msg("Clicky did it for the person"),
+  "clicky.action_failed": msg("Clicky could not do it"),
+  "clicky.action_blocked": msg("Clicky pointed instead of acting"),
+  "clicky.stopped": msg("A person stopped Clicky"),
+  "mobile.device_linked": msg("A phone was linked"),
+  "mobile.device_revoked": msg("A phone was signed out"),
+
   "component.granted": msg("Granted to this Bot"),
   "component.revoked": msg("Taken away from this Bot"),
   "component.published": msg("Published, so every Bot may use it"),
