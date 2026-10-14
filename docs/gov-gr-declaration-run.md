@@ -64,6 +64,31 @@ with the plan given.
 | O20 | In any tab but the one running the turn, the question card showed its title and subtitle only: no options, no own answer, nothing to answer with. A reload of the running tab does the same. | A question card waits on the run in the tab that started it. Elsewhere the call has no result and nothing executing it, which the runtime reports as "in progress" for good, and the card hid its options as if still being written. | **UI:** where this tab has no turn going, the choice and approval cards show their rows and own answer and send the answer as the person's next message, the way a Bot's `ask_person` question is answered. The history repair tells the Bot that message is the answer, and the card collapses to it. Tests cover both cards. | fixed |
 | Q | Question and confirmation cards did not collapse once answered and each had its own look. | — | **UI:** `components/chat-cards/question-card.tsx` gives every question, approval and confirmation the Grok rows, own answer, X, and a collapse to the chosen row with a check. | fixed |
 
+## The third run (2026-10-14 01:01 UTC, in-run tools, build 66d190d to 0c34a87)
+
+The run reached the "Κωδικός SMS επιβεβαίωσης" secure form, where the test stops.
+- The person submitted the Taxisnet form 33 s after it opened, and the Bot carried on by itself:
+  the consent page, the data review, the text and the recipient.
+- It showed the preview as a picture.
+- The approval question and the "SMS or Wallet" choice were answered from the person's own tab.
+- An automatic server update restarted the instance mid-turn at 01:14. The person's tab
+  recovered, and the run continued to the SMS form.
+
+| # | What happened | Cause | Fix | Status |
+|---|---|---|---|---|
+| O21 | The Bot answered "issue a declaration" with a draft to print again. | The site-agnostic prompt rewrite dropped "rather than drafting a document". | The rule names what online services provide (declarations, certificates, forms, bookings) and says to do it there. It has a prompt test. | fixed (f9e2e9e) |
+| O22 | It asked "submit?" at the text page, then pressed Issue on a later final preview without asking again. | The approval was asked at the wrong step and reused. | Ask at the step that commits it, after its last preview. An earlier yes covers nothing later. | fixed (ad3d9ca) |
+| O23 | In the watching tab some replies lost their last letters ("ΔΕΔΔ", "ελέγ") until a refresh. | A history read mid-write returned a half-written message. The merge kept the local copy for a known id, so later complete reads were ignored. | The merge takes the stored copy when it continues the local one (text and tool arguments), never while this tab streams its own turn. | fixed (1d8d4c9) |
+| O24 | The "SMS or Wallet" card showed only "Type your own answer" until a refresh. | Same stale merge, with the card answerable as soon as it had a title. | A waiting card needs all its options. Until they arrive it reads the server's decision record or shows "Preparing the question…". | fixed (8f797f3) |
+| O25 | "Waiting for the assistant…", "Preparing the request…" and "Your Bot needs …" appeared in English in a Greek conversation. | The cards and the computer panel were outside the strings table. | The strings table covers them, and the panel follows the conversation's language. | fixed (8f797f3) |
+| O26 | During the restart a tab showed "Could not load this channel." and stayed there. | One retry, then the error, even with the channel on screen. | The channel query retries no answer or 502/503/504 for about 2 minutes, showing "Reconnecting…", then offers Retry. A loaded channel stays on screen. | fixed (ed9fc18) |
+| O27 | The generated draft was white on white, and its print button did nothing. | The SDK's sandbox iframe lacked `allow-modals` (print ignored). The frame got the app's dark color-scheme while the document stayed light. | The frame's options gain `allow-modals` (never `allow-same-origin`), plus a base stylesheet so text and background share one scheme, light while printing. | fixed (70295ef) |
+| O28 | On the Bot's desktop a visited page opened behind the front window. | Nothing brought the live page forward when it changed. | The live page comes to the front, restored and maximized on the desktop, on every change, navigate, back and tab switch. | fixed (4bb3720) |
+| O29 | The hourly automatic update restarted the instance in the middle of a turn. | The server agent switches images without checking for running turns. | **Platform:** defer the switch while a run is active (HyperNoesis agent). Not done here. | open |
+
+Separately, settled Bot follow-ups lost their outcome and dropped out of the listing (a jsonb
+merge bound as text). That is fixed in 5688aa0, and migration 0058 repairs existing rows.
+
 ## What is still to verify with the person
 
 1. **The full run, together, after the fixes are deployed.** The person enters the Taxisnet login
