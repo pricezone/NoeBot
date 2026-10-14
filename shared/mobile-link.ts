@@ -5,13 +5,21 @@
  * sign-in handoff secret. It asks HyperNoesis for a one-minute, single-use token minted for the
  * audience `mobile`, and trades it here for a session of its own:
  *
- *   POST /api/auth/signin-handoff/mobile   { token, device: { name, platform } }
+ *   POST /api/auth/signin-handoff/mobile   { token, device: { name, platform }, previousDeviceId? }
  *   → { cookie, deviceId, expiresAt, user }
  *
  * `cookie` is the exact `Cookie` header value the phone sends from then on. It carries the session
  * cookie AND Better Auth's `dont_remember` cookie: without the second one the server slides a session
  * to its full lifetime on first use, and the phone's session is meant to end after a day. When it
  * ends, the phone asks HyperNoesis for a new token, so the person never signs in on the phone twice.
+ *
+ * The phone links again every day, and after any 401. It then sends `previousDeviceId`, the
+ * `deviceId` it was last answered, so it stays one phone in Settings › Phones with its push
+ * registration and its Clicky pairing: when that names a phone of the same person that has not been
+ * revoked, the server signs that phone's old session out, gives the row the new one, and answers the
+ * same `deviceId`. Any other value (unknown, somebody else's, revoked) is ignored without a word, and
+ * the phone is recorded as a new one; the answer never says which. Without it, every link is a new
+ * phone: two phones of the same model are never merged.
  *
  * The phone sends the link request with no cookies, never posts to `/api/auth/*` afterwards (Better
  * Auth checks the Origin of cookie-bearing auth posts, which a native app has none of), and signs out
@@ -29,6 +37,8 @@ export type MobilePlatform = "ios" | "android";
 export type MobileLinkRequest = {
   token: string;
   device: { name: string; platform: MobilePlatform };
+  /** The `deviceId` this phone was answered last time it linked, so it keeps its row. */
+  previousDeviceId?: string;
 };
 
 export type MobileLinkResponse = {

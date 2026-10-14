@@ -212,6 +212,8 @@ export type MobileLinkedInput = {
   userId: string;
   sessionId: string;
   device: { name: string; platform: MobilePlatform };
+  /** The phone's own id from its last link, unchecked: the recorder decides whether it counts. */
+  previousDeviceId?: string;
 };
 
 /**
@@ -339,6 +341,7 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
               name: z.string().trim().min(1).max(MOBILE_DEVICE_NAME_LIMIT),
               platform: z.enum(["ios", "android"]),
             }),
+            previousDeviceId: z.string().trim().min(1).max(200).optional(),
           }),
         },
         async (ctx) => {
@@ -394,6 +397,9 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
               userId: user.id,
               sessionId: session.id,
               device: ctx.body.device,
+              ...(ctx.body.previousDeviceId
+                ? { previousDeviceId: ctx.body.previousDeviceId }
+                : {}),
             }));
           } catch (error) {
             // A phone that could not be recorded cannot be listed or revoked, so it gets no session.

@@ -13,10 +13,11 @@ import { mobileDevices, pushDevices, sessions } from "../db/schema";
  * A person's linked phones (`mobile_devices`).
  *
  * A phone is linked through the HyperNoesis app and holds one Better Auth session, which ends after a
- * day; the app then links again. So a row is the phone, not the session: linking again with the same
- * name and platform takes over the row whose session has ended, and keeps what the person set on it
- * (the computer its Clicky is paired with, its push registration). Revoking deletes the session, so
- * the phone is signed out at once, and marks the row so it is not taken over again.
+ * day; the app then links again, naming the row it was given (`previousDeviceId`). So a row is the
+ * phone, not the session: linking again moves the row onto the new session, signs the old one out,
+ * and keeps what the person set on it (the computer its Clicky is paired with, its push
+ * registration). Revoking deletes the session, so the phone is signed out at once, and marks the row
+ * so it is never taken over again.
  */
 
 export type MobileDeviceRow = {
@@ -106,48 +107,69 @@ export function createMobileDeviceStore(database: Database): MobileDeviceStore {
   });
 
   const store: MobileDeviceStore = {
-    async link({ userId, sessionId, device }) {
+    async link({ userId, sessionId, device, previousDeviceId }) {
       const name = device.name.trim().slice(0, MOBILE_DEVICE_NAME_LIMIT);
-      // The same phone linking again after its day: the row whose session is gone or over.
-      const candidates = await database
-        .select({
-          id: mobileDevices.id,
-          sessionId: mobileDevices.sessionId,
-          expiresAt: sessions.expiresAt,
-        })
-        .from(mobileDevices)
-        .leftJoin(sessions, eq(sessions.id, mobileDevices.sessionId))
-        .where(
-          and(
-            eq(mobileDevices.userId, userId),
-            eq(mobileDevices.name, name),
-            eq(mobileDevices.platform, device.platform),
-            isNull(mobileDevices.revokedAt),
-          ),
-        )
-        .orderBy(desc(mobileDevices.lastSeenAt));
-      const ended = candidates.find(
-        (candidate) =>
-          !candidate.sessionId ||
-          !candidate.expiresAt ||
-          candidate.expiresAt.getTime() <= Date.now(),
-      );
-      if (ended) {
-        await database
-          .update(mobileDevices)
-          .set({ sessionId, lastSeenAt: new Date() })
-          .where(eq(mobileDevices.id, ended.id));
-        return { deviceId: ended.id, reused: true };
-      }
-      const id = randomUUID();
-      await database.insert(mobileDevices).values({
-        id,
-        userId,
-        name,
-        platform: device.platform,
-        sessionId,
+      return database.transaction(async (tx) => {
+        /*
+         * The phone linking again (every day, and after a 401) names the row it was given last time.
+         * Only this person's own, and only one not revoked: anything else is ignored and the phone
+         * is recorded as new, the same answer either way, so an id says nothing about whether it
+         * exists. Locked, so two links naming the same row one after the other each sign out the
+         * session before them rather than both keeping theirs on one row.
+         */
+        const [previous] = previousDeviceId
+          ? await tx
+              .select({
+                id: mobileDevices.id,
+                sessionId: mobileDevices.sessionId,
+              })
+              .from(mobileDevices)
+              .where(
+                and(
+                  eq(mobileDevices.id, previousDeviceId),
+                  eq(mobileDevices.userId, userId),
+                  isNull(mobileDevices.revokedAt),
+                ),
+              )
+              .for("update")
+          : [];
+        if (previous) {
+          await tx
+            .update(mobileDevices)
+            .set({
+              sessionId,
+              name,
+              platform: device.platform,
+              lastSeenAt: new Date(),
+            })
+            .where(eq(mobileDevices.id, previous.id));
+          // The phone's old session, if it was still alive: one phone, one session.
+          if (previous.sessionId && previous.sessionId !== sessionId)
+            await tx
+              .delete(sessions)
+              .where(
+                and(
+                  eq(sessions.id, previous.sessionId),
+                  eq(sessions.userId, userId),
+                ),
+              );
+          return { deviceId: previous.id, reused: true };
+        }
+        /*
+         * Without its own id, a phone is a new phone. Never guessed from its name and platform: two
+         * phones of the same model would share a row, and each linking again with that row's id
+         * would sign the other out.
+         */
+        const id = randomUUID();
+        await tx.insert(mobileDevices).values({
+          id,
+          userId,
+          name,
+          platform: device.platform,
+          sessionId,
+        });
+        return { deviceId: id, reused: false };
       });
-      return { deviceId: id, reused: false };
     },
 
     async list(userId) {

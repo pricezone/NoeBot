@@ -36,7 +36,10 @@ export type ClickyHub = {
   subscribe(userId: string, botId: string, send: Send): () => void;
   /** A session changed here: deliver it to this process's sockets and announce it to the rest. */
   publish(userId: string, botId: string, session: ClickySession): void;
-  /** Part of a reply still arriving, for session `seq`. This process's sockets only. */
+  /**
+   * Part of a reply still arriving. `seq` is that of the latest snapshot in state "thinking" for the
+   * model call it belongs to. This process's sockets only.
+   */
   delta(userId: string, botId: string, seq: number, text: string): void;
   /** An announcement heard through Postgres: read the session back and deliver it if it is news. */
   hear(note: ClickyNote): Promise<void>;
