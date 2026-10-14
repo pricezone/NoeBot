@@ -35,9 +35,12 @@ export type MobileDeviceRow = {
 
 export type MobileDeviceStore = {
   /** Records a phone that has just been given a session; answers its id. */
-  link(
-    input: MobileLinkedInput,
-  ): Promise<{ deviceId: string; reused: boolean }>;
+  link(input: MobileLinkedInput): Promise<{
+    deviceId: string;
+    reused: boolean;
+    /** The session the phone held before, now signed out, when it linked again. */
+    endedSessionToken?: string;
+  }>;
   /** The person's phones that have not been revoked, most recently seen first. */
   list(userId: string): Promise<MobileDeviceRow[]>;
   get(userId: string, id: string): Promise<MobileDeviceRow | null>;
@@ -50,7 +53,7 @@ export type MobileDeviceStore = {
   revoke(
     userId: string,
     id: string,
-  ): Promise<{ sessionId: string | null } | null>;
+  ): Promise<{ sessionId: string | null; sessionToken: string | null } | null>;
   /** The phone a request came from, by the session token in its cookie. */
   deviceForToken(
     userId: string,
@@ -144,16 +147,23 @@ export function createMobileDeviceStore(database: Database): MobileDeviceStore {
             })
             .where(eq(mobileDevices.id, previous.id));
           // The phone's old session, if it was still alive: one phone, one session.
-          if (previous.sessionId && previous.sessionId !== sessionId)
-            await tx
-              .delete(sessions)
-              .where(
-                and(
-                  eq(sessions.id, previous.sessionId),
-                  eq(sessions.userId, userId),
-                ),
-              );
-          return { deviceId: previous.id, reused: true };
+          const [ended] =
+            previous.sessionId && previous.sessionId !== sessionId
+              ? await tx
+                  .delete(sessions)
+                  .where(
+                    and(
+                      eq(sessions.id, previous.sessionId),
+                      eq(sessions.userId, userId),
+                    ),
+                  )
+                  .returning({ token: sessions.token })
+              : [];
+          return {
+            deviceId: previous.id,
+            reused: true,
+            ...(ended ? { endedSessionToken: ended.token } : {}),
+          };
         }
         /*
          * Without its own id, a phone is a new phone. Never guessed from its name and platform: two
@@ -233,16 +243,21 @@ export function createMobileDeviceStore(database: Database): MobileDeviceStore {
           )
           .returning({ sessionId: mobileDevices.sessionId });
         if (!found) return null;
-        if (found.sessionId)
-          await tx
-            .delete(sessions)
-            .where(
-              and(
-                eq(sessions.id, found.sessionId),
-                eq(sessions.userId, userId),
-              ),
-            );
-        return { sessionId: found.sessionId };
+        const [ended] = found.sessionId
+          ? await tx
+              .delete(sessions)
+              .where(
+                and(
+                  eq(sessions.id, found.sessionId),
+                  eq(sessions.userId, userId),
+                ),
+              )
+              .returning({ token: sessions.token })
+          : [];
+        return {
+          sessionId: found.sessionId,
+          sessionToken: ended?.token ?? null,
+        };
       });
     },
 

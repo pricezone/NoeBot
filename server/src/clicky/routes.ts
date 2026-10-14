@@ -4,8 +4,10 @@ import type { ClickyServerEvent } from "../../../shared/clicky";
 import type { AppVariables } from "../auth/guards";
 import { upgradeWebSocket } from "../channels/socket";
 import type { ClickyHub } from "./hub";
+import { sessionTokenFromCookies } from "../mobile/store";
 import { parseClickyCommand, parseClickyGuide } from "./schema";
 import type { ClickyService } from "./service";
+import { SIGNED_OUT_CLOSE, type SocketSessions } from "./socket-sessions";
 
 /**
  * Clicky's HTTP and WebSocket surface, under a Bot's computer: `/api/computers/:botId/clicky/...`.
@@ -24,6 +26,8 @@ import type { ClickyService } from "./service";
 export function createClickyRoutes(deps: {
   service: ClickyService;
   hub: ClickyHub;
+  /** Closes a socket when the session it was opened on is revoked or ends. */
+  sessions?: SocketSessions;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
   const limit = bodyLimit({ maxSize: 64 * 1024 });
@@ -96,7 +100,9 @@ export function createClickyRoutes(deps: {
       // Fixed at the upgrade: the socket belongs to whoever signed in for it, and to this Bot.
       const userId = context.var.actor.id;
       const botId = context.req.param("botId") ?? "";
+      const token = sessionTokenFromCookies(context.req.header("cookie"));
       let detach = () => {};
+      let unwatch = () => {};
       let open = true;
       return {
         onOpen: (_event, ws) => {
@@ -115,6 +121,10 @@ export function createClickyRoutes(deps: {
             ws.send(JSON.stringify(event));
           };
           detach = deps.hub.subscribe(userId, botId, send);
+          unwatch =
+            deps.sessions?.watch(token, () =>
+              ws.close(SIGNED_OUT_CLOSE, "signed out"),
+            ) ?? unwatch;
           void deps.service
             .open(userId, botId)
             .then((session) => {
@@ -127,10 +137,12 @@ export function createClickyRoutes(deps: {
         onClose: () => {
           open = false;
           detach();
+          unwatch();
         },
         onError: () => {
           open = false;
           detach();
+          unwatch();
         },
       };
     }),

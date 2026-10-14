@@ -16,8 +16,13 @@ import {
   policyInitiator,
 } from "../computer/policy";
 import type { ElementAtResult, HumanInput } from "../computer/schema";
-import { assessAction, RISK_RANK } from "./guardrails";
-import { placeElements, toScreenPixels } from "./screen";
+import {
+  assessAction,
+  guardFocusOf,
+  guardTargetOf,
+  RISK_RANK,
+} from "./guardrails";
+import { toScreenPixels } from "./screen";
 
 /**
  * Carrying out what the person approved, as the person.
@@ -36,7 +41,10 @@ import { placeElements, toScreenPixels } from "./screen";
 /** The words Clicky's own request for control carries, so its own handover does not reopen it. */
 export const CLICKY_HELP_REASON = "Clicky is doing this for you";
 
-export type ActionOutcome = { ok: true } | { ok: false; detail: string };
+export type ActionOutcome =
+  /** `audit`: what was done, as found just before, for the performed row. Never the text typed. */
+  | { ok: true; audit: Record<string, string | number | boolean | null> }
+  | { ok: false; detail: string };
 
 export type ClickyActions = {
   run(input: {
@@ -46,6 +54,8 @@ export type ClickyActions = {
     actionPolicy: ClickyActionPolicy;
     trigger: ClickyTriggerKind | null;
     signal: AbortSignal;
+    /** Run on a "for this task" grant rather than a yes for this proposal. */
+    viaGrant?: boolean;
   }): Promise<ActionOutcome>;
 };
 
@@ -58,6 +68,7 @@ type Gateway = Pick<
   | "takeControl"
   | "humanInput"
   | "actionPolicy"
+  | "focus"
 >;
 
 const TOOL: Record<ClickyAction["kind"], string> = {
@@ -111,9 +122,27 @@ export function personPolicyContext(input: {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The same page, whatever its fragment says. */
+function samePage(a: string, b: string): boolean {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    left.hash = "";
+    right.hash = "";
+    return left.toString() === right.toString();
+  } catch {
+    return a === b;
+  }
+}
+
 export function createClickyActions(deps: {
   gateway: Gateway;
   auditStore?: AuditStore;
+  /**
+   * Who holds each computer, by person, as the handover events said: null for the Bot, undefined
+   * when it is not known here (taken before this process started).
+   */
+  holderOf?: (botId: string) => string | null | undefined;
 }): ClickyActions {
   const { gateway } = deps;
 
@@ -138,10 +167,23 @@ export function createClickyActions(deps: {
     }
   }
 
-  /** The person holds the computer: asked for and taken in their name if they do not yet. */
-  async function holdAsPerson(botId: string, actor: ActionActor) {
+  /**
+   * The person holds the computer: asked for and taken in their name if nobody does. When a person
+   * already holds it, it must be this one: Clicky never acts on a computer somebody else has taken.
+   * Answers why not, or null.
+   */
+  async function holdAsPerson(
+    botId: string,
+    actor: ActionActor,
+  ): Promise<string | null> {
     const state = await gateway.control(botId);
-    if (state.holder === "human") return;
+    if (state.holder === "human") {
+      const holder = deps.holderOf?.(botId);
+      if (holder === actor.userId) return null;
+      return holder === undefined
+        ? "Clicky cannot tell who has the computer right now. Hand it back, then try again."
+        : "Someone else has the computer right now, so Clicky did nothing.";
+    }
     const waiting =
       state.request?.status === "waiting" ? state.request.id : undefined;
     const requestId =
@@ -149,70 +191,135 @@ export function createClickyActions(deps: {
       (await gateway.requestHelp(botId, actor, CLICKY_HELP_REASON)).request?.id;
     if (!requestId) throw new Error("The computer did not hand over control.");
     await gateway.takeControl(botId, actor, requestId);
+    return null;
   }
 
+  const refuse = async (
+    botId: string,
+    userId: string,
+    proposal: ClickyProposal,
+    detail: string,
+    payload: Record<string, string | number | boolean | null>,
+  ): Promise<ActionOutcome> => {
+    if (deps.auditStore)
+      await recordAuditEvent(deps.auditStore, {
+        eventType: "clicky.action_blocked",
+        targetType: "computer",
+        targetId: botId,
+        actorUserId: userId,
+        initiator: PERSON_INITIATOR,
+        payload: {
+          botId,
+          proposalId: proposal.id,
+          action: proposal.action.kind,
+          stage: "before acting",
+          ...payload,
+        },
+      }).catch(() => undefined);
+    return { ok: false, detail };
+  };
+
   return {
-    async run({ userId, botId, proposal, actionPolicy, trigger, signal }) {
+    async run({
+      userId,
+      botId,
+      proposal,
+      actionPolicy,
+      trigger,
+      signal,
+      viaGrant,
+    }) {
       const actor: ActionActor = {
         id: userId,
         userId,
         initiator: PERSON_INITIATOR,
       };
       const { action } = proposal;
+
+      /*
+       * The computer first, then the look. Once the person holds it the Bot cannot act on it, so
+       * the page read next is the page the action lands on: looking first left a gap in which the
+       * Bot could move the page under an action that had already been checked.
+       */
+      const notHeld = await holdAsPerson(botId, actor);
+      if (notHeld)
+        return refuse(botId, userId, proposal, notHeld, {
+          reason: "control",
+        });
+      signal.throwIfAborted();
+
       const screen = await gateway.elements(botId);
       signal.throwIfAborted();
+      const desktop = screen.mode === "desktop";
       const at = action.kind === "key" ? undefined : (action.at ?? undefined);
+      const pointed =
+        action.kind === "click" || action.kind === "scroll" || Boolean(at);
       const pixels = at ? toScreenPixels(at, screen.screen) : undefined;
-      const probe = pixels ? await gateway.elementAt(botId, pixels) : undefined;
+      // On a desktop the pointer goes there and the X server says which window it is over.
+      const probe = pixels
+        ? await gateway.elementAt(botId, pixels, { verifyWindow: desktop })
+        : undefined;
+      const focus = pointed ? undefined : await gateway.focus(botId);
       signal.throwIfAborted();
-      const focused = placeElements(screen).find((element) => element.focused);
+      const target = probe ? guardTargetOf(probe) : undefined;
+      const focused = focus ? guardFocusOf(focus) : undefined;
+      const now = pointed ? target : focused;
+      const url = probe?.url ?? focus?.url ?? screen.url;
+
+      // The same page and the same element the person was asked about, or nothing.
+      const seen = proposal.seen;
+      if (
+        seen &&
+        (!samePage(seen.url, url) ||
+          !now ||
+          now.role !== seen.role ||
+          now.name !== seen.name)
+      )
+        return refuse(
+          botId,
+          userId,
+          proposal,
+          "The page changed since Clicky asked, so it did nothing. Ask again.",
+          { reason: "changed" },
+        );
+      // A grant covers the step's own element: the ref has to be the one the step points at.
+      const ref =
+        action.kind === "click" || action.kind === "type"
+          ? action.ref
+          : undefined;
+      if (viaGrant && (!ref || probe?.ref !== ref))
+        return refuse(
+          botId,
+          userId,
+          proposal,
+          "What is there now needs a fresh yes.",
+          { reason: "grant target" },
+        );
 
       // Rated again on what is there now. Worse than what the person said yes to is not done.
       const fresh = assessAction(action, {
         actionPolicy,
-        ...(probe
-          ? {
-              target: {
-                role: probe.role,
-                name: probe.name,
-                sensitive: probe.sensitive,
-                inPage: probe.inPage,
-              },
-            }
-          : {}),
+        ...(target ? { target } : {}),
         ...(focused ? { focused } : {}),
         trigger,
         botId,
         actorId: userId,
-        pageHost: hostOf(probe?.url ?? screen.url),
+        pageHost: hostOf(url),
       });
       if (
         fresh.risk === "yours" ||
         fresh.risk === "blocked" ||
         RISK_RANK[fresh.risk] > RISK_RANK[proposal.risk]
-      ) {
-        const detail =
+      )
+        return refuse(
+          botId,
+          userId,
+          proposal,
           fresh.risk === "yours" || fresh.risk === "blocked"
             ? (fresh.reason ?? "This one is yours.")
-            : "What is there now needs a fresh yes.";
-        if (deps.auditStore)
-          await recordAuditEvent(deps.auditStore, {
-            eventType: "clicky.action_blocked",
-            targetType: "computer",
-            targetId: botId,
-            actorUserId: userId,
-            initiator: PERSON_INITIATOR,
-            payload: {
-              botId,
-              proposalId: proposal.id,
-              action: action.kind,
-              risk: fresh.risk,
-              reason: fresh.reason ?? null,
-              stage: "before acting",
-            },
-          }).catch(() => undefined);
-        return { ok: false, detail };
-      }
+            : "What is there now needs a fresh yes.",
+          { risk: fresh.risk, reason: fresh.reason ?? null },
+        );
 
       /*
        * The boundary's deny rules, as for any action on this computer. Only the deny list: the allow
@@ -230,17 +337,27 @@ export function createClickyActions(deps: {
           action,
           botId,
           actor,
-          pageUrl: probe?.url || screen.url,
+          pageUrl: url,
           element: probe,
         }),
       );
-      if (!decision.forward) return { ok: false, detail: decision.reason };
+      if (!decision.forward)
+        return refuse(botId, userId, proposal, decision.reason, {
+          reason: "policy",
+          rule: decision.matched,
+        });
 
-      await holdAsPerson(botId, actor);
-      signal.throwIfAborted();
-
-      const space: Pick<HumanInput, "space"> =
-        screen.mode === "desktop" ? { space: "screen" } : {};
+      /*
+       * On a desktop, an action the person approved on the page is pressed only if the browser is
+       * still the window that takes it at that moment; one they approved off the page knowingly is
+       * pressed where it was approved.
+       */
+      const space: Pick<HumanInput, "space" | "requireBrowser"> = desktop
+        ? {
+            space: "screen",
+            ...(now?.inPage !== false ? { requireBrowser: true } : {}),
+          }
+        : {};
       switch (action.kind) {
         case "click": {
           if (!pixels)
@@ -288,7 +405,20 @@ export function createClickyActions(deps: {
           );
           break;
       }
-      return { ok: true };
+      return {
+        ok: true,
+        audit: {
+          label: action.label,
+          modelLabel: action.modelLabel ?? null,
+          role: now?.role ?? null,
+          name: now?.name ?? null,
+          host: hostOf(url),
+          // How much was typed, or which keys: never the text.
+          ...(action.kind === "type" ? { characters: action.text.length } : {}),
+          ...(action.kind === "key" ? { keys: action.keys } : {}),
+          ...(viaGrant ? { viaGrant: true } : {}),
+        },
+      };
     },
   };
 }

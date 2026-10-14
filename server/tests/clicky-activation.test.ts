@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { ComputerControlState } from "../../shared/computer-control";
 import { CLICKY_HELP_REASON } from "../src/clicky/actions";
 import { createClickyActivation } from "../src/clicky/activation";
+import { needsYouText } from "../src/clicky/index";
+import { createSocketSessions } from "../src/clicky/socket-sessions";
 import type { ClickyBrain } from "../src/clicky/brain";
 import { createClickyHub } from "../src/clicky/hub";
 import {
@@ -34,7 +36,7 @@ const screen: ScreenElements = {
   ],
 };
 
-function harness(autoActivate = true) {
+function harness(autoActivate = true, canUse = true) {
   const store = createInMemoryClickyStore();
   const hub = createClickyHub({ load: (u, b) => store.load(u, b) });
   const looks: { reason: string; trigger: unknown }[] = [];
@@ -67,6 +69,7 @@ function harness(autoActivate = true) {
     needsYou: async (input) => {
       pushed.push(input);
     },
+    canUseComputer: async () => canUse,
   });
   return { store, activation, looks, pushed, service };
 }
@@ -358,5 +361,75 @@ describe("when a run ends", () => {
     activation.onRunBusy({ threadId: "th-2", busy: false });
     await Bun.sleep(30);
     expect(await store.load("user-2", "bot-1")).toBeNull();
+  });
+});
+
+describe("the security round", () => {
+  test("nothing opens, is pushed or looked at for a person who may not use that computer", async () => {
+    const { store, activation, looks, pushed } = harness(true, false);
+    activation.onControlEvent(helpRequested());
+    activation.onWaiting({
+      userId: "user-1",
+      botId: "bot-1",
+      wait: {
+        threadId: "t1",
+        runId: "run-1",
+        toolCallId: "call-1",
+        toolName: "computer_request_sign_in",
+        waiting: { kind: "computer_sign_in", requestId: "s1" },
+        message: "Sign in",
+      },
+    });
+    await Bun.sleep(40);
+    expect(await store.load("user-1", "bot-1")).toBeNull();
+    expect(looks).toEqual([]);
+    expect(pushed).toEqual([]);
+  });
+
+  test("the phone's lock screen says what kind of help, never the Bot's words", () => {
+    const takeover = needsYouText({ kind: "takeover" }, "en");
+    expect(takeover).toEqual({
+      title: "Noë Bot needs you",
+      body: "Noë Bot needs your help on its computer.",
+    });
+    expect(needsYouText({ kind: "sign_in" }, "el")).toEqual({
+      title: "Το Noë Bot σε χρειάζεται",
+      body: "Το Noë Bot χρειάζεται να συνδεθείς.",
+    });
+    for (const kind of [
+      "takeover",
+      "sign_in",
+      "secret",
+      "challenge",
+      "approval",
+      "person",
+      "follow_up",
+    ] as const)
+      expect(needsYouText({ kind }, "en").body).not.toContain("undefined");
+  });
+});
+
+describe("sockets and their sessions", () => {
+  test("a revoked phone's sockets close at once, and a sweep closes those whose session ended", async () => {
+    const alive = new Set(["live", "revoked"]);
+    const sessions = createSocketSessions({
+      alive: async (tokens) => new Set(tokens.filter((t) => alive.has(t))),
+    });
+    const closed: string[] = [];
+    sessions.watch("live", () => closed.push("live"));
+    sessions.watch("revoked", () => closed.push("revoked"));
+    sessions.watch("ended", () => closed.push("ended"));
+    // A socket with no session to check (single-user mode) is never closed by this.
+    sessions.watch(null, () => closed.push("none"));
+    sessions.revoke("revoked");
+    expect(closed).toEqual(["revoked"]);
+    await sessions.sweep();
+    expect(closed).toEqual(["revoked", "ended"]);
+    expect(sessions.size()).toBe(1);
+    const detach = sessions.watch("live", () => closed.push("again"));
+    detach();
+    alive.delete("live");
+    await sessions.sweep();
+    expect(closed).toEqual(["revoked", "ended", "live"]);
   });
 });

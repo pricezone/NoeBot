@@ -56,22 +56,14 @@ const overlay = z.discriminatedUnion("kind", [
   }),
 ]) satisfies z.ZodType<ClickyOverlay>;
 
+/**
+ * A client opens Clicky for the person only. The Bot needing them (a handover, a sign-in, a secret,
+ * a challenge) is something the server says, from its own events: a client that could claim one
+ * could put a "Noë Bot needs you" with any words on the person's screen.
+ */
 const trigger = z.strictObject({
-  kind: z.enum([
-    "person",
-    "takeover",
-    "sign_in",
-    "secret",
-    "approval",
-    "challenge",
-    "follow_up",
-  ]),
-  requestId: id.optional(),
+  kind: z.literal("person"),
   reason: z.string().trim().max(500).optional(),
-  targetRef: z
-    .string()
-    .regex(/^[A-Za-z0-9_-]{1,64}$/)
-    .optional(),
 }) satisfies z.ZodType<ClickyTrigger>;
 
 export const clickyCommandSchema = z.discriminatedUnion("type", [

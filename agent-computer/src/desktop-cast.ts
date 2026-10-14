@@ -78,8 +78,25 @@ export function ffmpegGrabArguments(
   {
     once = false,
     stream = DEFAULT_STREAM,
-  }: { once?: boolean; stream?: StreamSettings } = {},
+    keep,
+  }: {
+    once?: boolean;
+    stream?: StreamSettings;
+    /**
+     * The part of the screen left visible, everything else drawn black (Clicky's model sees only
+     * the Bot's page). Empty blacks out the whole frame.
+     */
+    keep?: { x: number; y: number; width: number; height: number } | null;
+  } = {},
 ): string[] {
+  const filters = [
+    ...(keep ? keepFilters(keep, size) : []),
+    ...(stream.scale
+      ? [
+          `scale=${stream.scale.width}:${stream.scale.height}:flags=fast_bilinear`,
+        ]
+      : []),
+  ];
   return [
     "-nostdin",
     "-loglevel",
@@ -98,12 +115,7 @@ export function ffmpegGrabArguments(
     "-i",
     display,
     ...(once ? ["-frames:v", "1"] : []),
-    ...(stream.scale
-      ? [
-          "-vf",
-          `scale=${stream.scale.width}:${stream.scale.height}:flags=fast_bilinear`,
-        ]
-      : []),
+    ...(filters.length > 0 ? ["-vf", filters.join(",")] : []),
     "-f",
     "image2pipe",
     "-c:v",
@@ -166,6 +178,8 @@ export function captureDesktopFrame(
    * looks at. Absent, the screen's own size, as the panel's preview always had.
    */
   scale?: DisplaySize | null,
+  /** The part left visible, the rest black (see `ffmpegGrabArguments`). Absent shows all of it. */
+  keep?: { x: number; y: number; width: number; height: number } | null,
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const child = spawnImpl(
@@ -173,6 +187,7 @@ export function captureDesktopFrame(
       ffmpegGrabArguments(display, size, {
         once: true,
         ...(scale ? { stream: { ...DEFAULT_STREAM, scale } } : {}),
+        ...(keep ? { keep } : {}),
       }),
       {
         stdio: ["ignore", "pipe", "pipe"],
@@ -206,6 +221,36 @@ export function captureDesktopFrame(
       resolve(frame);
     });
   });
+}
+
+/**
+ * ffmpeg filters that keep one rectangle of the frame and black out the rest: cut the rectangle
+ * out, then pad it back to the screen's size at the same place. Even numbers, which the JPEG
+ * encoder's chroma subsampling asks for; an empty rectangle fills the whole frame black.
+ */
+export function keepFilters(
+  keep: { x: number; y: number; width: number; height: number },
+  size: DisplaySize,
+): string[] {
+  // Inward to even numbers, so not one pixel outside the rectangle is kept.
+  const up = (value: number) => Math.max(0, Math.ceil(value / 2) * 2);
+  const down = (value: number) => Math.max(0, Math.floor(value / 2) * 2);
+  const x = Math.min(up(keep.x), size.width);
+  const y = Math.min(up(keep.y), size.height);
+  const width = Math.max(
+    0,
+    down(Math.min(keep.x + keep.width, size.width)) - x,
+  );
+  const height = Math.max(
+    0,
+    down(Math.min(keep.y + keep.height, size.height)) - y,
+  );
+  if (width < 2 || height < 2)
+    return ["drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill"];
+  return [
+    `crop=${width}:${height}:${x}:${y}`,
+    `pad=${size.width}:${size.height}:${x}:${y}:black`,
+  ];
 }
 
 /**

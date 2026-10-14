@@ -45,6 +45,21 @@ describe("the audience claim", () => {
     );
   });
 
+  test("a token minted to live longer than two minutes is not one the platform mints", () => {
+    const iat = Math.floor(now / 1000);
+    expect(
+      verifySignInHandoffToken(mint({ iat, exp: iat + 120 }), secret, { now }),
+    ).not.toBeNull();
+    expect(
+      verifySignInHandoffToken(mint({ iat, exp: iat + 121 }), secret, { now }),
+    ).toBeNull();
+    expect(
+      verifySignInHandoffToken(mint({ iat, exp: iat + 86_400 }), secret, {
+        now,
+      }),
+    ).toBeNull();
+  });
+
   test("an audience that is not a string makes the token unreadable", () => {
     expect(verifySignInHandoffToken(mint({ aud: 7 }), secret, { now })).toBe(
       null,

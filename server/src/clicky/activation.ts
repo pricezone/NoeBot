@@ -91,6 +91,11 @@ export function waitTrigger(wait: HeadlessWait): ClickyTrigger | null {
 export function createClickyActivation(deps: {
   service: Pick<ClickyService, "dispatch" | "preferences">;
   needsYou?: NeedsYou;
+  /**
+   * Whether the person may use that Bot's computer. Asked before a session is opened, a phone is
+   * told or the model looks: the event names a person, and that alone is not access.
+   */
+  canUseComputer?: (userId: string, botId: string) => Promise<boolean>;
 }): ClickyActivation {
   /** The secret request open per person and Bot, so its end can resolve it. */
   const secrets = new Map<string, string>();
@@ -102,6 +107,8 @@ export function createClickyActivation(deps: {
     botId: string,
     trigger: ClickyTrigger,
   ) => {
+    if (deps.canUseComputer && !(await deps.canUseComputer(userId, botId)))
+      return;
     const preferences = await deps.service.preferences(userId);
     if (!preferences.autoActivate) return;
     const outcome = await deps.service.dispatch(userId, botId, {

@@ -113,6 +113,13 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
       <input type="password" style="position:absolute;left:100px;top:250px" value="hunter2" aria-label="Password" autofocus>
       <input name="pin" aria-label="Card PIN" style="position:absolute;left:100px;top:350px" value="9876">
       <a href="#" style="position:absolute;left:100px;top:3000px">Far below</a>
+      <form style="position:absolute;left:400px;top:50px"><button style="width:100px;height:40px">Go</button></form>
+      <div id="host" style="position:absolute;left:400px;top:150px"></div>
+      <iframe style="position:absolute;left:400px;top:250px;width:200px;height:80px" title="Card"></iframe>
+      <script>
+        const root = document.getElementById("host").attachShadow({ mode: "open" });
+        root.innerHTML = '<input id="otp" name="otp" value="135790" style="width:150px">';
+      </script>
     </body>`;
     site = Bun.serve({
       hostname: "127.0.0.1",
@@ -160,6 +167,31 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
     expect(atPassword.sensitive).toBe(true);
     expect(atPassword.name).toBe("[sensitive field]");
 
+    // A button in a form sends it; a field inside a web component is still a secret; a frame is
+    // something nothing here can read into.
+    expect(await api("/elements/at", { x: 420, y: 60 })).toMatchObject({
+      role: "button",
+      name: "Go",
+      submits: true,
+    });
+    expect(await api("/elements/at", { x: 150, y: 70 })).toMatchObject({
+      submits: false,
+    });
+    expect(await api("/elements/at", { x: 410, y: 160 })).toMatchObject({
+      role: "textbox",
+      sensitive: true,
+    });
+    expect(await api("/elements/at", { x: 450, y: 280 })).toMatchObject({
+      role: "frame",
+      opaque: true,
+    });
+    // The keyboard is in the password field the page focused.
+    const focus = await api("/elements/focus");
+    expect(focus).toMatchObject({
+      window: "browser",
+      element: { role: "textbox", sensitive: true },
+    });
+
     const frame = await api("/elements/frame?width=640");
     expect(frame.width).toBeLessThanOrEqual(640);
     expect(Buffer.from(frame.image, "base64").subarray(0, 2)).toEqual(
@@ -183,5 +215,8 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
       (e) => e.name === "Card PIN",
     );
     expect(pin?.value).toBe("[hidden: sensitive field]");
+    // And the one inside the shadow root too.
+    expect(JSON.stringify(before.elements)).toContain("135790");
+    expect(JSON.stringify(after.elements)).not.toContain("135790");
   }, 30000);
 });

@@ -3,6 +3,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { Hono } from "hono";
 import type { MobileLinkResponse } from "../../shared/mobile-link";
+import type { AuditEventInput } from "../src/audit";
 import { createAuth } from "../src/auth";
 import {
   type AppVariables,
@@ -11,6 +12,10 @@ import {
   createRoleRepository,
 } from "../src/auth/guards";
 import type { MobileLinkedInput } from "../src/auth/signin-handoff";
+import { websocket } from "../src/channels/socket";
+import { createClickyWiring } from "../src/clicky";
+import { createInMemoryClickyStore } from "../src/clicky/store";
+import type { ComputerGateway } from "../src/computer/gateway";
 import type { DeploymentConfig } from "../src/config";
 import { createDatabase } from "../src/db/client";
 import {
@@ -83,7 +88,14 @@ function mint(
 }
 
 function setup(
-  options: { baseUrl?: string; hook?: "record" | "none" | "throw" } = {},
+  options: {
+    baseUrl?: string;
+    hook?: "record" | "none" | "throw";
+    audits?: AuditEventInput[];
+    onMobileLinked?: (
+      input: MobileLinkedInput,
+    ) => Promise<{ deviceId: string }>;
+  } = {},
 ) {
   const email = `owner-${randomUUID()}@example.test`;
   created.push(email);
@@ -94,14 +106,21 @@ function setup(
     configFor(email, options.baseUrl),
     database,
     undefined,
-    undefined,
+    options.audits
+      ? {
+          insert: async (row: AuditEventInput) => {
+            options.audits?.push(row);
+          },
+        }
+      : undefined,
     hook === "none"
       ? undefined
-      : async (input) => {
-          linked.push(input);
-          if (hook === "throw") throw new Error("not recorded");
-          return { deviceId: (await store.link(input)).deviceId };
-        },
+      : (options.onMobileLinked ??
+          (async (input) => {
+            linked.push(input);
+            if (hook === "throw") throw new Error("not recorded");
+            return { deviceId: (await store.link(input)).deviceId };
+          })),
   );
   const base = options.baseUrl ?? "http://127.0.0.1:3000";
   const link = (
@@ -432,5 +451,191 @@ describe("/api/mobile/devices", () => {
       .innerJoin(users, eq(users.id, mobileDevices.userId))
       .where(and(eq(users.email, email), isNotNull(mobileDevices.sessionId)));
     expect(rows).toHaveLength(3);
+  });
+});
+
+describe("the security round", () => {
+  test("a phone's session is not slid to a week by a request without its dont_remember cookie", async () => {
+    const { email, link, session } = setup();
+    const phone = (await (
+      await link(mint(email))
+    ).json()) as MobileLinkResponse;
+    const onlyTheSession = phone.cookie.split("; ")[0] ?? "";
+    expect(onlyTheSession).toContain("session_token=");
+    expect((await session(onlyTheSession))?.user.id).toBe(phone.user.id);
+    const [row] = await database
+      .select({ createdAt: sessions.createdAt, expiresAt: sessions.expiresAt })
+      .from(sessions)
+      .innerJoin(mobileDevices, eq(mobileDevices.sessionId, sessions.id))
+      .where(eq(mobileDevices.id, phone.deviceId));
+    const lifetime =
+      (row?.expiresAt.getTime() ?? 0) - (row?.createdAt.getTime() ?? 0);
+    expect(lifetime).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000);
+    // Still the day the phone was told, not a week from now.
+    expect(
+      Math.abs(Date.parse(phone.expiresAt) - (row?.expiresAt.getTime() ?? 0)),
+    ).toBeLessThan(1000);
+  });
+
+  test("a token minted to live longer than two minutes is refused by both endpoints", async () => {
+    const { email, link, auth, base } = setup();
+    const iat = Math.floor(Date.now() / 1000);
+    expect((await link(mint(email, { iat, exp: iat + 600 }))).status).toBe(401);
+    const web = await auth.handler(
+      new Request(
+        `${base}/api/auth/signin-handoff?token=${encodeURIComponent(
+          mint(email, { aud: undefined, iat, exp: iat + 600 }),
+        )}`,
+      ),
+    );
+    expect(web.headers.get("location")).toContain("error=handoff_refused");
+  });
+
+  test("the browser's endpoint takes no token with an audience at all", async () => {
+    const { email, auth, base } = setup();
+    const web = await auth.handler(
+      new Request(
+        `${base}/api/auth/signin-handoff?token=${encodeURIComponent(
+          mint(email, { aud: "desktop" }),
+        )}`,
+      ),
+    );
+    expect(web.headers.get("location")).toContain("error=handoff_refused");
+  });
+
+  test("a refused and a replayed phone token are on the audit trail", async () => {
+    const audits: AuditEventInput[] = [];
+    const { email, link } = setup({ audits });
+    await link(mint(email, { aud: undefined }));
+    const token = mint(email);
+    await link(token);
+    await link(token);
+    expect(
+      audits
+        .filter((row) => row.eventType === "session.refused")
+        .map((row) => row.payload),
+    ).toEqual([
+      { method: "signin-handoff/mobile", reason: "handoff_refused" },
+      { method: "signin-handoff/mobile", reason: "handoff_replayed" },
+    ]);
+  });
+
+  function wiringFor(email: string, clicky: "on" | "off") {
+    return createClickyWiring({
+      config: configFor(email),
+      database,
+      databaseUrl: testDatabaseUrl(),
+      ...(clicky === "on"
+        ? {
+            gateway: {
+              elements: async () => ({
+                screen: { width: 1000, height: 500 },
+                mode: "page",
+                url: "",
+                elements: [],
+              }),
+            } as unknown as ComputerGateway,
+          }
+        : {}),
+      auditStore: { insert: async () => undefined },
+      agentProfileStore: {
+        get: async () => ({ visibility: "public", ownerUserId: null }),
+      } as never,
+      userPreferences: {
+        read: async () => ({}),
+        locale: async () => null,
+      } as never,
+      model: { provider: "openai", defaultModel: "test" },
+      resolveApiKey: async () => null,
+      store: createInMemoryClickyStore(),
+      environment: { CLICKY_MODE: clicky === "on" ? "on" : "off" },
+    });
+  }
+
+  test("with Clicky off and no computer, a phone still links and lists its devices", async () => {
+    const email = `owner-${randomUUID()}@example.test`;
+    const wiring = wiringFor(email, "off");
+    expect(wiring.enabled).toBe(false);
+    expect(wiring.computerRoutes()).toBeUndefined();
+    const { link, auth } = setup({
+      onMobileLinked: (input) => wiring.onMobileLinked(input),
+    });
+    // `setup` admitted its own address; link with that one.
+    const admitted = created.at(-1) ?? "";
+    const response = await link(mint(admitted));
+    expect(response.status).toBe(200);
+    const phone = (await response.json()) as MobileLinkResponse;
+    const routes = wiring.mobileRoutes(
+      createRequireUser(
+        auth as unknown as AuthService,
+        createRoleRepository(database),
+      ),
+    );
+    expect(routes).toBeDefined();
+    const app = new Hono<{ Variables: AppVariables }>().route(
+      "/api/mobile",
+      routes as Hono<{ Variables: AppVariables }>,
+    );
+    const listed = await app.request("http://x/api/mobile/devices", {
+      headers: { cookie: phone.cookie },
+    });
+    expect(listed.status).toBe(200);
+    expect(
+      ((await listed.json()) as { devices: { id: string }[] }).devices.map(
+        (device) => device.id,
+      ),
+    ).toEqual([phone.deviceId]);
+  });
+
+  test("signing a phone out closes the Clicky socket it held", async () => {
+    const wiring = wiringFor("unused@example.test", "on");
+    const { link, auth } = setup({
+      onMobileLinked: (input) => wiring.onMobileLinked(input),
+    });
+    const admitted = created.at(-1) ?? "";
+    const phone = (await (
+      await link(mint(admitted))
+    ).json()) as MobileLinkResponse;
+    const requireUser = createRequireUser(
+      auth as unknown as AuthService,
+      createRoleRepository(database),
+    );
+    const app = new Hono<{ Variables: AppVariables }>()
+      .use("/api/computers/*", requireUser)
+      .route(
+        "/api/computers",
+        wiring.computerRoutes() as Hono<{ Variables: AppVariables }>,
+      )
+      .route(
+        "/api/mobile",
+        wiring.mobileRoutes(requireUser) as Hono<{ Variables: AppVariables }>,
+      );
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request, bun) => app.fetch(request, { server: bun }),
+      websocket,
+    });
+    try {
+      const socket = new WebSocket(
+        `ws://127.0.0.1:${server.port}/api/computers/bot-1/clicky/events`,
+        { headers: { cookie: phone.cookie } } as unknown as string[],
+      );
+      const closed = new Promise<number>((resolve) =>
+        socket.addEventListener("close", (event) => resolve(event.code)),
+      );
+      await new Promise<void>((resolve, reject) => {
+        socket.addEventListener("message", () => resolve(), { once: true });
+        socket.addEventListener("error", () => reject(new Error("socket")));
+      });
+      const revoked = await fetch(
+        `http://127.0.0.1:${server.port}/api/mobile/devices/${phone.deviceId}`,
+        { method: "DELETE", headers: { cookie: phone.cookie } },
+      );
+      expect(revoked.status).toBe(204);
+      expect(await closed).toBe(4401);
+    } finally {
+      server.stop(true);
+    }
   });
 });

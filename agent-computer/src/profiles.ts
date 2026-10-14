@@ -960,6 +960,11 @@ export function createProfiles(
       return live.size;
     },
 
+    /** Where this Bot's browser profile lives on disk (its `SingletonLock` names the browser). */
+    directory(botId: string): string {
+      return directoryFor(botId);
+    },
+
     /** Whether this Bot has a browser right now, so a caller can drop state that belongs to one. */
     isLive(botId: string): boolean {
       return live.has(botId);

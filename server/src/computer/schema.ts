@@ -546,7 +546,14 @@ export type SecretResult = {
  * with `space: "screen"`: Clicky carrying out what the person approved at a point on a desktop, where
  * the page is one window among others. A computer without a desktop refuses screen space.
  */
-export type HumanInput = { space?: "screen" } & (
+export type HumanInput = {
+  space?: "screen";
+  /**
+   * In screen space: refuse unless the window under the pointer (or with the keyboard) is the Bot's
+   * browser at the moment of pressing. Set for an action the person approved on the page.
+   */
+  requireBrowser?: boolean;
+} & (
   | {
       kind: "click";
       x: number;
@@ -591,9 +598,28 @@ export type ElementAtResult = {
   role: string;
   name: string;
   sensitive: boolean;
+  /** A submit button or a button inside a form: pressing it sends the form. Absent from older computers. */
+  submits?: boolean;
+  /** A frame, whose inside (often another site's card field) cannot be read. */
+  opaque?: boolean;
   ref?: string;
-  /** False for a point on the desktop outside the page: the toolbar, another window, the dock. */
+  /** False for a point outside the page: the toolbar, another window, the dock. */
   inPage: boolean;
+  url: string;
+  /** On a desktop, which window would receive input there: the Bot's browser or another one. */
+  window?: "browser" | "other";
+};
+
+/** What has the keyboard: the Bot's browser or another window, and which element of its page. */
+export type FocusResult = {
+  window: "browser" | "other";
+  element: {
+    role: string;
+    name: string;
+    sensitive: boolean;
+    submits?: boolean;
+    opaque?: boolean;
+  } | null;
   url: string;
 };
 

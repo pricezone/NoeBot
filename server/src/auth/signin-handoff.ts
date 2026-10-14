@@ -55,6 +55,16 @@ export type SignInHandoffClaims = {
 /** How far ahead of this clock an `iat` may sit before the token is refused as not yet valid. */
 const CLOCK_SKEW_SECONDS = 30;
 
+/**
+ * The longest a token may be minted to live. The platform mints them for sixty seconds; one that
+ * claims longer was not minted to the contract, and a leaked one would stay usable longer than
+ * anybody intended.
+ */
+const MAX_TOKEN_LIFETIME_SECONDS = 120;
+
+/** How long a "don't remember me" session lives: Better Auth's one day, and a little slack. */
+const DONT_REMEMBER_LIFETIME_MS = 24 * 60 * 60 * 1000 + 5 * 60 * 1000;
+
 function isClaims(value: unknown): value is SignInHandoffClaims {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
@@ -105,6 +115,7 @@ export function verifySignInHandoffToken(
   const nowSeconds = Math.floor((options.now ?? Date.now()) / 1000);
   if (claims.exp <= nowSeconds) return null;
   if (claims.iat > nowSeconds + CLOCK_SKEW_SECONDS) return null;
+  if (claims.exp - claims.iat > MAX_TOKEN_LIFETIME_SECONDS) return null;
   return claims;
 }
 
@@ -205,6 +216,10 @@ export type SignInHandoffOptions = {
    * hand sessions to them. See `shared/mobile-link.ts`.
    */
   onMobileLinked?: (input: MobileLinkedInput) => Promise<{ deviceId: string }>;
+  /** Told when a phone's link was refused (not valid here, or already used), for the audit trail. */
+  onMobileRefused?: (input: {
+    reason: "handoff_refused" | "handoff_replayed";
+  }) => Promise<void>;
 };
 
 /** A phone that has just traded a mobile token for a session. */
@@ -277,6 +292,44 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
 
   return {
     id: "signin-handoff",
+    /*
+     * A "don't remember me" session (a phone's, among others) never lives past its day, whatever
+     * cookie the request carries. Better Auth only leaves it alone when the request also sends the
+     * `dont_remember` cookie; a copy of the phone's session cookie sent without it would otherwise be
+     * slid to a week on first use. So the store refuses to move such a session's expiry at all.
+     */
+    init: () => ({
+      options: {
+        databaseHooks: {
+          session: {
+            update: {
+              before: async (
+                data: Record<string, unknown>,
+                context: unknown,
+              ) => {
+                if (!("expiresAt" in data) || !data.expiresAt) return;
+                const current = (
+                  context as {
+                    context?: {
+                      session?: {
+                        session?: { createdAt?: unknown; expiresAt?: unknown };
+                      } | null;
+                    };
+                  } | null
+                )?.context?.session?.session;
+                if (!current) return;
+                const created = new Date(String(current.createdAt)).getTime();
+                const expires = new Date(String(current.expiresAt)).getTime();
+                if (!Number.isFinite(created) || !Number.isFinite(expires))
+                  return;
+                if (expires - created > DONT_REMEMBER_LIFETIME_MS) return;
+                return { data: { ...data, expiresAt: new Date(expires) } };
+              },
+            },
+          },
+        },
+      },
+    }),
     endpoints: {
       signInHandoff: createAuthEndpoint(
         "/signin-handoff",
@@ -300,9 +353,8 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
             options.deploymentId ? { deploymentId: options.deploymentId } : {},
           );
           if (!claims) return refuse("handoff_refused");
-          // A phone's token is for the phone's endpoint, never for a browser.
-          if (claims.aud === MOBILE_LINK_AUDIENCE)
-            return refuse("handoff_refused");
+          // A browser's token names no audience: a phone's, or any other, is not for a browser.
+          if (claims.aud !== undefined) return refuse("handoff_refused");
           if (claims.sub.trim().toLowerCase() !== admitted) {
             return refuse("handoff_refused");
           }
@@ -345,10 +397,14 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
           }),
         },
         async (ctx) => {
-          const refuse = (
-            code: string,
+          const refuse = async (
+            code: "handoff_refused" | "handoff_replayed",
             status: "UNAUTHORIZED" | "CONFLICT",
-          ) => {
+          ): Promise<never> => {
+            // Recorded: a refused phone link is somebody holding a token that did not work.
+            await options
+              .onMobileRefused?.({ reason: code })
+              .catch(() => undefined);
             throw new APIError(status, {
               code,
               message:

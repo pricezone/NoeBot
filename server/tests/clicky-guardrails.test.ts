@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { ClickyAction } from "../../shared/clicky";
 import {
+  allowedKeys,
   assessAction,
   CLICKY_TYPE_LIMIT,
+  canonicalKeys,
   commits,
   type GuardContext,
+  guardFocusOf,
+  guardTargetOf,
 } from "../src/clicky/guardrails";
 
 /*
@@ -20,6 +24,11 @@ const base: GuardContext = {
   pageHost: "shop.example",
 };
 const button = (name: string) => ({ role: "button", name, sensitive: false });
+/** A context where something on the page has the keyboard, for the key rules. */
+const typing = {
+  ...base,
+  focused: { role: "textbox", name: "Notes", sensitive: false },
+};
 const at = { x: 0.5, y: 0.5 };
 const click = (label = "it"): ClickyAction => ({ kind: "click", at, label });
 const key = (keys: string): ClickyAction => ({
@@ -48,10 +57,23 @@ describe("assessAction", () => {
     ).toBe("blocked");
   });
 
-  test("a scroll is low risk", () => {
+  test("a scroll on the page is low risk; off it, or over nothing readable, it asks", () => {
+    const scroll: ClickyAction = {
+      kind: "scroll",
+      at,
+      deltaY: -400,
+      label: "up",
+    };
     expect(
-      assessAction({ kind: "scroll", at, deltaY: -400, label: "up" }, base),
+      assessAction(scroll, { ...base, target: button("Results") }),
     ).toEqual({ risk: "low" });
+    expect(assessAction(scroll, base).risk).toBe("confirm");
+    expect(
+      assessAction(scroll, {
+        ...base,
+        target: { role: "desktop", name: "", sensitive: false, inPage: false },
+      }).risk,
+    ).toBe("confirm");
   });
 
   test("a plain click and plain typing are low risk", () => {
@@ -116,14 +138,128 @@ describe("assessAction", () => {
       });
   });
 
-  test("closing a window asks every time", () => {
-    for (const keys of ["Alt+F4", "Control+Q", "Control+W", "Control+Shift+W"])
-      expect({ keys, risk: assessAction(key(keys), base).risk }).toEqual({
+  test("only everyday keys are pressed at all; closing the tab, reloading and pasting ask", () => {
+    for (const keys of [
+      "Tab",
+      "Shift+Tab",
+      "Escape",
+      "ArrowDown",
+      "Backspace",
+      "Delete",
+      "PageDown",
+      "Home",
+      "Control+a",
+      "Control+C",
+      "Control+l",
+      "Control+Shift+t",
+      "Shift+Control+z",
+      "Control+f",
+    ])
+      expect({ keys, risk: assessAction(key(keys), typing).risk }).toEqual({
+        keys,
+        risk: "low",
+      });
+    for (const keys of [
+      "Control+w",
+      "Control+r",
+      "Control+v",
+      "Control+Shift+v",
+      "Shift+Insert",
+    ])
+      expect({ keys, risk: assessAction(key(keys), typing).risk }).toEqual({
         keys,
         risk: "confirm",
       });
-    expect(assessAction(key("Control+L"), base).risk).toBe("low");
-    expect(assessAction(key("Tab"), base).risk).toBe("low");
+    for (const keys of [
+      "Alt+F4",
+      "Control+Q",
+      "Control+Shift+W",
+      "Control+Alt+T",
+      "Alt+Tab",
+      "F5",
+      "F11",
+      "Print",
+      "Super+e",
+      "Meta+L",
+      "Hyper+a",
+      "Control+Shift+i",
+      "a",
+      "Control+Alt+Delete",
+      "Sleep",
+      "",
+      "Not a key",
+    ])
+      expect({ keys, risk: assessAction(key(keys), typing).risk }).toEqual({
+        keys,
+        risk: "blocked",
+      });
+  });
+
+  test("keys and combinations have one spelling, which is what is rated and pressed", () => {
+    expect(canonicalKeys("ctrl+A")).toBe("Control+a");
+    expect(canonicalKeys("Shift+Control+T")).toBe("Control+Shift+t");
+    expect(canonicalKeys("return")).toBe("Enter");
+    expect(canonicalKeys(" ")).toBe("Space");
+    expect(canonicalKeys("Control+KeyW")).toBe("Control+w");
+    expect(canonicalKeys("Control")).toBeNull();
+    expect(canonicalKeys("Control+")).toBeNull();
+    expect(allowedKeys("cmd+l")).toBeNull();
+    expect(allowedKeys("Control+L")).toBe("Control+l");
+  });
+
+  test("with nothing known to have the keyboard, a key or typing asks; another window takes nothing on a low yes", () => {
+    expect(assessAction(key("Tab"), base).risk).toBe("confirm");
+    expect(assessAction(type("hello", false), base).risk).toBe("confirm");
+    const elsewhere = guardFocusOf({ window: "other", element: null, url: "" });
+    expect(assessAction(key("Tab"), { ...base, focused: elsewhere }).risk).toBe(
+      "confirm",
+    );
+    const nothing = guardFocusOf({
+      window: "browser",
+      element: null,
+      url: "",
+    });
+    expect(nothing).toBeUndefined();
+  });
+
+  test("a button that sends its form asks, and typing into another site's frame is the person's", () => {
+    const formButton = guardTargetOf({
+      role: "button",
+      name: "Next",
+      sensitive: false,
+      submits: true,
+      inPage: true,
+      url: "https://shop.example/",
+    });
+    expect(assessAction(click(), { ...base, target: formButton }).risk).toBe(
+      "confirm",
+    );
+    const frame = guardTargetOf({
+      role: "frame",
+      name: "Card",
+      sensitive: false,
+      opaque: true,
+      inPage: true,
+      url: "https://shop.example/",
+    });
+    expect(assessAction(type("4242"), { ...base, target: frame }).risk).toBe(
+      "yours",
+    );
+    expect(assessAction(click(), { ...base, target: frame }).risk).toBe(
+      "confirm",
+    );
+    // A page under another window on the desktop is off the page.
+    const covered = guardTargetOf({
+      role: "button",
+      name: "Next",
+      sensitive: false,
+      inPage: true,
+      window: "other",
+      url: "https://shop.example/",
+    });
+    expect(assessAction(click(), { ...base, target: covered }).risk).toBe(
+      "confirm",
+    );
   });
 
   test("Enter asks unless it is a search", () => {
@@ -238,5 +374,44 @@ describe("assessAction", () => {
     expect(commits("Payment details")).toBe(true);
     expect(commits("Repay")).toBe(false);
     expect(commits("Next")).toBe(false);
+    // Whole words in English: "Address" is not "add", "Postcode" is not "post".
+    expect(commits("Address")).toBe(false);
+    expect(commits("Postcode")).toBe(false);
+    for (const name of [
+      "Share",
+      "Invite people",
+      "Add to cart",
+      "Allow",
+      "Authorize app",
+      "Grant access",
+      "Accept",
+      "Approve",
+      "Install",
+      "Connect",
+      "Save changes",
+      "Post",
+      "Reply",
+      "Forward",
+      "Merge",
+      "Enable",
+      "Disable",
+      "Subscribe",
+      "Upgrade",
+      "Κοινοποίηση",
+      "Κοινή χρήση",
+      "Πρόσκληση",
+      "Προσθήκη",
+      "Αποδοχή",
+      "Έγκριση",
+      "Εγκατάσταση",
+      "Σύνδεση",
+      "Αποθήκευση",
+      "Δημοσίευση",
+      "Απάντηση",
+      "Προώθηση",
+      "Ενεργοποίηση",
+      "Απενεργοποίηση",
+    ])
+      expect({ name, commits: commits(name) }).toEqual({ name, commits: true });
   });
 });
