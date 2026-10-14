@@ -1,11 +1,16 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import type { Message, RunAgentInput } from "@ag-ui/core";
-import { CopilotKitProvider, useCopilotKit } from "@copilotkit/react-core/v2";
+import {
+  CopilotKitProvider,
+  useCopilotKit,
+  useHumanInTheLoop,
+} from "@copilotkit/react-core/v2";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { type InfiniteData, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChannelChat } from "@/components/channels/channel-chat";
+import { ChoiceCardProps, GALLERY } from "@/components/gallery/decisions";
 import {
   type AgentChannel,
   type ChannelPage,
@@ -79,6 +84,22 @@ let core: ReturnType<typeof useCopilotKit>["copilotkit"] | undefined;
 
 function CoreProbe() {
   core = useCopilotKit().copilotkit;
+  return null;
+}
+
+/** The real choice card, registered the way the gallery registers it. */
+const askChoice = GALLERY.find((spec) => spec.name === "askChoice");
+function ChoiceRender(props: Record<string, unknown>) {
+  if (!askChoice) throw new Error("askChoice is not in the gallery");
+  return <askChoice.Component {...props} />;
+}
+function ChoiceProbe() {
+  useHumanInTheLoop({
+    name: "askChoice",
+    description: "Fixture choice",
+    parameters: ChoiceCardProps,
+    render: ChoiceRender,
+  });
   return null;
 }
 
@@ -207,6 +228,7 @@ async function mount() {
     <QueryClientProvider client={queryClient}>
       <CopilotKitProvider runtimeUrl="http://localhost/api/copilotkit">
         <CoreProbe />
+        <ChoiceProbe />
         <ChannelChat channel={channel} runtimeAgentId="catch-up-bot" />
       </CopilotKitProvider>
     </QueryClientProvider>,
@@ -301,8 +323,8 @@ test("an older, shorter or different stored copy never replaces the reply on scr
   }
 });
 
-test("a question read back with its options unwritten takes them from a later read", async () => {
-  await mount();
+test("a question read back with its options unwritten waits, in the person's language, and fills in when they arrive", async () => {
+  const view = await mount();
   let written = false;
   history = async () =>
     stored([
@@ -312,18 +334,29 @@ test("a question read back with its options unwritten takes them from a later re
       asking(written ? FULL_ARGS : `{"title":"${QUESTION}","options":[`),
     ]);
   await stepElsewhere({ kind: "choice", toolCallId: "call-choice" });
-  const args = () => {
-    const call = agentMessages().find((message) => message.id === "asking");
-    return call?.role === "assistant"
-      ? call.toolCalls?.[0]?.function.arguments
-      : undefined;
-  };
-  await waitFor(() => expect(args()).toBeDefined());
-  expect(args()).not.toBe(FULL_ARGS);
 
-  // The step's reads go on until the call is written in full, and the whole call replaces the half.
+  // Not answerable with nothing to pick: no rows, no field, and it says it is preparing.
+  expect(await view.findByText("Ετοιμάζεται η ερώτηση…")).toBeTruthy();
+  expect(view.getByText(QUESTION)).toBeTruthy();
+  expect(view.queryByText("Με SMS στο κινητό μου")).toBeNull();
+  expect(
+    view.queryByRole("textbox", { name: "Η δική σου απάντηση" }),
+  ).toBeNull();
+  expect(view.queryByText(/assistant/i)).toBeNull();
+
+  // The step's reads go on until the call is written in full; the card fills in from the next one.
   written = true;
-  await waitFor(() => expect(args()).toBe(FULL_ARGS), { timeout: 4000 });
+  expect(
+    await view.findByText("Με SMS στο κινητό μου", {}, { timeout: 4000 }),
+  ).toBeTruthy();
+  expect(view.getByText("Μέσω Gov.gr Wallet")).toBeTruthy();
+  const field = view.getByRole("textbox", { name: "Η δική σου απάντηση" });
+  expect(field.getAttribute("placeholder")).toBe("Γράψε τη δική σου απάντηση");
+  expect(view.queryByText("Ετοιμάζεται η ερώτηση…")).toBeNull();
+  const call = agentMessages().find((message) => message.id === "asking");
+  expect(
+    call?.role === "assistant" ? call.toolCalls?.[0]?.function.arguments : "",
+  ).toBe(FULL_ARGS);
 });
 
 test("a reply this tab is streaming itself is never replaced by a stored copy, shorter or longer", async () => {

@@ -3,6 +3,7 @@ import {
   createElement,
   type ReactNode,
   useContext,
+  useSyncExternalStore,
 } from "react";
 import { languageOf } from "@/components/noe-bot/anim/intent";
 
@@ -168,6 +169,12 @@ const EN = {
   questionOwnAnswerLabel: "Your own answer",
   questionSendAnswer: "Send answer",
   questionAnswered: "Answered",
+  questionScreen: "The Bot's screen",
+
+  // A decision card whose question is still being written (decisions.tsx).
+  waitingForBot: "Waiting for the Bot…",
+  preparingRequest: "Preparing the request…",
+  preparingQuestion: "Preparing the question…",
 
   /** A sentence from whatever ended a turn, in this language where it is one we know. */
   reason: (sentence: string) => sentence,
@@ -196,6 +203,12 @@ const GREEK_REASONS: Readonly<Record<string, string>> = {
     "Τα προηγούμενα μηνύματα δεν είναι διαθέσιμα προσωρινά. Μπορείς να συνεχίσεις τη συνομιλία.",
   "One earlier message could not be read and is not shown. The rest of this conversation is complete.":
     "Ένα προηγούμενο μήνυμα δεν διαβάστηκε και δεν εμφανίζεται. Η υπόλοιπη συνομιλία είναι πλήρης.",
+  // A decision card's answer that did not leave (decisions.tsx, lib/approvals.ts).
+  "Your answer could not be sent. Try again.":
+    "Η απάντησή σου δεν στάλθηκε. Δοκίμασε ξανά.",
+  "Your answer could not be sent.": "Η απάντησή σου δεν στάλθηκε.",
+  "This question was already answered.": "Αυτή η ερώτηση έχει ήδη απαντηθεί.",
+  "The answer was not sent.": "Η απάντηση δεν στάλθηκε.",
 };
 
 const EL: UiStrings = {
@@ -327,6 +340,11 @@ const EL: UiStrings = {
   questionOwnAnswerLabel: "Η δική σου απάντηση",
   questionSendAnswer: "Αποστολή απάντησης",
   questionAnswered: "Απαντήθηκε",
+  questionScreen: "Η οθόνη του Bot",
+
+  waitingForBot: "Αναμονή για τον Bot…",
+  preparingRequest: "Ετοιμάζεται το αίτημα…",
+  preparingQuestion: "Ετοιμάζεται η ερώτηση…",
 
   reason: (sentence: string) => GREEK_REASONS[sentence] ?? sentence,
 };
@@ -398,6 +416,53 @@ export function useUiLanguage(): UiLanguage {
 /** The words for the conversation this component is drawn in. */
 export function useUiStrings(): UiStrings {
   return stringsFor(useContext(UiLanguageContext));
+}
+
+/**
+ * The language each conversation last spoke, for what is drawn beside it rather than inside it: the
+ * Bot panel's screen card, which sits outside the transcript's `UiLanguageProvider`, so a Greek
+ * conversation's panel said "Your Bot needs…" in English. Noted by the conversation as its language
+ * changes and kept for the life of the tab.
+ */
+const notedLanguages = new Map<string, UiLanguage>();
+const languageListeners = new Set<() => void>();
+
+/** What a language is noted under: the conversation's Bot, and the conversation itself. */
+export const languageKeys = {
+  bot: (botId: string) => `bot:${botId}`,
+  channel: (channelId: string) => `channel:${channelId}`,
+};
+
+export function noteLanguage(
+  keys: readonly string[],
+  language: UiLanguage,
+): void {
+  let changed = false;
+  for (const key of keys) {
+    if (notedLanguages.get(key) === language) continue;
+    notedLanguages.set(key, language);
+    changed = true;
+  }
+  if (changed) for (const listener of languageListeners) listener();
+}
+
+function subscribeToLanguages(listener: () => void): () => void {
+  languageListeners.add(listener);
+  return () => {
+    languageListeners.delete(listener);
+  };
+}
+
+/** The language noted under `key`, or `fallback` until one is. */
+export function useNotedLanguage(
+  key: string | undefined,
+  fallback: UiLanguage = "en",
+): UiLanguage {
+  return useSyncExternalStore(
+    subscribeToLanguages,
+    () => (key === undefined ? undefined : notedLanguages.get(key)) ?? fallback,
+    () => fallback,
+  );
 }
 
 /** 2:15 for 135 seconds, 1:02:03 past the hour. */

@@ -2,9 +2,11 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { ComputerTab } from "@/components/bot-panel/computer-tab";
 import { ComputerView } from "@/components/computer/computer-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SecretCard } from "@/lib/copilot/computer-tools";
+import { languageKeys, noteLanguage } from "@/lib/i18n/strings";
 import { settleReactWork } from "./settle-react-work";
 
 /**
@@ -102,4 +104,29 @@ test("the screen card no longer draws its own secret form; Answer in the chat op
       "Never shown to your Bot. Filled directly into the page.",
     ),
   ).toBe(true);
+});
+
+test("the Bot panel's screen card speaks the language of the conversation beside it", async () => {
+  // A Greek conversation with this Bot is open: it notes its language for the panel.
+  noteLanguage([languageKeys.bot(BOT)], "el");
+  const view = render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <TooltipProvider>
+        <ComputerTab agentId={BOT} name="Noë" paused={false} />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(
+    await view.findByText("Ο Bot σου χρειάζεται: the code sent to your phone."),
+  ).toBeTruthy();
+  expect(
+    view.getByRole("button", { name: "Απάντησε στη συνομιλία" }),
+  ).toBeTruthy();
+  expect(view.queryByText(/Your Bot needs|Answer in the chat/)).toBeNull();
+  noteLanguage([languageKeys.bot(BOT)], "en");
 });

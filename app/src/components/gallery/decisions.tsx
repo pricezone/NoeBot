@@ -19,6 +19,7 @@ import { useChannelStep } from "@/lib/channels/steps";
 import { isForwardedPlaceholder } from "@/lib/channels/watch";
 import { useConversation } from "@/lib/copilot/conversation";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
  * Human-in-the-loop gallery components. `respond` resolves the suspended Bot run, and completed
@@ -57,7 +58,10 @@ function stillWaiting<P extends { status: string; result?: unknown }>(
 /** What a card says under its rows when an answer did not leave, so it can be given again. */
 const NOT_SENT = "Your answer could not be sent. Try again.";
 
-/** The sentence for a failed answer: the server's or the card's own, never nothing. */
+/**
+ * The sentence for a failed answer: the server's or the card's own, never nothing. Kept in English
+ * and drawn through `ui.reason`, which says the sentences it knows in the conversation's language.
+ */
 function sendError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : NOT_SENT;
 }
@@ -96,6 +100,36 @@ export async function answerElsewhere(
     void closeWaitingDecision(toolCallId, value);
 }
 
+/** A question with a title: enough for an approval, whose rows are its own. */
+function titled(args: { title?: unknown }): boolean {
+  return typeof args.title === "string" && args.title !== "";
+}
+
+/**
+ * A choice whose title and options are all written. A card read back while the Bot was still writing
+ * it has its title and no options yet, and offered then it was a question with nothing to pick but
+ * "Type your own answer".
+ */
+function choiceWritten(args: { title?: unknown; options?: unknown }): boolean {
+  const { options } = args;
+  return (
+    titled(args) &&
+    Array.isArray(options) &&
+    options.length > 0 &&
+    options.every(
+      (option: unknown) =>
+        typeof option === "object" &&
+        option !== null &&
+        "id" in option &&
+        typeof option.id === "string" &&
+        option.id !== "" &&
+        "label" in option &&
+        typeof option.label === "string" &&
+        option.label !== "",
+    )
+  );
+}
+
 /**
  * A decision card this tab cannot answer through the run, answered from here anyway.
  *
@@ -112,32 +146,41 @@ export async function answerElsewhere(
  * `question-answers.ts`), for a card whose own result does not hold one. `stored` is the answer the
  * server's record of the card holds, given in another tab, so the card is drawn answered there too
  * — and after a reload — before the run's own result has reached this tab's history.
+ *
+ * ONLY ONCE THE QUESTION IS WRITTEN (`written`). A card read back mid-stream has its title and not yet
+ * its options; answerable then, it took only words. So the server's record of the card is read while
+ * it waits, and its arguments (written by the tab holding the run, from the finished call) are
+ * `recordArgs`, which the card draws in place of its own; with neither written, the card says it is
+ * preparing the question until its arguments arrive.
  */
-function useChatAnswer(props: {
-  status: "inProgress" | "executing" | "complete";
-  args: { title?: string };
-  toolCallId?: string;
-}) {
+function useChatAnswer(
+  props: {
+    status: "inProgress" | "executing" | "complete";
+    args: { title?: unknown; options?: unknown };
+    toolCallId?: string;
+  },
+  written: (args: { title?: unknown; options?: unknown }) => boolean,
+) {
   const conversation = useConversation();
   const id = props.toolCallId;
   const answer =
     id && props.status !== "executing"
       ? conversation?.answers?.get(id)
       : undefined;
-  const answerable =
+  /** Waiting with nothing here running it: another tab started it, or this one was reloaded. */
+  const orphaned =
     props.status === "inProgress" &&
     answer === undefined &&
     conversation?.turnActive === false &&
-    Boolean(id) &&
-    Boolean(props.args.title);
+    Boolean(id);
   const channelId = conversation?.channelId;
-  const [stored, setStored] = useState<WaitingDecision | null>(null);
+  const [record, setRecord] = useState<WaitingDecision | null>(null);
   useEffect(() => {
-    if (!answerable || !id || !channelId) return;
+    if (!orphaned || !id || !channelId) return;
     let current = true;
     const read = () =>
-      void readWaitingDecision(id).then((record) => {
-        if (current) setStored(record);
+      void readWaitingDecision(id).then((found) => {
+        if (current) setRecord(found);
       });
     read();
     const timer = setInterval(read, STORED_ANSWER_POLL_MS);
@@ -145,14 +188,19 @@ function useChatAnswer(props: {
       current = false;
       clearInterval(timer);
     };
-  }, [answerable, id, channelId]);
+  }, [orphaned, id, channelId]);
+  const recordArgs =
+    orphaned && record && written(record.args) ? record.args : undefined;
+  const answerable =
+    orphaned && (recordArgs !== undefined || written(props.args));
   const send = (value: unknown, text: string) =>
     answerElsewhere(conversation, id, value, text);
   return {
     answer,
     answerable,
+    recordArgs,
     send,
-    stored: answerable ? (stored?.answer ?? null) : null,
+    stored: answerable ? (record?.answer ?? null) : null,
   };
 }
 
@@ -287,6 +335,17 @@ function approvalRecordArgs(
   };
 }
 
+/** An approval card's arguments, read back from its record. */
+function approvalArgsOf(args: WaitingDecisionArgs): ApprovalArgs {
+  return {
+    title: args.title,
+    summary: args.summary ?? "",
+    ...(args.details ? { details: args.details } : {}),
+    ...(args.approveLabel ? { approveLabel: args.approveLabel } : {}),
+    ...(args.rejectLabel ? { rejectLabel: args.rejectLabel } : {}),
+  };
+}
+
 /**
  * Approve or decline, drawn as the question card: the request as its question, the summary and the
  * facts under it, Approve and Decline as rows A and B.
@@ -307,12 +366,17 @@ export function ApprovalCard(
   },
 ) {
   const props = stillWaiting(drawn);
-  const { args, record } = props;
+  const { record } = props;
+  const ui = useUiStrings();
   const conversation = useConversation();
   const [sending, setSending] = useState<ApprovalAnswer | null>(null);
   const [sent, setSent] = useState<ApprovalAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const chat = useChatAnswer(props);
+  const chat = useChatAnswer(props, titled);
+  // Read back half written, the card draws its record's arguments: the finished call's.
+  const args: Partial<ApprovalArgs> = chat.recordArgs
+    ? approvalArgsOf(chat.recordArgs)
+    : props.args;
   const approveLabel = args.approveLabel ?? "Approve";
   const rejectLabel = args.rejectLabel ?? "Decline";
 
@@ -348,8 +412,8 @@ export function ApprovalCard(
   if (props.status === "inProgress" && !chat.answerable && !inChat) {
     return (
       <QuestionCard
-        subtitle="Preparing the request…"
-        title={args.title ?? "Waiting for the assistant…"}
+        subtitle={ui.preparingRequest}
+        title={args.title || ui.waitingForBot}
       />
     );
   }
@@ -410,7 +474,7 @@ export function ApprovalCard(
       footer={
         error ? (
           <p className="text-destructive text-sm" role="alert">
-            {error}
+            {ui.reason(error)}
           </p>
         ) : null
       }
@@ -495,6 +559,15 @@ function choiceRecordArgs(
   };
 }
 
+/** A choice card's arguments, read back from its record. */
+function choiceArgsOf(args: WaitingDecisionArgs): ChoiceArgs {
+  return {
+    title: args.title,
+    ...(args.summary ? { summary: args.summary } : {}),
+    options: args.options ?? [],
+  };
+}
+
 /**
  * A question with lettered options and a field for an answer of the person's own.
  *
@@ -518,14 +591,19 @@ export function ChoiceCard(
   },
 ) {
   const props = stillWaiting(drawn);
-  const { args, onDismiss, record } = props;
+  const { onDismiss, record } = props;
+  const ui = useUiStrings();
   const conversation = useConversation();
   /** The answer on its way out, so the card stops taking answers at once. */
   const [sending, setSending] = useState<ChoiceAnswer | null>(null);
   /** Sent, before the transcript has caught up with it. */
   const [sent, setSent] = useState<ChoiceAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const chat = useChatAnswer(props);
+  const chat = useChatAnswer(props, choiceWritten);
+  // Read back with its options still unwritten, the card draws its record's: the finished call's.
+  const args: Partial<ChoiceArgs> = chat.recordArgs
+    ? choiceArgsOf(chat.recordArgs)
+    : props.args;
   // Answerable here without the run: drawn as waiting on an answer, and an answer goes out from here.
   const status = chat.answerable || record ? "executing" : props.status;
   const respond =
@@ -599,7 +677,7 @@ export function ChoiceCard(
       footer={
         error ? (
           <p className="text-destructive text-sm" role="alert">
-            {error}
+            {ui.reason(error)}
           </p>
         ) : null
       }
@@ -627,10 +705,10 @@ export function ChoiceCard(
       sending={sending ? asAnswer(sending) : undefined}
       subtitle={
         status === "inProgress"
-          ? (args.summary ?? "Preparing the question…")
+          ? (args.summary ?? ui.preparingQuestion)
           : args.summary
       }
-      title={args.title ?? "Waiting for the assistant…"}
+      title={args.title || ui.waitingForBot}
     />
   );
 }
@@ -644,17 +722,7 @@ export function RecordedDecision({ record }: { record: WaitingDecision }) {
   if (record.kind === "approval")
     return (
       <ApprovalCard
-        args={{
-          title: record.args.title,
-          summary: record.args.summary ?? "",
-          ...(record.args.details ? { details: record.args.details } : {}),
-          ...(record.args.approveLabel
-            ? { approveLabel: record.args.approveLabel }
-            : {}),
-          ...(record.args.rejectLabel
-            ? { rejectLabel: record.args.rejectLabel }
-            : {}),
-        }}
+        args={approvalArgsOf(record.args)}
         record={record}
         respond={async () => {}}
         result={undefined}
@@ -664,11 +732,7 @@ export function RecordedDecision({ record }: { record: WaitingDecision }) {
     );
   return (
     <ChoiceCard
-      args={{
-        title: record.args.title,
-        ...(record.args.summary ? { summary: record.args.summary } : {}),
-        options: record.args.options ?? [],
-      }}
+      args={choiceArgsOf(record.args)}
       record={record}
       respond={async () => {}}
       result={undefined}

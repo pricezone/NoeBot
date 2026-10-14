@@ -73,6 +73,12 @@ import {
   readThreadMessages,
   type StoredThread,
 } from "@/lib/copilot/thread-messages";
+import {
+  conversationLanguage,
+  languageKeys,
+  lastPersonText,
+  noteLanguage,
+} from "@/lib/i18n/strings";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import {
   askChannelAgent,
@@ -772,6 +778,18 @@ export function ChannelChat({
   useActiveBot(runtimeAgentId);
 
   const rosterBusy = useRosterBusy(channel.id);
+  /*
+   * The person's language, noted for what is drawn beside this conversation rather than in it: the
+   * Bot panel's screen card. The transcript's cards read the same rule from the same messages, so
+   * the two never disagree.
+   */
+  const language = conversationLanguage(lastPersonText(agent.messages));
+  useEffect(() => {
+    noteLanguage(
+      [languageKeys.bot(runtimeAgentId), languageKeys.channel(channel.id)],
+      language,
+    );
+  }, [runtimeAgentId, channel.id, language]);
   /*
    * What the person answered to each question the Bot asked, for the choice cards drawn from them.
    * Recomputed every render, kept as one map for as long as its contents hold: the conversation

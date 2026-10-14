@@ -16,6 +16,7 @@ import { ConversationProvider } from "@/lib/copilot/conversation";
 import { AskWithOptions } from "@/lib/copilot/escalation-tool";
 import { questionAnswers } from "@/lib/copilot/question-answers";
 import { ANSWERED_IN_CHAT } from "@/lib/copilot/repair-history";
+import { type UiLanguage, UiLanguageProvider } from "@/lib/i18n/strings";
 import {
   FIRST_TURN_OPTIONS,
   FIRST_TURN_QUESTION,
@@ -416,5 +417,135 @@ describe("an approval card this tab is not running", () => {
     expect(view.getByText("Decline")).toBeTruthy();
     expect(view.getByText("the address is wrong")).toBeTruthy();
     expect(view.queryByText("Issue")).toBeNull();
+  });
+});
+
+describe("a choice card read back before its options were written", () => {
+  const PARTIAL = { title: FIRST_TURN_QUESTION };
+
+  function orphan(
+    args: Partial<typeof ARGS>,
+    {
+      channelId,
+      language = "en",
+    }: { channelId?: string; language?: UiLanguage } = {},
+  ) {
+    const asked: string[] = [];
+    return {
+      asked,
+      tree: (
+        <UiLanguageProvider language={language}>
+          <ConversationProvider
+            answers={new Map()}
+            ask={async (text) => {
+              asked.push(text);
+            }}
+            {...(channelId ? { channelId } : {})}
+            turnActive={false}
+          >
+            <ChoiceCard
+              args={args as typeof ARGS}
+              respond={undefined}
+              result={undefined}
+              status="inProgress"
+              toolCallId="call-partial"
+            />
+          </ConversationProvider>
+        </UiLanguageProvider>
+      ),
+    };
+  }
+
+  test("is not answerable with nothing to pick, and fills in once its arguments arrive", async () => {
+    const first = orphan(PARTIAL);
+    const view = render(first.tree);
+
+    // Only the question and "preparing": no rows, and no field that would take words alone.
+    expect(view.getByText(FIRST_TURN_QUESTION)).toBeTruthy();
+    expect(view.getByText("Preparing the question…")).toBeTruthy();
+    expect(view.queryAllByRole("listitem")).toHaveLength(0);
+    expect(view.queryByRole("textbox")).toBeNull();
+
+    // An options list that has begun but holds nothing yet is still not written.
+    view.rerender(orphan({ ...PARTIAL, options: [] }).tree);
+    expect(view.queryByRole("textbox")).toBeNull();
+
+    const full = orphan(ARGS);
+    view.rerender(full.tree);
+    expect(rows(view)).toHaveLength(4);
+    expect(view.queryByText("Preparing the question…")).toBeNull();
+    await user.click(view.getByText("Web tasks and errands"));
+    await waitFor(() => expect(full.asked).toEqual(["Web tasks and errands"]));
+  });
+
+  test("draws its options from the server's record of the card while its own are missing", async () => {
+    const original = globalThis.fetch;
+    const reads: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      reads.push(String(input));
+      return Response.json({
+        decision: {
+          botId: "bot",
+          channelId: "channel",
+          toolCallId: "call-partial",
+          kind: "choice",
+          args: ARGS,
+          createdAt: "2026-10-14T00:00:00.000Z",
+          heartbeatAt: "2026-10-14T00:00:00.000Z",
+          live: true,
+          answer: null,
+          answeredAt: null,
+          closed: false,
+        },
+      });
+    }) as typeof fetch;
+    try {
+      const view = render(orphan(PARTIAL, { channelId: "channel" }).tree);
+
+      await waitFor(() => expect(rows(view)).toHaveLength(4));
+      expect(reads.some((path) => path.includes("call-partial"))).toBe(true);
+      expect(
+        view.getByRole("textbox", { name: "Your own answer" }),
+      ).toBeTruthy();
+    } finally {
+      cleanup();
+      globalThis.fetch = original;
+    }
+  });
+
+  test("in a Greek conversation, its own words are Greek and say Bot", () => {
+    const view = render(orphan({}, { language: "el" }).tree);
+
+    expect(view.getByText("Αναμονή για τον Bot…")).toBeTruthy();
+    expect(view.getByText("Ετοιμάζεται η ερώτηση…")).toBeTruthy();
+    expect(view.queryByText(/assistant/i)).toBeNull();
+
+    view.rerender(orphan(ARGS, { language: "el" }).tree);
+    const field = view.getByRole("textbox", { name: "Η δική σου απάντηση" });
+    expect(field.getAttribute("placeholder")).toBe(
+      "Γράψε τη δική σου απάντηση",
+    );
+    expect(
+      view.getByRole("button", { name: "Αποστολή απάντησης" }),
+    ).toBeTruthy();
+  });
+
+  test("an approval still being written says so in the conversation's language", () => {
+    const view = render(
+      <UiLanguageProvider language="el">
+        <ConversationProvider ask={() => undefined} turnActive>
+          <ApprovalCard
+            args={{}}
+            respond={undefined}
+            result={undefined}
+            status="inProgress"
+            toolCallId="call-approval"
+          />
+        </ConversationProvider>
+      </UiLanguageProvider>,
+    );
+
+    expect(view.getByText("Αναμονή για τον Bot…")).toBeTruthy();
+    expect(view.getByText("Ετοιμάζεται το αίτημα…")).toBeTruthy();
   });
 });

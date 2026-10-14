@@ -14,6 +14,7 @@ import {
 import { AttachmentLightbox } from "@/components/channels/chat-transcript";
 import { Button } from "@/components/ui/button";
 import { type PageFrame, readPageFrame } from "@/lib/computers/screen";
+import { useUiStrings } from "@/lib/i18n/strings";
 import { cn } from "@/lib/utils";
 
 /**
@@ -99,6 +100,7 @@ export function QuestionCard({
    */
   screen?: ReactNode;
 }) {
+  const ui = useUiStrings();
   const titleId = useId();
   const [draft, setDraft] = useState("");
   const busy = sending !== undefined;
@@ -152,7 +154,7 @@ export function QuestionCard({
         </div>
         {onDismiss && !answered && !busy ? (
           <button
-            aria-label="Dismiss"
+            aria-label={ui.dismiss}
             className="-m-1 shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
             onClick={onDismiss}
             type="button"
@@ -229,15 +231,15 @@ export function QuestionCard({
               }}
             >
               <input
-                aria-label="Your own answer"
+                aria-label={ui.questionOwnAnswerLabel}
                 className="min-w-0 flex-1 bg-transparent py-1 text-[15px] outline-none placeholder:text-muted-foreground"
                 disabled={busy}
                 onChange={(event) => setDraft(event.target.value)}
-                placeholder="Type your own answer"
+                placeholder={ui.questionOwnAnswer}
                 value={draft}
               />
               <Button
-                aria-label="Send answer"
+                aria-label={ui.questionSendAnswer}
                 disabled={busy || !draft.trim()}
                 size="icon-xs"
                 type="submit"
@@ -266,6 +268,7 @@ function AnsweredRow({
   answer: QuestionAnswer;
   options: readonly QuestionOption[];
 }) {
+  const ui = useUiStrings();
   const index =
     "optionId" in answer
       ? options.findIndex((option) => option.id === answer.optionId)
@@ -279,7 +282,7 @@ function AnsweredRow({
       {option ? <LetterBadge letter={letterFor(index)} /> : null}
       <RowText description={note} label={text} />
       <IconCheck
-        aria-label="Answered"
+        aria-label={ui.questionAnswered}
         className="size-4 shrink-0 text-foreground"
         role="img"
       />
@@ -384,8 +387,9 @@ export function QuestionScreen({
     };
   }, [computerId, toolCallId, waiting, frame]);
 
+  const ui = useUiStrings();
   if (!frame) return null;
-  const label = frame.title?.trim() || "The Bot's screen";
+  const label = frame.title?.trim() || ui.questionScreen;
   const url = `data:image/png;base64,${frame.frame}`;
   return (
     <figure className="overflow-hidden rounded-xl border border-border bg-background">
