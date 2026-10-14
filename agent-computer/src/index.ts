@@ -55,6 +55,14 @@ import {
   TAKE_CONTROL_FIRST,
 } from "./control";
 import { describeHumanGesture } from "./demonstration";
+import { fitWidth, frameWidthFrom } from "./element-geometry";
+import {
+  elementAtScreen,
+  emptyScreen,
+  listScreenElements,
+  maskedFrame,
+  type ScreenElements,
+} from "./elements";
 import { startDesktop } from "./desktop";
 import {
   captureDesktopFrame,
@@ -117,6 +125,8 @@ import {
   WorkspaceFileTooLargeError,
   WorkspacePathError,
 } from "./workspace";
+import { openXInput, type XInput } from "./x-input";
+import { wheelClicks, xKeysForCombo } from "./x-keys";
 
 /**
  * The Bot's computer: one long-lived browser, reachable over HTTP.
@@ -440,6 +450,35 @@ async function currentPage(
   if (session.livePage && session.livePage !== page) session.snapshotId += 1;
   session.livePage = page;
   return page;
+}
+
+/**
+ * The Bot's page when its browser is already open, and null when it is not. Clicky only looks: a
+ * question about the screen must not start a browser the person never asked for.
+ */
+async function livePageOf(botId: string): Promise<Page | null> {
+  if (!profiles.isLive(botId)) return null;
+  return currentPage(botId);
+}
+
+/** Said when a page-only computer is asked about a screen it is not showing. */
+const BROWSER_NOT_OPEN =
+  "The browser is not open, so there is no page to look at.";
+
+/**
+ * The last `/elements` answer per Bot, so `/elements/at` can name the ref of the box under a point
+ * without measuring the whole page again. Only a name: what is there is asked of the page each time.
+ */
+const knownElements = new Map<string, ScreenElements>();
+
+/**
+ * The desktop's pointer and keyboard for input Clicky carries out in screen space, opened on first
+ * use like the live screen's (desktop-cast.ts), and kept.
+ */
+let screenInput: Promise<XInput> | undefined;
+function screenInputFor(display: string): Promise<XInput> {
+  screenInput ??= openXInput(display);
+  return screenInput;
 }
 
 /**
@@ -1290,6 +1329,33 @@ serve<StreamData>({
             return json({ error: parsed.error }, 400);
           }
         }
+        /*
+         * In screen space: Clicky carrying out what the person approved, at a point on the desktop
+         * rather than in the page, through the same XTEST pointer and keyboard as the person's own
+         * hands on the live screen. Behind the same wheel check as above.
+         */
+        if (body?.space === "screen") {
+          if (!DESKTOP || !VIRTUAL_DISPLAY)
+            return json(
+              { error: "Screen input needs a computer with a desktop." },
+              400,
+            );
+          try {
+            return json(
+              await performScreenInput(
+                await screenInputFor(VIRTUAL_DISPLAY.name),
+                url.pathname,
+                body,
+                session.livePage?.url() ?? "",
+              ),
+            );
+          } catch (error) {
+            return json(
+              { error: describe(error, "That did not work.") },
+              isRequestError(error) ? 400 : 502,
+            );
+          }
+        }
         try {
           const target = await currentPage(botId);
           return json(
@@ -1577,9 +1643,23 @@ serve<StreamData>({
           );
         }
         try {
+          /*
+           * `?width=` scales the picture down (a phone's thumbnail). The size it reports stays the
+           * screen's, as the live stream's frames do, so whatever is placed on it is in screen pixels.
+           */
+          const wanted = url.searchParams.has("width")
+            ? frameWidthFrom(url.searchParams.get("width"), {
+                fallback: DISPLAY_SIZE.width,
+                min: 160,
+                max: 1440,
+              })
+            : DISPLAY_SIZE.width;
+          const fit = fitWidth(DISPLAY_SIZE, wanted);
           const frame = await captureDesktopFrame(
             VIRTUAL_DISPLAY.name,
             DISPLAY_SIZE,
+            undefined,
+            fit.scale < 1 ? fit : null,
           );
           return json({
             base64: frame.toString("base64"),
@@ -1591,6 +1671,105 @@ serve<StreamData>({
         } catch (error) {
           return json(
             { error: describe(error, "The desktop could not be captured.") },
+            502,
+          );
+        }
+      }
+
+      /*
+       * Clicky's three questions about the screen: what is on it and where, what is under one point,
+       * and a masked picture of it. Read-only, so none of them is in ACTING_PATHS: Clicky looks while
+       * the Bot or a person drives. See elements.ts.
+       */
+      if (url.pathname === "/elements" && request.method === "GET") {
+        try {
+          const page = await livePageOf(botId);
+          if (!page) {
+            if (DESKTOP) return json(emptyScreen(DISPLAY_SIZE));
+            return json({ error: BROWSER_NOT_OPEN }, 409);
+          }
+          const found = await listScreenElements(
+            page,
+            DESKTOP ? DISPLAY_SIZE : null,
+          );
+          knownElements.set(botId, found);
+          return json(found);
+        } catch (error) {
+          return json(
+            { error: describe(error, "The screen could not be read.") },
+            502,
+          );
+        }
+      }
+
+      if (url.pathname === "/elements/at" && request.method === "POST") {
+        const body = (await request.json().catch(() => null)) as {
+          x?: unknown;
+          y?: unknown;
+        } | null;
+        if (
+          typeof body?.x !== "number" ||
+          !Number.isFinite(body.x) ||
+          typeof body?.y !== "number" ||
+          !Number.isFinite(body.y)
+        )
+          return json({ error: "A point needs numeric x and y." }, 400);
+        try {
+          const page = await livePageOf(botId);
+          if (!page) {
+            if (DESKTOP)
+              return json({
+                role: "desktop",
+                name: "",
+                sensitive: false,
+                inPage: false,
+                url: "",
+              });
+            return json({ error: BROWSER_NOT_OPEN }, 409);
+          }
+          return json(
+            await elementAtScreen(
+              page,
+              DESKTOP ? DISPLAY_SIZE : null,
+              { x: body.x, y: body.y },
+              knownElements.get(botId),
+            ),
+          );
+        } catch (error) {
+          return json(
+            { error: describe(error, "The screen could not be read.") },
+            502,
+          );
+        }
+      }
+
+      if (url.pathname === "/elements/frame" && request.method === "GET") {
+        const width = frameWidthFrom(url.searchParams.get("width"), {
+          fallback: 1280,
+          min: 160,
+          max: 1920,
+        });
+        try {
+          const page = await livePageOf(botId);
+          if (!page && !DESKTOP) return json({ error: BROWSER_NOT_OPEN }, 409);
+          const display = VIRTUAL_DISPLAY;
+          return json(
+            await maskedFrame({
+              page,
+              desktop: DESKTOP && display ? DISPLAY_SIZE : null,
+              width,
+              captureDesktop: (scale) =>
+                captureDesktopFrame(
+                  display?.name ?? "",
+                  DISPLAY_SIZE,
+                  undefined,
+                  scale,
+                ),
+            }),
+          );
+        } catch (error) {
+          return json(
+            { error: describe(error, "The screen could not be captured.") },
             502,
           );
         }
@@ -2036,7 +2215,10 @@ async function performHumanInput(
 
   if (action === "/human/click") {
     const { x, y } = at();
-    await target.mouse.click(x, y);
+    await target.mouse.click(x, y, {
+      ...(body.button === "right" ? { button: "right" as const } : {}),
+      ...(body.double === true ? { clickCount: 2 } : {}),
+    });
     return { action: "human_click", url: target.url() };
   }
 
@@ -2070,6 +2252,77 @@ async function performHumanInput(
   const deltaY = parsed.deltaY ?? 400;
   await target.mouse.wheel(0, deltaY);
   return { action: "human_scroll", deltaY, url: target.url() };
+}
+
+/**
+ * Carry out one input in screen pixels on the desktop, as Clicky does for a person who approved it.
+ *
+ * The same XTEST pointer and keyboard the live screen drives (`x-input.ts`), so it reaches whatever
+ * is under the point, the browser's toolbar included, exactly as the person's own click would. Like
+ * the page path, nothing typed is returned: a length, never the text.
+ */
+async function performScreenInput(
+  input: XInput,
+  action: string,
+  body: Record<string, unknown>,
+  url: string,
+): Promise<Record<string, unknown>> {
+  const point = (): { x: number; y: number } => {
+    const x = typeof body.x === "number" ? body.x : Number.NaN;
+    const y = typeof body.y === "number" ? body.y : Number.NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y))
+      throw requestError("A click needs an x and a y on the screen.");
+    return {
+      x: Math.round(Math.min(Math.max(x, 0), DISPLAY_SIZE.width - 1)),
+      y: Math.round(Math.min(Math.max(y, 0), DISPLAY_SIZE.height - 1)),
+    };
+  };
+
+  if (action === "/human/click") {
+    const { x, y } = point();
+    const button = body.button === "right" ? 3 : 1;
+    await input.move(x, y);
+    for (let n = 0; n < (body.double === true ? 2 : 1); n++) {
+      await input.button(button, true);
+      await input.button(button, false);
+    }
+    return { action: "human_click", url };
+  }
+
+  if (action === "/human/type") {
+    if (typeof body.text !== "string") throw requestError("Typing needs text.");
+    await input.type(body.text);
+    return { action: "human_type", characters: body.text.length, url };
+  }
+
+  if (action === "/human/key") {
+    if (typeof body.key !== "string" || !body.key)
+      throw requestError("A key press needs a key name.");
+    const keys = xKeysForCombo(body.key);
+    if (!keys) throw requestError(`${body.key} is not a key this desktop has.`);
+    if (keys.kind === "text") {
+      await input.type(keys.text);
+    } else {
+      for (const keysym of keys.keysyms) await input.key(keysym, true);
+      for (const keysym of [...keys.keysyms].reverse())
+        await input.key(keysym, false);
+    }
+    return { action: "human_key", key: body.key, url };
+  }
+
+  const parsed = parseScrollDelta(body.deltaY);
+  if (!parsed.ok) throw requestError(parsed.error);
+  const deltaY = parsed.deltaY ?? 400;
+  if (typeof body.x === "number" && typeof body.y === "number") {
+    const { x, y } = point();
+    await input.move(x, y);
+  }
+  for (const click of wheelClicks(0, deltaY))
+    for (let n = 0; n < click.times; n++) {
+      await input.button(click.button, true);
+      await input.button(click.button, false);
+    }
+  return { action: "human_scroll", deltaY, url };
 }
 
 /**
