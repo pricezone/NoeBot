@@ -1,6 +1,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Hono, type MiddlewareHandler } from "hono";
+import { createApp } from "../src/app";
 import type { AppVariables } from "../src/auth/guards";
+import { createChannelEventHub } from "../src/channels/events";
 import { websocket } from "../src/channels/socket";
 import { createClickyHub } from "../src/clicky/hub";
 import { createClickyRoutes } from "../src/clicky/routes";
@@ -18,9 +20,10 @@ import {
   deploymentOrigins,
   sameSiteGuard,
 } from "../src/computer/same-site-guard";
-import type { DeploymentConfig } from "../src/config";
+import { type DeploymentConfig, loadConfig } from "../src/config";
 import { createMobileRoutes } from "../src/mobile/routes";
 import type { MobileDeviceStore } from "../src/mobile/store";
+import { testEnvironment } from "./support/environment";
 
 /*
  * A sibling instance (another subscriber's `<id>.hypernoesis.app`) is the same site, so the person's
@@ -311,5 +314,54 @@ describe("/api/mobile", () => {
     });
     expect(own.status).toBe(204);
     expect(revoked).toEqual(["d1"]);
+  });
+});
+
+describe("the roster's live socket (/api/channels/events)", () => {
+  test("opens for this deployment's own page, and not for a sibling instance's", async () => {
+    const auth = {
+      handler: () => new Response(null, { status: 204 }),
+      api: {
+        getSession: async () => ({
+          user: { id: "user-1", email: "person@openbot.test" },
+        }),
+      },
+    };
+    const app = createApp(
+      loadConfig(testEnvironment()),
+      auth as never,
+      { rolesForUser: async () => ["user"] } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {} as never,
+      createChannelEventHub(),
+    );
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request, bun) => app.fetch(request, { server: bun }),
+      websocket,
+    });
+    servers.push(server);
+    const url = `ws://127.0.0.1:${server.port}/api/channels/events`;
+    expect(
+      await opens(url, { origin: `http://127.0.0.1:${server.port}` }),
+    ).toBe("open");
+    expect(
+      await opens(url, { origin: "https://attacker.hypernoesis.app" }),
+    ).toBe("refused");
+    expect(await opens(url, { "sec-fetch-site": "same-site" })).toBe("refused");
+    // The desktop's local app, trusted by name, on another port of the same machine.
+    expect(
+      await opens(url, {
+        origin: "http://localhost:3010",
+        "sec-fetch-site": "same-site",
+      }),
+    ).toBe("open");
   });
 });

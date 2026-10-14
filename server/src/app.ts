@@ -1505,6 +1505,12 @@ export function createApp(
   }
 
   if (channelStore) {
+    /*
+     * The roster's live socket carries every conversation's activity, so a page on a sibling instance
+     * (the same site, holding the person's cookie) must not open it. Registered before the routes so
+     * it runs first. See same-site-guard.ts.
+     */
+    app.use("/api/channels/events", sameSiteGuard(deploymentOrigins(config)));
     app.route(
       "/api/channels",
       createChannelRoutes(channelStore, requireUser, channelEvents, auditStore),
