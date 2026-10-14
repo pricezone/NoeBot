@@ -1,12 +1,20 @@
 import { IconArrowsMinimize } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ClickyBar } from "@/components/clicky/clicky-bar";
+import { ClickyLauncher } from "@/components/clicky/clicky-launcher";
+import { ClickyOverlay } from "@/components/clicky/clicky-overlay";
 import { NoeBotFace } from "@/components/noe-bot/noe-bot-face";
+import { avatarLook } from "@/components/noe-bot/pixel-art";
 import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
+import { stopClickyNow } from "@/lib/clicky/mutations";
+import { useClickyCapability } from "@/lib/clicky/queries";
+import { useClickySession } from "@/lib/clicky/use-clicky-session";
 import type { ControlState } from "@/lib/computers/control";
 import { useTranslation } from "@/lib/i18n";
+import { queryClient } from "@/query-client";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
 import { LiveScreen } from "./live-screen";
@@ -121,6 +129,8 @@ export function NothingToSee({
 const VIEWER_CHROME_PX = 56 + 32 + 24;
 /** The 24px either side of the screen. */
 const VIEWER_GUTTER_PX = 48;
+/** Between the screen and Clicky's bar under it. */
+const CLICKY_BAR_GAP_PX = 12;
 
 type Props = {
   computerId: string;
@@ -211,6 +221,46 @@ export function ScreenViewer({
   const dialogOpenRef = useRef(false);
   dialogOpenRef.current = dialogOpen;
 
+  /*
+   * Clicky Mode: its pointer over the screen, its bar under it and its switch in the header, for a
+   * screen that is live. A record of a finished turn has nothing for Clicky to point at.
+   */
+  const clicky = useClickyCapability();
+  const clickyOn = clicky.enabled && !settled;
+  const clickySession = useClickySession(computerId, clickyOn, "viewer").data;
+  const clickyAwake = clickyOn && clickySession?.awake === true;
+  const clickyActing = clickyAwake && clickySession?.state === "acting";
+  const clickyActingRef = useRef(false);
+  clickyActingRef.current = clickyActing;
+  const stopClicky = useCallback(
+    () => void stopClickyNow(queryClient, computerId),
+    [computerId],
+  );
+  const clickyColour = avatarLook({
+    seed: agent.data?.avatarSeed ?? computerId,
+    color: agent.data?.avatarColor ?? null,
+    expression: agent.data?.avatarExpression ?? null,
+  }).scheme.background;
+  /*
+   * The bar's height, measured, so the screen above it shrinks to leave it room rather than pushing
+   * it off the bottom: the screen's box is sized from the window, not from what is left of it.
+   */
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const [barHeight, setBarHeight] = useState(0);
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!clickyAwake || !bar) {
+      setBarHeight(0);
+      return;
+    }
+    const measure = () => setBarHeight(bar.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [clickyAwake]);
+
   // Into the viewer when it opens, and back to whatever opened it when it closes.
   useEffect(() => {
     const opener = document.activeElement;
@@ -231,11 +281,16 @@ export function ScreenViewer({
           ? event.target.closest('[role="dialog"], [role="alertdialog"]')
           : null;
       if (dialog && dialog !== rootRef.current) return;
+      // While Clicky is doing something, Escape stops it; the next one minimizes.
+      if (clickyActingRef.current) {
+        stopClicky();
+        return;
+      }
       onMinimize();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onMinimize]);
+  }, [onMinimize, stopClicky]);
 
   const status = settled
     ? null
@@ -274,6 +329,10 @@ export function ScreenViewer({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Clicky on and off, beside the wheel. */}
+          {clickyOn ? (
+            <ClickyLauncher botId={computerId} session={clickySession} />
+          ) : null}
           {/*
             NOT ON A TURN THAT IS OVER. A record does not get a steering wheel: the wheel and the
             recorder are about whatever the Bot has open now, not the page this turn opened.
@@ -318,11 +377,11 @@ export function ScreenViewer({
         ) : null}
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 pb-6">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 pb-6">
         <div
-          className={`relative overflow-hidden rounded-xl ${showLiveScreen ? "bg-black" : "bg-muted"}`}
+          className={`relative shrink-0 overflow-hidden rounded-xl ${showLiveScreen ? "bg-black" : "bg-muted"}`}
           style={{
-            width: `min(calc(100vw - ${VIEWER_GUTTER_PX}px), calc((100svh - ${VIEWER_CHROME_PX}px) * ${frameAspect}))`,
+            width: `min(calc(100vw - ${VIEWER_GUTTER_PX}px), calc((100svh - ${VIEWER_CHROME_PX + barHeight}px) * ${frameAspect}))`,
             aspectRatio: frameAspect,
           }}
         >
@@ -345,11 +404,18 @@ export function ScreenViewer({
           ) : showLiveScreen ? (
             <>
               <LiveScreen
+                {...(clickyAwake
+                  ? { clicky: { acting: clickyActing, onStop: stopClicky } }
+                  : {})}
                 computerId={computerId}
                 driving={driving}
                 onProblem={setStreamProblem}
                 retryKey={retryKey}
               />
+              {/* After the screen, so it draws over it; it takes no clicks, the screen does. */}
+              {clickyAwake && clickySession ? (
+                <ClickyOverlay colour={clickyColour} session={clickySession} />
+              ) : null}
               {/*
                 A live screen that ends reports why through `onProblem`, and this is the branch that
                 is mounted when it does. Without drawing it here the screen ended with the stale
@@ -380,6 +446,19 @@ export function ScreenViewer({
             />
           )}
         </div>
+        {/*
+          Clicky's bar, under the screen. Padded rather than spaced from it, so the measured height
+          is all of the room it needs.
+        */}
+        {clickyAwake && clickySession ? (
+          <div
+            className="w-full shrink-0"
+            ref={barRef}
+            style={{ paddingTop: CLICKY_BAR_GAP_PX }}
+          >
+            <ClickyBar botId={computerId} session={clickySession} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

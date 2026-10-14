@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar/app-sidebar";
+import { ClickyStopPill } from "@/components/clicky/clicky-stop-pill";
 import { SidebarShell } from "@/components/layout/sidebar-shell";
 import { Toaster } from "@/components/ui/toast";
 import { rememberReturnTo } from "@/lib/return-to";
@@ -35,6 +36,8 @@ function RouteComponent() {
         <Outlet />
       </main>
       <Toaster />
+      {/* Stop, from anywhere, while Clicky is doing something on a Bot's computer. */}
+      <ClickyStopPill />
     </SidebarShell>
   );
 }
