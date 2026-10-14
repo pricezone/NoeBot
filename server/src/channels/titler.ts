@@ -11,6 +11,8 @@ const INSTRUCTION = [
   "Answer with three to six words naming what the conversation is about.",
   "No quotation marks, no trailing period, no prefix such as 'Conversation about'.",
   "Name the subject itself, not the fact that somebody asked about it.",
+  // A Greek conversation is listed under a Greek title, whatever language this prompt is in.
+  "Write the title in the language the conversation is written in.",
 ].join(" ");
 
 export type TitlerOptions = {

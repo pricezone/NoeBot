@@ -14,7 +14,8 @@
  * the socket, and the conversation screen re-reads its history when the roster says a Bot spoke.
  */
 
-import { frameFirstTurn } from "../../../shared/first-turn";
+import { FIRST_TURN_COPY, frameFirstTurn } from "../../../shared/first-turn";
+import type { Locale } from "../../../shared/i18n/locales";
 import { PERSON_INITIATOR } from "../audit";
 import type { AgentChannel, ChannelStore } from "../channels/routes";
 import type { TurnRunner } from "../routines/runner";
@@ -32,11 +33,22 @@ export const NEW_BOT: CreateAgentInput = {
   visibility: "private",
 };
 
+/**
+ * `NEW_BOT` in the language the person's interface speaks: its name and title are what they read
+ * on the roster. The role stays English, since the model is what reads it.
+ */
+export function newBotFor(locale: Locale | null): CreateAgentInput {
+  const copy = FIRST_TURN_COPY[locale ?? "en"];
+  return { ...NEW_BOT, name: copy.name, title: copy.title };
+}
+
 /** Starts a new Bot's first turn in its conversation. Settles once the turn is over, never throws. */
 export type FirstTurnStarter = (input: {
   actor: AgentActor;
   agentId: string;
   channel: Pick<AgentChannel, "id" | "threadId">;
+  /** The language the person's interface speaks; absent or null is English. */
+  locale?: Locale | null;
 }) => Promise<void>;
 
 export function createFirstTurnStarter(options: {
@@ -50,7 +62,7 @@ export function createFirstTurnStarter(options: {
     log = (event) => console.error(JSON.stringify(event)),
   } = options;
 
-  return async ({ actor, agentId, channel }) => {
+  return async ({ actor, agentId, channel, locale }) => {
     const runId = crypto.randomUUID();
     // A missed busy signal costs a working dot, never the turn, so neither may throw out of here.
     const busy = (value: boolean) =>
@@ -58,7 +70,7 @@ export function createFirstTurnStarter(options: {
     let speaking = false;
     await busy(true);
     try {
-      const frame = frameFirstTurn();
+      const frame = frameFirstTurn(locale ?? "en");
       const { replyText, asked } = await runTurn({
         ownerUserId: actor.id,
         routineId: `first-turn:${agentId}`,

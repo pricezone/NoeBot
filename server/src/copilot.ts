@@ -39,6 +39,7 @@ import {
   nativeApprovalRun,
 } from "./approvals/native-context";
 import type { AuditInitiator } from "./audit";
+import { busyMarker } from "./busy-marker";
 import {
   attachmentIdsIn,
   newInlineBudget,
@@ -76,7 +77,6 @@ import {
 } from "./plugins/selection";
 import type { GrantedTool } from "./plugins/tools";
 import { grantedToolGuidance, parametersFor } from "./plugins/tools";
-import { busyMarker } from "./busy-marker";
 import { beginRunTiming, endRunTiming, timed } from "./run-timing";
 import { UNTRUSTED_GUIDANCE } from "./untrusted-content";
 

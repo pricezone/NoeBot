@@ -187,6 +187,7 @@ import {
   HostAccessRefusedError,
 } from "./host-access/broker";
 import { hostAccessTools } from "./host-access/tools";
+import { interfaceLocaleOf, withInterfaceLanguage } from "./i18n/bot-language";
 import {
   createIntelligenceClient,
   observeIntelligenceAuthentication,
@@ -1286,6 +1287,9 @@ const loadToolsForActor =
 /** One person's standing instructions, for both the /api/settings routes and every run they start. */
 const userInstructionsStore = createUserInstructionsStore(database);
 
+/** One person's preferences: the /api/settings routes, and the interface language a run answers in. */
+const userPreferencesStore = createUserPreferencesStore(database);
+
 /*
  * What this person has told every built-in coworker they run.
  *
@@ -1294,8 +1298,13 @@ const userInstructionsStore = createUserInstructionsStore(database);
  * value captured at boot would serve the whole deployment whatever the first person to sign in had
  * written.
  */
-const loadInstructionsForActor = (actorId: string) => () =>
-  userInstructionsStore.read(actorId);
+const loadInstructionsForActor = (actorId: string) => async () =>
+  // Their own words, then the language their interface speaks (bot-language.ts). Nothing is added
+  // for English, and a failed language read costs only that line.
+  withInterfaceLanguage(
+    await userInstructionsStore.read(actorId),
+    await interfaceLocaleOf(() => userPreferencesStore.locale(actorId)),
+  );
 
 /*
  * The file behind an attachment reference, read when a turn turns out to name one.
@@ -1849,6 +1858,8 @@ const routineAgentRunner = new IntelligenceAgentRunner({
 const routineRunner = createRoutineRunner({
   routineStore,
   channelStore,
+  localeOf: (userId) =>
+    interfaceLocaleOf(() => userPreferencesStore.locale(userId)),
   runTurn: createTurnRunner({
     intelligence: routineIntelligence,
     runner: routineAgentRunner,
@@ -2531,6 +2542,8 @@ const authoriseDeliveryScope = async (scope: DeliveryScope) =>
     ?.threadId === scope.threadId;
 const deliveryRouter = createDeliveryRouter({
   store: deliveryStore,
+  localeOf: (userId) =>
+    interfaceLocaleOf(() => userPreferencesStore.locale(userId)),
   queue: createWorkQueue(database),
   owner: workOwner("delivery"),
   providers: deliveryProviders,
@@ -3353,7 +3366,7 @@ const app = createApp(
   process.env.OPENBOT_MODEL_OAUTH_FILE?.trim()
     ? createProviderOAuthProxy(process.env.OPENBOT_MODEL_OAUTH_FILE.trim())
     : undefined,
-  createUserPreferencesStore(database),
+  userPreferencesStore,
   {
     store: createVoiceSessionStore(database, channelStore),
     summarize: createVoiceSummarizer({
@@ -3388,6 +3401,8 @@ const app = createApp(
           }),
         slack: deliveryProviders.slack,
         twilio: deliveryProviders.sms,
+        localeOf: (userId: string) =>
+          interfaceLocaleOf(() => userPreferencesStore.locale(userId)),
         pushProjectId: deliveryProviders.pushProjectId,
       },
       webhooks: {
@@ -3397,6 +3412,8 @@ const app = createApp(
         scopeFor: deliveryScopeFor,
         slack: deliveryProviders.slack,
         twilio: deliveryProviders.sms,
+        localeOf: (userId: string) =>
+          interfaceLocaleOf(() => userPreferencesStore.locale(userId)),
       },
     },
     memory: { store: personalMemoryStore, ingestion: memoryIngestion },

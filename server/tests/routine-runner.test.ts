@@ -67,6 +67,7 @@ function harness(options: {
   failures?: number;
   runTurn?: TurnRunner;
   recordActivity?: () => Promise<void>;
+  localeOf?: (userId: string) => Promise<"en" | "el" | null>;
 }) {
   const recorded: Recorded = {
     finished: [],
@@ -133,7 +134,12 @@ function harness(options: {
 
   return {
     recorded,
-    runner: createRoutineRunner({ routineStore, channelStore, runTurn }),
+    runner: createRoutineRunner({
+      routineStore,
+      channelStore,
+      runTurn,
+      ...(options.localeOf ? { localeOf: options.localeOf } : {}),
+    }),
   };
 }
 
@@ -198,6 +204,34 @@ describe("createRoutineRunner", () => {
     );
     expect(recorded.activity[0]?.activity.agentId).toBe(CONTEXT.agentId);
     expect(recorded.enabled).toEqual([]);
+  });
+
+  test("says it in the owner's language, with the reason as it was", async () => {
+    const { runner, recorded } = harness({
+      runTurn: throwingTurn,
+      failures: 1,
+      localeOf: async () => "el",
+    });
+
+    await runner.run(RUN_ID);
+
+    expect(recorded.activity[0]?.activity.text).toBe(
+      "Αυτή η ρουτίνα απέτυχε: the model refused",
+    );
+  });
+
+  test("says it in English when the owner's language cannot be read", async () => {
+    const { runner, recorded } = harness({
+      runTurn: throwingTurn,
+      failures: 1,
+      localeOf: () => Promise.reject(new Error("database down")),
+    });
+
+    await runner.run(RUN_ID);
+
+    expect(recorded.activity[0]?.activity.text).toBe(
+      "This routine failed: the model refused",
+    );
   });
 
   test("says nothing on the second consecutive failure", async () => {

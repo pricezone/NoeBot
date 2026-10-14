@@ -23,12 +23,14 @@
  */
 
 import type { Message } from "@ag-ui/client";
+import type { Locale } from "../../../shared/i18n/locales";
 import { BOT_PAUSED_REASON, isBotPaused } from "../agents/lifecycle";
 import type { AgentActor } from "../agents/profile-types";
 import type { ApprovalContinuation } from "../approvals/types";
 import type { AuditInitiator } from "../audit";
 import type { ChannelStore } from "../channels/routes";
 import { HeadlessToolSuspension } from "../computer/headless-tools";
+import { serverText } from "../i18n/server-text";
 import type { RoutineStore } from "./store";
 
 /** Everything a headless turn needs, injectable so tests never dial a model. */
@@ -95,8 +97,10 @@ export function createRoutineRunner(options: {
   routineStore: RoutineStore;
   channelStore: ChannelStore;
   runTurn: TurnRunner;
+  /** The language the owner's interface speaks, for what is said to them in the channel. */
+  localeOf?: (userId: string) => Promise<Locale | null>;
 }): RoutineRunner {
-  const { routineStore, channelStore, runTurn } = options;
+  const { routineStore, channelStore, runTurn, localeOf } = options;
 
   async function runOnce(routineRunId: string): Promise<void> {
     const context = await routineStore.runContext(routineRunId);
@@ -125,6 +129,10 @@ export function createRoutineRunner(options: {
     const owner: AgentActor = { id: ownerUserId, role: "user" };
 
     /** One activity record, from the routine's Bot, or a logged miss. Never a throw. */
+    // In the owner's language, read only when there is something to say; English if it cannot be.
+    const ownerLocale = () =>
+      localeOf?.(ownerUserId).catch(() => null) ?? Promise.resolve(null);
+
     async function say(text: string): Promise<void> {
       try {
         await channelStore.recordActivity(owner, channelId, {
@@ -209,13 +217,17 @@ export function createRoutineRunner(options: {
         if (failures === 1) {
           // Only the first failure after a success. A routine that fails every night at three has
           // one line in the channel, not one line a night for a month.
-          await say(`This routine failed: ${shorten(reason)}`);
+          await say(
+            serverText(await ownerLocale(), "This routine failed: {{reason}}", {
+              reason: shorten(reason),
+            }),
+          );
         } else if (failures >= FATIGUE_LIMIT) {
           // A dead integration should not burn model spend for ever. Switched off, and said out
           // loud, because a routine that goes quiet without explaining itself is worse than one
           // that fails.
           await routineStore.setEnabled(ownerUserId, routineId, false);
-          await say(SWITCHED_OFF);
+          await say(serverText(await ownerLocale(), SWITCHED_OFF));
         }
         // In between, nothing is said. The run rows carry it, and the routines page reads them.
       } catch (fatigueError) {

@@ -28,9 +28,9 @@ import {
 } from "../db/schema";
 import { DOMAIN_REFUSAL_MESSAGE, emailDomainAllowed } from "./email-domain";
 import { encryptSsoConfig } from "./encrypt-sso-config";
-import { signInHandoff } from "./signin-handoff";
 import { applyConfiguredAdmin, isConfiguredAdmin, seedRole } from "./roles";
 import { recordProvisioned, scimOptions } from "./scim";
+import { signInHandoff } from "./signin-handoff";
 
 /** What a person sees when SSO is required and they tried another way in. */
 /** The native app's custom scheme (mobile/app.config.ts). */

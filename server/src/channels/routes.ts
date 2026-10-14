@@ -22,7 +22,6 @@ import type { AgentActor, AgentProfile } from "../agents/profile-types";
 import { type AuditStore, recordAuditEvent } from "../audit";
 import type { AppVariables } from "../auth/guards";
 import type { Database } from "../db/client";
-import { parsePageLimit } from "../paging";
 import {
   agentProfiles,
   channelAgents,
@@ -32,6 +31,7 @@ import {
   intelligenceChannelMappings,
   sidebarSections,
 } from "../db/schema";
+import { parsePageLimit } from "../paging";
 import {
   CHANNEL_ACTIVITY_TOPIC,
   CHANNEL_WAITING_KINDS,

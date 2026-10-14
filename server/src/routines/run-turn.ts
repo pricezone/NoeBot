@@ -56,9 +56,9 @@ import type {
 } from "@ag-ui/client";
 import { EventType } from "@ag-ui/client";
 import { NOT_SHOWN } from "../../../shared/component-markers";
+import { PUT_TO } from "../../../shared/handoff-markers";
 import { frameFiring } from "../../../shared/routine-firing";
 import { headlessTurnRefusal } from "../admin/controls";
-import { PUT_TO } from "../../../shared/handoff-markers";
 import { ESCALATE_TOOL } from "../agents/escalation";
 import { sanitizeSeededHistory } from "../agents/history-sanitize";
 import { guardBotTurn } from "../agents/lifecycle";

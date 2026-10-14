@@ -6,9 +6,12 @@
  * only their own Bot in their own canonical thread. Everyone else is told how to link, and nothing
  * runs.
  */
+
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { Locale } from "../../../shared/i18n/locales";
 import { type ApprovalDecision, approvalPreview } from "../approvals/types";
+import { serverText } from "../i18n/server-text";
 import {
   ingestSlackEvent,
   type SlackTriggerEvent,
@@ -92,7 +95,16 @@ export type OpenTagAgentDeps = {
   approvals?: PairedApprovals;
   /** Slack trigger ingest; defaults to the responsibilities lane's `ingestSlackEvent`. */
   ingestSlack?: (event: SlackTriggerEvent) => Promise<unknown>;
+  /**
+   * The language a linked owner's interface speaks, for what this surface says in its own words.
+   * A Bot's own reply is passed on as it is; somebody not linked yet is answered in English.
+   */
+  localeOf?(userId: string): Promise<Locale | null>;
 };
+
+/** The owner's language, or English when it cannot be read. */
+const localeFor = async (deps: OpenTagAgentDeps, userId: string) =>
+  (await deps.localeOf?.(userId).catch(() => null)) ?? null;
 
 const LINK =
   /\blink\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i;
@@ -238,11 +250,16 @@ async function answer(
   });
   const bound = await ownedBinding(deps, sender);
   if (!bound) return { text: linkInstructions(sender.transport) };
+  const locale = await localeFor(deps, bound.ownerUserId);
   const answered = await answerOpenQuestion(deps, bound, message.text);
   if (answered) {
     const bot = await deps.store.botIdentity(bound.agentId);
     return {
-      text: `Thanks. I passed your answer to ${bot?.name ?? "your Bot"}; it is continuing and will reply here.`,
+      text: serverText(
+        locale,
+        "Thanks. I passed your answer to {{bot}}; it is continuing and will reply here.",
+        { bot: bot?.name ?? serverText(locale, "your Bot") },
+      ),
     };
   }
 
@@ -260,30 +277,44 @@ async function answer(
   if (result.kind === "unbound")
     return { text: linkInstructions(sender.transport) };
   if (result.kind === "duplicate")
-    return { text: "I already passed that message to your Bot." };
+    return {
+      text: serverText(locale, "I already passed that message to your Bot."),
+    };
   if (result.kind === "failed") return { text: `${result.message}` };
 
-  if (!sender.private) return answerPrivately(deps, result);
+  if (!sender.private) return answerPrivately(deps, result, locale);
 
   const questions = result.extras.questions.map((q) => q.text);
   const approvalId = result.extras.approvals[0];
   const parts = [result.replyText, ...questions].filter(Boolean);
-  if (questions.length) parts.push("Reply here to answer.");
+  if (questions.length) parts.push(serverText(locale, "Reply here to answer."));
   if (approvalId) {
-    const card = await approvalCard(deps, result.binding, approvalId);
+    const card = await approvalCard(deps, result.binding, approvalId, locale);
     if (result.extras.approvals.length > 1)
       parts.push(
-        `${result.extras.approvals.length - 1} more approval request(s) are waiting in your OpenBot approval inbox.`,
+        serverText(
+          locale,
+          "{{count}} more approval request(s) are waiting in your OpenBot approval inbox.",
+          { count: String(result.extras.approvals.length - 1) },
+        ),
       );
     if (card) return { text: parts.join("\n\n"), interrupt: card };
     parts.push(
-      "Your Bot is waiting for an approval. Open your OpenBot approval inbox to review it.",
+      serverText(
+        locale,
+        "Your Bot is waiting for an approval. Open your OpenBot approval inbox to review it.",
+      ),
     );
   } else if (result.kind === "waiting" && !parts.length) {
-    parts.push("Your Bot is waiting for a person. Open OpenBot to continue.");
+    parts.push(
+      serverText(
+        locale,
+        "Your Bot is waiting for a person. Open OpenBot to continue.",
+      ),
+    );
   }
   return {
-    text: parts.join("\n\n") || "Done.",
+    text: parts.join("\n\n") || serverText(locale, "Done."),
     ...(result.components ? { components: result.components } : {}),
   };
 }
@@ -300,6 +331,7 @@ async function answerPrivately(
     Awaited<ReturnType<DeliveryRouter["converse"]>>,
     { extras: unknown }
   >,
+  locale: Locale | null,
 ) {
   const scope = {
     ownerUserId: result.binding.ownerUserId,
@@ -324,12 +356,19 @@ async function answerPrivately(
   for (const approvalId of result.extras.approvals)
     await deps.router.notify(scope, {
       id: approvalId,
-      text: `${bot?.name ?? "Your Bot"} is waiting for your approval. Open your OpenBot approval inbox to review it.`,
+      text: serverText(
+        locale,
+        "{{bot}} is waiting for your approval. Open your OpenBot approval inbox to review it.",
+        { bot: bot?.name ?? serverText(locale, "Your Bot") },
+      ),
       kind: "approval",
       requestId: approvalId,
     });
   return {
-    text: "Other people may be able to read this conversation, so I sent my answer to you directly.",
+    text: serverText(
+      locale,
+      "Other people may be able to read this conversation, so I sent my answer to you directly.",
+    ),
   };
 }
 
@@ -360,6 +399,7 @@ async function link(
     return {
       text: "That link code expired, was already used, or is for another app. Create a new one in OpenBot.",
     };
+  const locale = await localeFor(deps, challenge.ownerUserId);
   const scope = await deps.scopeFor(
     challenge.ownerUserId,
     challenge.channelId,
@@ -371,7 +411,10 @@ async function link(
     !(await deps.store.consumeChallenge(code, challenge.ownerUserId))
   )
     return {
-      text: "That conversation changed. Create a new link code in OpenBot.",
+      text: serverText(
+        locale,
+        "That conversation changed. Create a new link code in OpenBot.",
+      ),
     };
   try {
     await deps.store.bind({
@@ -388,7 +431,11 @@ async function link(
   }
   const bot = await deps.store.botIdentity(scope.agentId);
   return {
-    text: `Linked. Messages you send me here now go to ${bot?.name ?? "your Bot"} in your OpenBot conversation, and its questions and approval requests will reach you here.`,
+    text: serverText(
+      locale,
+      "Linked. Messages you send me here now go to {{bot}} in your OpenBot conversation, and its questions and approval requests will reach you here.",
+      { bot: bot?.name ?? serverText(locale, "your Bot") },
+    ),
   };
 }
 
@@ -396,6 +443,7 @@ async function approvalCard(
   deps: OpenTagAgentDeps,
   binding: DeliveryBinding,
   approvalId: string,
+  locale: Locale | null,
 ) {
   if (!deps.approvals) return null;
   let record: Awaited<ReturnType<PairedApprovals["store"]["get"]>>;
@@ -412,7 +460,7 @@ async function approvalCard(
   const bot = await deps.store.botIdentity(record.action.botId);
   return confirmWriteInterrupt({
     approvalId,
-    action: `${bot?.name ?? "Your Bot"}: ${record.action.toolRef}`,
+    action: `${bot?.name ?? serverText(locale, "Your Bot")}: ${record.action.toolRef}`,
     approver: `${binding.transport}:${binding.identity}`,
     effect: record.action.effect,
     // The approvals preview already redacts secrets and private content.
@@ -444,6 +492,7 @@ async function decideFromCard(
     return {
       text: "You are not linked to this approval's owner, so nothing was decided.",
     };
+  const locale = await localeFor(deps, binding.ownerUserId);
   let record: Awaited<ReturnType<PairedApprovals["store"]["get"]>>;
   try {
     record = await deps.approvals.store.get(
@@ -452,16 +501,25 @@ async function decideFromCard(
     );
   } catch {
     return {
-      text: "That approval is not yours or no longer exists, so nothing was decided.",
+      text: serverText(
+        locale,
+        "That approval is not yours or no longer exists, so nothing was decided.",
+      ),
     };
   }
   if (record.action.threadId !== binding.threadId)
     return {
-      text: "That approval belongs to another conversation, so nothing was decided.",
+      text: serverText(
+        locale,
+        "That approval belongs to another conversation, so nothing was decided.",
+      ),
     };
   if (record.status !== "pending")
     return {
-      text: "That approval was already decided. Check its result in OpenBot.",
+      text: serverText(
+        locale,
+        "That approval was already decided. Check its result in OpenBot.",
+      ),
     };
   const decision: ApprovalDecision = !resume.confirmed
     ? "deny"
@@ -470,12 +528,21 @@ async function decideFromCard(
       : "allow_once";
   await deps.approvals.decide(binding.ownerUserId, resume.approvalId, decision);
   const bot = await deps.store.botIdentity(record.action.botId);
-  const name = bot?.name ?? "Your Bot";
+  const name = bot?.name ?? serverText(locale, "Your Bot");
   return {
     text:
       decision === "deny"
-        ? `Denied. ${name} will not run ${record.action.toolRef}.`
-        : `${decision === "allow_always" ? "Always allowed" : "Allowed once"}. ${name} is continuing and will send its result here.`,
+        ? serverText(locale, "Denied. {{name}} will not run {{tool}}.", {
+            name,
+            tool: record.action.toolRef,
+          })
+        : serverText(
+            locale,
+            decision === "allow_always"
+              ? "Always allowed. {{name}} is continuing and will send its result here."
+              : "Allowed once. {{name}} is continuing and will send its result here.",
+            { name },
+          ),
   };
 }
 

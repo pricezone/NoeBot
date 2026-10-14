@@ -1,3 +1,4 @@
+import type { Locale } from "../../../shared/i18n/locales";
 import { resolveUpdateRoute, type UpdateRoute } from "../agents/lifecycle";
 import type { DrawnComponent } from "../routines/runner";
 import type { WorkItem, WorkQueue } from "../work/queue";
@@ -78,6 +79,8 @@ export function createDeliveryRouter(deps: {
     components?: DrawnComponent[];
     waiting?: boolean;
   }>;
+  /** The language a person's interface speaks, for what a transport adds in its own words. */
+  localeOf?(userId: string): Promise<Locale | null>;
   providers: {
     /** Slack and Teams both reach people through the OpenTag pairing's proactive delivery. */
     slack?: TextTransport;
@@ -511,12 +514,18 @@ export function createDeliveryRouter(deps: {
           row.transport === "sms"
             ? undefined
             : ((await deps.store.botIdentity(row.agentId)) ?? undefined);
+        const locale =
+          row.transport === "sms"
+            ? ((await deps.localeOf?.(row.ownerUserId).catch(() => null)) ??
+              null)
+            : null;
         result = await provider.send({
           id: row.id,
           address: binding.address,
           text: row.text,
           transport: row.transport,
           ...(sender ? { sender } : {}),
+          ...(locale ? { locale } : {}),
         });
       }
       if (!(await owns())) return;

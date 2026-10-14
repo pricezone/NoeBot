@@ -7,6 +7,7 @@ import { type AuditStore, recordAuditEvent } from "../audit";
 import type { ActionActor, ComputerGateway } from "../computer/gateway";
 import type { SignInFillResult } from "../computer/schema";
 import { decryptSecret, encryptSecret } from "../credentials";
+import { sameSite } from "./site";
 import {
   originOf,
   type PasswordStore,
@@ -17,7 +18,6 @@ import {
   type SignInRequestView,
   type SignInStatus,
 } from "./types";
-import { sameSite } from "./site";
 
 /**
  * The private sign-in request and the Passwords vault.

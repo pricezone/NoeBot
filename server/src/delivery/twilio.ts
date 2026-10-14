@@ -1,4 +1,6 @@
 import { validateRequest } from "twilio";
+import type { Locale } from "../../../shared/i18n/locales";
+import { serverText } from "../i18n/server-text";
 import {
   DeliveryProviderError,
   type ProviderFetch,
@@ -94,10 +96,12 @@ export function createTwilioTransport(config: TwilioConfig) {
   const verifyUrl = `https://verify.twilio.com/v2/Services/${encodeURIComponent(config.verifyServiceSid)}`;
   return {
     config,
-    async startVerification(phone: string) {
+    async startVerification(phone: string, locale?: Locale | null) {
       const result = await post(`${verifyUrl}/Verifications`, {
         To: phone,
         Channel: "sms",
+        // The code's own sentence in the person's language; Twilio's default is English.
+        ...(locale && locale !== "en" ? { Locale: locale } : {}),
       });
       if (result.status !== "pending")
         throw new DeliveryProviderError("Twilio", "verification_not_pending");
@@ -109,7 +113,12 @@ export function createTwilioTransport(config: TwilioConfig) {
       });
       return result.status === "approved" && result.to === phone;
     },
-    async send(input: { id: string; address: string; text: string }) {
+    async send(input: {
+      id: string;
+      address: string;
+      text: string;
+      locale?: Locale | null;
+    }) {
       const result = await post(
         `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.accountSid)}/Messages.json`,
         {
@@ -118,7 +127,7 @@ export function createTwilioTransport(config: TwilioConfig) {
           Body:
             input.text.length <= 1500
               ? input.text
-              : `${input.text.slice(0, 1400)}…\nOpen OpenBot to read the full message.`,
+              : `${input.text.slice(0, 1400)}…\n${serverText(input.locale, "Open OpenBot to read the full message.")}`,
           ...(config.statusUrl ? { StatusCallback: config.statusUrl } : {}),
         },
       );

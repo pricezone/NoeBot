@@ -14,6 +14,8 @@
  * lets the Bot's second turn — the person's answer — still read what it was asked to do with it.
  */
 
+import type { Locale } from "./i18n/locales";
+
 /** What the Bot says first, word for word. */
 export const FIRST_TURN_GREETING =
   "Hi! I'm New Bot, and I'm glad to be here. I'd love to figure out where I can actually take something off your plate.";
@@ -30,6 +32,43 @@ export const FIRST_TURN_OPTIONS = [
 ] as const;
 
 /**
+ * What the person reads, in the language their interface speaks: the new Bot's name and title, its
+ * greeting, the question and its answers. The frame around them stays English, because the model
+ * reads it; only the words the person sees change.
+ */
+export const FIRST_TURN_COPY: Record<
+  Locale,
+  {
+    name: string;
+    title: string;
+    greeting: string;
+    question: string;
+    options: readonly string[];
+  }
+> = {
+  en: {
+    name: "New Bot",
+    title: "General assistant",
+    greeting: FIRST_TURN_GREETING,
+    question: FIRST_TURN_QUESTION,
+    options: FIRST_TURN_OPTIONS,
+  },
+  el: {
+    name: "Νέος Bot",
+    title: "Γενικός βοηθός",
+    greeting:
+      "Γεια! Είμαι ο Νέος Bot και χαίρομαι που είμαι εδώ. Θα ήθελα πολύ να βρω πού μπορώ πραγματικά να σου ξαλαφρώσω το πρόγραμμα.",
+    question: "Σε τι θέλεις κυρίως βοήθεια;",
+    options: [
+      "Έρευνα και γραφή",
+      "Κώδικας και GitHub",
+      "Εργασίες στο web και θελήματα",
+      "Επαναλαμβανόμενοι έλεγχοι και υπενθυμίσεις",
+    ],
+  },
+};
+
+/**
  * The first line, and the whole of what {@link isFirstTurn} matches. A sentence nobody would type
  * into a conversation with a Bot that already exists, so a person quoting the rest of the frame is
  * not mistaken for it.
@@ -37,16 +76,20 @@ export const FIRST_TURN_OPTIONS = [
 const OPENING =
   "You were created a moment ago, and this conversation has only just been opened: nobody has said anything yet, so you speak first.";
 
-/** The frame, as the model reads it. */
-export function frameFirstTurn(): string {
-  const options = FIRST_TURN_OPTIONS.map((option) => `"${option}"`).join(", ");
+/**
+ * The frame, as the model reads it, with the words the person sees in their language. English is
+ * the frame exactly as it always was.
+ */
+export function frameFirstTurn(locale: Locale = "en"): string {
+  const copy = FIRST_TURN_COPY[locale];
+  const options = copy.options.map((option) => `"${option}"`).join(", ");
   return [
     OPENING,
     "This message is from the deployment, not from the person, and they will not see it.",
     "",
-    `1. Send exactly this message, word for word and with nothing added: "${FIRST_TURN_GREETING}"`,
-    `2. Then call ask_person with the question "${FIRST_TURN_QUESTION}" and these options, in this order: ${options}. The person sees the question with its options and can also type their own answer, so do not write the question or the options out yourself, and say nothing after the call.`,
-    "3. When they answer, whether by picking an option or in their own words, help with that straight away. In the same reply, suggest a short name and a one-line role that would suit you for it. They rename you and change your role themselves, in your profile; you cannot do it for them, so never say that you have.",
+    `1. Send exactly this message, word for word and with nothing added: "${copy.greeting}"`,
+    `2. Then call ask_person with the question "${copy.question}" and these options, in this order: ${options}. The person sees the question with its options and can also type their own answer, so do not write the question or the options out yourself, and say nothing after the call.`,
+    `3. When they answer, whether by picking an option or in their own words, help with that straight away. In the same reply, suggest a short name and a one-line role that would suit you for it.${locale === "el" ? " Write it all in Greek, unless they answer in another language." : ""} They rename you and change your role themselves, in your profile; you cannot do it for them, so never say that you have.`,
     "",
     "These instructions are for the start of this conversation only. Once you have answered their first reply, carry on as your role describes.",
   ].join("\n");

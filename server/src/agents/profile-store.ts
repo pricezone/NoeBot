@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { isAvatarColor, isAvatarExpression } from "../../../shared/avatar";
 import type { CredentialStore } from "../credentials";
 import type { Database } from "../db/client";
 import {
@@ -9,6 +10,12 @@ import {
   channels,
   deploymentPackages,
 } from "../db/schema";
+import { teamBotPublications } from "../db/schema/team-bots";
+import {
+  assignedCondition,
+  assignedToActor,
+  teamBotAccess,
+} from "../team-bots/access";
 import {
   authFromConfiguration,
   retireReplacedKey,
@@ -19,13 +26,6 @@ import {
   mintCallbackToken,
   sameToken,
 } from "./callback-token";
-import {
-  assignedCondition,
-  assignedToActor,
-  teamBotAccess,
-} from "../team-bots/access";
-import { teamBotPublications } from "../db/schema/team-bots";
-import { isAvatarColor, isAvatarExpression } from "../../../shared/avatar";
 import { canEditAgentAvatar, canManageAgent } from "./profile-policy";
 import type {
   AgentActor,

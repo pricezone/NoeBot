@@ -1,21 +1,22 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
-import type { AuditEventType, AuditStore } from "../audit";
-import { recordAuditEvent } from "../audit";
-import type { AppVariables } from "../auth/guards";
 import {
   AVATAR_COLORS,
   isAvatarColor,
   isAvatarExpression,
 } from "../../../shared/avatar";
+import type { Locale } from "../../../shared/i18n/locales";
+import type { AuditEventType, AuditStore } from "../audit";
+import { recordAuditEvent } from "../audit";
+import type { AppVariables } from "../auth/guards";
 import { type AgentChannel, channelDto } from "../channels/routes";
 import { testAgentConnection } from "./connection-test";
 import { checkAgentEndpoint } from "./endpoint";
-import { type FirstTurnStarter, NEW_BOT } from "./first-turn";
+import { type FirstTurnStarter, newBotFor } from "./first-turn";
 import { canEditAgentAvatar, canManageAgent } from "./profile-policy";
 import {
-  AgentNotFoundError,
   AgentAssignedError,
+  AgentNotFoundError,
   AgentNotManageableError,
   type AgentProfileStore,
   ManagedAgentUnavailableError,
@@ -374,6 +375,8 @@ export function createAgentRoutes(
     /** The person's own conversation with the new Bot. */
     openChannel: (actor: AgentActor, agentId: string) => Promise<AgentChannel>;
     startFirstTurn?: FirstTurnStarter;
+    /** The language the person's interface speaks, which the Bot is named and greets in. */
+    localeOf?: (actor: AgentActor) => Promise<Locale | null>;
   },
 ) {
   /** The dto with the one fact only this closure knows: whether the coworker runs on our own Bot. */
@@ -575,21 +578,24 @@ export function createAgentRoutes(
     }
     const actor = context.var.actor;
     try {
+      // A failed read names and greets in English, never fails the create.
+      const locale = (await quick.localeOf?.(actor).catch(() => null)) ?? null;
+      const bot = newBotFor(locale);
       // Built in, like a Bot from the form with no endpoint, so the role is what it runs on.
       const agent = await store.create(actor, {
-        ...NEW_BOT,
-        systemPrompt: NEW_BOT.roleDescription,
+        ...bot,
+        systemPrompt: bot.roleDescription,
       });
       await record(context, "bot.created", agent.id, {
-        name: NEW_BOT.name,
-        visibility: NEW_BOT.visibility,
+        name: bot.name,
+        visibility: bot.visibility,
         hasKey: false,
         quick: true,
       });
       const channel = await quick.openChannel(actor, agent.id);
       if (quick.startFirstTurn) {
         void quick
-          .startFirstTurn({ actor, agentId: agent.id, channel })
+          .startFirstTurn({ actor, agentId: agent.id, channel, locale })
           .catch(() => undefined);
       }
       return context.json(

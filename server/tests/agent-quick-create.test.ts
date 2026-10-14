@@ -161,7 +161,43 @@ describe("POST /api/agents with quick", () => {
     ]);
     expect(opened).toEqual([[actor, "agent_new"]]);
     expect(started).toEqual([
-      { actor, agentId: "agent_new", channel: CHANNEL },
+      { actor, agentId: "agent_new", channel: CHANNEL, locale: null },
+    ]);
+  });
+
+  test("a person whose interface is Greek gets a Bot named and greeting in Greek", async () => {
+    const started: Parameters<FirstTurnStarter>[0][] = [];
+    const { app, created } = appWith({
+      openChannel: async () => CHANNEL,
+      startFirstTurn: (input) => {
+        started.push(input);
+        return Promise.resolve();
+      },
+      localeOf: async () => "el",
+    });
+
+    expect((await post(app, { quick: true })).status).toBe(201);
+    // The name and title the person reads are Greek; the role the model reads is not.
+    expect(created).toEqual([
+      {
+        ...NEW_BOT,
+        name: "Νέος Bot",
+        title: "Γενικός βοηθός",
+        systemPrompt: NEW_BOT.roleDescription,
+      },
+    ]);
+    expect(started[0]?.locale).toBe("el");
+  });
+
+  test("a language that cannot be read names the Bot in English", async () => {
+    const { app, created } = appWith({
+      openChannel: async () => CHANNEL,
+      localeOf: () => Promise.reject(new Error("database down")),
+    });
+
+    expect((await post(app, { quick: true })).status).toBe(201);
+    expect(created).toEqual([
+      { ...NEW_BOT, systemPrompt: NEW_BOT.roleDescription },
     ]);
   });
 

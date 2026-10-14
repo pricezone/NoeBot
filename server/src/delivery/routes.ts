@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
+import type { Locale } from "../../../shared/i18n/locales";
 import type { AppVariables } from "../auth/guards";
 import { createOpenTagTransport, type OpenTagTransport } from "./opentag";
 import {
@@ -86,6 +87,8 @@ export function createDeliveryRoutes(deps: {
   /** The OpenTag pairing. Named `slack` for the existing assembly; it serves Slack and Teams. */
   slack?: OpenTagTransport;
   twilio?: TwilioTransport;
+  /** The language a person's interface speaks, which the verification code is sent in. */
+  localeOf?: (userId: string) => Promise<Locale | null>;
   pushProjectId?: string;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
@@ -148,7 +151,10 @@ export function createDeliveryRoutes(deps: {
       .extend({ phone: z.string().regex(/^\+[1-9]\d{7,14}$/) })
       .parse(await c.req.json());
     const scope = await ownedScope(deps.scopeFor, c.var.actor.id, target);
-    await deps.twilio.startVerification(target.phone);
+    await deps.twilio.startVerification(
+      target.phone,
+      (await deps.localeOf?.(c.var.actor.id).catch(() => null)) ?? null,
+    );
     return c.json({
       challengeId: await deps.store.challenge(scope, "sms", target.phone),
     });
@@ -279,6 +285,8 @@ export function createDeliveryWebhookRoutes(deps: {
   twilio?: TwilioTransport;
   /** Lets a Slack/Teams card decide an approval and a chat reply answer a Bot's question. */
   approvals?: PairedApprovals;
+  /** The language a linked owner's interface speaks, for what Slack and Teams are told. */
+  localeOf?: (userId: string) => Promise<Locale | null>;
   /** Test seam; production uses the responsibilities lane's `ingestSlackEvent`. */
   ingestSlack?: OpenTagAgentDeps["ingestSlack"];
 }) {
@@ -303,6 +311,7 @@ export function createDeliveryWebhookRoutes(deps: {
           scopeFor: deps.scopeFor,
           ...(deps.approvals ? { approvals: deps.approvals } : {}),
           ...(deps.ingestSlack ? { ingestSlack: deps.ingestSlack } : {}),
+          ...(deps.localeOf ? { localeOf: deps.localeOf } : {}),
         },
         c.req.raw,
       ),

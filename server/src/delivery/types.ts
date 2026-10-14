@@ -1,3 +1,5 @@
+import type { Locale } from "../../../shared/i18n/locales";
+
 export type DeliveryScope = {
   ownerUserId: string;
   channelId: string;
@@ -74,6 +76,8 @@ export type TextTransport = {
     text: string;
     transport?: BindingTransport;
     sender?: DeliverySender;
+    /** The recipient's interface language, for anything the transport adds in its own words. */
+    locale?: Locale | null;
   }): Promise<{ id: string; status: "queued" | "sent" }>;
 };
 export class DeliveryRefusedError extends Error {

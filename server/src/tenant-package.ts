@@ -15,8 +15,6 @@ import {
   TEMPLATE_CATEGORIES,
   type TemplateCategory,
 } from "../../shared/templates";
-import { catalogueEntry } from "./plugins/catalogue";
-import { pluginIndexEntry } from "./plugins/plugin-index";
 import { DEPLOYMENT_ROUTES } from "./computer/deployment-routes";
 import type { Database } from "./db/client";
 import {
@@ -29,6 +27,8 @@ import {
   skills as skillTable,
   skillTools,
 } from "./db/schema";
+import { catalogueEntry } from "./plugins/catalogue";
+import { pluginIndexEntry } from "./plugins/plugin-index";
 
 const approvedThemeVariables = new Set([
   "--background",

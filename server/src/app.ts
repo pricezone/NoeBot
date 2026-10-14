@@ -86,6 +86,7 @@ import { createTranscriptionProvider } from "./dictation/provider";
 import { createDictationRoutes } from "./dictation/routes";
 import type { HostAccessBroker } from "./host-access/broker";
 import { createHostAccessRoutes } from "./host-access/routes";
+import { interfaceLocaleOf } from "./i18n/bot-language";
 import { deploymentLocales } from "./i18n/deployment-locale";
 import { createIntelligenceClient } from "./intelligence-client";
 import {
@@ -1418,6 +1419,11 @@ export function createApp(
               ...(coworker?.firstTurn
                 ? { startFirstTurn: coworker.firstTurn }
                 : {}),
+              localeOf: (actor) =>
+                interfaceLocaleOf(
+                  () =>
+                    userPreferences?.locale(actor.id) ?? Promise.resolve(null),
+                ),
             }
           : undefined,
       ),
