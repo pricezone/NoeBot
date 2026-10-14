@@ -13,7 +13,13 @@ import {
 import type { MobileLinkedInput } from "../src/auth/signin-handoff";
 import type { DeploymentConfig } from "../src/config";
 import { createDatabase } from "../src/db/client";
-import { mobileDevices, sessions, users } from "../src/db/schema";
+import {
+  agents,
+  mobileDevices,
+  pushDevices,
+  sessions,
+  users,
+} from "../src/db/schema";
 import { createMobileRoutes } from "../src/mobile/routes";
 import { createMobileDeviceStore } from "../src/mobile/store";
 import { TEST_POOL, testDatabaseUrl } from "./support/database";
@@ -30,10 +36,13 @@ const database = createDatabase(testDatabaseUrl(), TEST_POOL);
 const handoffSecret = "h".repeat(48);
 const deploymentId = "abcdefghijkl";
 const created: string[] = [];
+const pairedBots: string[] = [];
 
 afterAll(async () => {
   for (const email of created)
     await database.delete(users).where(eq(users.email, email));
+  for (const botId of pairedBots)
+    await database.delete(agents).where(eq(agents.id, botId));
   await database.$client.end({ timeout: 5 });
 });
 
@@ -98,12 +107,17 @@ function setup(
   const link = (
     token: string,
     device = { name: "Pixel 9", platform: "android" },
+    previousDeviceId?: string,
   ) =>
     auth.handler(
       new Request(`${base}/api/auth/signin-handoff/mobile`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, device }),
+        body: JSON.stringify({
+          token,
+          device,
+          ...(previousDeviceId ? { previousDeviceId } : {}),
+        }),
       }),
     );
   const session = (cookie: string) =>
@@ -296,40 +310,127 @@ describe("/api/mobile/devices", () => {
     expect(after.status).toBe(401);
   });
 
-  test("the same phone linking again after its day keeps its row", async () => {
-    const { email, link } = setup();
+  test("linking again with its own id keeps the phone's row, its push and its pairing, and signs the old session out", async () => {
+    const { email, link, session } = setup();
     const first = (await (
       await link(mint(email))
     ).json()) as MobileLinkResponse;
-    // Its day is over: the session expired.
+    // The person paired this phone's Clicky with a computer and let it notify them.
+    const botId = `pairing-bot-${randomUUID()}`;
+    const pushId = randomUUID();
+    await database.insert(agents).values({
+      id: botId,
+      name: "Paired",
+      type: "built_in",
+      configuration: {},
+    });
+    pairedBots.push(botId);
+    await database.insert(pushDevices).values({
+      id: pushId,
+      ownerUserId: first.user.id,
+      token: `ExponentPushToken[${randomUUID()}]`,
+      projectId: randomUUID(),
+      platform: "android",
+    });
+    await database
+      .update(mobileDevices)
+      .set({ clickyBotId: botId, pushDeviceId: pushId })
+      .where(eq(mobileDevices.id, first.deviceId));
+
+    const second = (await (
+      await link(
+        mint(email),
+        { name: "Pixel 9 Pro", platform: "android" },
+        first.deviceId,
+      )
+    ).json()) as MobileLinkResponse;
+    expect(second.deviceId).toBe(first.deviceId);
+    expect(await session(first.cookie)).toBeNull();
+    const signedIn = await session(second.cookie);
+    expect(signedIn?.user.id).toBe(first.user.id);
+    const [row] = await database
+      .select()
+      .from(mobileDevices)
+      .where(eq(mobileDevices.id, first.deviceId));
+    expect(row).toMatchObject({
+      name: "Pixel 9 Pro",
+      platform: "android",
+      clickyBotId: botId,
+      pushDeviceId: pushId,
+      sessionId: signedIn?.session.id,
+      revokedAt: null,
+    });
+  });
+
+  test("an id that is not this person's phone, or a revoked one, is ignored: the phone is new", async () => {
+    const owner = setup();
+    const owned = (await (
+      await owner.link(mint(owner.email))
+    ).json()) as MobileLinkResponse;
+    // Somebody else's phone id: a new row for them, and the owner's phone untouched.
+    const stranger = setup();
+    const theirs = await stranger.link(
+      mint(stranger.email),
+      { name: "Pixel 9", platform: "android" },
+      owned.deviceId,
+    );
+    expect(theirs.status).toBe(200);
+    const strangers = (await theirs.json()) as MobileLinkResponse;
+    expect(strangers.deviceId).not.toBe(owned.deviceId);
+    expect((await owner.session(owned.cookie))?.user.id).toBe(owned.user.id);
+    // An id that names nothing at all answers exactly the same way.
+    const unknown = (await (
+      await owner.link(
+        mint(owner.email),
+        { name: "Pixel 9", platform: "android" },
+        randomUUID(),
+      )
+    ).json()) as MobileLinkResponse;
+    expect(unknown.deviceId).not.toBe(owned.deviceId);
+    expect((await owner.session(owned.cookie))?.user.id).toBe(owned.user.id);
+    // A revoked phone stays revoked; linking with its id is a new phone.
+    await owner.store.revoke(owned.user.id, owned.deviceId);
+    const after = (await (
+      await owner.link(
+        mint(owner.email),
+        { name: "Pixel 9", platform: "android" },
+        owned.deviceId,
+      )
+    ).json()) as MobileLinkResponse;
+    expect(after.deviceId).not.toBe(owned.deviceId);
+    const [revoked] = await database
+      .select({ revokedAt: mobileDevices.revokedAt })
+      .from(mobileDevices)
+      .where(eq(mobileDevices.id, owned.deviceId));
+    expect(revoked?.revokedAt).not.toBeNull();
+  });
+
+  test("two phones of the same model are two phones, both signed in", async () => {
+    const { email, link, session } = setup();
+    const iphone = { name: "iPhone", platform: "ios" };
+    const first = (await (
+      await link(mint(email), iphone)
+    ).json()) as MobileLinkResponse;
+    const second = (await (
+      await link(mint(email), iphone)
+    ).json()) as MobileLinkResponse;
+    expect(second.deviceId).not.toBe(first.deviceId);
+    expect((await session(first.cookie))?.user.id).toBe(first.user.id);
+    expect((await session(second.cookie))?.user.id).toBe(first.user.id);
+    // Even once the first one's day is over, the second is never merged into it.
     await database
       .update(sessions)
       .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(
-        eq(
-          sessions.id,
-          (
-            await database
-              .select({ sessionId: mobileDevices.sessionId })
-              .from(mobileDevices)
-              .where(eq(mobileDevices.id, first.deviceId))
-          )[0]?.sessionId ?? "",
-        ),
-      );
-    const second = (await (
-      await link(mint(email))
-    ).json()) as MobileLinkResponse;
-    expect(second.deviceId).toBe(first.deviceId);
-    // A second phone still signed in is a second row.
+      .where(eq(sessions.userId, first.user.id));
     const third = (await (
-      await link(mint(email))
+      await link(mint(email), iphone)
     ).json()) as MobileLinkResponse;
-    expect(third.deviceId).not.toBe(first.deviceId);
+    expect([first.deviceId, second.deviceId]).not.toContain(third.deviceId);
     const rows = await database
       .select({ id: mobileDevices.id })
       .from(mobileDevices)
       .innerJoin(users, eq(users.id, mobileDevices.userId))
       .where(and(eq(users.email, email), isNotNull(mobileDevices.sessionId)));
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
   });
 });

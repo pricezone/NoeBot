@@ -163,8 +163,9 @@ export function createClickyService(deps: {
   /** Sessions awake here, for the clock; what each was doing, for the person's clicks. */
   const awake = new Map<Key, { userId: string; botId: string }>();
   const lastState = new Map<Key, ClickySession["state"]>();
-  /** The last snapshot's seq per session, which `reply.delta` is stamped with. */
+  /** The last snapshot's seq and model call per session, which `reply.delta` is stamped with. */
   const lastSeq = new Map<Key, number>();
+  const lastThinkId = new Map<Key, string | null>();
   /** When the person last touched each screen. */
   const lastInput = new Map<Key, number>();
   const thinking = new Map<Key, AbortController>();
@@ -179,6 +180,7 @@ export function createClickyService(deps: {
     const key = keyOf(userId, botId);
     lastState.set(key, session.state);
     lastSeq.set(key, session.seq);
+    lastThinkId.set(key, session.thinkId);
     if (session.awake) awake.set(key, { userId, botId });
     else awake.delete(key);
   };
@@ -347,8 +349,21 @@ export function createClickyService(deps: {
         ...(effect.text ? { text: effect.text } : {}),
         preferences,
         signal: controller.signal,
-        onDelta: (text) =>
-          deps.hub.delta(userId, botId, lastSeq.get(key) ?? session.seq, text),
+        /*
+         * Stamped with the seq of the snapshot the screens now hold, which is in state "thinking"
+         * for this same call: usually the one that started it, or a later one that kept thinking
+         * (Clicky's first pointer on activation). Once the session has moved on (an answer, Stop,
+         * a new question), what is still arriving belongs to nothing and is not sent.
+         */
+        onDelta: (text) => {
+          if (
+            controller.signal.aborted ||
+            lastState.get(key) !== "thinking" ||
+            lastThinkId.get(key) !== effect.thinkId
+          )
+            return;
+          deps.hub.delta(userId, botId, lastSeq.get(key) ?? session.seq, text);
+        },
         ...(screen ? { screen } : {}),
       });
       if (controller.signal.aborted) return;

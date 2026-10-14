@@ -182,6 +182,82 @@ describe("the events socket", () => {
   });
 });
 
+describe("reply.delta", () => {
+  test("carries the seq of the thinking snapshot it belongs to, and nothing after the answer", async () => {
+    const store = createInMemoryClickyStore();
+    const hub = createClickyHub({ load: (u, b) => store.load(u, b) });
+    let late: ((text: string) => void) | undefined;
+    const service = createClickyService({
+      store,
+      hub,
+      preferences,
+      gateway: {
+        ...gateway,
+        elements: async () => ({
+          screen: { width: 1000, height: 1000 },
+          mode: "page" as const,
+          url: "https://bank.example/",
+          elements: [
+            {
+              ref: "e3",
+              role: "button",
+              name: "Continue",
+              rect: { x: 100, y: 100, width: 100, height: 100 },
+              sensitive: false,
+              focused: false,
+            },
+          ],
+        }),
+      },
+      brain: {
+        async think(input) {
+          input.onDelta("Press ");
+          input.onDelta("Continue.");
+          late = input.onDelta;
+          return {
+            type: "brain.reply",
+            thinkId: input.thinkId,
+            say: "Press Continue.",
+          };
+        },
+      },
+    });
+    const seen: ClickyServerEvent[] = [];
+    hub.subscribe("user-1", "bot-1", (event) => seen.push(event));
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: {
+        type: "activate",
+        trigger: { kind: "takeover", requestId: "r1", targetRef: "e3" },
+      },
+    });
+    await until(() =>
+      seen.some(
+        (event) =>
+          event.type === "snapshot" && event.session.state !== "thinking",
+      ),
+    );
+    late?.("too late");
+    await Bun.sleep(20);
+    const deltas = seen.filter((event) => event.type === "reply.delta");
+    expect(
+      deltas.map((event) => event.type === "reply.delta" && event.text),
+    ).toEqual(["Press ", "Continue."]);
+    // Clicky pointed at e3 first (a second thinking snapshot); the words belong to that one.
+    const thinking = seen.flatMap((event) =>
+      event.type === "snapshot" && event.session.state === "thinking"
+        ? [event.session]
+        : [],
+    );
+    expect(thinking.map((session) => session.seq)).toEqual([1, 2]);
+    expect(
+      thinking[1]?.overlays.some((overlay) => overlay.kind === "pointer"),
+    ).toBe(true);
+    for (const delta of deltas)
+      expect(delta.type === "reply.delta" && delta.seq).toBe(2);
+  });
+});
+
 describe("compare-and-set", () => {
   test("a write that lost the race is reduced again on the winner", async () => {
     const memory = createInMemoryClickyStore();

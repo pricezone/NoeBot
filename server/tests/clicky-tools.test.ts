@@ -9,6 +9,8 @@ import {
   createHeadlessComputerTools,
   HeadlessToolSuspension,
 } from "../src/computer/headless-tools";
+import type { PolicyStore } from "../src/computer/policy-store";
+import { createComputerRoutes } from "../src/computer/routes";
 
 /*
  * The Bot's side of Clicky on the server: `computer_guide_person` is offered only where Clicky is on,
@@ -133,5 +135,49 @@ describe("computer_request_help with point_at", () => {
       help?.execute({ reason: "x", point_at: "not a ref!" }, call) ??
         Promise.resolve(),
     ).rejects.toThrow();
+  });
+});
+
+describe("GET /:botId/desktop/screenshot?width=", () => {
+  test("asks the computer for a smaller picture and answers its shape unchanged", async () => {
+    const asked: unknown[] = [];
+    const shot = {
+      base64: "/9j/AA==",
+      width: 1440,
+      height: 900,
+      capturedAt: "2026-10-14T00:00:00.000Z",
+      format: "jpeg",
+    };
+    const routes = createComputerRoutes(
+      {
+        desktopScreenshot: async (_botId: string, options?: unknown) => {
+          asked.push(options);
+          return shot;
+        },
+      } as unknown as ComputerGateway,
+      {} as PolicyStore,
+      async (_context, next) => next(),
+      async () => true,
+    );
+    for (const query of [
+      "?width=720",
+      "?width=40",
+      "?width=99999",
+      "?width=abc",
+      "",
+    ]) {
+      const response = await routes.request(
+        `http://openbot.test/bot-1/desktop/screenshot${query}`,
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual(shot);
+    }
+    expect(asked).toEqual([
+      { width: 720 },
+      { width: 160 },
+      { width: 1440 },
+      undefined,
+      undefined,
+    ]);
   });
 });
