@@ -50,6 +50,8 @@ const COMPUTER_GUIDANCE_LINES = [
   "fields. Calling it is how you ask: a sentence in your answer hands nothing over. If a request lapses",
   "because nobody took over, do not ask again in the same turn: say what you need and stop. On 'A",
   "person has control', wait until it is handed back.",
+  "Before asking the person to act on your screen, show them where: computer_request_help with",
+  "point_at (the ref they should use first), or computer_guide_person for help in several steps.",
   "",
   "When asked to issue, submit, apply for or file something an online service provides (an official",
   "declaration, a certificate, a tax or benefit form, a booking), find that service and do it there",

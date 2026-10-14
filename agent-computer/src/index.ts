@@ -2250,6 +2250,12 @@ async function performHumanInput(
     throw new Error(parsed.error);
   }
   const deltaY = parsed.deltaY ?? 400;
+  // A wheel turns whatever is under the pointer: with a point, the pointer goes there first, so an
+  // inner panel scrolls rather than the page around it.
+  if (typeof body.x === "number" && typeof body.y === "number") {
+    const { x, y } = at();
+    await target.mouse.move(x, y);
+  }
   await target.mouse.wheel(0, deltaY);
   return { action: "human_scroll", deltaY, url: target.url() };
 }
