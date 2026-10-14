@@ -14,7 +14,7 @@ mod test_support;
 use openbot_desktop_lib::{
     acquire, deployment, deployment_release, engine, env as openbot_env, harness, host_access,
     install, preparation, problem::Problem, provider, pull_metrics, quiet, stack, supervise,
-    telemetry, tray, windows as win,
+    telemetry, tray, ui_locale, windows as win,
 };
 
 const QUIT_CLEANUP_NOTICE_FILE: &str = ".openbot-quit-cleanup-notice";
@@ -3737,6 +3737,100 @@ fn chose(app: &tauri::AppHandle, item: &str) {
     }
 }
 
+/// The tray menu and the window menu, in `locale`.
+///
+/// Built at start and again whenever the window's language changes: the items hold nothing but
+/// their words, and their ids route to the same `chose` either way.
+fn build_menus<R: tauri::Runtime, M: Manager<R>>(
+    app: &M,
+    locale: ui_locale::UiLocale,
+) -> tauri::Result<(tauri::menu::Menu<R>, tauri::menu::Menu<R>)> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+    let text = |id: &str| ui_locale::menu_text(locale, id);
+
+    let open = MenuItem::with_id(app, "open", text("open"), true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop", text("stop"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", text("quit"), true, quit_menu_accelerator())?;
+    let tray_menu = Menu::with_items(app, &[&open, &stop, &quit])?;
+
+    // The same three items on the window itself, because the tray cannot be relied on and
+    // Stop lives nowhere else.
+    //
+    // Linux needs a tray host to draw the icon, and Windows can place it in overflow.
+    // The tray library restores the Windows icon after Explorer restarts, but the window
+    // menu still provides access when the tray is unavailable or hard to find.
+    // Its own items, not the tray's: a menu item belongs to one menu, and the two menus
+    // outlive each other. The ids match so both arrive at the same function.
+    let window_open = MenuItem::with_id(app, "open", text("open"), true, None::<&str>)?;
+    let window_stop = MenuItem::with_id(app, "stop", text("stop"), true, None::<&str>)?;
+    let window_quit = MenuItem::with_id(app, "quit", text("quit"), true, quit_menu_accelerator())?;
+    // A submenu, because a top-level entry in a menu bar has to be one to open at all.
+    let openbot = Submenu::with_items(
+        app,
+        "OpenBot",
+        true,
+        &[&window_open, &window_stop, &window_quit],
+    )?;
+    /*
+     * AN EDIT MENU, WITHOUT WHICH COMMAND-V DOES NOTHING.
+     *
+     * MEASURED, on the screen that asks for a paste. macOS routes the clipboard shortcuts
+     * through the menu bar, so a window with no Edit menu has no Paste, and a webview text
+     * field silently ignores the keystroke. Typing worked and pasting did not, on the one
+     * screen whose own instruction is "paste the code it shows you". Every person signing
+     * in to a Claude plan would have reached that field, pressed the shortcut everybody
+     * knows, and had nothing happen.
+     *
+     * Predefined items rather than our own: these carry the standard shortcuts and the
+     * standard behaviour, which is the whole point of them being where a person expects.
+     * Their own words come from the system, in the system's language.
+     */
+    let edit = Submenu::with_items(
+        app,
+        text("edit"),
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window_menu = Menu::with_items(app, &[&openbot, &edit])?;
+    Ok((tray_menu, window_menu))
+}
+
+/// The window's language, for the tray and the window menu, and remembered for the next start.
+///
+/// The window calls this on start and on every change. A tag this build does not know is refused
+/// and the menus stay as they are; a choice that cannot be saved still applies now.
+#[tauri::command]
+fn set_ui_locale<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    locale: String,
+) -> Result<(), String> {
+    let Some(locale) = ui_locale::parse(&locale) else {
+        return Err(format!("Unknown interface language: {locale}"));
+    };
+    let remembered = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|dir| ui_locale::save(&dir, locale).map_err(|error| error.to_string()));
+    if let Err(error) = remembered {
+        eprintln!("[menu] could not remember the interface language: {error}");
+    }
+    let (tray_menu, window_menu) = build_menus(&app, locale).map_err(|error| error.to_string())?;
+    if let Some(tray) = app.tray_by_id("openbot") {
+        tray.set_menu(Some(tray_menu)).map_err(|error| error.to_string())?;
+    }
+    app.set_menu(window_menu).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn quit_menu_accelerator() -> Option<&'static str> {
     Some(QUIT_MENU_ACCELERATOR)
 }
@@ -3755,6 +3849,7 @@ fn main() {
         .manage(Shell::default())
         .invoke_handler(tauri::generate_handler![
             record_setup_event,
+            set_ui_locale,
             detect_engine,
             windows_blocker,
             windows_blocker_instruction,
@@ -3829,71 +3924,23 @@ fn main() {
 
             remember_setup_url(app.handle())?;
 
-            // The status menu lets somebody open the window, stop the stack, or quit the app.
-            use tauri::menu::{Menu, MenuItem};
+            // The status menu lets somebody open the window, stop the stack, or quit the app, in the
+            // language chosen last time; the window says which on start and on every change.
             use tauri::tray::TrayIconBuilder;
-
-            let open = MenuItem::with_id(app, "open", "Open OpenBot", true, None::<&str>)?;
-            let stop = MenuItem::with_id(app, "stop", "Stop OpenBot", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, quit_menu_accelerator())?;
-            let menu = Menu::with_items(app, &[&open, &stop, &quit])?;
+            let locale = app
+                .path()
+                .app_config_dir()
+                .map(|dir| ui_locale::saved(&dir))
+                .unwrap_or(ui_locale::UiLocale::En);
+            let (tray_menu, window_menu) = build_menus(app.handle(), locale)?;
 
             TrayIconBuilder::with_id("openbot")
                 .icon(tray::icon())
                 .icon_as_template(false)
                 .tooltip("OpenBot")
-                .menu(&menu)
+                .menu(&tray_menu)
                 .build(app)?;
-
-            // The same three items on the window itself, because the tray cannot be relied on and
-            // Stop lives nowhere else.
-            //
-            // Linux needs a tray host to draw the icon, and Windows can place it in overflow.
-            // The tray library restores the Windows icon after Explorer restarts, but the window
-            // menu still provides access when the tray is unavailable or hard to find.
-            // Its own items, not the tray's: a menu item belongs to one menu, and the two menus
-            // outlive each other. The ids match so both arrive at the same function.
-            use tauri::menu::Submenu;
-            let window_open = MenuItem::with_id(app, "open", "Open OpenBot", true, None::<&str>)?;
-            let window_stop = MenuItem::with_id(app, "stop", "Stop OpenBot", true, None::<&str>)?;
-            let window_quit =
-                MenuItem::with_id(app, "quit", "Quit", true, quit_menu_accelerator())?;
-            // A submenu, because a top-level entry in a menu bar has to be one to open at all.
-            let openbot = Submenu::with_items(
-                app,
-                "OpenBot",
-                true,
-                &[&window_open, &window_stop, &window_quit],
-            )?;
-            /*
-             * AN EDIT MENU, WITHOUT WHICH COMMAND-V DOES NOTHING.
-             *
-             * MEASURED, on the screen that asks for a paste. macOS routes the clipboard shortcuts
-             * through the menu bar, so a window with no Edit menu has no Paste, and a webview text
-             * field silently ignores the keystroke. Typing worked and pasting did not, on the one
-             * screen whose own instruction is "paste the code it shows you". Every person signing
-             * in to a Claude plan would have reached that field, pressed the shortcut everybody
-             * knows, and had nothing happen.
-             *
-             * Predefined items rather than our own: these carry the standard shortcuts and the
-             * standard behaviour, which is the whole point of them being where a person expects.
-             */
-            use tauri::menu::PredefinedMenuItem;
-            let edit = Submenu::with_items(
-                app,
-                "Edit",
-                true,
-                &[
-                    &PredefinedMenuItem::undo(app, None)?,
-                    &PredefinedMenuItem::redo(app, None)?,
-                    &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::cut(app, None)?,
-                    &PredefinedMenuItem::copy(app, None)?,
-                    &PredefinedMenuItem::paste(app, None)?,
-                    &PredefinedMenuItem::select_all(app, None)?,
-                ],
-            )?;
-            app.set_menu(Menu::with_items(app, &[&openbot, &edit])?)?;
+            app.set_menu(window_menu)?;
             app.on_menu_event(|app, event| chose(app, event.id().as_ref()));
             Ok(())
         })

@@ -23,6 +23,7 @@ pub mod stack;
 pub mod supervise;
 pub mod telemetry;
 pub mod tray;
+pub mod ui_locale;
 pub mod vault;
 pub mod windows;
 
