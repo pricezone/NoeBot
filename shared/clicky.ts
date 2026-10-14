@@ -157,11 +157,14 @@ export type ClickyProposal = {
   expiresAt: string;
 };
 
-/** The page and the element an action was proposed on, as the server read them. */
+/**
+ * The page an action was proposed on and, when one was read there, the element: as the server read
+ * them. The page is always there; the element only when the place was on the page.
+ */
 export type ClickySeen = {
   url: string;
-  role: string;
-  name: string;
+  role?: string;
+  name?: string;
   ref?: string;
 };
 

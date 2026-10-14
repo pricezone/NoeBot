@@ -264,17 +264,24 @@ export function createClickyActions(deps: {
       const target = probe ? guardTargetOf(probe) : undefined;
       const focused = focus ? guardFocusOf(focus) : undefined;
       const now = pointed ? target : focused;
-      const url = probe?.url ?? focus?.url ?? screen.url;
+      const url = probe?.url || focus?.url || screen.url;
 
-      // The same page and the same element the person was asked about, or nothing.
+      /*
+       * The same page the person was asked about, always, whatever the action. The same element
+       * too, when both readings are of something on the page: a place now covered by another window
+       * is not "changed", it is outside the page, and the rating below asks about it again.
+       */
       const seen = proposal.seen;
-      if (
+      const changed =
         seen &&
         (!samePage(seen.url, url) ||
-          !now ||
-          now.role !== seen.role ||
-          now.name !== seen.name)
-      )
+          (seen.ref !== undefined &&
+            probe?.ref !== undefined &&
+            seen.ref !== probe.ref) ||
+          (seen.role !== undefined &&
+            now?.inPage !== false &&
+            (!now || now.role !== seen.role || now.name !== seen.name)));
+      if (changed)
         return refuse(
           botId,
           userId,

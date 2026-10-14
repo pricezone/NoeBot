@@ -441,7 +441,25 @@ describe("createClickyBrain", () => {
       keys: "Control+l",
     });
     expect(reply.proposal?.risk).toBe("confirm");
-    expect(reply.proposal?.riskReason).toContain("keyboard");
+    // The page is always recorded, so a yes given after it changed is refused.
+    expect(reply.proposal?.seen).toEqual({ url: "https://bank.example/login" });
+  });
+
+  test("text with a line break or a tab is no proposal at all", async () => {
+    for (const text of ["hello\n", "user\tpassword"]) {
+      const brain = createClickyBrain({
+        gateway,
+        newId,
+        complete: async () =>
+          JSON.stringify({
+            say: "Typing it.",
+            proposal: { action: "type", text, label: "Search" },
+          }),
+      });
+      const reply = await think(brain);
+      expect(reply.proposal).toBeUndefined();
+      expect(reply.say).toBe("Typing it.");
+    }
   });
 
   test("streams the words and rates a proposal by what is on the page, not by the model", async () => {

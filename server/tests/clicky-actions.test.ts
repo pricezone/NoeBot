@@ -286,6 +286,64 @@ describe("createClickyActions", () => {
     }
   });
 
+  test("the page is compared before every action, whatever has the keyboard", async () => {
+    const elsewhere = fakeGateway({
+      holder: "human",
+      focus: {
+        window: "browser",
+        element: null,
+        url: "https://shop.example/checkout",
+      },
+    });
+    const outcome = await run(
+      elsewhere.gateway,
+      { kind: "type", text: "pizza", label: "it" },
+      { seen: { url: "https://shop.example/cart" }, risk: "confirm" },
+    );
+    expect(outcome).toEqual({
+      ok: false,
+      detail: expect.stringContaining("changed"),
+    });
+    expect(elsewhere.inputs).toEqual([]);
+  });
+
+  test("a different element by its ref is a change, even with the same name", async () => {
+    const fake = fakeGateway({ at: { ref: "e9" } });
+    const outcome = await run(fake.gateway, clickContinue, {
+      seen: {
+        url: "https://shop.example/cart",
+        role: "button",
+        name: "Continue",
+        ref: "e1",
+      },
+    });
+    expect(outcome.ok ? "" : outcome.detail).toContain("changed");
+    expect(fake.inputs).toEqual([]);
+  });
+
+  test("a page covered by another window at action time is asked about again, not called changed", async () => {
+    const covered = fakeGateway({
+      at: {
+        role: "desktop",
+        name: "",
+        inPage: false,
+        window: "other",
+      },
+    });
+    const outcome = await run(covered.gateway, clickContinue, {
+      seen: {
+        url: "https://shop.example/cart",
+        role: "button",
+        name: "Continue",
+      },
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.ok ? "" : outcome.detail).toBe(
+      "What is there now needs a fresh yes.",
+    );
+    expect(covered.inputs).toEqual([]);
+  });
+
   test("on a grant, only the step's own element", async () => {
     const elsewhere = fakeGateway({ at: { ref: "e7" } });
     expect(

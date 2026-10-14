@@ -29,6 +29,7 @@ import {
   canonicalKeys,
   guardFocusOf,
   guardTargetOf,
+  hasControlCharacter,
 } from "./guardrails";
 import {
   fromGrid,
@@ -315,6 +316,8 @@ function readProposal(
   }
   if (kind === "type") {
     if (typeof value.text !== "string" || !value.text) return undefined;
+    // A line break or a tab in typed text is a key in disguise: no proposal at all.
+    if (hasControlCharacter(value.text)) return undefined;
     return {
       action: {
         kind: "type",
@@ -699,24 +702,25 @@ export function createClickyBrain(deps: {
           trigger: session.trigger?.kind ?? null,
           botId,
           actorId: input.userId,
-          pageHost: hostOf(probe?.url ?? focus?.url ?? screen.url),
+          pageHost: hostOf(probe?.url || focus?.url || screen.url),
         });
-        const seenUrl = probe?.url ?? focus?.url ?? screen.url;
+        const seenUrl = probe?.url || focus?.url || screen.url;
         proposal = {
           action,
           why,
           risk: assessed.risk,
           ...(assessed.reason ? { riskReason: assessed.reason } : {}),
-          ...(seenOn
-            ? {
-                seen: {
-                  url: seenUrl,
-                  role: seenOn.role,
-                  name: seenOn.name,
-                  ...(probe?.ref ? { ref: probe.ref } : {}),
-                },
-              }
-            : {}),
+          /*
+           * The page, always: an action is refused if the page has changed by the time the person
+           * says yes. The element too, when the place was on the page and something was read there.
+           */
+          seen: {
+            url: seenUrl,
+            ...(seenOn && seenOn.inPage !== false
+              ? { role: seenOn.role, name: seenOn.name }
+              : {}),
+            ...(probe?.ref ? { ref: probe.ref } : {}),
+          },
         };
       }
       return {

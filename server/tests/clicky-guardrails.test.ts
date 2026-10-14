@@ -9,6 +9,7 @@ import {
   type GuardContext,
   guardFocusOf,
   guardTargetOf,
+  hasControlCharacter,
 } from "../src/clicky/guardrails";
 
 /*
@@ -150,7 +151,6 @@ describe("assessAction", () => {
       "Home",
       "Control+a",
       "Control+C",
-      "Control+l",
       "Control+Shift+t",
       "Shift+Control+z",
       "Control+f",
@@ -162,6 +162,9 @@ describe("assessAction", () => {
     for (const keys of [
       "Control+w",
       "Control+r",
+      // The address bar and a new tab are the browser's: nothing there can be read.
+      "Control+l",
+      "Control+t",
       "Control+v",
       "Control+Shift+v",
       "Shift+Insert",
@@ -413,5 +416,73 @@ describe("assessAction", () => {
       "Απενεργοποίηση",
     ])
       expect({ name, commits: commits(name) }).toEqual({ name, commits: true });
+  });
+
+  test("typed text with a line break, a tab or another control character is never typed", () => {
+    const field = {
+      ...base,
+      target: { role: "textbox", name: "Search", sensitive: false },
+    };
+    for (const text of [
+      "foo\n",
+      "a\tsecret",
+      "x\ry",
+      "\u0000",
+      "del\u007f",
+      "\u001b[A",
+    ])
+      expect({ text, risk: assessAction(type(text), field).risk }).toEqual({
+        text,
+        risk: "blocked",
+      });
+    expect(assessAction(type("plain text, ünïcode ok"), field).risk).toBe(
+      "low",
+    );
+    expect(hasControlCharacter("tab\there")).toBe(true);
+    expect(hasControlCharacter("Ελληνικά 😀")).toBe(false);
+  });
+
+  test("the stems of committing words count however they end, and a dialog's buttons ask", () => {
+    for (const name of [
+      "Deletion",
+      "Removal",
+      "Approval",
+      "Submission",
+      "Revoke access",
+      "Deactivate",
+      "Unsubscribe",
+      "Cancel my subscription",
+      "Reset",
+      "Leave group",
+    ])
+      expect({ name, commits: commits(name) }).toEqual({ name, commits: true });
+    expect(commits("Cancel")).toBe(false);
+    expect(commits("Ακύρωση")).toBe(false);
+    const inDialog = guardTargetOf({
+      role: "button",
+      name: "OK",
+      sensitive: false,
+      inDialog: true,
+      inPage: true,
+      url: "https://shop.example/",
+    });
+    expect(assessAction(click(), { ...base, target: inDialog }).risk).toBe(
+      "confirm",
+    );
+    expect(
+      assessAction(key("Space"), {
+        ...base,
+        focused: guardFocusOf({
+          window: "browser",
+          element: {
+            role: "button",
+            name: "Continue",
+            sensitive: false,
+            inDialog: true,
+          },
+          url: "",
+        }),
+      }).risk,
+    ).toBe("confirm");
   });
 });

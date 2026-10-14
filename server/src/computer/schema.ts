@@ -602,6 +602,8 @@ export type ElementAtResult = {
   submits?: boolean;
   /** A frame, whose inside (often another site's card field) cannot be read. */
   opaque?: boolean;
+  /** Inside a dialog on the page, where buttons answer "are you sure?". */
+  inDialog?: boolean;
   ref?: string;
   /** False for a point outside the page: the toolbar, another window, the dock. */
   inPage: boolean;
@@ -619,6 +621,7 @@ export type FocusResult = {
     sensitive: boolean;
     submits?: boolean;
     opaque?: boolean;
+    inDialog?: boolean;
   } | null;
   url: string;
 };

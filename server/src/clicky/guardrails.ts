@@ -39,6 +39,8 @@ export type GuardTarget = {
   submits?: boolean;
   /** A frame whose inside cannot be read. */
   opaque?: boolean;
+  /** Inside a dialog on the page: its buttons answer "are you sure?". */
+  inDialog?: boolean;
 };
 
 export type GuardContext = {
@@ -68,20 +70,16 @@ export const RISK_RANK: Record<ClickyRisk, number> = {
 };
 
 /**
- * English words that commit something, whole, with the endings they take ("Sending", "Payment",
- * "Saved"), so "Address" is not "add" and "Postcode" not "post".
+ * English words that commit something, whole, with the endings they take ("Sending", "Saved"), so
+ * "Address" is not "add" and "Postcode" not "post".
  */
 const COMMITTING_EN = [
-  "submit",
-  "submission",
   "send",
   "pay",
   "buy",
   "purchase",
   "order",
   "checkout",
-  "delete",
-  "remove",
   "confirm",
   "sign",
   "signature",
@@ -96,7 +94,6 @@ const COMMITTING_EN = [
   "authorization",
   "grant",
   "accept",
-  "approve",
   "install",
   "connect",
   "save",
@@ -108,6 +105,22 @@ const COMMITTING_EN = [
   "disable",
   "subscribe",
   "upgrade",
+  "reset",
+  "leave",
+];
+
+/**
+ * English stems that commit something however they end: "Delete", "Deletion", "Remove", "Removal",
+ * "Approve", "Approval", "Submit", "Submission", "Revoke", "Deactivate", "Unsubscribe".
+ */
+const COMMITTING_EN_STEMS = [
+  "delet",
+  "remov",
+  "approv",
+  "submi",
+  "revok",
+  "deactivat",
+  "unsubscrib",
 ];
 
 /**
@@ -145,10 +158,20 @@ const COMMITTING_EL = [
   "ενεργοποι",
   "εγγραφ",
   "αναβαθμ",
+  // "Ακύρωση" alone is a dialog's Cancel, as harmless as the English; a subscription's is not.
+  "ακυρωση συνδρομ",
+  "ανακλησ",
+  "επαναφορ",
+  "αποχωρ",
 ];
 
 const COMMITTING = new RegExp(
-  `\\b(?:${COMMITTING_EN.join("|")})(?:s|es|ed|d|ing|ion|ions|ment|ments|al)?\\b|${COMMITTING_EL.join("|")}`,
+  [
+    `\\b(?:${COMMITTING_EN.join("|")})(?:s|es|ed|d|ing|ion|ions|ment|ments|al)?\\b`,
+    `\\b(?:${COMMITTING_EN_STEMS.join("|")})\\w*`,
+    "\\bcancel\\s+(?:my\\s+|the\\s+|your\\s+)?subscription",
+    ...COMMITTING_EL,
+  ].join("|"),
   "i",
 );
 
@@ -284,6 +307,29 @@ const PASTE_KEYS = new Set(["Control+v", "Control+Shift+v", "Shift+Insert"]);
 
 const SEARCH = /search|αναζητ/i;
 
+/** The roles a click presses, as opposed to fills in or reads. */
+const CONTROL_ROLES = new Set([
+  "button",
+  "link",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "tab",
+  "switch",
+  "checkbox",
+  "radio",
+]);
+
+/** A character below space, or DEL: typed on a desktop, it is a key (Return, Tab, Backspace). */
+export function hasControlCharacter(text: string): boolean {
+  for (const character of text) {
+    const code = character.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
 /** `keys` in its one spelling when it is a key Clicky may press at all, else null. */
 export function allowedKeys(keys: string): string | null {
   const canonical = canonicalKeys(keys);
@@ -313,6 +359,18 @@ export function assessAction(
       risk: "blocked",
       reason:
         "Clicky only presses everyday keys, such as Enter, Tab and the arrows. That one is yours to press.",
+    };
+
+  /*
+   * Text is text. A line break typed on a desktop is a Return, a tab is a Tab: "foo\n" would send a
+   * form past the rule that asks about Enter, and "a\tb" would land in the next field unrated. Keys
+   * are pressed as keys, where they are rated.
+   */
+  if (action.kind === "type" && hasControlCharacter(action.text))
+    return {
+      risk: "blocked",
+      reason:
+        "Clicky only types plain text, without line breaks or tabs. Those are keys it presses on their own.",
     };
 
   if (action.kind === "type" && action.text.length > CLICKY_TYPE_LIMIT)
@@ -395,6 +453,13 @@ export function assessAction(
       };
     if (keys === "Control+w")
       return { risk: "confirm", reason: "That closes the tab." };
+    // The address bar and a new tab are the browser's, not the page's: nothing there can be read.
+    if (keys === "Control+l" || keys === "Control+t")
+      return {
+        risk: "confirm",
+        reason:
+          "That goes to the browser's address bar, which Clicky cannot read.",
+      };
     if (keys === "Control+r")
       return {
         risk: "confirm",
@@ -405,7 +470,10 @@ export function assessAction(
         return { risk: "low" };
       return { risk: "confirm", reason: "Enter can send the form it is in." };
     }
-    if (keys === "Space" && (receiver.submits || commits(receiver.name)))
+    if (
+      keys === "Space" &&
+      (receiver.submits || receiver.inDialog || commits(receiver.name))
+    )
       return { risk: "confirm", reason: `That presses “${receiver.name}”.` };
     return { risk: "low" };
   }
@@ -415,6 +483,12 @@ export function assessAction(
       return {
         risk: "confirm",
         reason: "That button sends the form it is in.",
+      };
+    // "Yes", "OK", "Continue" in a confirmation say nothing by name about what they confirm.
+    if (receiver.inDialog && CONTROL_ROLES.has(receiver.role))
+      return {
+        risk: "confirm",
+        reason: "That answers a question the page is asking.",
       };
     if (receiver.opaque)
       return {
@@ -438,6 +512,7 @@ export function guardTargetOf(probe: ElementAtResult): GuardTarget {
     inPage: probe.inPage && probe.window !== "other",
     ...(probe.submits ? { submits: true } : {}),
     ...(probe.opaque ? { opaque: true } : {}),
+    ...(probe.inDialog ? { inDialog: true } : {}),
   };
 }
 
@@ -453,5 +528,6 @@ export function guardFocusOf(focus: FocusResult): GuardTarget | undefined {
     inPage: true,
     ...(focus.element.submits ? { submits: true } : {}),
     ...(focus.element.opaque ? { opaque: true } : {}),
+    ...(focus.element.inDialog ? { inDialog: true } : {}),
   };
 }
