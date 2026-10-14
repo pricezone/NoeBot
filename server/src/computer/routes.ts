@@ -59,6 +59,11 @@ export function createComputerRoutes(
    * endpoint says it cannot answer rather than answering from nothing.
    */
   auditReader?: AuditReader,
+  /**
+   * Clicky Mode's routes (`/:botId/clicky/...`), mounted last so the Bot guard below runs first for
+   * every one of them. See clicky/index.ts.
+   */
+  clicky?: Hono<{ Variables: AppVariables }>,
 ) {
   const routes = new Hono<{ Variables: AppVariables }>();
 
@@ -1048,6 +1053,7 @@ export function createComputerRoutes(
     });
   });
 
+  if (clicky) routes.route("/", clicky);
   return routes;
 }
 

@@ -50,6 +50,11 @@ export type DeploymentCapabilities = {
    */
   computerToolsInRun?: boolean;
   /**
+   * Clicky Mode: the companion beside the computer's screen (`enabled`), and whether it can listen to
+   * hold-to-talk (`voice`, which needs transcription). Absent on an older server, which reads as off.
+   */
+  clicky?: { enabled: boolean; voice: boolean };
+  /**
    * The interface languages this deployment offers, present only when it offers more than English:
    * absent reads as English alone, with no language switcher, which is also what an older server
    * that says nothing means.
@@ -98,6 +103,7 @@ export function deploymentCapabilitiesQueryOptions() {
         usage?: boolean;
         billingUrl?: string | null;
         computerToolsInRun?: boolean;
+        clicky?: { enabled?: unknown; voice?: unknown } | null;
         locales?: unknown;
         defaultLocale?: unknown;
       };
@@ -123,6 +129,10 @@ export function deploymentCapabilitiesQueryOptions() {
         // Only when on: absent reads as off, and an older server says nothing.
         ...(body.computerToolsInRun === true
           ? { computerToolsInRun: true }
+          : {}),
+        // Only when on, like the flag above.
+        ...(body.clicky?.enabled === true
+          ? { clicky: { enabled: true, voice: body.clicky.voice === true } }
           : {}),
         // A string or nothing: the server answers null when it has no billing page, and an older
         // server answers no field at all. Both read as "no link to offer".

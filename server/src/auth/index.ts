@@ -31,7 +31,7 @@ import { DOMAIN_REFUSAL_MESSAGE, emailDomainAllowed } from "./email-domain";
 import { encryptSsoConfig } from "./encrypt-sso-config";
 import { applyConfiguredAdmin, isConfiguredAdmin, seedRole } from "./roles";
 import { recordProvisioned, scimOptions } from "./scim";
-import { signInHandoff } from "./signin-handoff";
+import { type SignInHandoffOptions, signInHandoff } from "./signin-handoff";
 
 /** What a person sees when SSO is required and they tried another way in. */
 /** The native app's custom scheme (mobile/app.config.ts). */
@@ -189,6 +189,21 @@ export const hostOnlyCookies = (baseUrl: string | undefined) =>
       }
     : {};
 
+/**
+ * Whether the native app may finish a sign-in through its custom scheme.
+ *
+ * Follows EXPO_PROJECT_ID by default, as it always has. `OPENBOT_NATIVE_APP_SIGN_IN=off` keeps push
+ * notifications (which need EXPO_PROJECT_ID) without trusting `openbotmobile://`: a deployment whose
+ * phones are linked through the HyperNoesis app never signs anybody in through that scheme, and any
+ * Android app can register it.
+ */
+export function nativeAppSignIn(environment: NodeJS.ProcessEnv): boolean {
+  const flag = environment.OPENBOT_NATIVE_APP_SIGN_IN?.trim().toLowerCase();
+  if (flag === "off" || flag === "false" || flag === "0") return false;
+  if (flag === "on" || flag === "true" || flag === "1") return true;
+  return Boolean(environment.EXPO_PROJECT_ID?.trim());
+}
+
 export function createAuth(
   config: DeploymentConfig,
   database: Database,
@@ -212,6 +227,8 @@ export function createAuth(
    * write below is guarded and its failure is logged rather than raised.
    */
   auditStore?: AuditStore,
+  /** Records a phone linked through the HyperNoesis app. See `shared/mobile-link.ts`. */
+  onMobileLinked?: SignInHandoffOptions["onMobileLinked"],
 ) {
   const authConfig = config.auth;
   if (!authConfig) {
@@ -243,7 +260,7 @@ export function createAuth(
    * a deployment that runs the native app (EXPO_PROJECT_ID, as for push). Elsewhere a sign-in can
    * never be sent there.
    */
-  const nativeApp = Boolean(process.env.EXPO_PROJECT_ID?.trim());
+  const nativeApp = nativeAppSignIn(process.env);
   const plugins = [
     ...(nativeApp ? [expo()] : []),
     /*
@@ -265,6 +282,7 @@ export function createAuth(
               : {}),
             // The platform's language for this person, unless they have chosen one here.
             seedLocale: createUserPreferencesStore(database).seedLocale,
+            ...(onMobileLinked ? { onMobileLinked } : {}),
           }),
         ]
       : []),

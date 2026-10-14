@@ -2558,7 +2558,13 @@ export function mountCopilotRuntime(
    * message and navigates away still lights the channel they left. A side effect only: it is never
    * awaited in the lock path and a failure in it never touches whether the lock was taken.
    */
-  onRunBusy?: (input: { threadId: string; busy: boolean }) => void,
+  onRunBusy?: (input: {
+    threadId: string;
+    busy: boolean;
+    /** Who the run is for and which Bot runs it; present when a run starts, absent when it ends. */
+    userId?: string;
+    agentId?: string;
+  }) => void,
   /**
    * What the person asking has told every built-in coworker they run, resolved per person.
    *
@@ -2799,7 +2805,12 @@ export function mountCopilotRuntime(
           // A run started on this thread. Side effect only, never awaited: a channel showing it is
           // working is worth nothing next to the lock the run depends on.
           try {
-            onRunBusy?.({ threadId: input.threadId, busy: true });
+            onRunBusy?.({
+              threadId: input.threadId,
+              busy: true,
+              userId: input.userId,
+              agentId: input.agentId,
+            });
           } catch {}
           /*
            * The run id only. The lock also hands back a join token, which is what a browser presents

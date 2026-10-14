@@ -4,6 +4,7 @@ import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import { type Locale, normalizeLocale } from "../../../shared/i18n/locales";
+import type { MobilePlatform } from "../../../shared/mobile-link";
 import { deploymentLocales } from "../i18n/deployment-locale";
 
 /**
@@ -156,6 +157,19 @@ export type SignInHandoffOptions = {
    * in English until a deployment turns Greek on. Never fails the sign-in.
    */
   seedLocale?: (userId: string, locale: Locale) => Promise<void>;
+  /**
+   * Records a phone linked through `POST /signin-handoff/mobile` and answers its device id. Absent,
+   * the mobile endpoint refuses every link: a deployment that cannot list and revoke phones must not
+   * hand sessions to them. See `shared/mobile-link.ts`.
+   */
+  onMobileLinked?: (input: MobileLinkedInput) => Promise<{ deviceId: string }>;
+};
+
+/** A phone that has just traded a mobile token for a session. */
+export type MobileLinkedInput = {
+  userId: string;
+  sessionId: string;
+  device: { name: string; platform: MobilePlatform };
 };
 
 /**

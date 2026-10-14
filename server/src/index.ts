@@ -125,6 +125,7 @@ import { createThreadIdentity } from "./channels/thread-identity";
 import { createChannelTitler } from "./channels/titler";
 import { createSandboxedStore } from "./components/sandboxed";
 import { createComponentStore } from "./components/store";
+import { type ClickyWiring, createClickyWiring } from "./clicky";
 import { createComputerGateway } from "./computer/gateway";
 import {
   createHeadlessComputerTools,
@@ -454,6 +455,12 @@ const peopleStore = createPeopleStore(
 );
 const identityProviderStore = createIdentityProviderStore(database);
 /*
+ * Clicky Mode, built once everything it needs exists (near `createApp`, below). Declared here because
+ * the sign-in handoff and the computer gateway, built long before, hand it their events; until it is
+ * built those seams have nobody to tell, which is the same as Clicky being off.
+ */
+let clickyWiring: ClickyWiring | undefined;
+/*
  * Built before `auth` for the same reason the people store is: sign-in writes to the trail, and the
  * store that receives those rows has to exist before anything can sign in.
  */
@@ -469,6 +476,15 @@ const auth: AuthService | undefined = config.organizationAuthUrl
         database,
         (email) => peopleStore.isRevoked(email),
         signInAuditStore,
+        // A phone linked through the HyperNoesis app. Refused until Clicky's wiring exists.
+        (input) =>
+          clickyWiring
+            ? clickyWiring.onMobileLinked(input)
+            : Promise.reject(
+                new Error(
+                  "Linking a phone is not available on this deployment.",
+                ),
+              ),
       )
     : undefined;
 // Each computer is pushed its network policy on the way to the action that woke it, because a
@@ -711,6 +727,8 @@ const computerGateway = computerProvider
       pageFrames: pageFrameStore,
       allowPrivateHosts: config.computer?.allowPrivateHosts,
       token: config.computer?.token,
+      // Every handover, whichever path asked for it, so Clicky opens when the Bot needs the person.
+      onControlEvent: (event) => clickyWiring?.onControlEvent(event),
     })
   : undefined;
 
@@ -1935,6 +1953,8 @@ const copilotRuntime = mountCopilotRuntime(
   // thread, and a scratch thread maps to no channel and signals nowhere.
   (input) => {
     void channelStore.signalBusy(input.threadId, input.busy).catch(() => {});
+    // And Clicky, which follows up when a Bot finishes while the person has it open.
+    clickyWiring?.onRunBusy(input);
   },
   // What this person has told every coworker of theirs, in every channel. See user-instructions.ts.
   loadInstructionsForActor,
@@ -1981,10 +2001,13 @@ const copilotRuntime = mountCopilotRuntime(
                   : {}),
               });
             },
-            onWaiting: (botId: string, wait: HeadlessWait) =>
-              runWaitStore.open(
+            onWaiting: (botId: string, wait: HeadlessWait) => {
+              // Clicky opens on the person's screen; never awaited, never in the wait's way.
+              clickyWiring?.onWaiting({ userId: actor.id, botId, wait });
+              return runWaitStore.open(
                 waitFromSuspension(wait, { ownerUserId: actor.id, botId }),
-              ),
+              );
+            },
             // Used before it runs: the browser path can never carry out the same call again.
             beforeExecute: (botId, call) =>
               toolCallLedger.settle({
@@ -3272,6 +3295,30 @@ const credentialAdmin = createCredentialAdminService(
   credentialStore,
   createAuditStore(database),
 );
+clickyWiring = computerGateway
+  ? createClickyWiring({
+      config,
+      database,
+      databaseUrl: config.databaseUrl,
+      gateway: computerGateway,
+      auditStore: bootAuditStore,
+      agentProfileStore,
+      userPreferences: userPreferencesStore,
+      model: runtimeModel,
+      resolveApiKey: () =>
+        resolveModelApiKey({
+          encryptionKey: config.keyEncryptionKey,
+          reader: credentialStore,
+          provider: runtimeModel.provider,
+          keyId: tenantPackage.model.credentialSecretRef,
+          environment: process.env,
+        }),
+    })
+  : undefined;
+if (clickyWiring?.enabled)
+  void clickyWiring.start().catch((error) => {
+    console.error("Clicky could not start", error);
+  });
 const app = createApp(
   config,
   auth,
@@ -3467,6 +3514,8 @@ const app = createApp(
     const state = poolWatchdog.state();
     return { ok: state === "ok" || state === "unknown", database: state };
   },
+  // Clicky Mode: its routes, under the computer's guard and at /api/mobile. See clicky/index.ts.
+  clickyWiring,
 );
 
 /*
@@ -3550,7 +3599,23 @@ type StreamData = {
   botId: string;
   recordingId?: string;
   inward?: WebSocket;
+  /** The size of the last frame sent to this viewer, so Clicky can place the viewer's clicks. */
+  frame?: { width: number; height: number };
 };
+
+/**
+ * The size a frame message names, read from its tail without parsing it: `"width":N,"height":N}` is
+ * how the computer ends every frame, and parsing a quarter-megabyte of base64 per frame to learn two
+ * numbers would cost the relay more than Clicky is worth.
+ */
+const FRAME_SIZE_TAIL = /"width":(\d+),"height":(\d+)\}$/;
+function frameSizeOf(
+  message: string,
+): { width: number; height: number } | undefined {
+  const match = FRAME_SIZE_TAIL.exec(message.slice(-48));
+  if (!match) return undefined;
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
 
 /**
  * Bun takes exactly one WebSocket handler for the server, and two features need one: the app proxies
@@ -3763,8 +3828,13 @@ serve<SocketData>({
             return;
           }
         }
+        const outward = String(event.data);
+        if (clickyWiring?.enabled) {
+          const size = frameSizeOf(outward);
+          if (size) stream.frame = size;
+        }
         try {
-          ws.send(String(event.data));
+          ws.send(outward);
         } catch {
           inward.close();
         }
@@ -3777,7 +3847,14 @@ serve<SocketData>({
         channelSocket.message(asChannelSocket(ws), raw);
         return;
       }
-      if (ws.data.inward?.readyState === 1) ws.data.inward.send(String(raw));
+      const inwardMessage = String(raw);
+      clickyWiring?.onViewerInput({
+        userId: ws.data.ownerUserId,
+        botId: ws.data.botId,
+        raw: inwardMessage,
+        ...(ws.data.frame ? { frame: ws.data.frame } : {}),
+      });
+      if (ws.data.inward?.readyState === 1) ws.data.inward.send(inwardMessage);
     },
     close(ws, code, reason) {
       if (!isProxiedStream(ws.data)) {
@@ -3819,6 +3896,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       // Started only where handing work between Bots is switched on, so it is often not there.
       workOfferedListener?.stop() ?? Promise.resolve(),
       Promise.resolve(retentionSweeps.stop()),
+      clickyWiring?.stop() ?? Promise.resolve(),
     ]).finally(() => process.exit(0));
   });
 }

@@ -15,6 +15,13 @@ const preferencesPatch = z
     selfHostBannerDismissed: z.boolean().optional(),
     // Null forgets the choice, so the deployment default or the browser decides again.
     locale: z.enum(LOCALES).nullable().optional(),
+    clickyAutoActivate: z.boolean().optional(),
+    clickyActionPolicy: z
+      .enum(["ask_each", "ask_once_per_task", "never"])
+      .optional(),
+    clickyGuidance: z.enum(["brief", "detailed"]).optional(),
+    clickySpeakReplies: z.boolean().optional(),
+    clickyOnboarded: z.boolean().optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0);
 
@@ -47,7 +54,7 @@ export function userPreferencesRoutes(
       return context.json(
         {
           error:
-            "Choose agent or thread for message list emphasis, true or false for the self-host banner, or en, el or null for the interface language.",
+            "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Clicky's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_each, ask_once_per_task or never; clickyGuidance brief or detailed).",
         },
         400,
       );

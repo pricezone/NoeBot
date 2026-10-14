@@ -167,6 +167,34 @@ export type ComputerGatewayOptions = {
   locateCacheMs?: number;
   /** How long the policy read for a Bot is reused. Zero reads it on every action. */
   policyCacheMs?: number;
+  /**
+   * Told about every handover after its audit row is written: a person asked for, taking control,
+   * handing it back, a secret asked for or entered. Clicky listens here so it opens whenever the Bot
+   * needs the person, whichever path asked (a browser run, an in-run tool, the private sign-in), and
+   * closes when the handover ends. Never awaited and never allowed to throw into the handover: a
+   * listener that fails must not cost the person their control of the computer.
+   */
+  onControlEvent?: (event: ComputerControlEvent) => void;
+};
+
+/** One handover moment, as `onControlEvent` hears it. */
+export type ComputerControlEvent = {
+  type:
+    | "help_requested"
+    | "help_cancelled"
+    | "control_taken"
+    | "control_released"
+    | "secret_requested"
+    | "secret_supplied"
+    | "secret_cancelled";
+  botId: string;
+  /** The person on whose authority it happened, when there is one. */
+  userId?: string;
+  /** The Bot's own words, for a request. */
+  reason?: string;
+  toolCallId?: string;
+  /** The computer's control state right after it, including the request it is about. */
+  state: ControlState;
 };
 
 export interface ComputerGateway {
@@ -1305,6 +1333,14 @@ export function createComputerGateway(
         actor,
         reason,
       });
+      notifyControl(options.onControlEvent, {
+        type: "help_requested",
+        botId,
+        actor,
+        reason,
+        toolCallId,
+        state,
+      });
       return state;
     },
 
@@ -1319,6 +1355,12 @@ export function createComputerGateway(
         // took over.
         reason: state.reason,
       });
+      notifyControl(options.onControlEvent, {
+        type: "control_taken",
+        botId,
+        actor,
+        state,
+      });
       return state;
     },
 
@@ -1330,6 +1372,12 @@ export function createComputerGateway(
         botId,
         actor,
       });
+      notifyControl(options.onControlEvent, {
+        type: "control_released",
+        botId,
+        actor,
+        state,
+      });
       return state;
     },
 
@@ -1340,6 +1388,12 @@ export function createComputerGateway(
       await writeControlEvent(auditStore, "computer.help_cancelled", {
         botId,
         actor,
+      });
+      notifyControl(options.onControlEvent, {
+        type: "help_cancelled",
+        botId,
+        actor,
+        state,
       });
       return state;
     },
@@ -1474,6 +1528,13 @@ export function createComputerGateway(
         actor,
         reason: `${input.label} (into ${input.ref})`,
       });
+      notifyControl(options.onControlEvent, {
+        type: "secret_requested",
+        botId,
+        actor,
+        reason: input.label,
+        state,
+      });
       return state;
     },
 
@@ -1489,6 +1550,12 @@ export function createComputerGateway(
         botId,
         actor,
         reason: "The person declined to enter it.",
+      });
+      notifyControl(options.onControlEvent, {
+        type: "secret_cancelled",
+        botId,
+        actor,
+        state,
       });
       return state;
     },
@@ -1515,6 +1582,17 @@ export function createComputerGateway(
         // Length, never content. Enough to show something real was entered.
         reason: `${result.characters} characters`,
       });
+      if (options.onControlEvent)
+        void get<ControlState>(botId, "/control")
+          .then((state) =>
+            notifyControl(options.onControlEvent, {
+              type: "secret_supplied",
+              botId,
+              actor,
+              state,
+            }),
+          )
+          .catch(() => undefined);
       return result;
     },
 
@@ -2256,6 +2334,23 @@ async function write(
  * a policy allowed something it never saw is exactly the kind of comfortable fiction this trail exists
  * to avoid.
  */
+/** Tells the listener without waiting on it, and never lets it throw into the handover. */
+function notifyControl(
+  listener: ComputerGatewayOptions["onControlEvent"],
+  event: Omit<ComputerControlEvent, "userId"> & { actor: ActionActor },
+) {
+  if (!listener) return;
+  const { actor, ...rest } = event;
+  try {
+    listener({
+      ...rest,
+      ...(actor.userId ? { userId: actor.userId } : {}),
+    });
+  } catch (error) {
+    console.warn("computer control listener failed", error);
+  }
+}
+
 async function writeControlEvent(
   auditStore: AuditStore,
   eventType:

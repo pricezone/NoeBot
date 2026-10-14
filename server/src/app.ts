@@ -53,6 +53,7 @@ import {
   createChannelAttachmentRoutes,
 } from "./channels/attachments";
 import type { ChannelEventHub } from "./channels/events";
+import type { ClickyWiring } from "./clicky";
 import { createGroupRoutes, type GroupConversations } from "./channels/group";
 import { type ChannelStore, createChannelRoutes } from "./channels/routes";
 import type { ThreadIdentity } from "./channels/thread-identity";
@@ -450,6 +451,12 @@ export function createApp(
    * supervisor's health check learns what the person at the screen already knows.
    */
   health?: () => { ok: boolean; database: string },
+  /**
+   * Clicky Mode: routes under each Bot's computer and a person's linked phones. Appended last, like
+   * `health`: these are positional. Absent, or switched off, mounts nothing and the capability says
+   * so. See clicky/index.ts.
+   */
+  clicky?: ClickyWiring,
 ) {
   const app = new Hono<{ Variables: AppVariables }>();
   mountDesktopConnectionFailure(app, desktopHostToken);
@@ -487,6 +494,14 @@ export function createApp(
         : config.selfHostBanner,
       transcription: Boolean(config.transcription),
       voice: Boolean(config.voice),
+      /*
+       * Clicky Mode: whether the companion is offered on this deployment's computers, and whether it
+       * can listen (hold to talk needs transcription). Off when there is no computer to guide on.
+       */
+      clicky: {
+        enabled: Boolean(clicky?.enabled && computerGateway && computerPolicy),
+        voice: Boolean(clicky?.enabled && config.transcription),
+      },
       // Whether chat runs carry out computer tools on the server; the browser then only draws them.
       computerToolsInRun: Boolean(config.computer && config.computerToolsInRun),
       /*
@@ -1352,9 +1367,15 @@ export function createApp(
         agentProfileStore ? computerAccessCheck(agentProfileStore) : canUseBot,
         pageFrames,
         auditReader,
+        clicky?.enabled ? clicky.computerRoutes() : undefined,
       ),
     );
   }
+  // A person's linked phones (Settings › Phones, and the HyperNoesis app signing out).
+  const mobileRoutes = clicky?.enabled
+    ? clicky.mobileRoutes(requireUser)
+    : undefined;
+  if (mobileRoutes) app.route("/api/mobile", mobileRoutes);
 
   if (hostAccessBroker) {
     app.route(
