@@ -214,7 +214,8 @@ describe("the capabilities endpoint", () => {
   function appWith(banner: ReturnType<typeof createSelfHostBanner>) {
     const args: unknown[] = new Array(createApp.length).fill(undefined);
     args[0] = config;
-    args[args.length - 2] = banner;
+    // Third from the end: `health` and then `clicky` follow it.
+    args[args.length - 3] = banner;
     return (createApp as (...input: unknown[]) => ReturnType<typeof createApp>)(
       ...args,
     );

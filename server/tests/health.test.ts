@@ -49,6 +49,8 @@ describe("runtime capabilities", () => {
       selfHostBanner: true,
       transcription: false,
       voice: false,
+      // Clicky needs a computer to guide on, and transcription to listen.
+      clicky: { enabled: false, voice: false },
       // Only where the deployment has a computer (on there unless COMPUTER_TOOLS_IN_RUN=false).
       computerToolsInRun: false,
       // Off unless the platform that meters this deployment named where to read usage from.
@@ -87,6 +89,7 @@ describe("runtime capabilities", () => {
       "selfHostBanner",
       "transcription",
       "voice",
+      "clicky",
       "computerToolsInRun",
       "usage",
       "billingUrl",
