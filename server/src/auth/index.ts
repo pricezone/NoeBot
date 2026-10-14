@@ -283,6 +283,13 @@ export function createAuth(
             // The platform's language for this person, unless they have chosen one here.
             seedLocale: createUserPreferencesStore(database).seedLocale,
             ...(onMobileLinked ? { onMobileLinked } : {}),
+            // A phone's token that did not work, on the trail like any refused sign-in.
+            onMobileRefused: ({ reason }) =>
+              record(auditStore, {
+                eventType: "session.refused",
+                targetType: "person",
+                payload: { method: "signin-handoff/mobile", reason },
+              }),
           }),
         ]
       : []),
