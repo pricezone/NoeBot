@@ -101,7 +101,7 @@
   "Channel not found.": "Το κανάλι δεν βρέθηκε.",
   "Choose a Bot and name this demonstration.": "Διάλεξε έναν Bot και δώσε όνομα σε αυτή την επίδειξη.",
   "Choose active, paused or completed.": "Διάλεξε active, paused ή completed.",
-  "Choose agent or thread for message list emphasis, true or false for the self-host banner, or en, el or null for the interface language.": "Διάλεξε agent ή thread για την έμφαση της λίστας μηνυμάτων, true ή false για το banner αυτοφιλοξενίας, ή en, el ή null για τη γλώσσα της διεπαφής.",
+  "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Clicky's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_each, ask_once_per_task or never; clickyGuidance brief or detailed).": "Στείλε τουλάχιστον μία γνωστή προτίμηση: agent ή thread για την έμφαση της λίστας μηνυμάτων, true ή false για το banner αυτοφιλοξενίας, en, el ή null για τη γλώσσα της διεπαφής, ή μία από τις ρυθμίσεις του Clicky (clickyAutoActivate, clickySpeakReplies και clickyOnboarded true ή false· clickyActionPolicy ask_each, ask_once_per_task ή never· clickyGuidance brief ή detailed).",
   "Choose all, needs_input or none.": "Διάλεξε all, needs_input ή none.",
   "Choose allow once, allow always, deny, or done.": "Διάλεξε άδεια μία φορά, άδεια πάντα, άρνηση ή ολοκληρώθηκε.",
   "Choose an accessible Bot and conversation you belong to.": "Διάλεξε έναν διαθέσιμο Bot και μια συνομιλία στην οποία συμμετέχεις.",
