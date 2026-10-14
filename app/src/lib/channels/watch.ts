@@ -97,12 +97,27 @@ export function liveCalls(messages: readonly Message[]): LiveCalls {
   };
 }
 
-/** Whether the transcript holds this tool call at all. */
+/**
+ * Whether the transcript holds this tool call with its arguments written in full. A read made while
+ * the Bot is still writing them holds the call half written (a question with no options yet), which
+ * is not yet the card a step that named it is waiting for.
+ */
 export function holdsToolCall(
   messages: readonly Message[],
   toolCallId: string,
 ): boolean {
-  return liveCalls(messages).ids.has(toolCallId);
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const call = message.toolCalls?.find((each) => each.id === toolCallId);
+    if (!call) continue;
+    try {
+      JSON.parse(call.function.arguments);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 /** Whether a message says anything: text, or a tool call. A blank assistant turn says nothing. */
