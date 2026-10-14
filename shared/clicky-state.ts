@@ -13,6 +13,7 @@ import {
   type ClickyPoint,
   type ClickyProposal,
   type ClickyRisk,
+  type ClickySeen,
   type ClickySession,
   type ClickyState,
   type ClickyStep,
@@ -53,7 +54,9 @@ export type ClickyAuditEvent =
   | "clicky.action_performed"
   | "clicky.action_failed"
   | "clicky.action_blocked"
-  | "clicky.stopped";
+  | "clicky.stopped"
+  /** "Do it for me" switched on or off. */
+  | "clicky.mode_changed";
 
 /** The model's plan for a task, before it has ids. */
 export type ClickyPlan = {
@@ -72,6 +75,8 @@ export type ClickyRatedAction = {
   why: string;
   risk: ClickyRisk;
   riskReason?: string;
+  /** What was at the action's place when it was rated; kept on the proposal. */
+  seen?: ClickySeen;
 };
 
 export type ClickyEvent =
@@ -89,7 +94,15 @@ export type ClickyEvent =
       done?: boolean;
     }
   | { type: "brain.failed"; thinkId: string; detail?: string }
-  | { type: "action.done"; proposalId: string }
+  | {
+      type: "action.done";
+      proposalId: string;
+      /**
+       * What was done, as the server found it just before doing it (the element's role and name,
+       * the site, how many characters or which keys), for the audit row. Never the text typed.
+       */
+      detail?: Record<string, string | number | boolean | null>;
+    }
   | { type: "action.failed"; proposalId: string; detail?: string }
   /** The person clicked on the computer's screen (from the live viewer). */
   | { type: "person.input"; at: ClickyPoint }
@@ -106,7 +119,15 @@ export type ClickyEvent =
 export type ClickyEffect =
   | { type: "think"; thinkId: string; reason: ClickyThinkReason; text?: string }
   | { type: "cancel_think" }
-  | { type: "act"; proposal: ClickyProposal }
+  | {
+      type: "act";
+      proposal: ClickyProposal;
+      /**
+       * Run on a "for this task" grant rather than a yes for this proposal: the server then also
+       * insists the element is still the one the step points at.
+       */
+      viaGrant?: boolean;
+    }
   | { type: "abort_action" }
   | { type: "save_notes" }
   | {
@@ -242,6 +263,17 @@ function wakeAudit(session: ClickySession, reason: string): ClickyEffect[] {
           detail: { botId: session.botId, reason },
         },
       ];
+}
+
+function modeAudit(
+  mode: ClickySession["mode"],
+  session: ClickySession,
+): ClickyEffect {
+  return {
+    type: "audit",
+    event: "clicky.mode_changed",
+    detail: { botId: session.botId, mode, from: session.mode },
+  };
 }
 
 function grantActive(session: ClickySession, context: ClickyContext): boolean {
@@ -430,8 +462,10 @@ function reduceCommand(
       const asked: ClickySession = {
         ...session,
         awake: true,
-        // A new question moves on from a proposal nobody answered.
+        // A new question moves on from a proposal nobody answered, and from any grant: the
+        // person is steering again, so nothing runs on an earlier yes.
         proposal: null,
+        grant: null,
         transcript: appendTurn(session, "person", text, context),
         lastProgressAt: iso(context),
         nudgedAt: null,
@@ -446,7 +480,13 @@ function reduceCommand(
     case "show_me": {
       if (session.state === "acting") return refuse(session, "busy");
       const draft = startThinking(
-        { ...session, awake: true, proposal: null, nudgedAt: null },
+        {
+          ...session,
+          awake: true,
+          proposal: null,
+          grant: null,
+          nudgedAt: null,
+        },
         "show_me",
         context,
       );
@@ -520,10 +560,12 @@ function reduceCommand(
         return refuse(session, "guide_only");
       if (proposal.risk !== "low" && proposal.risk !== "confirm")
         return refuse(session, "yours");
+      // "For this task" needs a task: a walkthrough with a step in hand. Otherwise it is a yes for this one.
       const taskWide =
         command.scope === "task" &&
         proposal.risk === "low" &&
-        context.actionPolicy !== "ask_each";
+        context.actionPolicy !== "ask_each" &&
+        currentStep(session) !== null;
       return changed({
         session: {
           ...session,
@@ -660,7 +702,7 @@ function reduceCommand(
       if (session.state === "acting") return refuse(session, "busy");
       if (!session.lastThink) return refuse(session, "nothing_to_retry");
       const draft = startThinking(
-        { ...session, awake: true, proposal: null },
+        { ...session, awake: true, proposal: null, grant: null },
         "retry",
         context,
         session.lastThink.text,
@@ -684,7 +726,9 @@ function reduceCommand(
           awake: true,
           mode: "act",
           autoSteps: 0,
+          grant: null,
         };
+        const audit = modeAudit("act", session);
         // "Do it for me" on a task already in hand: look and propose the next action straight away.
         const hasTask = Boolean(session.trigger || currentStep(session));
         if (
@@ -692,20 +736,27 @@ function reduceCommand(
           session.state !== "acting" &&
           session.state !== "stopped"
         ) {
-          return changed(
-            startThinking({ ...acting, proposal: null }, "do_it", context),
+          const draft = startThinking(
+            { ...acting, proposal: null },
+            "do_it",
+            context,
           );
+          return changed({
+            session: draft.session,
+            effects: [audit, ...draft.effects],
+          });
         }
-        return changed({ session: acting, effects: [] });
+        return changed({ session: acting, effects: [audit] });
       }
       const guided: ClickySession = { ...session, mode: "guide", grant: null };
+      const audit = modeAudit("guide", session);
       if (session.state === "awaiting_permission") {
         return changed({
           session: { ...guided, proposal: null, state: restingState(guided) },
-          effects: [],
+          effects: [audit],
         });
       }
-      return changed({ session: guided, effects: [] });
+      return changed({ session: guided, effects: [audit] });
     }
     case "activate": {
       const trigger = command.trigger;
@@ -874,6 +925,7 @@ function reduceInternal(
           why: rated.why,
           risk: rated.risk,
           ...(rated.riskReason ? { riskReason: rated.riskReason } : {}),
+          ...(rated.seen ? { seen: rated.seen } : {}),
           createdAt: iso(context),
           expiresAt: iso(context, CLICKY_PROPOSAL_TTL_MS),
         };
@@ -884,10 +936,23 @@ function reduceInternal(
             proposalId: proposal.id,
             action: proposal.action.kind,
             risk: proposal.risk,
+            label: proposal.action.label,
+            modelLabel: proposal.action.modelLabel ?? null,
           },
         });
+        /*
+         * A grant covers the walkthrough's own next step and nothing else: the action has to be on
+         * the element that step points at. Anything off the plan (another element, a key, a scroll)
+         * waits for a yes like any other proposal.
+         */
+        const onTheStep =
+          rated.action.kind !== "key" &&
+          rated.action.kind !== "scroll" &&
+          Boolean(rated.action.ref) &&
+          rated.action.ref === currentStep(next)?.targetRef;
         if (
           rated.risk === "low" &&
+          onTheStep &&
           grantActive(next, context) &&
           next.autoSteps < CLICKY_AUTO_STEP_LIMIT
         ) {
@@ -902,7 +967,7 @@ function reduceInternal(
                 scope: "task",
               },
             },
-            { type: "act", proposal },
+            { type: "act", proposal, viaGrant: true },
           );
           return changed({
             session: {
@@ -949,7 +1014,12 @@ function reduceInternal(
         {
           type: "audit",
           event: "clicky.action_performed",
-          detail: { proposalId: proposal.id, action: proposal.action.kind },
+          detail: {
+            ...event.detail,
+            proposalId: proposal.id,
+            action: proposal.action.kind,
+            label: proposal.action.label,
+          },
         },
       ];
       const done: ClickySession = { ...session, proposal: null, error: null };

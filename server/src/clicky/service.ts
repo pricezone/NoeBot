@@ -69,6 +69,7 @@ export const CLICKY_AUDIT_EVENT_TYPES: Record<
   "clicky.action_failed": "clicky.action_failed",
   "clicky.action_blocked": "clicky.action_blocked",
   "clicky.stopped": "clicky.stopped",
+  "clicky.mode_changed": "clicky.mode_changed",
 };
 
 export const CLICKY_TICK_MS = 5_000;

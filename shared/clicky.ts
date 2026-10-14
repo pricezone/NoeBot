@@ -102,7 +102,7 @@ export type ClickyWalkthrough = {
  * `at` is where on the screen; `ref` is the element when it was found on the page, so the server can
  * look again just before acting. `label` is what the person reads ("the Search box").
  */
-export type ClickyAction =
+export type ClickyAction = (
   | {
       kind: "click";
       at: ClickyPoint;
@@ -120,7 +120,14 @@ export type ClickyAction =
     }
   /** A key or a combination in Playwright's notation: `Enter`, `Control+L`. */
   | { kind: "key"; keys: string; label: string }
-  | { kind: "scroll"; at: ClickyPoint; deltaY: number; label: string };
+  | { kind: "scroll"; at: ClickyPoint; deltaY: number; label: string }
+) & {
+  /**
+   * What the model called it, when `label` was replaced with the element's own role and name as
+   * the server found it on the page. Kept for the audit trail; the person reads `label`.
+   */
+  modelLabel?: string;
+};
 
 /**
  * How an action is treated, decided by the server's guardrails and never by the model.
@@ -141,8 +148,21 @@ export type ClickyProposal = {
   risk: ClickyRisk;
   /** Why the guardrails rated it the way they did, for `confirm`, `yours` and `blocked`. */
   riskReason?: string;
+  /**
+   * What the server found at the action's place when it was proposed (the page, and the element's
+   * role and name). The action is refused if that has changed by the time the person says yes.
+   */
+  seen?: ClickySeen;
   createdAt: string;
   expiresAt: string;
+};
+
+/** The page and the element an action was proposed on, as the server read them. */
+export type ClickySeen = {
+  url: string;
+  role: string;
+  name: string;
+  ref?: string;
 };
 
 /**

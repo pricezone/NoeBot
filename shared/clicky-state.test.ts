@@ -282,31 +282,167 @@ describe("approvals", () => {
     ).toBe(true);
   });
 
-  test("'for this task' covers later low-risk actions only, and only when the setting allows", () => {
-    const h = proposing("ask_once_per_task");
+  /** A walkthrough whose steps point at e1, e2 and e3, and Clicky proposing a click on e1. */
+  function walking(policy: ClickyActionPolicy = "ask_once_per_task") {
+    const h = harness(policy);
+    h.command({ type: "wake" });
+    h.command({ type: "set_mode", mode: "act" });
+    h.command({ type: "ask", text: "book it" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Three steps.",
+      plan: {
+        goal: "Book",
+        steps: ["e1", "e2", "e3"].map((ref) => ({
+          title: `Press ${ref}`,
+          overlays: [],
+          targetRef: ref,
+        })),
+      },
+    });
+    h.command({ type: "show_me" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "First this.",
+      proposal: { ...CLICK, action: { ...CLICK.action, ref: "e1" } },
+    });
+    return h;
+  }
+
+  const onStep = (ref: string, risk: ClickyRatedAction["risk"] = "low") => ({
+    ...CLICK,
+    risk,
+    action: { ...CLICK.action, ref },
+  });
+
+  test("'for this task' runs the walkthrough's next step on its own element, and nothing else", () => {
+    const h = walking();
     const id = h.session.proposal?.id ?? "";
     h.command({ type: "approve", proposalId: id, scope: "task" });
     expect(h.session.grant).not.toBeNull();
+    // Done, the walkthrough moves on and Clicky looks again by itself.
     h.run({ type: "action.done", proposalId: id });
-    h.command({ type: "ask", text: "and the next one" });
     const auto = h.run({
       type: "brain.reply",
       thinkId: h.thinking(),
       say: "Next.",
-      proposal: CLICK,
+      proposal: onStep("e2"),
     });
     expect(h.session.state).toBe("acting");
-    expect(auto.effects.map((effect) => effect.type)).toContain("act");
-    const autoId = h.session.proposal?.id ?? "";
-    h.run({ type: "action.done", proposalId: autoId });
-    h.command({ type: "ask", text: "submit it" });
+    expect(auto.effects).toContainEqual(
+      expect.objectContaining({ type: "act", viaGrant: true }),
+    );
+    // Off the plan (another element), or hard to undo: asked about.
+    h.run({ type: "action.done", proposalId: h.session.proposal?.id ?? "" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "This other one.",
+      proposal: onStep("e9"),
+    });
+    expect(h.session.state).toBe("awaiting_permission");
+  });
+
+  test("a step that is hard to undo is asked about even on its own element", () => {
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "task" });
+    h.run({ type: "action.done", proposalId: id });
     h.run({
       type: "brain.reply",
       thinkId: h.thinking(),
       say: "Submit?",
-      proposal: { ...CLICK, risk: "confirm" },
+      proposal: onStep("e2", "confirm"),
     });
     expect(h.session.state).toBe("awaiting_permission");
+  });
+
+  test("a key or a scroll never runs on a grant", () => {
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "task" });
+    h.run({ type: "action.done", proposalId: id });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Enter.",
+      proposal: {
+        action: { kind: "key", keys: "Enter", label: "Enter" },
+        why: "send",
+        risk: "low",
+      },
+    });
+    expect(h.session.state).toBe("awaiting_permission");
+  });
+
+  test("without a walkthrough, 'for this task' is a yes for this one only", () => {
+    const h = proposing("ask_once_per_task");
+    h.command({
+      type: "approve",
+      proposalId: h.session.proposal?.id ?? "",
+      scope: "task",
+    });
+    expect(h.session.state).toBe("acting");
+    expect(h.session.grant).toBeNull();
+  });
+
+  test.each([
+    { type: "ask", text: "something else" },
+    { type: "show_me" },
+    { type: "retry" },
+    { type: "set_mode", mode: "guide" },
+  ] as const)("$type ends a grant", (next) => {
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "task" });
+    h.run({ type: "action.done", proposalId: id });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Stopping here.",
+    });
+    expect(h.session.grant).not.toBeNull();
+    h.command(next);
+    expect(h.session.grant).toBeNull();
+  });
+
+  test("switching Do it for me on or off is audited", () => {
+    const h = harness();
+    const on = h.command({ type: "set_mode", mode: "act" });
+    expect(on.effects).toContainEqual(
+      expect.objectContaining({
+        event: "clicky.mode_changed",
+        detail: expect.objectContaining({ mode: "act", from: "guide" }),
+      }),
+    );
+    const off = h.command({ type: "set_mode", mode: "guide" });
+    expect(off.effects).toContainEqual(
+      expect.objectContaining({ event: "clicky.mode_changed" }),
+    );
+  });
+
+  test("what was done is in the audit row, with the label the person approved", () => {
+    const h = proposing();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "once" });
+    const done = h.run({
+      type: "action.done",
+      proposalId: id,
+      detail: { role: "button", name: "Search", host: "example.com" },
+    });
+    expect(done.effects[0]).toMatchObject({
+      event: "clicky.action_performed",
+      detail: {
+        proposalId: id,
+        action: "click",
+        label: "the search box",
+        role: "button",
+        name: "Search",
+        host: "example.com",
+      },
+    });
   });
 
   test("with ask_each, 'for this task' is only a yes for this one", () => {
