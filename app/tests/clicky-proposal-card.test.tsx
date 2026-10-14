@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { ClickyProposalCard } from "@/components/clicky/clicky-proposal-card";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  CLICKY_ALLOW_ARM_MS,
+  ClickyProposalCard,
+} from "@/components/clicky/clicky-proposal-card";
 import type { ClickyCommand, ClickyProposal } from "../../shared/clicky";
 import type { ClickyActionPolicy } from "../../shared/user-preferences";
 import { settleReactWork } from "./settle-react-work";
@@ -36,12 +39,19 @@ function proposal(patch: Partial<ClickyProposal> = {}): ClickyProposal {
 }
 
 function draw(
-  options: { policy?: ClickyActionPolicy; proposal?: ClickyProposal } = {},
+  options: {
+    policy?: ClickyActionPolicy | null;
+    proposal?: ClickyProposal;
+    armDelayMs?: number;
+  } = {},
 ) {
   const sent: ClickyCommand[] = [];
   const view = render(
     <ClickyProposalCard
-      actionPolicy={options.policy ?? "ask_once_per_task"}
+      actionPolicy={
+        options.policy === undefined ? "ask_once_per_task" : options.policy
+      }
+      armDelayMs={options.armDelayMs ?? 0}
       busy={false}
       onCommand={(command) => sent.push(command)}
       proposal={options.proposal ?? proposal()}
@@ -119,4 +129,57 @@ test("a lapsed request can no longer be allowed", () => {
   expect(
     view.getByRole("button", { name: "Not now" }).hasAttribute("disabled"),
   ).toBe(false);
+});
+
+test("the Allow buttons wait a moment before they take a click, like a permission prompt", async () => {
+  const { view, sent } = draw({ armDelayMs: CLICKY_ALLOW_ARM_MS });
+  const once = view.getByRole("button", { name: "Allow once" });
+  const task = view.getByRole("button", { name: "Allow for this task" });
+  expect(once.hasAttribute("disabled")).toBe(true);
+  expect(task.hasAttribute("disabled")).toBe(true);
+  // Not now is never held back.
+  expect(
+    view.getByRole("button", { name: "Not now" }).hasAttribute("disabled"),
+  ).toBe(false);
+  fireEvent.click(once);
+  expect(sent).toEqual([]);
+
+  await waitFor(() => expect(once.hasAttribute("disabled")).toBe(false), {
+    timeout: 2_000,
+  });
+  fireEvent.click(once);
+  expect(sent).toEqual([
+    { type: "approve", proposalId: "proposal-1", scope: "once" },
+  ]);
+});
+
+test("the countdown runs from when the request arrived, whatever the two clocks say", () => {
+  // The server's clock is an hour behind this one; the request is still two minutes long.
+  const serverNow = Date.now() - 60 * 60_000;
+  const { view } = draw({
+    proposal: proposal({
+      createdAt: new Date(serverNow).toISOString(),
+      expiresAt: new Date(serverNow + 120_000).toISOString(),
+    }),
+  });
+  expect(view.getByText("2:00 left")).toBeTruthy();
+  expect(view.queryByText("Timed out")).toBeNull();
+});
+
+test("before the person's setting has arrived, Allow for this task is not offered", () => {
+  const { view } = draw({ policy: null });
+  expect(view.getByRole("button", { name: "Allow once" })).toBeTruthy();
+  expect(
+    view.queryByRole("button", { name: "Allow for this task" }),
+  ).toBeNull();
+});
+
+test("the guardrails' reason is shown as the server wrote it where there is no translation", () => {
+  const { view } = draw({
+    proposal: proposal({
+      risk: "confirm",
+      riskReason: "A sentence the catalog has never seen.",
+    }),
+  });
+  expect(view.getByText("A sentence the catalog has never seen.")).toBeTruthy();
 });

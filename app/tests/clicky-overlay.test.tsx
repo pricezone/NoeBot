@@ -1,7 +1,12 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { cleanup, render } from "@testing-library/react";
-import { ClickyOverlay, percent } from "@/components/clicky/clicky-overlay";
+import {
+  ClickyOverlay,
+  containedFrame,
+  percent,
+  selectClickyOverlay,
+} from "@/components/clicky/clicky-overlay";
 import {
   type ClickyOverlay as Overlay,
   type ClickySession,
@@ -10,10 +15,11 @@ import {
 import { settleReactWork } from "./settle-react-work";
 
 /**
- * Clicky's overlay over the Bot's screen: everything is placed as a fraction of the screen's box, so
- * a point the server sends as normalized coordinates lands on the same spot of the screen at any
- * size. The pointer glides between spots unless the person asked for less motion, and a spot Clicky
- * only guessed says "around here".
+ * Clicky's overlay over the Bot's screen: everything is placed as a fraction of the frame as it is
+ * drawn, so a point the server sends as normalized coordinates lands on the same spot of the screen
+ * at any size, and a frame letterboxed in its card is covered without its bands. The pointer glides
+ * between spots unless the person asked for less motion, a spot Clicky only guessed says "around
+ * here", and words near an edge go on the side that stays on screen.
  */
 
 let reduced = false;
@@ -55,13 +61,18 @@ function session(overlays: Overlay[], patch: Partial<ClickySession> = {}) {
   };
 }
 
+/** The overlay as a surface draws it: from the view it selects out of the session. */
+function Drawn({ of, compact }: { of: ClickySession; compact?: boolean }) {
+  return <ClickyOverlay compact={compact} view={selectClickyOverlay(of)} />;
+}
+
 const pointer = (x: number, y: number, extra: Partial<Overlay> = {}) =>
   ({ kind: "pointer", id: "p1", at: { x, y }, ...extra }) as Overlay;
 
 const clickyPointer = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('[data-clicky="clicky-pointer"]');
 
-test("a normalized point is a percentage of the screen's box, rounded", () => {
+test("a normalized point is a percentage of the drawn frame, rounded", () => {
   expect(percent(0.25)).toBe("25%");
   expect(percent(0.07)).toBe("7%");
   expect(percent(0.123456)).toBe("12.346%");
@@ -70,10 +81,35 @@ test("a normalized point is a percentage of the screen's box, rounded", () => {
   expect(percent(-0.2)).toBe("0%");
 });
 
+test("a 16:9 frame fitted in a 1.6 card is covered without its bands", () => {
+  // Wider than the card: full width, a band above and below.
+  expect(containedFrame(1.6, 16 / 9)).toEqual({
+    left: "0%",
+    top: "5%",
+    width: "100%",
+    height: "90%",
+  });
+  // Taller than the card: full height, a band either side.
+  expect(containedFrame(16 / 9, 1.6)).toEqual({
+    left: "5%",
+    top: "0%",
+    width: "90%",
+    height: "100%",
+  });
+  // The same shape, or nothing known: the whole card.
+  expect(containedFrame(1.6, 1.6)).toEqual({
+    left: "0%",
+    top: "0%",
+    width: "100%",
+    height: "100%",
+  });
+  expect(containedFrame(1.6, 0).height).toBe("100%");
+});
+
 test("the pointer, a highlight, a marker and a caption sit where their coordinates say", () => {
   const view = render(
-    <ClickyOverlay
-      session={session([
+    <Drawn
+      of={session([
         pointer(0.25, 0.5, { label: "Sign in" }),
         {
           kind: "highlight",
@@ -110,11 +146,11 @@ test("the pointer, a highlight, a marker and a caption sit where their coordinat
 });
 
 test("the pointer glides to its next spot: the same element, moved, with a transition", () => {
-  const view = render(<ClickyOverlay session={session([pointer(0.2, 0.3)])} />);
+  const view = render(<Drawn of={session([pointer(0.2, 0.3)])} />);
   const first = clickyPointer(view.container);
   expect(first?.style.transition).toContain("left 350ms");
 
-  view.rerender(<ClickyOverlay session={session([pointer(0.6, 0.7)])} />);
+  view.rerender(<Drawn of={session([pointer(0.6, 0.7)])} />);
   const moved = clickyPointer(view.container);
   expect(moved).toBe(first);
   expect(moved?.style.left).toBe("60%");
@@ -124,8 +160,8 @@ test("the pointer glides to its next spot: the same element, moved, with a trans
 test("with reduced motion the pointer jumps and the highlight does not pulse", () => {
   reduced = true;
   const view = render(
-    <ClickyOverlay
-      session={session([
+    <Drawn
+      of={session([
         pointer(0.2, 0.3),
         {
           kind: "highlight",
@@ -145,10 +181,8 @@ test("with reduced motion the pointer jumps and the highlight does not pulse", (
 
 test("a guessed spot says around here, with or without a label", () => {
   const view = render(
-    <ClickyOverlay
-      session={session([
-        pointer(0.4, 0.4, { approximate: true, label: "Menu" }),
-      ])}
+    <Drawn
+      of={session([pointer(0.4, 0.4, { approximate: true, label: "Menu" })])}
     />,
   );
   expect(view.getByText("Menu, around here")).toBeTruthy();
@@ -157,17 +191,50 @@ test("a guessed spot says around here, with or without a label", () => {
   );
 
   view.rerender(
-    <ClickyOverlay
-      session={session([pointer(0.4, 0.4, { approximate: true })])}
-    />,
+    <Drawn of={session([pointer(0.4, 0.4, { approximate: true })])} />,
   );
   expect(view.getByText("Around here")).toBeTruthy();
 });
 
+test("near the top a box's words go under it; near the bottom the pointer's go above", () => {
+  const view = render(
+    <Drawn
+      of={session([
+        pointer(0.5, 0.92, { label: "Send" }),
+        {
+          kind: "highlight",
+          id: "top",
+          label: "Address bar",
+          rect: { x: 0.1, y: 0.02, width: 0.6, height: 0.04 },
+        },
+        {
+          kind: "highlight",
+          id: "middle",
+          label: "Form",
+          rect: { x: 0.1, y: 0.4, width: 0.6, height: 0.2 },
+        },
+      ])}
+    />,
+  );
+  const labels = [
+    ...view.container.querySelectorAll<HTMLElement>(
+      '[data-clicky="highlight-label"]',
+    ),
+  ];
+  const top = labels.find((label) => label.textContent === "Address bar");
+  const middle = labels.find((label) => label.textContent === "Form");
+  expect(top?.getAttribute("data-placement")).toBe("below");
+  expect(top?.style.top).toBe("6%");
+  expect(middle?.getAttribute("data-placement")).toBe("above");
+
+  const words = view.getByText("Send").parentElement;
+  expect(words?.getAttribute("data-placement")).toBe("above");
+});
+
 test("the current step's overlays are drawn, and the step is announced politely", () => {
   const view = render(
-    <ClickyOverlay
-      session={session([], {
+    <Drawn
+      of={session([], {
         walkthrough: {
           id: "w1",
           goal: "Sign in",
@@ -198,18 +265,26 @@ test("the current step's overlays are drawn, and the step is announced politely"
   expect(live?.textContent).toBe("Step 2 of 3 — Click Sign in");
 });
 
+test("words still arriving are not part of what the overlay draws", () => {
+  const streaming = session([pointer(0.5, 0.5)], {
+    state: "thinking",
+    reply: { text: "Cli", final: false },
+  });
+  const more = { ...streaming, reply: { text: "Click", final: false } };
+  // The same view for both, so a surface drawing it is not drawn again for each word.
+  expect(selectClickyOverlay(more)).toEqual(selectClickyOverlay(streaming));
+  expect(selectClickyOverlay(streaming).reply).toBeNull();
+});
+
 test("asleep, nothing is drawn; the preview draws no words and no live region", () => {
   const asleep = render(
-    <ClickyOverlay session={session([pointer(0.5, 0.5)], { awake: false })} />,
+    <Drawn of={session([pointer(0.5, 0.5)], { awake: false })} />,
   );
   expect(clickyPointer(asleep.container)).toBeNull();
   asleep.unmount();
 
   const compact = render(
-    <ClickyOverlay
-      compact
-      session={session([pointer(0.5, 0.5, { label: "Sign in" })])}
-    />,
+    <Drawn compact of={session([pointer(0.5, 0.5, { label: "Sign in" })])} />,
   );
   expect(clickyPointer(compact.container)?.style.left).toBe("50%");
   expect(compact.queryByText("Sign in")).toBeNull();
