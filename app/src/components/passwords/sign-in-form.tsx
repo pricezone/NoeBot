@@ -11,6 +11,7 @@ import {
 import { PageSection } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useTranslation } from "@/lib/i18n";
 import {
   cancelSignInMutationOptions,
   confirmSavedLoginMutationOptions,
@@ -41,6 +42,7 @@ import { queryClient } from "@/query-client";
  * result.
  */
 export function SignInForm({ requestId }: { requestId: string }) {
+  const { t } = useTranslation();
   const request = useQuery({
     ...signInRequestQueryOptions(requestId),
     // Polled so a takeover finishing elsewhere, or the request expiring, shows here.
@@ -95,11 +97,18 @@ export function SignInForm({ requestId }: { requestId: string }) {
     const codeNext = data.attempt?.outcome === "code-requested";
     return (
       <PageSection
-        title={signedIn ? "Signed in" : codeNext ? "Submitted" : "Closed"}
+        title={
+          signedIn ? t("Signed in") : codeNext ? t("Submitted") : t("Closed")
+        }
       >
         <p className="text-muted-foreground text-sm">
           {signedIn
-            ? `You are signed in to ${host}.${data.attempt?.rememberDeviceLeftUnchecked ? " “Remember this device” was left unchecked." : ""}`
+            ? data.attempt?.rememberDeviceLeftUnchecked
+              ? t(
+                  "You are signed in to {{host}}. “Remember this device” was left unchecked.",
+                  { host },
+                )
+              : t("You are signed in to {{host}}.", { host })
             : (signInNote({
                 status: data.status,
                 ...(data.attempt?.outcome
@@ -109,7 +118,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
                   ? { pageMessage: data.attempt.pageMessage }
                   : {}),
                 host,
-              }) ?? "This sign-in request is no longer open.")}
+              }) ?? t("This sign-in request is no longer open."))}
         </p>
       </PageSection>
     );
@@ -118,8 +127,11 @@ export function SignInForm({ requestId }: { requestId: string }) {
   if (data.status === "filling" && data.approvalUntil)
     return (
       <PageSection
-        title="Waiting for approval on your phone"
-        description={`${host} asked your phone or app to approve this sign-in. Approve it there, then press Continue.`}
+        title={t("Waiting for approval on your phone")}
+        description={t(
+          "{{host}} asked your phone or app to approve this sign-in. Approve it there, then press Continue.",
+          { host },
+        )}
       >
         <div className="flex flex-wrap gap-2">
           <Button
@@ -127,7 +139,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
             disabled={busy}
             onClick={() => continueApproval.mutate(requestId)}
           >
-            {continueApproval.isPending ? "Checking…" : "Continue"}
+            {continueApproval.isPending ? t("Checking…") : t("Continue")}
           </Button>
           <Button
             size="sm"
@@ -135,7 +147,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
             disabled={busy}
             onClick={() => cancel.mutate(requestId)}
           >
-            Cancel
+            {t("Cancel")}
           </Button>
         </div>
         {failure ? (
@@ -149,8 +161,10 @@ export function SignInForm({ requestId }: { requestId: string }) {
   if (data.status === "taken_over")
     return (
       <PageSection
-        title="Sign in by hand"
-        description="Take the Bot's browser, sign in, and hand it back. Then say you are done so the Bot carries on."
+        title={t("Sign in by hand")}
+        description={t(
+          "Take the Bot's browser, sign in, and hand it back. Then say you are done so the Bot carries on.",
+        )}
       >
         <div className="flex flex-wrap gap-2">
           <Button
@@ -160,14 +174,14 @@ export function SignInForm({ requestId }: { requestId: string }) {
               <Link to="/bot" search={{ agent: data.botId, watch: true }} />
             }
           >
-            Open the Bot's browser
+            {t("Open the Bot's browser")}
           </Button>
           <Button
             size="sm"
             disabled={busy}
             onClick={() => finish.mutate(requestId)}
           >
-            {finish.isPending ? "Finishing…" : "I've signed in"}
+            {finish.isPending ? t("Finishing…") : t("I've signed in")}
           </Button>
           <Button
             size="sm"
@@ -175,7 +189,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
             disabled={busy}
             onClick={() => cancel.mutate(requestId)}
           >
-            Cancel
+            {t("Cancel")}
           </Button>
         </div>
         {failure ? (
@@ -188,10 +202,11 @@ export function SignInForm({ requestId }: { requestId: string }) {
 
   const requestedHost = hostOf(data.requestedOrigin);
   const codeOnly = data.form === "code";
-  const usernameLabel = data.usernameLabel ?? "Username or email";
-  const passwordLabel = data.passwordLabel ?? "Password";
+  const usernameLabel = data.usernameLabel ?? t("Username or email");
+  const passwordLabel = data.passwordLabel ?? t("Password");
   const codeLabel =
-    data.codeLabel ?? (codeOnly ? "Confirmation code" : "Verification code");
+    data.codeLabel ??
+    (codeOnly ? t("Confirmation code") : t("Verification code"));
   // One place for what went wrong: the attempt just made, else the last one the server remembers.
   // Both used to be printed, the same sentence twice, at the top and above the buttons.
   const problem = failure?.message ?? data.outcome ?? null;
@@ -230,12 +245,17 @@ export function SignInForm({ requestId }: { requestId: string }) {
     >
       {requestedHost && requestedHost !== host ? (
         <p className="text-muted-foreground text-sm">
-          The Bot was on {requestedHost}; the sign-in form is on {host}.
+          {t(
+            "The Bot was on {{requestedHost}}; the sign-in form is on {{host}}.",
+            { requestedHost, host },
+          )}
         </p>
       ) : null}
       {!codeOnly && data.savedLogins.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <p className="text-muted-foreground text-sm">Use a saved login</p>
+          <p className="text-muted-foreground text-sm">
+            {t("Use a saved login")}
+          </p>
           {data.savedLogins.map((login) => (
             <div
               className="flex items-center gap-3 rounded-xl bg-background/40 px-3 py-2 dark:bg-muted/40"
@@ -265,7 +285,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
                 type="button"
                 variant="secondary"
               >
-                Use
+                {t("Use")}
               </Button>
             </div>
           ))}
@@ -318,7 +338,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
                 id={`${id}-save`}
                 onCheckedChange={(checked) => setSave(checked === true)}
               />
-              Save to Passwords
+              {t("Save to Passwords")}
             </label>
           ) : null}
           {showCode ? null : (
@@ -327,7 +347,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
               onClick={() => setShowCode(true)}
               type="button"
             >
-              The site also asks for a code
+              {t("The site also asks for a code")}
             </button>
           )}
         </div>
@@ -347,7 +367,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
             variant="ghost"
           >
             <IconPointer />
-            Sign in by hand
+            {t("Sign in by hand")}
           </Button>
           <Button
             disabled={busy}
@@ -356,7 +376,7 @@ export function SignInForm({ requestId }: { requestId: string }) {
             type="button"
             variant="ghost"
           >
-            Decline
+            {t("Decline")}
           </Button>
         </div>
         <Button
@@ -365,7 +385,9 @@ export function SignInForm({ requestId }: { requestId: string }) {
           type="submit"
           variant="secondary"
         >
-          {submit.isPending || confirmSaved.isPending ? "Sending…" : "Continue"}
+          {submit.isPending || confirmSaved.isPending
+            ? t("Sending…")
+            : t("Continue")}
         </Button>
       </div>
     </form>

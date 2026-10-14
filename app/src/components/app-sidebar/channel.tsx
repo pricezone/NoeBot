@@ -52,6 +52,7 @@ import {
   sectionListQueryOptions,
   setChannelSectionMutationOptions,
 } from "@/lib/channels/sections";
+import { useTranslation } from "@/lib/i18n";
 import { landingTarget } from "@/lib/landing";
 import type { MessageListEmphasis } from "@/lib/settings/message-list";
 import { useTypedReveal } from "@/lib/typed-reveal";
@@ -114,6 +115,7 @@ export const Channel = memo(function Channel({
   /** Which of this person's sections the row is filed under, or null. */
   sectionId?: string | null;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   // Whether this row's channel is the one on screen, as a boolean, so navigating between
@@ -125,7 +127,7 @@ export const Channel = memo(function Channel({
   });
   /* Types in only on arrival; an already-named row draws it outright. */
   const revealed = useTypedReveal(summary);
-  const threadTitle = revealed.text || lastMessage || "New conversation";
+  const threadTitle = revealed.text || lastMessage || t("New conversation");
   const setPinned = useMutation(setChannelPinnedMutationOptions(queryClient));
   const deleteChannel = useMutation(deleteChannelMutationOptions(queryClient));
   const markRead = useMutation(markChannelReadMutationOptions(queryClient));
@@ -205,10 +207,10 @@ export const Channel = memo(function Channel({
   const copyConversationId = async () => {
     try {
       await navigator.clipboard.writeText(channelId);
-      toast("Conversation ID copied");
+      toast(t("Conversation ID copied"));
     } catch {
       // No clipboard in this context: an insecure origin, or a permission the browser refused.
-      setProblem("This browser did not allow copying to the clipboard.");
+      setProblem(t("This browser did not allow copying to the clipboard."));
     }
   };
 
@@ -238,7 +240,7 @@ export const Channel = memo(function Channel({
             <ChannelItemContent
               participantIds={participantIds}
               name={name}
-              title={summary || lastMessage || "New conversation"}
+              title={summary || lastMessage || t("New conversation")}
               displayedTitle={threadTitle}
               lastMessageAt={lastMessageAt}
               emphasis={emphasis}
@@ -257,12 +259,12 @@ export const Channel = memo(function Channel({
             }
           >
             {pinned ? <IconPinnedOff /> : <IconPin />}
-            {pinned ? "Unpin" : "Pin"}
+            {pinned ? t("Unpin") : t("Pin")}
           </ContextMenuItem>
           <ContextMenuSub>
             <ContextMenuSubTrigger className={MENU_ITEM_CLASS}>
               <IconFolderPlus />
-              Move to new section
+              {t("Move to new section")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="min-w-52 rounded-2xl p-1.5">
               <SectionChoices
@@ -280,7 +282,7 @@ export const Channel = memo(function Channel({
               onClick={() => markRead.mutate(channelId, reportTo)}
             >
               <IconBellCheck />
-              Mark as Read
+              {t("Mark as Read")}
             </ContextMenuItem>
           ) : (
             <ContextMenuItem
@@ -293,7 +295,7 @@ export const Channel = memo(function Channel({
               }}
             >
               <IconBellRinging />
-              Mark as Unread
+              {t("Mark as Unread")}
             </ContextMenuItem>
           )}
           {botId !== undefined ? (
@@ -305,7 +307,7 @@ export const Channel = memo(function Channel({
                 onClick={() => setDialog("rename-bot")}
               >
                 <IconEdit />
-                Rename Bot
+                {t("Rename Bot")}
               </ContextMenuItem>
             </>
           ) : null}
@@ -315,7 +317,7 @@ export const Channel = memo(function Channel({
             onClick={() => void copyConversationId()}
           >
             <IconCopy />
-            Copy conversation ID
+            {t("Copy conversation ID")}
           </ContextMenuItem>
           <ContextMenuSeparator className="mx-1" />
           <ContextMenuItem
@@ -325,13 +327,14 @@ export const Channel = memo(function Channel({
                 { channelId, hidden: true },
                 {
                   ...reportTo,
-                  onSuccess: () => toast("Chat hidden. Search still finds it."),
+                  onSuccess: () =>
+                    toast(t("Chat hidden. Search still finds it.")),
                 },
               )
             }
           >
             <IconEyeOff />
-            Hide from sidebar
+            {t("Hide from sidebar")}
           </ContextMenuItem>
           <ContextMenuItem
             className={MENU_ITEM_CLASS}
@@ -343,7 +346,7 @@ export const Channel = memo(function Channel({
             }}
           >
             <IconTrash />
-            Delete
+            {t("Delete")}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -354,16 +357,16 @@ export const Channel = memo(function Channel({
       ) : null}
       {dialog === "new-section" ? (
         <NameDialog
-          description={`“${name}” moves into it.`}
-          label="Section name"
+          description={t("“{{name}}” moves into it.", { name })}
+          label={t("Section name")}
           maxLength={MAX_SECTION_NAME_LENGTH}
           onClose={() => setDialog(null)}
           onSubmit={async (sectionName) => {
             const section = await createSection.mutateAsync(sectionName);
             await setSection.mutateAsync({ channelId, sectionId: section.id });
           }}
-          submitLabel="Create"
-          title="New section"
+          submitLabel={t("Create")}
+          title={t("New section")}
         />
       ) : null}
       {dialog === "rename-bot" && botId !== undefined ? (
@@ -381,9 +384,9 @@ export const Channel = memo(function Channel({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete {name}?</DialogTitle>
+            <DialogTitle>{t("Delete {{name}}?", { name })}</DialogTitle>
             <DialogDescription>
-              The conversation will no longer appear for anyone in it.
+              {t("The conversation will no longer appear for anyone in it.")}
             </DialogDescription>
           </DialogHeader>
           {deleteChannel.error ? (
@@ -393,7 +396,7 @@ export const Channel = memo(function Channel({
           ) : null}
           <DialogFooter>
             <Button onClick={() => setDialog(null)} size="sm" variant="ghost">
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={deleteChannel.isPending}
@@ -403,7 +406,7 @@ export const Channel = memo(function Channel({
               size="sm"
               variant="destructive"
             >
-              {deleteChannel.isPending ? "Deleting…" : "Delete"}
+              {deleteChannel.isPending ? t("Deleting…") : t("Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -426,6 +429,7 @@ function SectionChoices({
   onChoose: (sectionId: string | null) => void;
   onNewSection: () => void;
 }) {
+  const { t } = useTranslation();
   const sections = useQuery(sectionListQueryOptions()).data ?? [];
   return (
     <>
@@ -441,14 +445,14 @@ function SectionChoices({
           >
             <IconFolder />
             <span className="min-w-0 flex-1 truncate">{section.name}</span>
-            {current ? <IconCheck aria-label="Current section" /> : null}
+            {current ? <IconCheck aria-label={t("Current section")} /> : null}
           </ContextMenuItem>
         );
       })}
       {sections.length > 0 ? <ContextMenuSeparator className="mx-1" /> : null}
       <ContextMenuItem className={MENU_ITEM_CLASS} onClick={onNewSection}>
         <IconPlus />
-        New section…
+        {t("New section…")}
       </ContextMenuItem>
       {currentSectionId !== null ? (
         <ContextMenuItem
@@ -456,7 +460,7 @@ function SectionChoices({
           onClick={() => onChoose(null)}
         >
           <IconFolderMinus />
-          Remove from section
+          {t("Remove from section")}
         </ContextMenuItem>
       ) : null}
     </>

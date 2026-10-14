@@ -2,6 +2,7 @@ import { OpenGenerativeUIActivityRenderer } from "@copilotkit/react-core/v2";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { galleryComponent } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
 import {
   type SandboxedRecord,
   sandboxedListQueryOptions,
@@ -15,13 +16,14 @@ export function AdminComponentPreview({
   name: string;
   kind: string;
 }) {
+  const { t } = useTranslation();
   const sandboxed = useQuery({
     ...sandboxedListQueryOptions(),
     enabled: kind === "sandboxed",
   });
   if (kind === "sandboxed" && sandboxed.isPending) return null;
   if (kind === "sandboxed" && sandboxed.error) {
-    return <PreviewNotice>Preview could not be loaded.</PreviewNotice>;
+    return <PreviewNotice>{t("Preview could not be loaded.")}</PreviewNotice>;
   }
   return (
     <ComponentPreview
@@ -52,6 +54,7 @@ export function ComponentPreview({
   sandboxed?: SandboxedRecord;
   fill?: number;
 }) {
+  const { t } = useTranslation();
   const entry = galleryComponent(name);
   if (entry?.preview) {
     return (
@@ -65,7 +68,7 @@ export function ComponentPreview({
     if (!sandboxed.published || sandboxed.publishedHtml === null) {
       return (
         <PreviewNotice>
-          Publish in the playground to see a preview.
+          {t("Publish in the playground to see a preview.")}
         </PreviewNotice>
       );
     }
@@ -82,7 +85,7 @@ export function ComponentPreview({
       <FittedPreview fill={fill}>
         <div
           className="w-full"
-          title="Published component with saved sample arguments"
+          title={t("Published component with saved sample arguments")}
         >
           <OpenGenerativeUIActivityRenderer
             activityType="open-generative-ui"
@@ -99,10 +102,10 @@ export function ComponentPreview({
   return (
     <PreviewNotice>
       {entry
-        ? "This one is only drawn in a conversation."
+        ? t("This one is only drawn in a conversation.")
         : kind === "sandboxed"
-          ? "Published in the playground."
-          : "This build cannot draw this."}
+          ? t("Published in the playground.")
+          : t("This build cannot draw this.")}
     </PreviewNotice>
   );
 }

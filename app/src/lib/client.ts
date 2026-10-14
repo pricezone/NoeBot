@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 /**
  * The one place the browser talks to the API server.
  *
@@ -45,7 +46,11 @@ export function withTimeout(
   outer?: AbortSignal,
 ): AbortSignal {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error(message)), ms);
+  // `message` is English written as a key, translated when it is said.
+  const timer = setTimeout(
+    () => controller.abort(new Error(i18n.t(message))),
+    ms,
+  );
   // Node and Bun timers hold the event loop open; a browser's are numbers.
   (timer as { unref?: () => void }).unref?.();
   if (outer?.aborted) {
@@ -141,7 +146,9 @@ export async function client<T>(
       .then((body: { error?: string }) => body.error)
       .catch(() => undefined);
     throw Object.assign(
-      new Error(message ?? options.fallback ?? "That request failed."),
+      // The fallback is English written as a key, translated here; the server's own message is
+      // shown as it sent it.
+      new Error(message ?? i18n.t(options.fallback ?? "That request failed.")),
       { status: response.status },
     );
   }
@@ -152,7 +159,7 @@ export async function client<T>(
   // a TypeError on property access. Malformed success is a failed request with the fallback.
   const body = (await response.json().catch(() => null)) as unknown;
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new Error(options.fallback ?? "That request failed.");
+    throw new Error(i18n.t(options.fallback ?? "That request failed."));
   }
   return (body as Record<string, T>)[key];
 }

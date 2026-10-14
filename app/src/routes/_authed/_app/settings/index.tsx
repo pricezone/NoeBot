@@ -12,6 +12,7 @@ import {
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { brand } from "@/lib/brand";
 import { formatHotkey, HOTKEYS } from "@/lib/hotkeys/hotkeys";
+import { useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authed/_app/settings/")({
   component: RouteComponent,
@@ -23,11 +24,14 @@ export const Route = createFileRoute("/_authed/_app/settings/")({
  * deployment and two facts about it; a page would be mostly empty.
  */
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const { data: user } = useQuery(currentUserQueryOptions());
   return (
     <SettingsPage
-      description={`How ${brand.productName} looks and behaves for you.`}
-      title="General"
+      description={t("How {{productName}} looks and behaves for you.", {
+        productName: brand.productName,
+      })}
+      title={t("General")}
     >
       <AccountSection />
       <AppearanceSection />
@@ -41,13 +45,13 @@ function RouteComponent() {
        * actually do rather than what somebody remembered they did. Read-only on purpose: these
        * are not rebindable, and a row with nothing to click says so by having nothing to click.
        */}
-      <SettingsSection label="Keyboard shortcuts">
+      <SettingsSection label={t("Keyboard shortcuts")}>
         <SettingsCard>
           {HOTKEYS.map((hotkey) => (
             <SettingsRow
               key={hotkey.id}
-              label={hotkey.label}
-              description={hotkey.description}
+              label={t(hotkey.label)}
+              description={t(hotkey.description)}
               control={
                 <span className="flex gap-1">
                   {formatHotkey(hotkey.combo).map((part) => (
@@ -70,11 +74,11 @@ function RouteComponent() {
        * by its address.
        */}
       {user?.role === "admin" ? (
-        <SettingsSection label="More">
+        <SettingsSection label={t("More")}>
           <SettingsCard>
             <SettingsRow
-              label="Component gallery"
-              description="What a Bot can draw on screen."
+              label={t("Component gallery")}
+              description={t("What a Bot can draw on screen.")}
               href={{ to: "/settings/components-gallery" }}
             />
           </SettingsCard>

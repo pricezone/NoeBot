@@ -1,6 +1,7 @@
 import { ActivityLog } from "@/components/computer/activity-log";
 import { ComputerView } from "@/components/computer/computer-view";
 import { noteComputerActivity } from "@/lib/computers/use-computer-sleep";
+import { useTranslation } from "@/lib/i18n";
 import {
   languageKeys,
   UiLanguageProvider,
@@ -42,11 +43,12 @@ export function ComputerTab({
   openExpanded?: boolean;
   onOpened?: () => void;
 }) {
+  const { t } = useTranslation();
   const used = () => noteComputerActivity(agentId);
   const language = useNotedLanguage(languageKeys.bot(agentId));
   return (
     <section
-      aria-label="Computer sidebar"
+      aria-label={t("Computer sidebar")}
       className="flex flex-col gap-6"
       onClickCapture={used}
       onKeyDownCapture={used}
@@ -54,7 +56,7 @@ export function ComputerTab({
       <UiLanguageProvider language={language}>
         <ComputerView
           active
-          caption={`${name}'s screen`}
+          caption={t("{{name}}'s screen", { name })}
           computerId={agentId}
           controls={false}
           minHeight={0}
@@ -67,7 +69,7 @@ export function ComputerTab({
         />
       </UiLanguageProvider>
       <div>
-        <h3 className="mb-2 font-medium text-sm">Activity</h3>
+        <h3 className="mb-2 font-medium text-sm">{t("Activity")}</h3>
         <ActivityLog computerId={agentId} />
       </div>
     </section>

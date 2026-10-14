@@ -1,5 +1,6 @@
 import { useAgent } from "@copilotkit/react-core/v2";
 import { useEffect, useState } from "react";
+import { i18n, msg } from "@/lib/i18n";
 
 /**
  * Why the last turn ended without an answer, for a surface that has to say so itself.
@@ -29,7 +30,9 @@ export function stoppedReason(reported: unknown): string {
       : typeof reported === "string"
         ? reported
         : "";
-  return plainSentence(said.trim()) || "The Bot stopped without saying why.";
+  return (
+    plainSentence(said.trim()) || i18n.t("The Bot stopped without saying why.")
+  );
 }
 
 /**
@@ -46,11 +49,15 @@ const RUN_REQUEST_FAILED = /^REST (?:run|connect) request failed: ([\s\S]*)$/;
 const SERVICE_SENTENCES: readonly [RegExp, string][] = [
   [
     /Failed to resolve Learning Container|Failed to initialize thread/,
-    "The conversation service did not answer, so this turn could not start. Try again in a moment.",
+    msg(
+      "The conversation service did not answer, so this turn could not start. Try again in a moment.",
+    ),
   ],
   [
     /Thread lock denied/,
-    "Another run is still in progress on this conversation. Wait for it to finish, then try again.",
+    msg(
+      "Another run is still in progress on this conversation. Wait for it to finish, then try again.",
+    ),
   ],
 ];
 
@@ -72,8 +79,8 @@ export function plainSentence(said: string): string {
     // Not JSON: a proxy's HTML page, or an empty answer. The generic sentence below covers it.
   }
   for (const [pattern, sentence] of SERVICE_SENTENCES)
-    if (pattern.test(error)) return sentence;
-  return "The Bot could not start this turn. Try again in a moment.";
+    if (pattern.test(error)) return i18n.t(sentence);
+  return i18n.t("The Bot could not start this turn. Try again in a moment.");
 }
 
 /**

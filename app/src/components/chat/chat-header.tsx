@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChannelAvatar } from "@/components/channels/avatar";
 import { SidebarToggle } from "@/components/layout/sidebar-toggle";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +35,7 @@ export function ChatHeader({
   extra?: ReactNode;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn("flex h-12 shrink-0 items-center gap-2 px-3", className)}
@@ -46,7 +48,7 @@ export function ChatHeader({
         {extra}
         <Button
           aria-expanded={panelOpen}
-          aria-label={panelOpen ? "Hide details" : "Show details"}
+          aria-label={panelOpen ? t("Hide details") : t("Show details")}
           className="rounded-full text-muted-foreground"
           onClick={onToggle}
           size="icon"
@@ -74,9 +76,10 @@ function BotPill({
   name: string;
   onClick: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <button
-      aria-label={`Open ${name}`}
+      aria-label={t("Open {{name}}", { name })}
       className="flex h-9 max-w-[60%] shrink-0 items-center gap-2 rounded-full border border-border bg-card pl-1 pr-3 text-sm font-medium shadow-float outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
       onClick={onClick}
       type="button"

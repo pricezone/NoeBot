@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsPanel, TabsTrigger } from "@/components/ui/tabs";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { BOT_PANEL_TABS, type BotPanelTab } from "@/lib/bot-panel";
 import { brand } from "@/lib/brand";
+import { useTranslation } from "@/lib/i18n";
 import { ComputerTab } from "./computer-tab";
 import { DetailsTab, ParticipantsTab } from "./details-tab";
 import { LibraryTab } from "./library-tab";
@@ -51,6 +52,7 @@ export function BotPanel({
   /** Called once the full-window viewer has opened for `openComputer`, so the page can forget it. */
   onComputerOpened?: () => void;
 }) {
+  const { t } = useTranslation();
   const isGroup = participants !== undefined;
   const tabs: readonly BotPanelTab[] = isGroup ? ["details"] : BOT_PANEL_TABS;
   // A tab the group does not have lands on the one it does.
@@ -77,7 +79,7 @@ export function BotPanel({
         {isGroup ? null : (
           <TabsList
             activateOnFocus
-            aria-label="Bot panel"
+            aria-label={t("Bot panel")}
             className="w-full"
             variant="segmented"
           >
@@ -127,6 +129,7 @@ export function BotPanel({
  * (`AvatarChooser`), for whoever the server says may. Until the profile is in, the seed's face.
  */
 function BotHeader({ agentId, name }: { agentId: string; name: string }) {
+  const { t } = useTranslation();
   const [managing, setManaging] = useState(false);
   const agent = useQuery(agentQueryOptions(agentId));
   const title = agent.data?.title.trim() ?? "";
@@ -145,12 +148,16 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
       </h2>
       {agent.isPending ? null : (
         <button
-          aria-label={title ? `Edit ${name}'s label` : `Add a label to ${name}`}
+          aria-label={
+            title
+              ? t("Edit {{name}}'s label", { name })
+              : t("Add a label to {{name}}", { name })
+          }
           className="max-w-full truncate rounded-md px-1 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
           onClick={() => setManaging(true)}
           type="button"
         >
-          {title || "Add a label"}
+          {title || t("Add a label")}
         </button>
       )}
       <AgentDialog
@@ -170,6 +177,7 @@ function GroupHeader({
   name: string;
   participants: BotPanelParticipant[];
 }) {
+  const { t } = useTranslation();
   return (
     <header className="flex flex-col items-center gap-1 text-center">
       <div className="mb-2">
@@ -182,7 +190,7 @@ function GroupHeader({
         {name}
       </h2>
       <p className="text-[13px] text-muted-foreground">
-        {participants.length} {participants.length === 1 ? "Bot" : "Bots"}
+        {participants.length} {participants.length === 1 ? t("Bot") : t("Bots")}
       </p>
     </header>
   );

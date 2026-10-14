@@ -1,5 +1,5 @@
 import i18next, { type BackendModule, type ResourceKey } from "i18next";
-import { initReactI18next, useTranslation } from "react-i18next";
+import { initReactI18next, Trans, useTranslation } from "react-i18next";
 import {
   DEFAULT_LOCALE,
   LOCALES,
@@ -107,4 +107,4 @@ export function msg<const T extends string>(text: T): T {
  * The hook components translate with. Imported from here rather than from react-i18next directly,
  * so the instance above always exists before the first component asks for it.
  */
-export { useTranslation };
+export { Trans, useTranslation };

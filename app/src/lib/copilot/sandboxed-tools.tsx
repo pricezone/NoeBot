@@ -13,6 +13,7 @@ import {
   type GrantedComponent,
 } from "@/lib/components/queries";
 import { useActiveBotId, useDeclaredBotId } from "@/lib/copilot/active-bot";
+import { useTranslation } from "@/lib/i18n";
 import {
   type PublishedSandboxed,
   publishedSandboxedQueryOptions,
@@ -71,6 +72,7 @@ function SandboxedTool({
   description: string | undefined;
   botId: string;
 }) {
+  const { t } = useTranslation();
   const [refusals, setRefusals] = useState<Map<string, string>>(new Map());
   const isHeld = description !== undefined;
 
@@ -104,7 +106,9 @@ function SandboxedTool({
 
       // Wait for complete arguments because sandbox source is injected once per keyed instance.
       if (props.status !== "complete") {
-        return <ToolLine label="Drawing" detail={component.name} running />;
+        return (
+          <ToolLine label={t("Drawing")} detail={component.name} running />
+        );
       }
 
       return (
@@ -127,7 +131,7 @@ function SandboxedTool({
         </div>
       );
     },
-    [component, isHeld, refusals],
+    [t, component, isHeld, refusals],
   );
 
   useFrontendTool({

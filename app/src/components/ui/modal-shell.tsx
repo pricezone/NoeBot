@@ -7,6 +7,7 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { useTranslation } from "@/lib/i18n";
 import { readReturnTo } from "@/lib/return-to";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +66,7 @@ function ModalShell({
   children,
   className,
 }: ModalShellProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const user = useQuery(currentUserQueryOptions());
   const isAdmin = user.data?.role === "admin";
@@ -114,11 +116,11 @@ function ModalShell({
          * neither is a heading; this one carries the name and the visible copies are plain text.
          */}
         <DialogTitle className="sr-only">
-          {title ?? rows[0]?.label ?? "Dialog"}
+          {title ?? (rows[0] ? t(rows[0].label) : t("Dialog"))}
         </DialogTitle>
         {hasNav && (
           <nav
-            aria-label={title ?? "Sections"}
+            aria-label={title ?? t("Sections")}
             className="hidden w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border bg-card p-3 md:flex"
           >
             {title !== undefined && (
@@ -178,7 +180,7 @@ function ModalShell({
           </div>
         </div>
         <Button
-          aria-label="Close"
+          aria-label={t("Close")}
           className="absolute top-3 right-3 z-10 rounded-full"
           onClick={close}
           size="icon-lg"
@@ -192,6 +194,7 @@ function ModalShell({
 }
 
 function NavRow({ item, compact }: { item: ModalNavItem; compact?: boolean }) {
+  const { t } = useTranslation();
   return (
     <Link
       to={item.to}
@@ -206,10 +209,11 @@ function NavRow({ item, compact }: { item: ModalNavItem; compact?: boolean }) {
       )}
     >
       {item.icon && <item.icon className="size-[18px] shrink-0" />}
-      <span className="truncate">{item.label}</span>
+      {/* Labels are English keys (`msg`), translated here where they are drawn. */}
+      <span className="truncate">{t(item.label)}</span>
     </Link>
   );
 }
 
-export { ModalShell };
 export type { ModalNavItem, ModalShellProps };
+export { ModalShell };

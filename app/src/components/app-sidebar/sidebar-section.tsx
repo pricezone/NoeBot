@@ -32,6 +32,7 @@ import {
   reorderSectionsMutationOptions,
   type SidebarSection as Section,
 } from "@/lib/channels/sections";
+import { useTranslation } from "@/lib/i18n";
 import { NameDialog } from "./name-dialog";
 
 /**
@@ -65,6 +66,7 @@ export function SidebarSectionHeader({
   onToggle: () => void;
   isEmpty: boolean;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const rename = useMutation(renameSectionMutationOptions(queryClient));
   const remove = useMutation(deleteSectionMutationOptions(queryClient));
@@ -104,7 +106,7 @@ export function SidebarSectionHeader({
           <DropdownMenuTrigger
             render={
               <Button
-                aria-label={`Options for ${section.name}`}
+                aria-label={t("Options for {{name}}", { name: section.name })}
                 className="size-7 rounded-full text-muted-foreground opacity-0 group-hover/section:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
                 size="icon-sm"
                 variant="ghost"
@@ -116,18 +118,18 @@ export function SidebarSectionHeader({
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem onClick={() => setRenaming(true)}>
               <IconPencil />
-              Rename section…
+              {t("Rename section…")}
             </DropdownMenuItem>
             <DropdownMenuItem disabled={index <= 0} onClick={() => move(-1)}>
               <IconArrowUp />
-              Move up
+              {t("Move up")}
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={index < 0 || index >= sectionIds.length - 1}
               onClick={() => move(1)}
             >
               <IconArrowDown />
-              Move down
+              {t("Move down")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -138,7 +140,7 @@ export function SidebarSectionHeader({
               variant="destructive"
             >
               <IconTrash />
-              Delete section…
+              {t("Delete section…")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -150,20 +152,22 @@ export function SidebarSectionHeader({
       ) : null}
       {!collapsed && isEmpty ? (
         <p className="px-3 py-2 text-[13px] text-muted-foreground/70">
-          Right-click a chat and choose “Move to new section” to file it here.
+          {t(
+            "Right-click a chat and choose “Move to new section” to file it here.",
+          )}
         </p>
       ) : null}
       {renaming ? (
         <NameDialog
           initialName={section.name}
-          label="Section name"
+          label={t("Section name")}
           maxLength={MAX_SECTION_NAME_LENGTH}
           onClose={() => setRenaming(false)}
           onSubmit={async (name) => {
             await rename.mutateAsync({ sectionId: section.id, name });
           }}
-          submitLabel="Rename"
-          title="Rename section"
+          submitLabel={t("Rename")}
+          title={t("Rename section")}
         />
       ) : null}
       <Dialog
@@ -174,9 +178,11 @@ export function SidebarSectionHeader({
       >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete “{section.name}”?</DialogTitle>
+            <DialogTitle>
+              {t("Delete “{{name}}”?", { name: section.name })}
+            </DialogTitle>
             <DialogDescription>
-              Its chats are not deleted. They move back to the main list.
+              {t("Its chats are not deleted. They move back to the main list.")}
             </DialogDescription>
           </DialogHeader>
           {remove.error ? (
@@ -190,7 +196,7 @@ export function SidebarSectionHeader({
               size="sm"
               variant="ghost"
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={remove.isPending}
@@ -202,7 +208,7 @@ export function SidebarSectionHeader({
               size="sm"
               variant="destructive"
             >
-              {remove.isPending ? "Deleting…" : "Delete section"}
+              {remove.isPending ? t("Deleting…") : t("Delete section")}
             </Button>
           </DialogFooter>
         </DialogContent>

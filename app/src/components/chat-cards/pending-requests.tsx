@@ -4,9 +4,9 @@ import { InlineApproval } from "@/components/approvals/inline-approval";
 import { QuestionCard } from "@/components/chat-cards/question-card";
 import { RecordedDecision } from "@/components/gallery/decisions";
 import {
+  type ApprovalInboxData,
   answerQuestionsInConversation,
   approvalInboxOptions,
-  type ApprovalInboxData,
   waitingDecisionsQueryOptions,
 } from "@/lib/approvals";
 import { useChannelStep } from "@/lib/channels/steps";
@@ -15,6 +15,7 @@ import { useComputerControl } from "@/lib/computers/use-control";
 import { HelpCard, SecretCard } from "@/lib/copilot/computer-tools";
 import { useConversation } from "@/lib/copilot/conversation";
 import { SignInRequestRow } from "@/lib/copilot/sign-in-tool";
+import { i18n } from "@/lib/i18n";
 import {
   FINAL_SIGN_IN,
   pendingSignInsQueryOptions,
@@ -229,7 +230,7 @@ function PendingQuestion({
     setError(null);
     try {
       if ((await conversation.ask(text)) === false)
-        throw new Error("Your answer could not be sent. Try again.");
+        throw new Error(i18n.t("Your answer could not be sent. Try again."));
       await answerQuestionsInConversation({
         threadId: question.threadId,
         questions: [question.question],
@@ -242,7 +243,7 @@ function PendingQuestion({
       setError(
         failure instanceof Error && failure.message
           ? failure.message
-          : "Your answer could not be sent. Try again.",
+          : i18n.t("Your answer could not be sent. Try again."),
       );
     } finally {
       setSending(null);

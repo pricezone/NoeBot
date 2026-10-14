@@ -13,6 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { ModalNavItem } from "@/components/ui/modal-shell";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
+import { msg } from "@/lib/i18n";
 
 /**
  * The sections of Settings, in the order its nav draws them.
@@ -26,22 +27,27 @@ export const SETTINGS_NAV: ModalNavItem[] = [
   /* `/settings` prefixes every other row here, and would otherwise light up on all of them. */
   {
     id: "general",
-    label: "General",
+    label: msg("General"),
     icon: IconSettings,
     to: "/settings",
     exact: true,
   },
-  { id: "bots", label: "Bots", icon: IconRobot, to: "/settings/bots" },
-  { id: "memory", label: "Memory", icon: IconBrain, to: "/settings/memory" },
+  { id: "bots", label: msg("Bots"), icon: IconRobot, to: "/settings/bots" },
+  {
+    id: "memory",
+    label: msg("Memory"),
+    icon: IconBrain,
+    to: "/settings/memory",
+  },
   {
     id: "approvals",
-    label: "Approvals",
+    label: msg("Approvals"),
     icon: IconChecks,
     to: "/settings/approvals",
   },
   {
     id: "notifications",
-    label: "Notifications",
+    label: msg("Notifications"),
     icon: IconBell,
     to: "/settings/notifications",
   },
@@ -51,28 +57,28 @@ export const SETTINGS_NAV: ModalNavItem[] = [
    */
   {
     id: "apps",
-    label: "Apps",
+    label: msg("Apps"),
     icon: IconPlug,
     to: "/settings/connected-accounts",
   },
   {
     id: "usage",
-    label: "Usage & Billing",
+    label: msg("Usage & Billing"),
     icon: IconCreditCard,
     to: "/settings/usage",
   },
   /* The model's key, the keys you paste for connectors, and the accounts you sign in to. */
-  { id: "keys", label: "Keys", icon: IconKey, to: "/settings/keys" },
+  { id: "keys", label: msg("Keys"), icon: IconKey, to: "/settings/keys" },
   /* Logins saved from a Bot's private sign-in form. */
   {
     id: "passwords",
-    label: "Passwords",
+    label: msg("Passwords"),
     icon: IconLock,
     to: "/settings/passwords",
   },
   {
     id: "admin",
-    label: "Admin",
+    label: msg("Admin"),
     icon: IconShieldLock,
     to: "/admin",
     adminOnly: true,

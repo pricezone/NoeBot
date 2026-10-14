@@ -26,6 +26,7 @@
  */
 import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 export function LiveWaveform({
@@ -39,6 +40,7 @@ export function LiveWaveform({
   height?: number;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reduceMotion = useReducedMotion();
@@ -146,16 +148,16 @@ export function LiveWaveform({
       role="img"
       aria-label={
         unavailable
-          ? "Waveform unavailable; recording continues"
+          ? t("Waveform unavailable; recording continues")
           : processing
-            ? "Processing audio"
-            : "Live audio waveform"
+            ? t("Processing audio")
+            : t("Live audio waveform")
       }
     >
       <canvas ref={canvasRef} className="block size-full" />
       {unavailable && (
         <span className="absolute inset-0 flex items-center bg-card text-xs text-muted-foreground">
-          Recording · waveform unavailable
+          {t("Recording · waveform unavailable")}
         </span>
       )}
     </div>

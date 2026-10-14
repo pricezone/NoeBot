@@ -1,1 +1,16 @@
-{}
+{
+  "Administrator sign-in": "Σύνδεση διαχειριστή",
+  "Continue with your company account": "Συνέχεια με τον εταιρικό σου λογαριασμό",
+  "Continue with {{providerName}}": "Συνέχεια με {{providerName}}",
+  "Continue with {{value}}": "Συνέχεια με {{value}}",
+  "Could not start {{provider}} sign-in.": "Δεν ήταν δυνατή η έναρξη σύνδεσης μέσω {{provider}}.",
+  "No identity provider is registered for that address.": "Δεν υπάρχει καταχωρισμένος πάροχος ταυτότητας για αυτή τη διεύθυνση.",
+  "No sign-in provider is configured for this deployment.": "Δεν έχει ρυθμιστεί πάροχος σύνδεσης για αυτή την εγκατάσταση.",
+  "Opening {{value}}…": "Άνοιγμα: {{value}}…",
+  "Opening…": "Άνοιγμα…",
+  "Sign in from {{providerName}} to open this workspace.": "Συνδέσου από το {{providerName}} για να ανοίξεις αυτόν τον χώρο εργασίας.",
+  "Sign in to {{productName}}": "Σύνδεση στο {{productName}}",
+  "Your organization requires single sign-on.": "Ο οργανισμός σου απαιτεί ενιαία σύνδεση (SSO).",
+  "or": "ή",
+  "you@company.com": "onoma@etaireia.gr"
+}

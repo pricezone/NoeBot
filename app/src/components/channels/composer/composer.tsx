@@ -38,6 +38,7 @@ import {
   shouldClaimPaste,
 } from "@/lib/channels/attachments";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { useTranslation } from "@/lib/i18n";
 import { newId } from "@/lib/new-id";
 import { cn } from "@/lib/utils";
 import { Button } from "../../ui/button";
@@ -344,10 +345,10 @@ export function Composer({
   className,
   editorClassName,
   compact = false,
-  placeholder = "Ask anything",
+  placeholder: givenPlaceholder,
   voiceCall,
   agents = [],
-  commands = PLACEHOLDER_COMMANDS,
+  commands: givenCommands = PLACEHOLDER_COMMANDS,
   onSubmit,
   onQueue,
   onStop,
@@ -361,6 +362,20 @@ export function Composer({
   // Nothing parked is the right answer for every caller without a queue, which is most of them.
   queuedAttachmentCount = 0,
 }: ComposerProps) {
+  const { t } = useTranslation();
+  const placeholder = givenPlaceholder ?? t("Ask anything");
+  // The commands' words are English keys (`sources.ts`), shown and inserted in this language.
+  const commands = useMemo(
+    () =>
+      givenCommands.map((command) => ({
+        ...command,
+        ...(command.description ? { description: t(command.description) } : {}),
+        ...(command.kind === "prompt" && command.prompt
+          ? { prompt: t(command.prompt) }
+          : {}),
+      })),
+    [givenCommands, t],
+  );
   const [value, setValue] = useState<Segment[]>(
     initialValue ? [{ type: "text", text: initialValue }] : [],
   );
@@ -1074,8 +1089,8 @@ export function Composer({
 
   const isBusy = pending || isSubmitting;
   const triggers = useMemo(
-    () => buildTriggers({ agents, commands }),
-    [agents, commands],
+    () => buildTriggers({ agents, commands, t }),
+    [agents, commands, t],
   );
   const draft = useMemo(() => toDraft(value, staged), [staged, value]);
 
@@ -1435,7 +1450,7 @@ export function Composer({
    * the two it is about to do. "Send" on a button that will not send for another minute is a small
    * lie told to exactly the people who cannot see the queue it lands in.
    */
-  const sendLabel = parking ? "Queue message" : "Send message";
+  const sendLabel = parking ? t("Queue message") : t("Send message");
   const callAction =
     draft.isEmpty && draft.attachments.length === 0 ? voiceCall : undefined;
   /**
@@ -1449,7 +1464,7 @@ export function Composer({
   );
   const primaryAction = canStop ? (
     <Button
-      aria-label="Stop the Bot"
+      aria-label={t("Stop the Bot")}
       className={cn(
         actionClassName,
         "bg-destructive text-white hover:bg-destructive/90",
@@ -1463,13 +1478,15 @@ export function Composer({
     </Button>
   ) : callAction ? (
     <Button
-      aria-label={callAction.active ? "Show voice call" : "Start voice call"}
+      aria-label={
+        callAction.active ? t("Show voice call") : t("Start voice call")
+      }
       title={
         callAction.supported
           ? callAction.active
-            ? "Show voice call"
-            : "Call this agent"
-          : "Voice calls need HTTPS or localhost and microphone support"
+            ? t("Show voice call")
+            : t("Call this agent")
+          : t("Voice calls need HTTPS or localhost and microphone support")
       }
       className={actionClassName}
       disabled={disabled || dictation.busy || !callAction.supported}
@@ -1629,7 +1646,7 @@ export function Composer({
             <div className="flex items-center gap-2">
               {attachmentsEnabled ? (
                 <Button
-                  aria-label="Attach a file"
+                  aria-label={t("Attach a file")}
                   className="size-9 self-end rounded-full bg-muted text-foreground"
                   // The button stays, and stays labelled: a conversation that cannot take another
                   // message has not lost the ability to attach, it has lost the message. Swapping it
@@ -1644,7 +1661,7 @@ export function Composer({
                 </Button>
               ) : (
                 <Button
-                  aria-label="More message options unavailable"
+                  aria-label={t("More message options unavailable")}
                   className="size-9 self-end rounded-full bg-muted text-muted-foreground disabled:opacity-100"
                   disabled
                   size="icon"
@@ -1655,7 +1672,7 @@ export function Composer({
                 </Button>
               )}
               <PromptArea
-                aria-label="Message"
+                aria-label={t("Message")}
                 className={cn(
                   "min-w-0 flex-1 border-0 bg-transparent p-0 text-[15px] leading-6 shadow-none",
                   editorClassName,
@@ -1712,7 +1729,7 @@ export function Composer({
               onRemove={discardAttachment}
             />
             <PromptArea
-              aria-label="Message"
+              aria-label={t("Message")}
               autoGrow
               className={cn(
                 "w-full border-0 bg-transparent p-0 text-sm shadow-none",
@@ -1733,7 +1750,7 @@ export function Composer({
           <div className="flex items-center justify-between">
             {attachmentsEnabled ? (
               <Button
-                aria-label="Attach a file"
+                aria-label={t("Attach a file")}
                 className="size-7 rounded-full p-0"
                 disabled={disabled}
                 onClick={() => fileInputRef.current?.click()}

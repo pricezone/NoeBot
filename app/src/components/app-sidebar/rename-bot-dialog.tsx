@@ -3,6 +3,7 @@ import { agentFormSchema, agentInputFrom } from "@/lib/agents/form";
 import { updateAgentMutationOptions } from "@/lib/agents/mutations";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { channelKeys } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import { NameDialog } from "./name-dialog";
 
 /**
@@ -23,13 +24,14 @@ export function RenameBotDialog({
   currentName: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const update = useMutation(updateAgentMutationOptions(queryClient));
 
   return (
     <NameDialog
       initialName={currentName}
-      label="Bot name"
+      label={t("Bot name")}
       maxLength={80}
       onClose={onClose}
       onSubmit={async (name) => {
@@ -49,13 +51,13 @@ export function RenameBotDialog({
         });
         void queryClient.invalidateQueries({ queryKey: channelKeys.all });
       }}
-      submitLabel="Rename"
-      title="Rename Bot"
+      submitLabel={t("Rename")}
+      title={t("Rename Bot")}
       validate={(name) => {
         const parsed = agentFormSchema.shape.name.safeParse(name);
         return parsed.success
           ? null
-          : (parsed.error.issues[0]?.message ?? "That name cannot be used.");
+          : (parsed.error.issues[0]?.message ?? t("That name cannot be used."));
       }}
     />
   );

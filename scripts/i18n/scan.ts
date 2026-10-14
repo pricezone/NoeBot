@@ -51,6 +51,12 @@ export const TEXT_PROPS = new Set([
   "submitLabel",
   "cancelLabel",
   "confirmLabel",
+  // This app's own components' text props, found by counting the props that carry English.
+  "subtitle",
+  "empty",
+  "caption",
+  "secondary",
+  "detail",
 ]);
 
 export function parse(file: string, text: string): ts.SourceFile {
@@ -153,6 +159,17 @@ export function keysIn(file: string, source: ts.SourceFile): FoundKey[] {
             line: lineOf(source, node),
           });
         }
+      } else if (ts.isIdentifier(callee) && callee.text === "withTimeout") {
+        // `withTimeout(ms, "message")` says its message through `i18n.t`.
+        const key = literalText(node.arguments[1]);
+        if (key !== undefined)
+          keys.push({
+            key,
+            namespace: DEFAULT_NAMESPACE,
+            plural: false,
+            file,
+            line: lineOf(source, node),
+          });
       } else if (ts.isIdentifier(callee) && callee.text === "msg") {
         const key = literalText(node.arguments[0]);
         if (key !== undefined)
@@ -164,6 +181,23 @@ export function keysIn(file: string, source: ts.SourceFile): FoundKey[] {
             line: lineOf(source, node),
           });
       }
+    }
+    // `client(…, { fallback: "…" })`: what a person reads when the server says nothing, translated
+    // by `client` itself.
+    if (
+      ts.isPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "fallback"
+    ) {
+      const key = literalText(node.initializer);
+      if (key !== undefined)
+        keys.push({
+          key,
+          namespace: DEFAULT_NAMESPACE,
+          plural: false,
+          file,
+          line: lineOf(source, node),
+        });
     }
     if (
       (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&

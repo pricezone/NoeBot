@@ -51,12 +51,15 @@ function matches(query: string, ...fields: (string | undefined)[]): boolean {
  *
  * `reopenOnChipClick` keeps an inserted mention editable without deleting and retyping.
  */
-export function agentTrigger(agents: readonly AgentOption[]): TriggerConfig {
+export function agentTrigger(
+  agents: readonly AgentOption[],
+  t: (key: string) => string = (key) => key,
+): TriggerConfig {
   return mentionTrigger({
     char: AGENT_TRIGGER,
     accessibilityLabel: "agent",
     reopenOnChipClick: true,
-    emptyMessage: "No agents in this channel",
+    emptyMessage: t("No agents in this channel"),
     onSearch: (query): TriggerSuggestion[] =>
       agents
         .filter((agent) => matches(query, agent.name, agent.description))
@@ -76,12 +79,13 @@ export function agentTrigger(agents: readonly AgentOption[]): TriggerConfig {
  */
 export function slashCommandTrigger(
   commands: readonly CommandOption[],
+  t: (key: string) => string = (key) => key,
 ): TriggerConfig {
   return commandTrigger({
     char: COMMAND_TRIGGER,
     position: "start",
     accessibilityLabel: "command",
-    emptyMessage: "No matching commands",
+    emptyMessage: t("No matching commands"),
     onSearch: (query): TriggerSuggestion[] =>
       commands
         .filter((command) => matches(query, command.name, command.description))
@@ -97,9 +101,12 @@ export function slashCommandTrigger(
 export function buildTriggers({
   agents,
   commands,
+  t,
 }: {
   agents: readonly AgentOption[];
   commands: readonly CommandOption[];
+  /** Says the dropdowns' empty states in the interface's language; English without one. */
+  t?: (key: string) => string;
 }): TriggerConfig[] {
-  return [agentTrigger(agents), slashCommandTrigger(commands)];
+  return [agentTrigger(agents, t), slashCommandTrigger(commands, t)];
 }

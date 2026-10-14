@@ -1,3 +1,4 @@
+import { msg } from "@/lib/i18n";
 import type { CommandOption } from "./draft";
 
 /**
@@ -14,8 +15,8 @@ export const PLACEHOLDER_COMMANDS: CommandOption[] = [
   {
     id: "summarize",
     name: "summarize",
-    description: "Summarize this conversation",
+    description: msg("Summarize this conversation"),
     kind: "prompt",
-    prompt: "Summarize what we covered in this channel so far.",
+    prompt: msg("Summarize what we covered in this channel so far."),
   },
 ];

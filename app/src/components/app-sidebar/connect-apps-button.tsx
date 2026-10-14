@@ -9,6 +9,7 @@ import {
 } from "@/components/plugins/connectable-apps";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
 import { buttonVariants } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import {
   connectionsQueryOptions,
   pluginsPageQueryOptions,
@@ -62,6 +63,7 @@ export function pillFaces(apps: readonly InstalledApp[]): Face[] {
  * on it.
  */
 export function ConnectAppsButton() {
+  const { t } = useTranslation();
   const connections = useQuery(connectionsQueryOptions());
   const plugins = useQuery(pluginsPageQueryOptions());
   const apps = installedApps(plugins.data, connections.data?.connections);
@@ -80,7 +82,7 @@ export function ConnectAppsButton() {
       )}
       to={MARKETPLACE_PATH}
     >
-      <span className="truncate">Connect apps</span>
+      <span className="truncate">{t("Connect apps")}</span>
       <span className="flex shrink-0 items-center" data-testid="connected-apps">
         {connected > 0 ? (
           <span className="sr-only">{`${connected} connected`}</span>

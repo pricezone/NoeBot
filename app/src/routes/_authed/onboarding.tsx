@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { type AgentProfile, agentListQueryOptions } from "@/lib/agents/queries";
 import { currentUserQueryOptions, needsOnboarding } from "@/lib/auth/queries";
 import { appConfig } from "@/lib/generated/application-config";
+import { useTranslation } from "@/lib/i18n";
 import { completeOnboardingMutationOptions } from "@/lib/onboarding/mutations";
 import { queryClient } from "@/query-client";
 
@@ -28,10 +29,13 @@ export const Route = createFileRoute("/_authed/onboarding")({
 });
 
 export function WelcomeStep() {
+  const { t } = useTranslation();
   return (
     <div className="w-full flex flex-col items-center justify-center">
       <h1 className="text-3xl font-semibold tracking-tight max-w-md text-center">
-        Welcome to {appConfig.brand.productName}
+        {t("Welcome to {{productName}}", {
+          productName: appConfig.brand.productName,
+        })}
       </h1>
       <div className="h-10" />
       {/*
@@ -76,10 +80,11 @@ export function WelcomeStep() {
 }
 
 function ComputerUseStep() {
+  const { t } = useTranslation();
   return (
     <div className="w-full flex flex-col items-center justify-center">
       <h1 className="text-3xl font-semibold tracking-tight max-w-md text-center">
-        Each agent has its own computer
+        {t("Each agent has its own computer")}
       </h1>
       <div className="h-8" />
       <div className="relative aspect-5/3 w-full max-w-lg rounded-2xl overflow-hidden border border-border">
@@ -116,6 +121,7 @@ const AGENTS_PLACEHOLDER: RosterCard[] = [
 ];
 
 function RosterStep() {
+  const { t } = useTranslation();
   const { data: agents } = useQuery(agentListQueryOptions());
   const explore =
     agents?.filter((a) => !a.mine && a.visibility === "public") ?? [];
@@ -132,7 +138,7 @@ function RosterStep() {
   return (
     <div className="w-full flex flex-col items-center justify-center">
       <h1 className="text-3xl font-semibold tracking-tight max-w-md text-center">
-        Choose from a variety of agents or create your own
+        {t("Choose from a variety of agents or create your own")}
       </h1>
       <div className="h-8" />
       <div className="w-full max-w-lg overflow-hidden grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -154,7 +160,9 @@ function RosterStep() {
                   {a.name}
                 </h3>
                 {a.example ? (
-                  <span className="text-xs text-muted-foreground">Example</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t("Example")}
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -163,7 +171,7 @@ function RosterStep() {
         <div className="bg-card p-4 rounded-lg flex flex-row gap-4 items-center">
           <div className="rounded-full size-[40px] border border-foreground/30 border-dashed" />
           <h3 className="line-clamp-1 text-base font-medium tracking-tight text-foreground/70">
-            Your own agent
+            {t("Your own agent")}
           </h3>
         </div>
       </div>
@@ -185,6 +193,7 @@ const variants = {
 };
 
 function RouteComponent() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const complete = useMutation(completeOnboardingMutationOptions(queryClient));
 
@@ -268,10 +277,10 @@ function RouteComponent() {
                   size="lg"
                 >
                   {complete.isPending
-                    ? "Saving…"
+                    ? t("Saving…")
                     : last
-                      ? "Get started"
-                      : "Continue"}
+                      ? t("Get started")
+                      : t("Continue")}
                 </Button>
                 {step !== 0 && (
                   <Button
@@ -280,7 +289,7 @@ function RouteComponent() {
                     variant="secondary"
                     size="lg"
                   >
-                    Back
+                    {t("Back")}
                   </Button>
                 )}
               </motion.div>

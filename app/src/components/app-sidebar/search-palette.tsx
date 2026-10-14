@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { botLandingTarget } from "./bot-target";
 import {
@@ -42,13 +43,14 @@ export function SearchPalette({
   /** After a row was chosen and the navigation started: the phone's sidebar sheet closes here. */
   onNavigate?: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent
         className="top-[18svh] w-[calc(100%-2rem)] max-w-[560px] translate-y-0 gap-0 overflow-hidden rounded-2xl p-0"
         showCloseButton={false}
       >
-        <DialogTitle className="sr-only">Search</DialogTitle>
+        <DialogTitle className="sr-only">{t("Search")}</DialogTitle>
         {/* Mounted with the popup, so every opening starts from an empty box and the first row. */}
         <PaletteBody
           onChosen={() => {
@@ -62,6 +64,7 @@ export function SearchPalette({
 }
 
 function PaletteBody({ onChosen }: { onChosen: () => void }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const agents = useQuery(agentListQueryOptions()).data;
   const channels = useInfiniteQuery(channelListQueryOptions()).data;
@@ -141,7 +144,7 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
           aria-autocomplete="list"
           aria-controls={listId}
           aria-expanded
-          aria-label="Search Bots and Settings"
+          aria-label={t("Search Bots and Settings")}
           autoComplete="off"
           // Base UI focuses the first tabbable element in the popup, which is this one.
           className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground"
@@ -150,7 +153,7 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Search"
+          placeholder={t("Search")}
           role="combobox"
           spellCheck={false}
           type="text"
@@ -158,21 +161,23 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
         />
       </div>
       <div
-        aria-label="Results"
+        aria-label={t("Results")}
         className="max-h-[min(440px,60svh)] overflow-y-auto p-2"
         id={listId}
         role="listbox"
       >
         {items.length === 0 ? (
           <p className="px-3 py-6 text-center text-[14px] text-muted-foreground">
-            No Bots or settings match “{query.trim()}”.
+            {t("No Bots or settings match “{{query}}”.", {
+              query: query.trim(),
+            })}
           </p>
         ) : null}
         {groups.map((group) => (
           // No visible heading, as in Grok Bot's popup: the rows say what they are. The group still
           // names itself to a screen reader.
           // biome-ignore lint/a11y/useSemanticElements: a listbox may own only options and groups, and a fieldset is neither.
-          <div aria-label={group.label} key={group.id} role="group">
+          <div aria-label={t(group.label)} key={group.id} role="group">
             {group.items.map((item) => {
               index += 1;
               const at = index;
@@ -209,6 +214,7 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
 }
 
 function PaletteRow({ item }: { item: PaletteItem }) {
+  const { t } = useTranslation();
   if (item.kind === "setting") {
     const Icon = item.setting.icon;
     return (
@@ -216,7 +222,10 @@ function PaletteRow({ item }: { item: PaletteItem }) {
         <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
           {Icon ? <Icon className="size-4" /> : null}
         </span>
-        <TwoLines primary={settingTitle(item.setting)} secondary="Settings" />
+        <TwoLines
+          primary={settingTitle(item.setting)}
+          secondary={t("Settings")}
+        />
       </>
     );
   }
@@ -228,10 +237,10 @@ function PaletteRow({ item }: { item: PaletteItem }) {
           <ChannelAvatar participantIds={channel.agentIds} size={28} />
         </span>
         <TwoLines
-          label="Hidden"
+          label={t("Hidden")}
           primary={channel.name}
           secondary={
-            channel.summary || channel.lastMessage || "New conversation"
+            channel.summary || channel.lastMessage || t("New conversation")
           }
         />
       </>

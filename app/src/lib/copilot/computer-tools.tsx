@@ -6,6 +6,7 @@ import {
   RecoveryLine,
   useBotScreen,
 } from "@/components/chat-cards/recovery-card";
+import { ScreenShown } from "@/components/chat-cards/screen-shown";
 import {
   PILL_CLASS,
   SecureField,
@@ -14,7 +15,6 @@ import {
   type SecureFormState,
   SecureNote,
 } from "@/components/chat-cards/secure-form";
-import { ScreenShown } from "@/components/chat-cards/screen-shown";
 import { CommandOutput } from "@/components/computer/command-output";
 import { ComputerView } from "@/components/computer/computer-view";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ import {
   runNavigation,
 } from "@/lib/computers/handoff";
 import { showScreen } from "@/lib/computers/screen";
+import { useTranslation } from "@/lib/i18n";
 import { type UiStrings, useUiStrings } from "@/lib/i18n/strings";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
@@ -224,6 +225,7 @@ function didNotWork(outcome: ComputerOutcome): boolean {
 }
 
 export function ComputerTools() {
+  const { t } = useTranslation();
   const bot = useActiveBotHolder();
   // Not offered to a Team Bot's teammates; see useComputerAvailable.
   const available = useComputerAvailable();
@@ -355,10 +357,13 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Read the page"
+          label={t("Read the page")}
           detail={
             elements.length
-              ? `${elements.length} thing${elements.length === 1 ? "" : "s"} it can act on`
+              ? t("{{count}} things it can act on", {
+                  count: elements.length,
+                  defaultValue_one: "{{count}} thing it can act on",
+                })
               : undefined
           }
         />
@@ -404,7 +409,7 @@ export function ComputerTools() {
     render: ({ args, result, status }) => (
       <ActionLine
         running={status !== "complete"}
-        label="Filled in"
+        label={t("Filled in")}
         detail={
           // Never show typed values; identify only the target field.
           labelOf(result) ??
@@ -448,7 +453,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Clicked"
+          label={t("Clicked")}
           detail={
             // Show refusal reason instead of an internal element ref.
             outcome.refused === true
@@ -497,7 +502,7 @@ export function ComputerTools() {
     render: ({ args, result, status }) => (
       <ActionLine
         running={status !== "complete"}
-        label="Pressed"
+        label={t("Pressed")}
         detail={typeof args?.key === "string" ? args.key : undefined}
         refused={outcomeOf(result).refused === true}
         failed={didNotWork(outcomeOf(result))}
@@ -585,7 +590,7 @@ export function ComputerTools() {
     render: ({ args, result, status }) => (
       <SecretCard
         computerId={bot.current}
-        label={typeof args?.label === "string" ? args.label : "the value"}
+        label={typeof args?.label === "string" ? args.label : t("the value")}
         result={result}
         running={status !== "complete"}
       />
@@ -747,13 +752,16 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Listed files"
+          label={t("Listed files")}
           detail={
             outcome.refused === true || didNotWork(outcome)
               ? String(outcome.reason ?? "")
               : entries.length
-                ? `${entries.length} item${entries.length === 1 ? "" : "s"} in the workspace`
-                : "nothing saved yet"
+                ? t("{{count}} items in the workspace", {
+                    count: entries.length,
+                    defaultValue_one: "{{count}} item in the workspace",
+                  })
+                : t("nothing saved yet")
           }
           refused={outcome.refused === true}
           failed={didNotWork(outcome)}
@@ -793,7 +801,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Read file"
+          label={t("Read file")}
           detail={
             outcome.refused === true
               ? String(outcome.reason ?? "")
@@ -870,7 +878,7 @@ export function ComputerTools() {
       return (
         <ToolLine
           running={status !== "complete"}
-          label="Ran a command"
+          label={t("Ran a command")}
           detail={
             outcome.refused === true
               ? String(outcome.reason ?? "")
@@ -946,7 +954,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label={args?.append === true ? "Added to file" : "Saved file"}
+          label={args?.append === true ? t("Added to file") : t("Saved file")}
           // Show the path, never file contents.
           detail={
             outcome.refused === true
@@ -995,7 +1003,7 @@ export function ComputerTools() {
     render: ({ result, status }) => (
       <ActionLine
         running={status !== "complete"}
-        label="Scrolled"
+        label={t("Scrolled")}
         refused={outcomeOf(result).refused === true}
         failed={didNotWork(outcomeOf(result))}
       />
@@ -1057,12 +1065,15 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Filled in form"
+          label={t("Filled in form")}
           detail={
             outcome.refused === true || didNotWork(outcome)
               ? String(outcome.reason ?? "")
               : filled
-                ? `${filled} field${filled === 1 ? "" : "s"}`
+                ? t("{{count}} fields", {
+                    count: filled,
+                    defaultValue_one: "{{count}} field",
+                  })
                 : undefined
           }
           refused={outcome.refused === true}
@@ -1097,7 +1108,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Chose"
+          label={t("Chose")}
           detail={
             didNotWork(outcome) || outcome.refused === true
               ? String(outcome.reason ?? "")
@@ -1135,7 +1146,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label={args?.checked === false ? "Unticked" : "Ticked"}
+          label={args?.checked === false ? t("Unticked") : t("Ticked")}
           detail={
             didNotWork(outcome) || outcome.refused === true
               ? String(outcome.reason ?? "")
@@ -1173,7 +1184,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Uploaded"
+          label={t("Uploaded")}
           detail={
             didNotWork(outcome) || outcome.refused === true
               ? String(outcome.reason ?? "")
@@ -1210,7 +1221,7 @@ export function ComputerTools() {
     render: ({ result, status }) => (
       <ActionLine
         running={status !== "complete"}
-        label="Hovered"
+        label={t("Hovered")}
         detail={labelOf(result)}
         refused={outcomeOf(result).refused === true}
         failed={didNotWork(outcomeOf(result))}
@@ -1243,11 +1254,11 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Answered dialog"
+          label={t("Answered dialog")}
           detail={
             didNotWork(outcome) || outcome.refused === true
               ? String(outcome.reason ?? "")
-              : `${args?.accept === false ? "Cancel" : "OK"}${outcome.dialog?.message ? `: ${outcome.dialog.message}` : ""}`
+              : `${args?.accept === false ? t("Cancel") : t("OK")}${outcome.dialog?.message ? `: ${outcome.dialog.message}` : ""}`
           }
           refused={outcome.refused === true}
           failed={didNotWork(outcome)}
@@ -1285,10 +1296,10 @@ export function ComputerTools() {
           running={status !== "complete"}
           label={
             args?.action === "close"
-              ? "Closed tab"
+              ? t("Closed tab")
               : args?.action === "list"
-                ? "Listed tabs"
-                : "Switched tab"
+                ? t("Listed tabs")
+                : t("Switched tab")
           }
           detail={
             didNotWork(outcome) || outcome.refused === true
@@ -1319,7 +1330,7 @@ export function ComputerTools() {
       return (
         <ActionLine
           running={status !== "complete"}
-          label="Went back"
+          label={t("Went back")}
           detail={
             didNotWork(outcome) || outcome.refused === true
               ? String(outcome.reason ?? "")

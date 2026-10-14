@@ -1,3 +1,4 @@
+import { msg } from "@/lib/i18n";
 /**
  * Every app-wide keyboard shortcut, in one place.
  *
@@ -32,34 +33,38 @@ export type Hotkey = {
 export const HOTKEYS = [
   {
     id: "new-chat",
-    label: "New chat",
-    description: "Start a new chat from anywhere in the app.",
+    label: msg("New chat"),
+    description: msg("Start a new chat from anywhere in the app."),
     combo: { key: "n", shift: true },
   },
   {
     id: "search",
-    label: "Search Bots and Settings",
-    description:
+    label: msg("Search Bots and Settings"),
+    description: msg(
       "Open the sidebar's search, to jump to a Bot or a Settings section.",
+    ),
     combo: { key: "k", mod: true },
   },
   {
     id: "dictate",
-    label: "Dictate a message",
-    description:
+    label: msg("Dictate a message"),
+    description: msg(
       "Start recording a message for the composer, on instances with transcription configured.",
+    ),
     combo: { key: "d", mod: true },
   },
   {
     id: "settings",
-    label: "Open Settings",
-    description: "Open Settings over whatever you are looking at.",
+    label: msg("Open Settings"),
+    description: msg("Open Settings over whatever you are looking at."),
     combo: { key: ",", mod: true },
   },
   {
     id: "marketplace",
-    label: "Open the Marketplace",
-    description: "Open the Marketplace, where apps, skills and Bots are added.",
+    label: msg("Open the Marketplace"),
+    description: msg(
+      "Open the Marketplace, where apps, skills and Bots are added.",
+    ),
     combo: { key: "m", mod: true, shift: true },
   },
 ] as const satisfies readonly Hotkey[];

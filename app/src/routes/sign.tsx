@@ -13,6 +13,7 @@ import {
   signInWithEmailDomain,
 } from "@/lib/auth/client";
 import { appConfig } from "@/lib/generated/application-config";
+import { useTranslation } from "@/lib/i18n";
 import {
   type AuthProviderId,
   authProvidersQueryOptions,
@@ -41,6 +42,7 @@ export const Route = createFileRoute("/sign")({
 });
 
 function SignScreen() {
+  const { t } = useTranslation("sign");
   // Which provider is being opened, rather than whether one is: with three buttons, a single
   // boolean would put "Opening…" on all of them.
   const [opening, setOpening] = useState<AuthProviderId | "sso" | null>(null);
@@ -66,7 +68,7 @@ function SignScreen() {
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "No identity provider is registered for that address.",
+          : t("No identity provider is registered for that address."),
       );
       setOpening(null);
     }
@@ -82,7 +84,9 @@ function SignScreen() {
       setError(
         caughtError instanceof Error
           ? caughtError.message
-          : `Could not start ${providerName(provider)} sign-in.`,
+          : t("Could not start {{provider}} sign-in.", {
+              provider: providerName(provider),
+            }),
       );
       setOpening(null);
     }
@@ -111,8 +115,8 @@ function SignScreen() {
           {/* Centred against the button, not against the space left of the mark. */}
           <span className="flex-1 text-center">
             {opening === provider
-              ? `Opening ${providerName(provider)}…`
-              : `Continue with ${providerName(provider)}`}
+              ? t("Opening {{value}}…", { value: providerName(provider) })
+              : t("Continue with {{value}}", { value: providerName(provider) })}
           </span>
           {/* Balances the mark so the label sits in the middle of the button. */}
           <span aria-hidden="true" className="size-[18px]" />
@@ -154,7 +158,9 @@ function SignScreen() {
           transition={{ duration: ENTRANCE_SECONDS, ease: EASE_OUT }}
           variants={{ hidden, shown }}
         >
-          Sign in to {appConfig.brand.productName}
+          {t("Sign in to {{productName}}", {
+            productName: appConfig.brand.productName,
+          })}
         </motion.h1>
         <motion.div
           className="mt-8 w-full"
@@ -163,7 +169,7 @@ function SignScreen() {
         >
           {options?.ssoRequired ? (
             <p className="mb-3 text-center text-sm text-muted-foreground">
-              Your organization requires single sign-on.
+              {t("Your organization requires single sign-on.")}
             </p>
           ) : null}
           {providers.length > 0 && !options?.ssoRequired ? (
@@ -181,17 +187,20 @@ function SignScreen() {
                 size="lg"
                 variant="outline"
               >
-                Continue with {options.handoff.providerName}
+                {t("Continue with {{providerName}}", {
+                  providerName: options.handoff.providerName,
+                })}
               </Button>
             ) : (
               <p className="text-center text-sm text-muted-foreground">
-                Sign in from {options.handoff.providerName} to open this
-                workspace.
+                {t("Sign in from {{providerName}} to open this workspace.", {
+                  providerName: options.handoff.providerName,
+                })}
               </p>
             )
           ) : (
             <p className="text-center text-sm text-muted-foreground">
-              No sign-in provider is configured for this deployment.
+              {t("No sign-in provider is configured for this deployment.")}
             </p>
           )}
           {/*
@@ -205,14 +214,16 @@ function SignScreen() {
               {providers.length > 0 ? (
                 <div className="mb-3 flex items-center gap-3">
                   <Separator className="flex-1" />
-                  <span className="text-muted-foreground text-xs">or</span>
+                  <span className="text-muted-foreground text-xs">
+                    {t("or")}
+                  </span>
                   <Separator className="flex-1" />
                 </div>
               ) : null}
               <Input
                 autoComplete="email"
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@company.com"
+                placeholder={t("you@company.com")}
                 required
                 type="email"
                 value={email}
@@ -225,8 +236,8 @@ function SignScreen() {
                 variant="outline"
               >
                 {opening === "sso"
-                  ? "Opening…"
-                  : "Continue with your company account"}
+                  ? t("Opening…")
+                  : t("Continue with your company account")}
               </Button>
             </form>
           ) : null}
@@ -234,7 +245,7 @@ function SignScreen() {
           {options?.ssoRequired && providers.length > 0 ? (
             <details className="mt-4 text-sm">
               <summary className="cursor-pointer text-center text-muted-foreground">
-                Administrator sign-in
+                {t("Administrator sign-in")}
               </summary>
               <div className="mt-3">{providerButtons}</div>
             </details>

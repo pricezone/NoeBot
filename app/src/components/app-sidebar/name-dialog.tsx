@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * A small dialog that asks for one name: a new section, a section renamed, a Bot renamed.
@@ -43,6 +44,7 @@ export function NameDialog({
   onSubmit: (name: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState(initialName);
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -61,7 +63,7 @@ export function NameDialog({
     } catch (thrown) {
       setPending(false);
       setProblem(
-        thrown instanceof Error ? thrown.message : "That did not save.",
+        thrown instanceof Error ? thrown.message : t("That did not save."),
       );
       return;
     }
@@ -105,10 +107,10 @@ export function NameDialog({
           ) : null}
           <DialogFooter>
             <Button onClick={onClose} size="sm" type="button" variant="ghost">
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button disabled={pending || !trimmed} size="sm" type="submit">
-              {pending ? "Saving…" : submitLabel}
+              {pending ? t("Saving…") : submitLabel}
             </Button>
           </DialogFooter>
         </form>

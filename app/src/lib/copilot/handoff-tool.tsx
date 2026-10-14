@@ -2,6 +2,7 @@ import { useRenderTool } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ToolLine } from "@/components/channels/tool-line";
 import { HANDED_OVER } from "@/lib/copilot/markers";
+import { useTranslation } from "@/lib/i18n";
 import { saidItWentAhead } from "@/lib/plugins/tool-result";
 
 /**
@@ -36,6 +37,7 @@ function refused(result: unknown): boolean {
 }
 
 export function HandoffTool() {
+  const { t } = useTranslation();
   useRenderTool({
     name: "message_bot",
     parameters,
@@ -44,7 +46,9 @@ export function HandoffTool() {
       const running = status !== "complete" && result === undefined;
       return (
         <ToolLine
-          label={asked ? `Asked ${asked}` : "Asked another Bot"}
+          label={
+            asked ? t("Asked {{asked}}", { asked }) : t("Asked another Bot")
+          }
           detail={given?.task}
           running={running}
           refused={!running && refused(result)}
@@ -58,12 +62,16 @@ export function HandoffTool() {
             {given?.task ? <p>{given.task}</p> : null}
             {given?.constraints ? (
               <p className="text-muted-foreground">
-                Constraints: {given.constraints}
+                {t("Constraints: {{constraints}}", {
+                  constraints: given.constraints,
+                })}
               </p>
             ) : null}
             {given?.expecting ? (
               <p className="text-muted-foreground">
-                Wanted back: {given.expecting}
+                {t("Wanted back: {{expecting}}", {
+                  expecting: given.expecting,
+                })}
               </p>
             ) : null}
             {typeof result === "string" ? (

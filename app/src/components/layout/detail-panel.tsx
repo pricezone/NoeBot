@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useTranslation } from "@/lib/i18n";
 import { EASE_OUT } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -65,6 +66,7 @@ export function DetailPanel({
   onOverlayChange?: (overlay: boolean) => void;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   // Reduced motion keeps the fade, which explains the change, and drops the movement.
   const shouldReduceMotion = useReducedMotion();
   const container = useRef<HTMLDivElement>(null);
@@ -110,7 +112,7 @@ export function DetailPanel({
                   : "h-12 shrink-0 px-4 pr-12 flex items-center"
               }
             >
-              {title ?? "Details"}
+              {title ?? t("Details")}
             </SheetTitle>
             <div className="flex-1 min-h-0 overflow-y-auto">
               {open ? detail : null}
@@ -138,7 +140,7 @@ export function DetailPanel({
             {/* Rendered for the whole animation, so the way out is available immediately. */}
             {chromeless ? (
               <Button
-                aria-label="Close details"
+                aria-label={t("Close details")}
                 className="absolute top-2 right-2 z-10 rounded-full text-muted-foreground"
                 onClick={onClose}
                 variant="ghost"
@@ -153,7 +155,7 @@ export function DetailPanel({
                 </div>
                 <div className="flex flex-row gap-1.5">
                   <Button
-                    aria-label="Close details"
+                    aria-label={t("Close details")}
                     onClick={onClose}
                     variant="ghost"
                     size="icon"

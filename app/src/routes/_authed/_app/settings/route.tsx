@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useSettingsNav } from "@/components/settings/settings-nav";
 import { ModalShell } from "@/components/ui/modal-shell";
+import { useTranslation } from "@/lib/i18n";
 import { ensureNamespaces } from "@/lib/i18n/set-locale";
 
 /**
@@ -21,13 +22,14 @@ export const Route = createFileRoute("/_authed/_app/settings")({
 });
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const nav = useSettingsNav();
 
   return (
     <>
       {/* The main column under the modal: plain, so nothing half-drawn shows through the overlay. */}
       <div aria-hidden className="flex-1 bg-background" />
-      <ModalShell nav={nav} title="Settings" width={1100}>
+      <ModalShell nav={nav} title={t("Settings")} width={1100}>
         <Outlet />
       </ModalShell>
     </>

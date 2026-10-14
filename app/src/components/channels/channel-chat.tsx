@@ -18,7 +18,6 @@ import { personBubbleScheme } from "@/components/channels/bubbles";
 import { attachmentModality } from "@/components/channels/chat-messages";
 import { toAgentOptions } from "@/components/channels/composer";
 import { ConversationView } from "@/components/channels/conversation-view";
-import { ChatNotice } from "@/components/chat-cards/recovery-card";
 import {
   seedMessage,
   takeFirstMessage,
@@ -29,6 +28,7 @@ import {
   PendingRequests,
   type ShownCalls,
 } from "@/components/chat-cards/pending-requests";
+import { ChatNotice } from "@/components/chat-cards/recovery-card";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
@@ -73,6 +73,8 @@ import {
   readThreadMessages,
   type StoredThread,
 } from "@/lib/copilot/thread-messages";
+import { i18n, useTranslation } from "@/lib/i18n";
+import { useCopilotChatLabels } from "@/lib/i18n/copilot-labels";
 import {
   conversationLanguage,
   languageKeys,
@@ -222,13 +224,20 @@ export function channelHistoryNotice({
     historyAvailability === "unavailable" &&
     (historyReadFailed || (messageCount === 0 && lastMessageAt !== null))
   ) {
-    return "Earlier messages are temporarily unavailable. You can keep using this conversation.";
+    return i18n.t(
+      "Earlier messages are temporarily unavailable. You can keep using this conversation.",
+    );
   }
 
   if (unreadable > 0) {
-    return unreadable === 1
-      ? "One earlier message could not be read and is not shown. The rest of this conversation is complete."
-      : `${unreadable} earlier messages could not be read and are not shown. The rest of this conversation is complete.`;
+    return i18n.t(
+      "{{count}} earlier messages could not be read and are not shown. The rest of this conversation is complete.",
+      {
+        count: unreadable,
+        defaultValue_one:
+          "One earlier message could not be read and is not shown. The rest of this conversation is complete.",
+      },
+    );
   }
 
   return null;
@@ -463,6 +472,7 @@ export function ChannelChat({
   channel: AgentChannel;
   runtimeAgentId: string;
 }) {
+  const { t } = useTranslation();
   // The core attaches the frontend tool registry; direct agent runs do not.
   const { copilotkit } = useCopilotKit();
   // Mentions are scoped to the channel's permitted agents.
@@ -986,7 +996,9 @@ export function ChannelChat({
     ])
       .catch(() => {
         setVoiceContextNotice(
-          "Earlier voice context wasn’t available for this message. The agent may need you to repeat details from the call.",
+          i18n.t(
+            "Earlier voice context wasn’t available for this message. The agent may need you to repeat details from the call.",
+          ),
         );
         return cachedVoiceArchive(channel.id);
       })
@@ -1395,12 +1407,14 @@ export function ChannelChat({
         agent.isRunning || turnsInFlight > 0 || runsInFlight > 0 || rosterBusy,
     });
 
+  const copilotLabels = useCopilotChatLabels();
   return (
     // Activity renderers resolve their agent through this SDK context. It must match useAgent's
     // channel instance so an action continues this thread instead of looking for a default agent.
     <CopilotChatConfigurationProvider
       agentId={channelAgentId}
       threadId={channel.threadId}
+      labels={copilotLabels}
     >
       <ConversationProvider
         answers={answersRef.current.answers}
@@ -1464,7 +1478,9 @@ export function ChannelChat({
             // The pill reads "Message Noë", the way a messages app names who the words go to; a
             // channel the server has not named yet gets the composer's own default.
             placeholder={
-              channel.name ? `Message ${channel.name}` : "Ask anything"
+              channel.name
+                ? t("Message {{name}}", { name: channel.name })
+                : t("Ask anything")
             }
             messages={withVoiceChats(
               transcriptMessages(agent.messages, seed),
@@ -1520,8 +1536,9 @@ export function ChannelChat({
                     className="pb-2 text-sm text-muted-foreground"
                     role="status"
                   >
-                    This coworker has been deleted. The conversation stays
-                    readable, but it can no longer reply.
+                    {t(
+                      "This coworker has been deleted. The conversation stays readable, but it can no longer reply.",
+                    )}
                   </p>
                 )}
               </>

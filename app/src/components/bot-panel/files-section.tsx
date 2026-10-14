@@ -21,6 +21,7 @@ import {
   type FileGroupId,
   groupFilesByAge,
 } from "@/lib/agents/files";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /** Rows a group shows before "Show more", and how many more each press shows. */
@@ -41,6 +42,7 @@ const SHOW_MORE_STEP = 10;
  * already here run out.
  */
 export function FilesSection({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   const files = useInfiniteQuery(agentFilesQueryOptions(agentId));
   const [shown, setShown] = useState<Partial<Record<FileGroupId, number>>>({});
 
@@ -55,7 +57,7 @@ export function FilesSection({ agentId }: { agentId: string }) {
   if (!files.data) {
     return (
       <p className="text-sm text-destructive" role="alert">
-        {files.error?.message ?? "Could not load this Bot's files"}
+        {files.error?.message ?? t("Could not load this Bot's files")}
       </p>
     );
   }
@@ -64,8 +66,9 @@ export function FilesSection({ agentId }: { agentId: string }) {
     <div className="grid gap-4">
       {groups.length === 0 ? (
         <p className="text-[13px] text-muted-foreground">
-          No files yet. What you attach in a conversation with this Bot, and
-          what it saves on its computer, shows up here.
+          {t(
+            "No files yet. What you attach in a conversation with this Bot, and what it saves on its computer, shows up here.",
+          )}
         </p>
       ) : null}
       {groups.map((group, index) => {
@@ -102,14 +105,18 @@ export function FilesSection({ agentId }: { agentId: string }) {
       {/* A later page that failed keeps what already arrived on screen, and says so under it. */}
       {files.isFetchNextPageError ? (
         <p className="text-sm text-destructive" role="alert">
-          {files.error?.message ?? "Could not load more files"}
+          {files.error?.message ?? t("Could not load more files")}
         </p>
       ) : null}
       {workspace === "off" || workspace === "unavailable" ? (
         <p className="text-[13px] text-muted-foreground">
           {workspace === "off"
-            ? "Files on this Bot's computer show here while the computer is on."
-            : "The files on this Bot's computer could not be listed just now."}
+            ? t(
+                "Files on this Bot's computer show here while the computer is on.",
+              )
+            : t(
+                "The files on this Bot's computer could not be listed just now.",
+              )}
         </p>
       ) : null}
     </div>
@@ -128,6 +135,7 @@ function FileGroupCard({
   onShowMore?: () => void;
   loadingMore: boolean;
 }) {
+  const { t } = useTranslation();
   const headingId = useId();
   return (
     <section aria-labelledby={headingId} className="grid gap-2">
@@ -149,7 +157,7 @@ function FileGroupCard({
             onClick={onShowMore}
             type="button"
           >
-            {loadingMore ? "Loading…" : "Show more"}
+            {loadingMore ? t("Loading…") : t("Show more")}
           </button>
         ) : null}
       </div>

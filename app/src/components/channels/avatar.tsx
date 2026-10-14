@@ -3,6 +3,7 @@ import { memo, useCallback, useContext, useSyncExternalStore } from "react";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
 import type { AvatarChoice } from "@/components/noe-bot/pixel-art";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * What a participant's face is drawn from: the Bot's avatar seed and the colour and expression a
@@ -57,6 +58,7 @@ export const ChannelAvatar = memo(function ChannelAvatar({
   size?: number;
   typing?: boolean;
 }) {
+  const { t } = useTranslation();
   const channelSize = participantIds?.length;
   const lookOf = useAvatarLooks();
 
@@ -113,7 +115,7 @@ export const ChannelAvatar = memo(function ChannelAvatar({
       style={{ height: size, width: size }}
     >
       {avatar}
-      {typing ? <span className="sr-only">Working…</span> : null}
+      {typing ? <span className="sr-only">{t("Working…")}</span> : null}
     </div>
   );
 });

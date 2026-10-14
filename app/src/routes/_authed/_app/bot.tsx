@@ -24,6 +24,8 @@ import { tryClient } from "@/lib/client";
 import { useActiveBot } from "@/lib/copilot/active-bot";
 import { useBotThread } from "@/lib/copilot/bot-thread";
 import { useStoppedTurn } from "@/lib/copilot/stopped-turn";
+import { i18n, useTranslation } from "@/lib/i18n";
+import { useCopilotChatLabels } from "@/lib/i18n/copilot-labels";
 
 /** The bot panel's width beside the conversation. */
 const BOT_PANEL_WIDTH = 320;
@@ -73,14 +75,16 @@ async function loadExplicitBot(agentId: string): Promise<BotDetailLookup> {
     `/api/agents/${encodeURIComponent(agentId)}`,
   );
   if (response.status === 404) return { status: "missing" };
-  if (!response.ok) throw new Error("Bot couldn't be loaded.");
+  if (!response.ok) throw new Error(i18n.t("Bot couldn't be loaded."));
 
   const body: unknown = await response.json().catch(() => null);
-  if (!isAgentEnvelope(body)) throw new Error("Bot couldn't be loaded.");
+  if (!isAgentEnvelope(body))
+    throw new Error(i18n.t("Bot couldn't be loaded."));
   return { bot: body.agent, status: "found" };
 }
 
 function RouteComponent() {
+  const { t } = useTranslation();
   const search = Route.useSearch();
   const agent = search.agent === "" ? undefined : search.agent;
   const {
@@ -112,7 +116,7 @@ function RouteComponent() {
     return (
       <div className="flex h-screen items-center justify-center p-6">
         <p className="text-destructive text-sm" role="alert">
-          Bots couldn't be loaded.
+          {t("Bots couldn't be loaded.")}
         </p>
       </div>
     );
@@ -121,7 +125,7 @@ function RouteComponent() {
     return (
       <div className="flex h-screen items-center justify-center p-6">
         <p className="text-destructive text-sm" role="alert">
-          Bot couldn't be loaded.
+          {t("Bot couldn't be loaded.")}
         </p>
       </div>
     );
@@ -131,8 +135,8 @@ function RouteComponent() {
       <div className="flex h-screen items-center justify-center p-6">
         <p className="text-muted-foreground text-sm">
           {agent
-            ? `This deployment has no Bot called "${agent}".`
-            : "This deployment has no Bots yet."}
+            ? t('This deployment has no Bot called "{{agent}}".', { agent })
+            : t("This deployment has no Bots yet.")}
         </p>
       </div>
     );
@@ -146,6 +150,7 @@ function RouteComponent() {
 }
 
 function BotChat({ agentId, name }: { agentId: string; name: string }) {
+  const { t } = useTranslation();
   // Tool calls here act on this Bot's own computer.
   useActiveBot(agentId);
   /*
@@ -184,6 +189,7 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
     [navigate],
   );
 
+  const copilotLabels = useCopilotChatLabels();
   return (
     <DetailPanel
       chromeless
@@ -220,7 +226,7 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
           extra={
             <Button onClick={startNew} size="sm" variant="ghost">
               <IconPlus />
-              New chat
+              {t("New chat")}
             </Button>
           }
           name={name}
@@ -239,8 +245,9 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
             data-testid="bot-chat-history-unavailable"
             role="alert"
           >
-            Earlier messages in this conversation could not be loaded, and the
-            Bot is answering without them.
+            {t(
+              "Earlier messages in this conversation could not be loaded, and the Bot is answering without them.",
+            )}
           </p>
         ) : null}
         {/*
@@ -275,6 +282,7 @@ function BotChat({ agentId, name }: { agentId: string; name: string }) {
               agentId={agentId}
               key={`${agentId}:${threadId}`}
               threadId={threadId}
+              labels={copilotLabels}
             />
           ) : null}
         </div>

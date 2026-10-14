@@ -119,7 +119,10 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
   return (
     <MenuLink to={USAGE_PATH} onNavigate={onNavigate}>
       <IconCreditCard />
-      <span className="min-w-0 flex-1 truncate">{t(USAGE_ROW_LABEL)}</span>
+      {/* The short form beside the figure: the full name is the Settings tab's, which has room. */}
+      <span className="min-w-0 flex-1 truncate">
+        {t("Usage & Billing", { context: "menu" })}
+      </span>
       {usageRowValue(usage.data?.week.credits) ? (
         <span className="shrink-0 text-muted-foreground tabular-nums">
           {usageRowValue(usage.data?.week.credits)}

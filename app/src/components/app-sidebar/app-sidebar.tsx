@@ -24,6 +24,7 @@ import {
 } from "@/lib/channels/sections";
 import { useChannelEvents } from "@/lib/channels/use-channel-events";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
+import { useTranslation } from "@/lib/i18n";
 import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { relativeTime } from "@/lib/relative-time";
 import {
@@ -213,6 +214,7 @@ function RosterDecoration({
  * are drawn pinned first, then under this person's own sections, then the rest.
  */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { t } = useTranslation();
   const emphasis = useMessageListEmphasis();
   const channels = useInfiniteQuery(channelListQueryOptions());
   const sections = useQuery(sectionListQueryOptions());
@@ -234,7 +236,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <Sidebar {...props}>
         <SidebarHeader className="flex-row items-center justify-end gap-2 px-4 pt-4 pb-0">
           <Button
-            aria-label="Search"
+            aria-label={t("Search")}
             aria-haspopup="dialog"
             aria-expanded={searchOpen}
             className={headerButtonClassName}
@@ -245,7 +247,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <IconSearch />
           </Button>
           <Button
-            aria-label="New chat"
+            aria-label={t("New chat")}
             className={headerButtonClassName}
             size="icon-lg"
             variant="ghost"
@@ -273,10 +275,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 <div className="py-4">
                   <Empty className="border border-dashed min-h-[40dvh]">
                     <EmptyHeader>
-                      <EmptyTitle>You don't have channels yet</EmptyTitle>
+                      <EmptyTitle>
+                        {t("You don't have channels yet")}
+                      </EmptyTitle>
                       <EmptyDescription className="text-pretty">
-                        Start talking to agents and your channels will appear
-                        here.
+                        {t(
+                          "Start talking to agents and your channels will appear here.",
+                        )}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>

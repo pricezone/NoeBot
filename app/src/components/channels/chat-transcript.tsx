@@ -63,7 +63,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { attachmentUrl } from "@/lib/channels/attachments";
 import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
 import { readFiring } from "@/lib/channels/routine-firing";
-import { useInterfaceLocale } from "@/lib/i18n";
+import { i18n, useInterfaceLocale, useTranslation } from "@/lib/i18n";
+import { useStreamdownTranslations } from "@/lib/i18n/streamdown-translations";
 import {
   conversationLanguage,
   UiLanguageProvider,
@@ -201,9 +202,10 @@ const RESTORING_ANSWER_LINES = [
 ] as const;
 
 function RestoringTranscript() {
+  const { t } = useTranslation();
   return (
     // One announcement, with every bar hidden from it: nine empty shapes read aloud is worse.
-    <div aria-label="Loading this conversation" role="status">
+    <div aria-label={t("Loading this conversation")} role="status">
       <div aria-hidden="true" className="flex justify-end pb-7">
         <Skeleton className="h-10 w-64 rounded-xl bg-muted/40 motion-reduce:animate-none" />
       </div>
@@ -357,6 +359,7 @@ function Queued({
   text: string;
   onRemove?: (() => void) | undefined;
 }) {
+  const { t } = useTranslation();
   /*
    * THE FILES COME WITH IT, and until they did they were on NO SURFACE IN THE APP AT ALL. Parking
    * consumes the draft, so the composer's strip empties in the same beat this line appears; drawing
@@ -388,7 +391,7 @@ function Queued({
            * `status` rather than `alert`, matching the thinking line: a person who has just chosen
            * to queue something is not being interrupted by the news that it is queued.
            */}
-          <span role="status">Queued</span>
+          <span role="status">{t("Queued")}</span>
           {onRemove ? (
             <button
               /*
@@ -401,12 +404,14 @@ function Queued({
                * `describeParked`. An attachment-only message named the label after an empty string
                * and read as "Remove queued message:", which is the same nothing three times over.
                */
-              aria-label={`Remove queued message: ${describeParked(text, files)}`}
+              aria-label={t("Remove queued message: {{value}}", {
+                value: describeParked(text, files),
+              })}
               className="ml-2 underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               onClick={onRemove}
               type="button"
             >
-              Remove
+              {t("Remove")}
             </button>
           ) : null}
         </MessageFooter>
@@ -587,6 +592,7 @@ function Arriving({
  * the part a person wrote and the only part addressed to them.
  */
 function RoutineFiring({ instruction }: { instruction: string }) {
+  const { t } = useTranslation();
   const responsibility = readResponsibilityTurn(instruction);
   if (responsibility) {
     return <ResponsibilityFiring raw={instruction} turn={responsibility} />;
@@ -595,7 +601,7 @@ function RoutineFiring({ instruction }: { instruction: string }) {
     <div className="flex min-w-0 items-baseline gap-2 text-muted-foreground text-sm">
       <IconClock aria-hidden className="size-4 shrink-0 translate-y-0.5" />
       <span className="min-w-0">
-        <span className="font-medium">Routine ran.</span>{" "}
+        <span className="font-medium">{t("Routine ran.")}</span>{" "}
         <span className="whitespace-pre-wrap">{instruction}</span>
       </span>
     </div>
@@ -625,18 +631,19 @@ function ResponsibilityFiring({
   raw: string;
   turn: { instruction: string; trigger: string };
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex min-w-0 items-baseline gap-2 text-muted-foreground text-sm">
       <IconClock aria-hidden className="size-4 shrink-0 translate-y-0.5" />
       <div className="min-w-0">
         <p>
-          <span className="font-medium">Responsibility ran.</span> Trigger:{" "}
-          {describeTrigger(turn.trigger)}
+          <span className="font-medium">{t("Responsibility ran.")}</span>{" "}
+          {t("Trigger: {{value}}", { value: describeTrigger(turn.trigger) })}
         </p>
         <p className="whitespace-pre-wrap">{turn.instruction}</p>
         <details className="group mt-1">
           <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-            Details
+            {t("Details")}
             <IconChevronDown
               aria-hidden
               className="size-3 transition-transform group-open:rotate-180 motion-reduce:transition-none"
@@ -676,6 +683,8 @@ const TranscriptMessage = memo(function TranscriptMessage({
   role: "user" | "assistant";
   text: string;
 }) {
+  const streamdownTranslations = useStreamdownTranslations();
+  const { t } = useTranslation();
   const isUser = role === "user";
   /*
    * Checked before anything else a person's message gets. A firing is not a person's message: the
@@ -723,7 +732,7 @@ const TranscriptMessage = memo(function TranscriptMessage({
               <span className="whitespace-pre-wrap">
                 {origin && (
                   <span className="mr-1.5 inline-flex items-center rounded bg-current/15 px-1.5 py-0.5 align-middle text-current/75 text-xs">
-                    via {origin.via}
+                    {t("via {{via}}", { via: origin.via })}
                   </span>
                 )}
                 {invoked ? (
@@ -755,7 +764,12 @@ const TranscriptMessage = memo(function TranscriptMessage({
                * closing token arrives, so the answer visibly rewrites itself as it lands. This
                * closes them for the duration.
                */}
-              <Streamdown components={markdownComponents}>{text}</Streamdown>
+              <Streamdown
+                translations={streamdownTranslations}
+                components={markdownComponents}
+              >
+                {text}
+              </Streamdown>
             </BotBubble>
           )}
         </Arriving>
@@ -1030,6 +1044,7 @@ function useDocumentIsGone(url: string, ask: boolean): boolean {
 }
 
 function SentAttachmentTile({ attachment }: { attachment: SentAttachment }) {
+  const { t } = useTranslation();
   const [failedToLoad, setFailedToLoad] = useState(false);
   const { filename, modality, url } = attachment;
   /*
@@ -1090,9 +1105,9 @@ function SentAttachmentTile({ attachment }: { attachment: SentAttachment }) {
         <div className="min-w-0">
           {/* `title` because the tile is fixed-width and a long name is cut, not wrapped. */}
           <p className="truncate font-medium text-sm" title={filename}>
-            {filename ?? "Untitled file"}
+            {filename ?? t("Untitled file")}
           </p>
-          <p className="text-muted-foreground text-xs">Attachment</p>
+          <p className="text-muted-foreground text-xs">{t("Attachment")}</p>
         </div>
       </div>
     );
@@ -1101,7 +1116,11 @@ function SentAttachmentTile({ attachment }: { attachment: SentAttachment }) {
   return (
     <AttachmentLightbox filename={filename} url={url}>
       <img
-        alt={filename ? `Attachment: ${filename}` : "Attachment"}
+        alt={
+          filename
+            ? t("Attachment: {{filename}}", { filename })
+            : t("Attachment")
+        }
         className="size-32 rounded-xl object-cover"
         onError={() => setFailedToLoad(true)}
         src={url}
@@ -1122,8 +1141,8 @@ function SentAttachmentTile({ attachment }: { attachment: SentAttachment }) {
  */
 function unavailableSentence(filename?: string): string {
   return filename
-    ? `${filename} is unavailable.`
-    : "This attachment is unavailable.";
+    ? i18n.t("{{filename}} is unavailable.", { filename })
+    : i18n.t("This attachment is unavailable.");
 }
 
 /**
@@ -1161,6 +1180,7 @@ export function LightboxPicture({
   filename?: string;
   url: string;
 }) {
+  const { t } = useTranslation();
   const [failedToLoad, setFailedToLoad] = useState(false);
 
   if (failedToLoad) {
@@ -1183,7 +1203,7 @@ export function LightboxPicture({
 
   return (
     <img
-      alt={filename ?? "Attachment"}
+      alt={filename ?? t("Attachment")}
       className="max-h-[88svh] max-w-[92vw] rounded-lg object-contain"
       onError={() => setFailedToLoad(true)}
       src={url}
@@ -1222,6 +1242,7 @@ export function AttachmentLightbox({
   filename?: string;
   url: string;
 }) {
+  const { t } = useTranslation();
   const label = filename ?? "Attachment";
   /*
    * Controlled only so that clicking the dark space around the picture closes it, the way every
@@ -1240,7 +1261,9 @@ export function AttachmentLightbox({
           "block cursor-zoom-in overflow-hidden rounded-xl",
           className,
         )}
-        render={<button aria-label={`Open ${label}`} type="button" />}
+        render={
+          <button aria-label={t("Open {{label}}", { label })} type="button" />
+        }
       >
         {children}
       </DialogTrigger>
@@ -1270,7 +1293,7 @@ export function AttachmentLightbox({
         <DialogClose
           render={
             <button
-              aria-label="Close"
+              aria-label={t("Close")}
               className="absolute top-4 right-4 grid size-9 place-items-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
               type="button"
             />
@@ -1292,7 +1315,7 @@ export function AttachmentLightbox({
  */
 function activityName(activityType: string): string {
   return activityType === "open-generative-ui"
-    ? "This Bot's generated interface"
+    ? i18n.t("This Bot's generated interface")
     : activityType;
 }
 
@@ -1416,6 +1439,7 @@ function ServerToolLine({
   result?: string;
   toolCallId: string;
 }) {
+  const streamdownTranslations = useStreamdownTranslations();
   const { label, detail } = readToolName(name);
   /*
    * A refusal is not a result, and must not read like one.
@@ -1445,7 +1469,10 @@ function ServerToolLine({
       running={result === undefined}
     >
       {body ? (
-        <Streamdown components={markdownComponents}>
+        <Streamdown
+          translations={streamdownTranslations}
+          components={markdownComponents}
+        >
           {forDisplay(body)}
         </Streamdown>
       ) : null}

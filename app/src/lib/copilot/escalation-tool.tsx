@@ -8,6 +8,7 @@ import {
 import { ChoiceCard } from "@/components/gallery/decisions";
 import { useConversation } from "@/lib/copilot/conversation";
 import { PUT_TO } from "@/lib/copilot/markers";
+import { i18n, useTranslation } from "@/lib/i18n";
 import { saidItWentAhead } from "@/lib/plugins/tool-result";
 
 /**
@@ -63,6 +64,7 @@ function AskedLine({
   answer?: string;
   toolCallId?: string;
 }) {
+  const { t } = useTranslation();
   const refused = !running && !reached(result);
   const botId = useConversation()?.botId;
   return (
@@ -82,12 +84,12 @@ function AskedLine({
           {why ? <span className="block">{why}</span> : null}
           <span className="block">
             {refused
-              ? "Blocked: this question could not be put to anyone."
-              : "Answer in the chat"}
+              ? t("Blocked: this question could not be put to anyone.")
+              : t("Answer in the chat")}
           </span>
         </>
       }
-      title={question ?? "Asking you…"}
+      title={question ?? t("Asking you…")}
     />
   );
 }
@@ -200,7 +202,7 @@ export function AskWithOptions({
         if (!label) return;
         // Not sent at all (the Bot still had the turn): the card takes an answer again.
         if ((await conversation.ask(label)) === false)
-          throw new Error("The answer was not sent.");
+          throw new Error(i18n.t("The answer was not sent."));
       }}
       result={undefined}
       status="executing"

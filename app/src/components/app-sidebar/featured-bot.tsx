@@ -1,11 +1,12 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useLastBot } from "@/lib/agents/last-bot";
 import { defaultAgentId } from "@/lib/agents/default-agent";
+import { useLastBot } from "@/lib/agents/last-bot";
 import { type AgentProfile, agentListQueryOptions } from "@/lib/agents/queries";
 import { botAttentionQueryOptions } from "@/lib/bot-lifecycle/queries";
 import { brand } from "@/lib/brand";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import { needsInput } from "../bot-profile/attention";
 import { botLandingTarget } from "./bot-target";
 
@@ -41,6 +42,7 @@ export function featuredAgent(
  * agents has nothing to feature, and a placeholder would promise one.
  */
 export function FeaturedBot() {
+  const { t } = useTranslation();
   const agents = useQuery(agentListQueryOptions()).data;
   const channels = useInfiniteQuery(channelListQueryOptions()).data;
   const attention = useQuery(botAttentionQueryOptions()).data;
@@ -65,7 +67,7 @@ export function FeaturedBot() {
   return (
     <Link
       {...target}
-      aria-label={`Open ${bot.name}`}
+      aria-label={t("Open {{name}}", { name: bot.name })}
       className="group/featured mx-auto flex w-fit flex-col items-center gap-2 rounded-2xl px-4 py-3 outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       data-testid="featured-bot"
     >

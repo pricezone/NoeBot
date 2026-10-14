@@ -1,5 +1,6 @@
 import { AccessSection } from "@/components/agents/agent-dialog";
 import { RecordedWorkflows } from "@/components/computer/demonstration-recorder";
+import { useTranslation } from "@/lib/i18n";
 import { FilesSection } from "./files-section";
 
 /**
@@ -13,23 +14,24 @@ import { FilesSection } from "./files-section";
  * other things the Bot does for you.
  */
 export function LibraryTab({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   return (
     <div className="flex w-full flex-col gap-6">
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Files
+          {t("Files")}
         </h2>
         <FilesSection agentId={agentId} />
       </section>
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Recorded workflows
+          {t("Recorded workflows")}
         </h2>
         <RecordedWorkflows botId={agentId} />
       </section>
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Access
+          {t("Access")}
         </h2>
         <AccessSection agentId={agentId} />
       </section>

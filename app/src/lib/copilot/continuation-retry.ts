@@ -1,4 +1,5 @@
 import type { Message } from "@ag-ui/core";
+import { i18n, msg } from "@/lib/i18n";
 
 /**
  * A browser step followed by silence, retried once and then reported.
@@ -16,8 +17,9 @@ import type { Message } from "@ag-ui/core";
  */
 
 /** What the person is told when the retried continuation also came back with nothing. */
-export const SILENT_CONTINUATION =
-  "The Bot stopped after a browser step without answering. Send your message again to continue.";
+export const SILENT_CONTINUATION = msg(
+  "The Bot stopped after a browser step without answering. Send your message again to continue.",
+);
 
 type Subscriber = {
   onRunErrorEvent?: (params: { event?: { message?: string } }) => void;
@@ -101,7 +103,7 @@ export async function runWithContinuationRetry(options: {
     errors.length = 0;
     await options.run();
     if (!stalled()) return null;
-    return errors.at(-1) ?? SILENT_CONTINUATION;
+    return errors.at(-1) ?? i18n.t(SILENT_CONTINUATION);
   } finally {
     subscription.unsubscribe();
   }

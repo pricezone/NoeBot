@@ -14,6 +14,7 @@
  * the same inputs at the same times always draw the same thing.
  */
 
+import { getLocale } from "@/lib/i18n";
 import { type AnimationId, type Lang, labelFor } from "./catalog";
 import { classifyIntent, type Intent, languageOf, reactionFor } from "./intent";
 import { TIMING } from "./rules";
@@ -517,7 +518,8 @@ export const reduceDirector = (
       turnStartedAt: now,
       intent: classifyIntent(text),
       reaction: reactionFor(text).face,
-      lang: languageOf(text),
+      // The person's language, read from their words; the interface's when they wrote none.
+      lang: text.trim() ? languageOf(text) : getLocale(),
     };
   }
 

@@ -47,6 +47,7 @@ import {
 } from "@/lib/channels/queries";
 import { useStartChannel } from "@/lib/channels/start";
 import { createGroupMutationOptions, postGroupMessage } from "@/lib/groups";
+import { useTranslation } from "@/lib/i18n";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import { newId } from "../../../../lib/new-id";
 
@@ -140,6 +141,7 @@ function BotRowContent({ bot }: { bot: AgentProfile }) {
 }
 
 function RouteComponent() {
+  const { t } = useTranslation();
   const { agent, compose, group, panel, record } = Route.useSearch();
   const navigate = Route.useNavigate();
   const queryClient = useQueryClient();
@@ -200,7 +202,7 @@ function RouteComponent() {
   const urlAgentDetailFailed = needsUrlAgentDetail && detailError && !fetched;
   const loadError =
     rosterError && profiles === undefined
-      ? "Coworkers couldn't be loaded."
+      ? t("Coworkers couldn't be loaded.")
       : urlAgentDetailFailed
         ? /*
            * The server's 404 sentence (agents/routes.ts `mapStoreError`) means this person cannot see
@@ -208,8 +210,10 @@ function RouteComponent() {
            * other failure is a load that can be retried, and says so.
            */
           detailFailure?.message === AGENT_NOT_FOUND
-          ? "This Bot isn't available to you. It may be unpublished, not shared with you, or not described yet."
-          : "Coworker couldn't be loaded."
+          ? t(
+              "This Bot isn't available to you. It may be unpublished, not shared with you, or not described yet.",
+            )
+          : t("Coworker couldn't be loaded.")
         : null;
   const recipients: Recipient[] = groupMode
     ? members.map(toRecipient)
@@ -243,7 +247,9 @@ function RouteComponent() {
       });
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "Could not create the Bot.",
+        caught instanceof Error
+          ? caught.message
+          : t("Could not create the Bot."),
       );
     }
   };
@@ -288,7 +294,7 @@ function RouteComponent() {
     <div className="flex h-full flex-col">
       <div className="h-12 border-b border-border sticky top-0 flex flex-row px-2 items-center">
         <SidebarToggle className="mr-1" />
-        <span className="text-sm text-muted-foreground">To:</span>
+        <span className="text-sm text-muted-foreground">{t("To:")}</span>
         {groupMode ? (
           <Combobox
             // Group mode is a choice the person just made, so the list is open and waiting.
@@ -315,10 +321,10 @@ function RouteComponent() {
                 <ComboboxChip key={member.id}>{member.name}</ComboboxChip>
               ))}
               <ComboboxChipsInput
-                aria-label="Add Bots"
+                aria-label={t("Add Bots")}
                 autoFocus
                 className="h-8 bg-transparent text-sm"
-                placeholder="Add Bots…"
+                placeholder={t("Add Bots…")}
               />
             </ComboboxChips>
             <ComboboxContent
@@ -326,7 +332,7 @@ function RouteComponent() {
               className="min-w-0 max-w-lg"
               sideOffset={12}
             >
-              <ComboboxEmpty>No agents found.</ComboboxEmpty>
+              <ComboboxEmpty>{t("No agents found.")}</ComboboxEmpty>
               <ComboboxList>
                 {(item: AgentProfile) => (
                   <ComboboxItem key={item.id} value={item} className="h-10">
@@ -378,7 +384,7 @@ function RouteComponent() {
                * hidden on a field that was visibly empty.
                */
               onChange={(event) => setTyped(event.currentTarget.value)}
-              placeholder="Start a chat with…"
+              placeholder={t("Start a chat with…")}
               // InputGroup owns focus rings via `has-[…:focus-visible]`; disable that wrapper ring here.
               className="border-none w-full bg-transparent! text-sm has-[[data-slot=input-group-control]:focus-visible]:ring-0"
             />
@@ -397,7 +403,7 @@ function RouteComponent() {
                     <span className={ACTION_BADGE_CLASS}>
                       <IconPlus className="size-4" />
                     </span>
-                    Create new Bot
+                    {t("Create new Bot")}
                   </button>
                   <button
                     className={ACTION_ROW_CLASS}
@@ -408,11 +414,11 @@ function RouteComponent() {
                     <span className={ACTION_BADGE_CLASS}>
                       <IconUsersGroup className="size-4" />
                     </span>
-                    Create group chat
+                    {t("Create group chat")}
                   </button>
                 </div>
               ) : null}
-              <ComboboxEmpty>No agents found.</ComboboxEmpty>
+              <ComboboxEmpty>{t("No agents found.")}</ComboboxEmpty>
               <ComboboxList>
                 {(item: AgentProfile) => (
                   <ComboboxItem
@@ -438,7 +444,7 @@ function RouteComponent() {
                       tabIndex={-1}
                       type="button"
                     >
-                      Add to group chat
+                      {t("Add to group chat")}
                     </button>
                   </ComboboxItem>
                 )}
@@ -503,7 +509,7 @@ function RouteComponent() {
             setError(
               caught instanceof Error
                 ? caught.message
-                : "Could not start the conversation.",
+                : t("Could not start the conversation."),
             );
             throw caught;
           }

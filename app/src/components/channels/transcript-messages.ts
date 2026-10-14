@@ -1,5 +1,6 @@
 import type { Message } from "@ag-ui/core";
 import { brand } from "@/lib/brand";
+import { i18n } from "@/lib/i18n";
 
 /**
  * What a transcript shows while a brand-new channel is still joining.
@@ -41,7 +42,10 @@ export function firstRunGreeting(): Message {
   return {
     id: FIRST_RUN_GREETING_ID,
     role: "assistant",
-    content: `Hi, I'm ${brand.productName}. Type a message below to get started — I'll start my computer, and you can watch it work in the panel on the right.`,
+    content: i18n.t(
+      "Hi, I'm {{product}}. Type a message below to get started — I'll start my computer, and you can watch it work in the panel on the right.",
+      { product: brand.productName },
+    ),
   };
 }
 

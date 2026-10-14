@@ -7,6 +7,7 @@ import { RoutinesList } from "@/components/routines/routines-list";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentQueryOptions } from "@/lib/agents/queries";
+import { useTranslation } from "@/lib/i18n";
 import type { BotPanelParticipant } from "./bot-panel";
 
 function Tag({ children }: { children: ReactNode }) {
@@ -47,6 +48,7 @@ function DetailsSkeleton() {
  * top margin, which is somebody else's spacing here.
  */
 export function DetailsTab({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   /** The full dialog, opened over the chat rather than navigating away from it. */
   const [managing, setManaging] = useState(false);
   const agent = useQuery(agentQueryOptions(agentId));
@@ -55,7 +57,7 @@ export function DetailsTab({ agentId }: { agentId: string }) {
   if (agent.error || !agent.data) {
     return (
       <p className="text-sm text-destructive" role="alert">
-        Could not load this coworker.
+        {t("Could not load this coworker.")}
       </p>
     );
   }
@@ -64,13 +66,15 @@ export function DetailsTab({ agentId }: { agentId: string }) {
   return (
     <div className="flex w-full flex-col gap-5">
       <div className="flex flex-wrap gap-1.5">
-        <Tag>{profile.visibility === "private" ? "Private" : "Public"}</Tag>
-        {profile.systemOwned ? <Tag>System owned</Tag> : null}
+        <Tag>
+          {profile.visibility === "private" ? t("Private") : t("Public")}
+        </Tag>
+        {profile.systemOwned ? <Tag>{t("System owned")}</Tag> : null}
       </div>
 
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Role
+          {t("Role")}
         </h2>
         <p className="whitespace-pre-wrap text-pretty text-sm">
           {profile.roleDescription}
@@ -79,7 +83,7 @@ export function DetailsTab({ agentId }: { agentId: string }) {
 
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          For you
+          {t("For you")}
         </h2>
         {/* The rows carry their own top margin for the page; none is wanted under a heading here. */}
         <div className="[&>div]:mt-0">
@@ -89,7 +93,7 @@ export function DetailsTab({ agentId }: { agentId: string }) {
 
       <section className="grid gap-2">
         <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Routines
+          {t("Routines")}
         </h2>
         <RoutinesList agentId={agentId} embedded />
       </section>
@@ -99,7 +103,7 @@ export function DetailsTab({ agentId }: { agentId: string }) {
         onClick={() => setManaging(true)}
         variant="outline"
       >
-        Manage…
+        {t("Manage…")}
       </Button>
 
       <AgentDialog
@@ -117,10 +121,11 @@ export function ParticipantsTab({
 }: {
   participants: BotPanelParticipant[];
 }) {
+  const { t } = useTranslation();
   return (
     <section className="grid gap-2">
       <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Bots
+        {t("Bots")}
       </h2>
       <ul className="flex flex-col gap-1">
         {participants.map((participant) => (

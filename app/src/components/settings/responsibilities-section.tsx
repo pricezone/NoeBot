@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { conversationLabel } from "@/lib/channels/label";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { useStreamdownTranslations } from "@/lib/i18n/streamdown-translations";
 import { markdownComponents } from "@/lib/markdown";
 import {
   createGithubBinding,
@@ -482,8 +483,10 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
  * to the row's size: no heading scale, tight paragraph and list spacing.
  */
 function RunMarkdown({ children }: { children: string }) {
+  const streamdownTranslations = useStreamdownTranslations();
   return (
     <Streamdown
+      translations={streamdownTranslations}
       className="min-w-0 text-sm [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-sm [&_li]:my-0 [&_ol]:my-1 [&_p]:my-1 [&_ul]:my-1 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
       components={markdownComponents}
       mode="static"

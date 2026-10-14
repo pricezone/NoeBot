@@ -1,6 +1,7 @@
 import type { ModalNavItem } from "@/components/ui/modal-shell";
 import type { AgentProfile } from "@/lib/agents/queries";
 import type { ChannelSummary } from "@/lib/channels/queries";
+import { i18n, msg } from "@/lib/i18n";
 import { isHiddenFromSidebar, matchingChannels } from "./roster";
 
 /**
@@ -23,8 +24,13 @@ export type PaletteGroup = {
   items: PaletteItem[];
 };
 
-/** How a setting reads in the list, and what it is found by. */
+/** How a setting reads in the list, in the interface's language. */
 export function settingTitle(setting: ModalNavItem): string {
+  return i18n.t("Settings: {{label}}", { label: i18n.t(setting.label) });
+}
+
+/** The same in English, so a section is found by its English name in any language too. */
+function englishSettingTitle(setting: ModalNavItem): string {
   return `Settings: ${setting.label}`;
 }
 
@@ -46,8 +52,13 @@ export function botLines(bot: AgentProfile): {
   };
 }
 
+/** Lower case without accents, so "ρυθμισεις" finds "Ρυθμίσεις" and "cafe" finds "Café". */
+function plain(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+}
+
 function includes(field: string | null | undefined, needle: string) {
-  return field?.toLocaleLowerCase().includes(needle) ?? false;
+  return field ? plain(field).includes(plain(needle)) : false;
 }
 
 /**
@@ -81,18 +92,20 @@ export function paletteGroups(input: {
   const settings = input.settings.filter(
     (setting) =>
       (!setting.adminOnly || input.isAdmin) &&
-      (!needle || includes(settingTitle(setting), needle)),
+      (!needle ||
+        includes(settingTitle(setting), needle) ||
+        includes(englishSettingTitle(setting), needle)),
   );
 
   const groups: PaletteGroup[] = [
     {
       id: "bots",
-      label: "Bots",
+      label: msg("Bots"),
       items: bots.map((bot) => ({ kind: "bot", key: `bot:${bot.id}`, bot })),
     },
     {
       id: "hidden-chats",
-      label: "Hidden chats",
+      label: msg("Hidden chats"),
       items: hidden.map((channel) => ({
         kind: "hidden-chat",
         key: `chat:${channel.id}`,
@@ -101,7 +114,7 @@ export function paletteGroups(input: {
     },
     {
       id: "settings",
-      label: "Settings",
+      label: msg("Settings"),
       items: settings.map((setting) => ({
         kind: "setting",
         key: `setting:${setting.id}`,

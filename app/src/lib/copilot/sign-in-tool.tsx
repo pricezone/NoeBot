@@ -9,6 +9,7 @@ import {
 } from "@/components/chat-cards/secure-form";
 import { SignInForm } from "@/components/passwords/sign-in-form";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import {
   continueSignInMutationOptions,
   readSignIn,
@@ -260,6 +261,7 @@ function SignInCard({
   running: boolean;
   outcome: Outcome;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [askedAgain, setAskedAgain] = useState(false);
   const conversation = useConversation();
@@ -298,7 +300,7 @@ function SignInCard({
   const host =
     hostOf(data?.origin) ?? hostOf(outcome.site) ?? hostOf(site) ?? site;
   // The server's title first: it is the Bot's, unless the login went on to another site.
-  const heading = data?.title ?? title ?? `Sign in to ${host}`;
+  const heading = data?.title ?? title ?? t("Sign in to {{host}}", { host });
   const waiting =
     running && data?.status === "filling" && Boolean(data.approvalUntil);
   const situation: SignInSituation = running
@@ -364,7 +366,7 @@ function SignInCard({
                 type="button"
                 variant="secondary"
               >
-                Ask again
+                {t("Ask again")}
               </Button>
             ) : null}
           </div>

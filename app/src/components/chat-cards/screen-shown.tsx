@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { ToolLine } from "@/components/channels/tool-line";
 import { AttachmentLightbox } from "@/components/channels/chat-transcript";
+import { ToolLine } from "@/components/channels/tool-line";
 import { readPageFrame } from "@/lib/computers/screen";
+import { useTranslation } from "@/lib/i18n";
 import { hostOf } from "./secure-form";
 
 /**
@@ -29,6 +30,7 @@ export function ScreenShown({
   result: unknown;
   running: boolean;
 }) {
+  const { t } = useTranslation();
   const outcome = readOutcome(result);
   const [frame, setFrame] = useState(() =>
     toolCallId ? FRAMES.get(toolCallId) : undefined,
@@ -48,20 +50,24 @@ export function ScreenShown({
   }, [computerId, toolCallId, outcome?.ok, frame]);
 
   if (running && !outcome) {
-    return <ToolLine label="Showing you the screen" running />;
+    return <ToolLine label={t("Showing you the screen")} running />;
   }
   if (!outcome || outcome.ok === false) {
     return (
-      <ToolLine detail={outcome?.reason} failed label="Showed you the screen" />
+      <ToolLine
+        detail={outcome?.reason}
+        failed
+        label={t("Showed you the screen")}
+      />
     );
   }
   const host = hostOf(frame?.url ?? outcome.url) ?? outcome.url;
-  const label = caption?.trim() || `The screen at ${host}`;
+  const label = caption?.trim() || t("The screen at {{host}}", { host });
   if (frame === null) {
     return (
       <ToolLine
-        detail="The picture is no longer kept."
-        label={`Showed you ${host}`}
+        detail={t("The picture is no longer kept.")}
+        label={t("Showed you {{host}}", { host })}
       />
     );
   }
@@ -81,7 +87,7 @@ export function ScreenShown({
         </AttachmentLightbox>
       ) : (
         <div
-          aria-label="Loading the picture"
+          aria-label={t("Loading the picture")}
           className="aspect-[16/10] w-full animate-pulse bg-muted"
           role="img"
         />
