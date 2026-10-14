@@ -5,6 +5,7 @@ import {
   IconTable,
 } from "@tabler/icons-react";
 import type { ComponentProps } from "react";
+import { i18n, msg } from "@/lib/i18n";
 
 /**
  * Shared markdown rendering for Bot prose and tool results.
@@ -27,9 +28,9 @@ import type { ComponentProps } from "react";
  * is not something to claim about a URL a model wrote.
  */
 const DRIVE_KINDS = [
-  { match: "/document/", icon: IconFileText, label: "Doc" },
-  { match: "/spreadsheets/", icon: IconTable, label: "Sheet" },
-  { match: "/presentation/", icon: IconPresentation, label: "Slides" },
+  { match: "/document/", icon: IconFileText, label: msg("Doc") },
+  { match: "/spreadsheets/", icon: IconTable, label: msg("Sheet") },
+  { match: "/presentation/", icon: IconPresentation, label: msg("Slides") },
 ] as const;
 
 export function documentChipKind(href: string | undefined) {
@@ -95,7 +96,9 @@ export const markdownComponents = {
            * The type, after the name. It answers "can I open this, and with what" without the reader
            * hovering to read a URL, and it is the part a file name often leaves out.
            */}
-          <span className="shrink-0 text-muted-foreground">{kind.label}</span>
+          <span className="shrink-0 text-muted-foreground">
+            {i18n.t(kind.label)}
+          </span>
         </a>
       );
     }

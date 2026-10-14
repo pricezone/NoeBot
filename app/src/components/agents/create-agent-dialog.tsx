@@ -39,7 +39,7 @@ import {
   testAgentConnection,
 } from "@/lib/agents/queries";
 import { isComposing } from "@/lib/composing";
-import { Trans, useTranslation } from "@/lib/i18n";
+import { msg, Trans, useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
 /**
@@ -83,13 +83,13 @@ const VISIBILITY_OPTIONS: Array<{
 }> = [
   {
     value: "private",
-    title: "Private",
-    description: "Only you can see it and start channels with it.",
+    title: msg("Private"),
+    description: msg("Only you can see it and start channels with it."),
   },
   {
     value: "public",
-    title: "Public",
-    description: "Everyone in the deployment can find and use it.",
+    title: msg("Public"),
+    description: msg("Everyone in the deployment can find and use it."),
   },
 ];
 
@@ -106,15 +106,17 @@ const KIND_OPTIONS: Array<{
 }> = [
   {
     value: "builtin",
-    title: "Built-in",
-    description:
+    title: msg("Built-in"),
+    description: msg(
       "Runs on this deployment's own Bot. Nothing to host or connect — it is ready the moment it is created.",
+    ),
   },
   {
     value: "managed",
-    title: "Managed",
-    description:
+    title: msg("Managed"),
+    description: msg(
       "Runs on an agent you host, spoken to over AG-UI. This server dials your endpoint on every run.",
+    ),
   },
 ];
 
@@ -489,9 +491,9 @@ function VisibilityStep({
             onChange={() => set("visibility", option.value)}
             value={option.value}
           >
-            <span className="font-medium">{option.title}</span>
+            <span className="font-medium">{t(option.title)}</span>
             <QuestionnaireChoiceDescription>
-              {option.description}
+              {t(option.description)}
             </QuestionnaireChoiceDescription>
           </QuestionnaireChoice>
         ))}
@@ -547,13 +549,13 @@ function KindStep({
               onChange={() => onKind(option.value)}
               value={option.value}
             >
-              <span className="font-medium">{option.title}</span>
+              <span className="font-medium">{t(option.title)}</span>
               <QuestionnaireChoiceDescription>
                 {unavailable
                   ? t(
                       "Not available here: this deployment has no Bot of its own for a coworker to run on.",
                     )
-                  : option.description}
+                  : t(option.description)}
               </QuestionnaireChoiceDescription>
             </QuestionnaireChoice>
           );

@@ -62,7 +62,10 @@
     "OpenTelemetry",
     "SAML",
     "OpenID Connect",
-    "SCIM"
+    "SCIM",
+    "Webhook",
+    "Email",
+    "Google Drive"
   ],
   "exact": {
     "Account": "Λογαριασμός",

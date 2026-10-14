@@ -20,7 +20,7 @@ import {
   type UpdateTransport,
   updateRoutingQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
-import { useTranslation } from "@/lib/i18n";
+import { msg, useTranslation } from "@/lib/i18n";
 import { useContentText } from "@/lib/i18n/content";
 import { queryClient } from "@/query-client";
 import { BotActivitySections } from "./activity";
@@ -29,21 +29,21 @@ import { BotPausedBanner } from "./pause-banner";
 
 const KIND_LABEL: Record<UpdateKind, { title: string; description: string }> = {
   progress: {
-    title: "Progress",
-    description: "Replies and results from work you were not watching.",
+    title: msg("Progress"),
+    description: msg("Replies and results from work you were not watching."),
   },
   decision: {
-    title: "Decisions",
-    description: "Approvals a Bot needs before it acts.",
+    title: msg("Decisions"),
+    description: msg("Approvals a Bot needs before it acts."),
   },
   question: {
-    title: "Questions",
-    description: "Things a Bot asked you and is waiting on.",
+    title: msg("Questions"),
+    description: msg("Things a Bot asked you and is waiting on."),
   },
 };
 
 const TRANSPORTS: { id: UpdateTransport; label: string }[] = [
-  { id: "push", label: "Push" },
+  { id: "push", label: msg("Push") },
   { id: "slack", label: "Slack" },
   { id: "teams", label: "Microsoft Teams" },
   { id: "sms", label: "SMS" },
@@ -78,9 +78,9 @@ function UpdateRoutingSection() {
                     <IconRoute />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>{KIND_LABEL[kind].title}</ItemTitle>
+                    <ItemTitle>{t(KIND_LABEL[kind].title)}</ItemTitle>
                     <ItemDescription>
-                      {KIND_LABEL[kind].description}
+                      {t(KIND_LABEL[kind].description)}
                     </ItemDescription>
                   </ItemContent>
                   <ItemFooter className="gap-4 pl-8">
@@ -91,8 +91,8 @@ function UpdateRoutingSection() {
                       >
                         <Switch
                           aria-label={t("{{title}} by {{label}}", {
-                            title: KIND_LABEL[kind].title,
-                            label: transport.label,
+                            title: t(KIND_LABEL[kind].title),
+                            label: t(transport.label),
                           })}
                           checked={allowed(transport.id)}
                           disabled={save.isPending}
@@ -111,7 +111,7 @@ function UpdateRoutingSection() {
                           }}
                           size="sm"
                         />
-                        {transport.label}
+                        {t(transport.label)}
                       </div>
                     ))}
                   </ItemFooter>

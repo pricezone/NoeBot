@@ -7,17 +7,19 @@ import { Tabs, TabsList, TabsPanel, TabsTrigger } from "@/components/ui/tabs";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { BOT_PANEL_TABS, type BotPanelTab } from "@/lib/bot-panel";
 import { brand } from "@/lib/brand";
-import { useTranslation } from "@/lib/i18n";
+import { msg, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { ComputerTab } from "./computer-tab";
 import { DetailsTab, ParticipantsTab } from "./details-tab";
 import { LibraryTab } from "./library-tab";
 
 export type BotPanelParticipant = { id: string; name: string };
 
+/** English keys, said with `t` where they are drawn. */
 const TAB_LABEL: Record<BotPanelTab, string> = {
-  details: "Details",
-  library: "Library",
-  computer: "Computer",
+  details: msg("Details"),
+  library: msg("Library"),
+  computer: msg("Computer"),
 };
 
 /**
@@ -85,7 +87,7 @@ export function BotPanel({
           >
             {tabs.map((id) => (
               <TabsTrigger key={id} value={id}>
-                {TAB_LABEL[id]}
+                {t(TAB_LABEL[id])}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -130,6 +132,7 @@ export function BotPanel({
  */
 function BotHeader({ agentId, name }: { agentId: string; name: string }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const [managing, setManaging] = useState(false);
   const agent = useQuery(agentQueryOptions(agentId));
   const title = agent.data?.title.trim() ?? "";
@@ -157,7 +160,7 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
           onClick={() => setManaging(true)}
           type="button"
         >
-          {title || t("Add a label")}
+          {title ? content(title) : t("Add a label")}
         </button>
       )}
       <AgentDialog

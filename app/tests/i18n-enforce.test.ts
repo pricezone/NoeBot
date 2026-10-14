@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import ts from "typescript";
+import { parse } from "../../scripts/i18n/scan";
 import { appSourceFiles, ROOT, scanApp } from "../../scripts/i18n/source";
 
 /**
@@ -64,4 +66,60 @@ describe("formatting follows the interface's language", () => {
         .map(({ where, text }) => `${where} ${text.trim()}`),
     ).toEqual([]);
   });
+});
+
+/**
+ * A label kept in a module-level map, `{ label: "Details" }`, is drawn later by `{TABS[id].label}`,
+ * where neither the guard nor the type checker sees English. Such a constant says it is a key with
+ * `msg("…")` and is drawn with `t(…)`; a name kept as it is (`glossary.json`'s `keep`) needs
+ * neither. The gallery's components are left out: their titles and descriptions are what the model
+ * reads, and their samples are data.
+ */
+test("a label kept in a module-level constant is marked as a key", () => {
+  const keep = new Set(
+    (
+      JSON.parse(
+        readFileSync(path.join(ROOT, "docs/i18n/glossary.json"), "utf8"),
+      ) as { keep: string[] }
+    ).keep,
+  );
+  const NAMES = new Set([
+    "label",
+    "title",
+    "description",
+    "name",
+    "summary",
+    "heading",
+    "caption",
+    "text",
+  ]);
+  const PROSE = /^[A-Z][a-z’']+(?:[ -][A-Za-z’'.,&()—]+)*[.…?!]?$/;
+  const found: string[] = [];
+  for (const file of appSourceFiles()) {
+    if (file.startsWith("app/src/components/gallery/")) continue;
+    const source = parse(file, readFileSync(path.join(ROOT, file), "utf8"));
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement)) continue;
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) return;
+        if (
+          ts.isPropertyAssignment(node) &&
+          ts.isIdentifier(node.name) &&
+          NAMES.has(node.name.text) &&
+          (ts.isStringLiteral(node.initializer) ||
+            ts.isNoSubstitutionTemplateLiteral(node.initializer)) &&
+          PROSE.test(node.initializer.text) &&
+          !keep.has(node.initializer.text)
+        ) {
+          const line =
+            source.getLineAndCharacterOfPosition(node.getStart(source)).line +
+            1;
+          found.push(`${file}:${line} ${node.initializer.text}`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(statement);
+    }
+  }
+  expect(found).toEqual([]);
 });

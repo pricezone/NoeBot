@@ -74,7 +74,7 @@ import {
 } from "@/lib/agents/mutations";
 import { type AgentProfile, agentQueryOptions } from "@/lib/agents/queries";
 import { isComposing } from "@/lib/composing";
-import { useTranslation } from "@/lib/i18n";
+import { msg, useTranslation } from "@/lib/i18n";
 import { useContentText } from "@/lib/i18n/content";
 import { agentPluginsQueryOptions } from "@/lib/plugins/queries";
 import { readToolName } from "@/lib/plugins/tool-name";
@@ -112,14 +112,14 @@ export function AgentDialog({
 }
 
 const SECTIONS = [
-  { id: "general", name: "General", icon: IconUser },
+  { id: "general", name: msg("General"), icon: IconUser },
   // How it looks: the avatar's colour and expression, next to who it is.
-  { id: "profile", name: "Profile", icon: IconMoodSmile },
-  { id: "access", name: "Access", icon: IconPuzzle },
-  { id: "connection", name: "Connection", icon: IconPlugConnected },
-  { id: "handoff", name: "Handoff", icon: IconArrowsExchange },
-  { id: "routines", name: "Routines", icon: IconClock },
-  { id: "manage", name: "Manage", icon: IconAdjustments },
+  { id: "profile", name: msg("Profile"), icon: IconMoodSmile },
+  { id: "access", name: msg("Access"), icon: IconPuzzle },
+  { id: "connection", name: msg("Connection"), icon: IconPlugConnected },
+  { id: "handoff", name: msg("Handoff"), icon: IconArrowsExchange },
+  { id: "routines", name: msg("Routines"), icon: IconClock },
+  { id: "manage", name: msg("Manage"), icon: IconAdjustments },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -196,7 +196,7 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
                         onClick={() => setSection(item.id)}
                       >
                         <item.icon />
-                        <span>{item.name}</span>
+                        <span>{t(item.name)}</span>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -235,13 +235,15 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
                   variant={item.id === section ? "secondary" : "ghost"}
                 >
                   <item.icon />
-                  {item.name}
+                  {t(item.name)}
                 </Button>
               ))}
             </div>
           </div>
           <header className="flex h-14 shrink-0 items-center gap-2 px-6">
-            <h2 className="text-sm font-medium">{active?.name}</h2>
+            <h2 className="text-sm font-medium">
+              {active ? t(active.name) : null}
+            </h2>
           </header>
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
             {section === "general" ? (

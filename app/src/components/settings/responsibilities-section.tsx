@@ -621,12 +621,12 @@ function runStatusClass(status: string) {
 }
 
 const KIND_LABEL: Record<TriggerKind, string> = {
-  webhook: "Webhook",
+  webhook: msg("Webhook"),
   github: "GitHub",
   linear: "Linear",
   sentry: "Sentry",
   pagerduty: "PagerDuty",
-  email: "Email",
+  email: msg("Email"),
   slack: "Slack",
 };
 const KIND_HELP: Record<TriggerKind, string> = {
@@ -831,7 +831,7 @@ function TriggerRow({
     <div className="grid gap-2 rounded-md bg-muted/50 p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p>
-          <span className="font-medium">{KIND_LABEL[trigger.kind]}</span>{" "}
+          <span className="font-medium">{t(KIND_LABEL[trigger.kind])}</span>{" "}
           <span className="text-muted-foreground">
             {describeFilter(trigger.config)}
           </span>
@@ -1082,7 +1082,7 @@ function NewTrigger({
         >
           {(Object.keys(KIND_LABEL) as TriggerKind[]).map((value) => (
             <option key={value} value={value}>
-              {KIND_LABEL[value]}
+              {t(KIND_LABEL[value])}
             </option>
           ))}
         </select>
@@ -1218,7 +1218,7 @@ function NewTrigger({
       <Button type="submit" disabled={create.isPending}>
         {create.isPending
           ? t("Adding…")
-          : t("Add {{value}} trigger", { value: KIND_LABEL[kind] })}
+          : t("Add {{value}} trigger", { value: t(KIND_LABEL[kind]) })}
       </Button>
     </form>
   );

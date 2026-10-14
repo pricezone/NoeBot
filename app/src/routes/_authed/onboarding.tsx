@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { type AgentProfile, agentListQueryOptions } from "@/lib/agents/queries";
 import { currentUserQueryOptions, needsOnboarding } from "@/lib/auth/queries";
 import { appConfig } from "@/lib/generated/application-config";
-import { useTranslation } from "@/lib/i18n";
+import { msg, useTranslation } from "@/lib/i18n";
 import { completeOnboardingMutationOptions } from "@/lib/onboarding/mutations";
 import { queryClient } from "@/query-client";
 
@@ -109,13 +109,17 @@ type RosterCard = Pick<AgentProfile, "id" | "name" | "avatarSeed"> &
 const AGENTS_PLACEHOLDER: RosterCard[] = [
   {
     id: "placeholder-research",
-    name: "Research Analyst",
+    name: msg("Research Analyst"),
     avatarSeed: "research-analyst",
   },
-  { id: "placeholder-data", name: "Data Analyst", avatarSeed: "data-analyst" },
+  {
+    id: "placeholder-data",
+    name: msg("Data Analyst"),
+    avatarSeed: "data-analyst",
+  },
   {
     id: "placeholder-support",
-    name: "Support Agent",
+    name: msg("Support Agent"),
     avatarSeed: "support-agent",
   },
 ];
@@ -157,7 +161,7 @@ function RosterStep() {
               />
               <div className="flex min-w-0 flex-col">
                 <h3 className="line-clamp-1 text-base font-medium tracking-tight">
-                  {a.name}
+                  {"example" in a && a.example ? t(a.name) : a.name}
                 </h3>
                 {a.example ? (
                   <span className="text-xs text-muted-foreground">
