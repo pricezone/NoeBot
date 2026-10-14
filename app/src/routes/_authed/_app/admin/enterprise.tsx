@@ -182,6 +182,8 @@ function EnterpriseSections({
   saving: boolean;
 }) {
   const { t } = useTranslation("admin");
+  // A capability's words come from the server, which keeps them in English (server namespace).
+  const { t: said } = useTranslation("server");
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [networkScope, setNetworkScope] = useState<
     { scopeKind: "organization" | "group"; scopeId: string } | undefined
@@ -278,16 +280,16 @@ function EnterpriseSections({
                     <IconToggleRight />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>{capability.title}</ItemTitle>
+                    <ItemTitle>{said(capability.title)}</ItemTitle>
                     <ItemDescription>
                       {effective
-                        ? capability.description
+                        ? said(capability.description)
                         : t("Nobody may, unless a role or group grants it.")}
                     </ItemDescription>
                   </ItemContent>
                   <ItemActions>
                     <Switch
-                      aria-label={capability.title}
+                      aria-label={said(capability.title)}
                       checked={effective}
                       disabled={saving}
                       onCheckedChange={(checked) =>
@@ -798,6 +800,7 @@ function OverridesDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation("admin");
+  const { t: said } = useTranslation("server");
   const setCapability = useMutation(setCapabilityMutationOptions(queryClient));
   const scopes: { kind: "role" | "group"; id: string; label: string }[] = [
     { kind: "role", id: "admin", label: i18n.t("Administrators") },
@@ -860,7 +863,7 @@ function OverridesDialog({
                     className="flex items-center justify-between gap-4"
                     key={capability.capability}
                   >
-                    <Label>{capability.title}</Label>
+                    <Label>{said(capability.title)}</Label>
                     <Select
                       onValueChange={(next) =>
                         setCapability.mutate({
@@ -874,7 +877,7 @@ function OverridesDialog({
                     >
                       <SelectTrigger
                         aria-label={t("{{title}} for {{label}}", {
-                          title: capability.title,
+                          title: said(capability.title),
                           label: scope.label,
                         })}
                         className="w-36"

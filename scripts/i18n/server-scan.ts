@@ -42,6 +42,14 @@ const SENT_ERRORS = new Set([
 const sentError = (name: string) =>
   /Refus(ed|al)Error$/.test(name) || SENT_ERRORS.has(name);
 
+/**
+ * Words the server keeps for a screen to show as they are, not as an error: a file and the
+ * properties whose values are such words, every one of them, a short label included.
+ */
+const DISPLAY_LABELS: Record<string, Set<string>> = {
+  "server/src/admin/capabilities.ts": new Set(["title", "description"]),
+};
+
 /** Read in an operator's terminal, never on a screen. */
 const OPERATOR_ONLY = [
   /^server\/src\/config\.ts$/,
@@ -112,12 +120,29 @@ export function serverSentencesIn(
       });
     }
   };
+  const labels = DISPLAY_LABELS[file];
   const visit = (node: ts.Node) => {
     if (
       ts.isPropertyAssignment(node) &&
       SENTENCE_PROPERTIES.has(propertyName(node.name) ?? "")
     )
       add(node.initializer);
+    if (
+      labels &&
+      ts.isPropertyAssignment(node) &&
+      labels.has(propertyName(node.name) ?? "")
+    )
+      for (const key of keysOf(node.initializer))
+        if (/\p{L}{2,}/u.test(key))
+          found.push({
+            key,
+            namespace: "server",
+            plural: false,
+            file,
+            line:
+              source.getLineAndCharacterOfPosition(node.getStart(source)).line +
+              1,
+          });
     if (
       ts.isNewExpression(node) &&
       ts.isIdentifier(node.expression) &&

@@ -67,7 +67,7 @@ export function Pills({
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      {pill(undefined, "All")}
+      {pill(undefined, t("All"))}
       {shown.map((item) => pill(item.key, item.label))}
       {folded.length > 0 ? (
         <DropdownMenu>

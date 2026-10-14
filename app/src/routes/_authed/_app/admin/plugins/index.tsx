@@ -78,10 +78,18 @@ function summaryFor(
   if (server.tools.length === 0) return i18n.t("No tools yet");
 
   const bots = new Set(server.tools.flatMap((tool) => tool.grantedTo)).size;
-  const tools = `${server.tools.length} ${server.tools.length === 1 ? "tool" : "tools"}`;
-  if (server.offeredToAllBots) return `${tools} · every Bot`;
-  if (bots === 0) return `${tools} · no Bots`;
-  return `${tools} · ${bots} ${bots === 1 ? i18n.t("Bot") : i18n.t("Bots")}`;
+  const tools = i18n.t("{{count}} tools", {
+    count: server.tools.length,
+    defaultValue_one: "{{count}} tool",
+  });
+  if (server.offeredToAllBots)
+    return i18n.t("{{tools}} · every Bot", { tools });
+  if (bots === 0) return i18n.t("{{tools}} · no Bots", { tools });
+  return i18n.t("{{tools}} · {{count}} Bots", {
+    tools,
+    count: bots,
+    defaultValue_one: "{{tools}} · {{count}} Bot",
+  });
 }
 
 function RouteComponent() {

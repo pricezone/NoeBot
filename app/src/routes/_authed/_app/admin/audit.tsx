@@ -97,14 +97,14 @@ function AuditPage() {
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((filter) => (
             <Button
-              key={t(filter.label)}
+              key={filter.label}
               onClick={() => setSearch(filter.search)}
               size="sm"
               type="button"
               /* The fill is the state, as on every other set of switches in the app. */
               variant={search === filter.search ? "default" : "outline"}
             >
-              {filter.label}
+              {t(filter.label)}
             </Button>
           ))}
         </div>
