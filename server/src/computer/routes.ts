@@ -125,7 +125,16 @@ export function createComputerRoutes(
 
   routes.get("/:botId/read", async (context) => {
     try {
-      return context.json(await gateway.read(context.req.param("botId")));
+      const waitFor = context.req.query("waitFor")?.trim();
+      const seconds = Number(context.req.query("timeoutSeconds"));
+      return context.json(
+        await gateway.read(context.req.param("botId"), {
+          ...(waitFor ? { waitFor } : {}),
+          ...(Number.isFinite(seconds) && seconds > 0
+            ? { timeoutMs: Math.round(seconds * 1000) }
+            : {}),
+        }),
+      );
     } catch (error) {
       return context.json(errorBody(error), statusFor(error));
     }

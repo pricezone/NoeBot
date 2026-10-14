@@ -774,9 +774,18 @@ export function createHeadlessComputerTools(options: {
     ),
     tool(
       "computer_read",
-      "Read the currently open browser page without navigating.",
-      noArgs,
-      async () => ({ ok: true, ...(await gateway.read(botId)) }),
+      "Read the currently open browser page without navigating. With waitFor, wait on the page (up to timeoutSeconds, 15 by default, 20 at most) for those words to appear, and answer as soon as they do: use it for content that arrives after a delay instead of sleeping.",
+      z.strictObject({
+        waitFor: z.string().max(200).optional(),
+        timeoutSeconds: z.number().positive().max(20).optional(),
+      }),
+      async ({ waitFor, timeoutSeconds }) => ({
+        ok: true,
+        ...(await gateway.read(botId, {
+          ...(waitFor ? { waitFor } : {}),
+          ...(timeoutSeconds ? { timeoutMs: timeoutSeconds * 1000 } : {}),
+        })),
+      }),
     ),
     tool(
       "computer_snapshot",

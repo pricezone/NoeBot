@@ -77,6 +77,11 @@ beforeAll(async () => {
       switch (url.pathname) {
         case "/start":
           return page("<p>Start</p>", "Start");
+        case "/later":
+          return page(
+            `<button>Start</button><div id="out"></div><script>setTimeout(() => { document.getElementById("out").textContent = "Hello World!"; }, 800);</script>`,
+            "Later",
+          );
         case "/shop":
           return page(
             `<h1>Shop</h1>
@@ -187,6 +192,26 @@ describe.skipIf(!asked)("the computer's acting routes", () => {
     expect(typeof warmed.body.ms).toBe("number");
     const again = await call("/warm", {});
     expect(again.body.launched).toBe(false);
+  }, 60_000);
+
+  test("a read waits on the page for words that arrive later, and says when they never come", async () => {
+    await call("/navigate", { url: `${origin}/later` });
+    const started = Date.now();
+    const found = await call("/read?waitFor=hello%20world", undefined, "GET");
+    expect(found.status).toBe(200);
+    expect(found.body.text).toContain("Hello World!");
+    expect(found.body.waited).toMatchObject({
+      for: "hello world",
+      found: true,
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+
+    const never = await call(
+      "/read?waitFor=Goodbye&timeoutMs=600",
+      undefined,
+      "GET",
+    );
+    expect(never.body.waited).toMatchObject({ for: "Goodbye", found: false });
   }, 60_000);
 
   test("a navigation hands back its status, short text and the page's elements", async () => {

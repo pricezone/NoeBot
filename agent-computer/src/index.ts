@@ -82,6 +82,7 @@ import {
 import { observeAction } from "./observe";
 import { pageLines } from "./page-lines";
 import { clickableHints, readablePageText, settlePage } from "./page-text";
+import { readWait, waitForPageText } from "./page-wait";
 import {
   createProfiles,
   managedBrowserExecutable,
@@ -1760,12 +1761,30 @@ serve<StreamData>({
           const target = await currentPage(botId);
           const frozen = dialogs.pending(botId);
           if (frozen) return dialogOpen(frozen);
-          const extract = await readablePageText(target, TEXT_EXTRACT_LIMIT);
+          const wanted = readWait(url.searchParams);
+          const waited = wanted
+            ? await waitForPageText(
+                () => readablePageText(target, TEXT_EXTRACT_LIMIT),
+                wanted,
+              )
+            : undefined;
+          const extract =
+            waited?.extract ??
+            (await readablePageText(target, TEXT_EXTRACT_LIMIT));
           return json({
             url: target.url(),
             title: await target.title(),
             text: extract.text,
             truncated: extract.truncated,
+            ...(waited && wanted
+              ? {
+                  waited: {
+                    for: wanted.text,
+                    found: waited.found,
+                    ms: waited.ms,
+                  },
+                }
+              : {}),
             challenge: await detectChallenge(target, session.control),
           });
         } catch (error) {

@@ -301,16 +301,35 @@ export function ComputerTools() {
     available,
     name: "computer_read",
     description:
-      "Read the page currently open on your computer, without opening anything. Use this after you " +
-      "click something that changes the page, such as submitting a form, to find out what it now says.",
-    parameters: z.object({}),
+      "Read the page currently open on your computer, without opening anything. With waitFor, wait " +
+      "on the page (up to timeoutSeconds, 15 by default, 20 at most) for those words to appear and " +
+      "answer as soon as they do: use it for results or messages that arrive after a delay, never a " +
+      "sleep in the shell.",
+    parameters: z.object({
+      waitFor: z
+        .string()
+        .optional()
+        .describe(
+          "Words you expect to appear, e.g. 'Hello World!' or 'Order confirmed'",
+        ),
+      timeoutSeconds: z
+        .number()
+        .optional()
+        .describe("How long to wait, 20 at most"),
+    }),
     handler: async (
-      _input: Record<string, never>,
+      input: { waitFor?: string; timeoutSeconds?: number },
       {
         signal,
         toolCall,
       }: { signal?: AbortSignal; toolCall?: { id?: string } } = {},
-    ) => runBrowserRead(bot.current, "/read", toolCall?.id, signal),
+    ) =>
+      runBrowserRead(bot.current, "/read", toolCall?.id, signal, {
+        ...(input?.waitFor ? { waitFor: input.waitFor } : {}),
+        ...(input?.timeoutSeconds
+          ? { timeoutSeconds: Math.min(20, input.timeoutSeconds) }
+          : {}),
+      }),
     render: () => null,
   });
 

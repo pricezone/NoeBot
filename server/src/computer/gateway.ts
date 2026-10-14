@@ -187,7 +187,11 @@ export interface ComputerGateway {
   /** The whole desktop, for a computer that draws one. The computer answers 404 without one. */
   desktopScreenshot(botId: string): Promise<ScreenshotResult>;
   snapshot(botId: string): Promise<SnapshotResult>;
-  read(botId: string): Promise<ReadResult>;
+  /** `waitFor`: wait on the page, up to `timeoutMs` (20 s at most), for these words to appear. */
+  read(
+    botId: string,
+    options?: { waitFor?: string; timeoutMs?: number },
+  ): Promise<ReadResult>;
   navigate(
     botId: string,
     actor: ActionActor,
@@ -681,11 +685,19 @@ export function createComputerGateway(
     }
   }
 
-  async function read(botId: string): Promise<ReadResult> {
+  async function read(
+    botId: string,
+    options: { waitFor?: string; timeoutMs?: number } = {},
+  ): Promise<ReadResult> {
+    const query = new URLSearchParams();
+    const waitFor = options.waitFor?.trim().slice(0, 200);
+    if (waitFor) query.set("waitFor", waitFor);
+    if (waitFor && options.timeoutMs !== undefined)
+      query.set("timeoutMs", String(Math.min(20_000, options.timeoutMs)));
     // Page text is outside content: marked here, once, so the headless tools and the browser's
     // routes hand the model the same envelope. See untrusted-content.ts.
     return withUntrustedNotice(
-      await get<ReadResult>(botId, "/read"),
+      await get<ReadResult>(botId, query.size ? `/read?${query}` : "/read"),
       "web page",
       PAGE_FIELDS,
     );

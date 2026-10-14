@@ -283,13 +283,21 @@ export async function runBrowserRead(
   path: "/read" | "/snapshot",
   toolCallId?: string,
   signal?: AbortSignal,
+  /** For a read: the words to wait for on the page, and for how long. */
+  wait?: { waitFor?: string; timeoutSeconds?: number },
 ): Promise<ToolOutcome> {
   const stored = pendingHandoff(botId);
   if (toolCallId && stored?.toolCallId === toolCallId)
     return awaitHandoff(botId, stored.requestId, signal);
+  const query = new URLSearchParams();
+  if (path === "/read" && wait?.waitFor?.trim()) {
+    query.set("waitFor", wait.waitFor.trim());
+    if (wait.timeoutSeconds)
+      query.set("timeoutSeconds", String(wait.timeoutSeconds));
+  }
   const result = await callComputer(
     botId,
-    path,
+    query.size ? `${path}?${query}` : path,
     path === "/snapshot" ? { method: "POST" } : undefined,
     signal,
   );
