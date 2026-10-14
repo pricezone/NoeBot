@@ -8,6 +8,23 @@ Newest first. `Unreleased` is what is on `main` and not yet tagged.
 
 ## Unreleased
 
+**Clicky Mode.** A companion beside every Bot's computer screen: it points at the place that matters,
+walks the person through a task step by step, does things on the computer only after they approve,
+and opens by itself when the Bot needs them to sign in, type a code or solve a CAPTCHA. The person
+can also talk to it from their phone (the HyperNoesis app). See [docs/clicky-mode.md](docs/clicky-mode.md).
+- The upgrade runs migration `0059_clicky_mode` (two new tables, `clicky_sessions` and
+  `mobile_devices`).
+- On by default; `CLICKY_MODE=off` removes it. `CLICKY_MODEL` chooses the model it looks with.
+- New Settings sections: **Clicky** and **Phones**.
+- `OPENBOT_MOBILE_LINK_BASE` sets where push links point (default `openbotmobile://`), and
+  `OPENBOT_NATIVE_APP_SIGN_IN=off` keeps push notifications without trusting `openbotmobile://` for
+  sign-in.
+- **Behaviour change:** the computer routes (the live screen and the person's input included) and
+  `/api/mobile` now refuse requests from other sites, including sibling sites on the same parent
+  domain, and take JSON bodies only. A page on another origin that drove a computer through the API
+  must be listed in `TRUSTED_ORIGINS`.
+- A session opened without "remember me" is never extended past its first day.
+
 ## 0.1.0
 
 **Before upgrading.** Six things change for an existing deployment:

@@ -10,6 +10,7 @@ Start with the root [README](../README.md), then use these references:
 - [Skills](skills.md): yours, the workspace's and the package's; why default skills are read-only; Record skill; the skills the Noë Bot package ships.
 - [Keys](keys.md): the Keys page — the model's key, replaced in place; connector keys and accounts; the deployment's credentials.
 - [Automatic Learning](automatic-learning.md): which Bots contribute conversations to a Learning container, and receive its published skills.
+- [Clicky Mode](clicky-mode.md): the companion beside a Bot's computer screen — pointing, walkthroughs, approved actions, opening by itself when the Bot needs the person, and the phone as a remote. Also [safety](clicky-mode-safety.md), [linking a phone](clicky-mode-pairing.md) and [testing](clicky-mode-testing.md).
 - [Parallel research](parallel-research.md): public-web search and extraction through the Parallel Search connector.
 - Plugins, one connector per page — how a person connects it from the Marketplace, where its OAuth client comes from, and what the failures mean:
   - [Composio](plugins/composio.md): the broker, and so the one page here that is a catalogue of apps rather than a single connector.
