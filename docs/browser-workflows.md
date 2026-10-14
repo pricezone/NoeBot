@@ -112,6 +112,11 @@ instance end to end, using tasks on the-internet.herokuapp.com.
 
 | After (53b5a71/66d190d, tools in the run, 2026-10-13 23:17) | same task | 4 min 15 s | 4 / 4 | One run for the whole turn: model 3.5–5 s per step (first token about 3 s), actions 0.1–0.5 s. Six navigations to the-internet.herokuapp.com took 30–35 s each: about 170 of the 249 s. Two failed calls at the start came from the snapshot-after-restart gate. |
 
+| After (3f3f8ae, tools in the run, 2026-10-14 00:46) | 3 steps on selenium.dev: a 5-field form with submit, a JavaScript prompt, an input revealed on click | 1 min 30 s | 3 / 3 | One run of 81 s. There were 12 browser actions, about 5 s in all (the whole form was one `computer_fill`, 1 s). The 13 model calls took about 76 s. |
+
+**On a site that answers promptly, the model is now nearly all of the time:** about 4–7 s per
+step at reasoning effort `low`. Browser actions add well under a second each.
+
 **Where the after-run spent its time.** The per-step overhead is gone: there is no new run, lock,
 history read or saved-call wait per step. What remained was one site's network path. From this
 server, a connection to the-internet.herokuapp.com sometimes got no answer for 30 s, while the next
