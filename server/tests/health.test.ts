@@ -64,8 +64,8 @@ describe("runtime capabilities", () => {
       // sign-in page which companies use this deployment.
       ssoConfigured: false,
       ssoRequired: false,
-      // English alone until a deployment turns another language on, so no switcher is drawn.
-      locales: ["en"],
+      // Every language this build has, unless OPENBOT_LOCALES narrows it, so the switcher is drawn.
+      locales: ["en", "el"],
       defaultLocale: null,
     });
   });

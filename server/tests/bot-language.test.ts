@@ -44,7 +44,10 @@ test("the person's own choice wins, then the deployment's default, else English"
   expect(await interfaceLocaleOf(async () => null, {})).toBeNull();
   // A default the deployment does not offer is no default.
   expect(
-    await interfaceLocaleOf(async () => null, { OPENBOT_DEFAULT_LOCALE: "el" }),
+    await interfaceLocaleOf(async () => null, {
+      OPENBOT_LOCALES: "en",
+      OPENBOT_DEFAULT_LOCALE: "el",
+    }),
   ).toBeNull();
   // A failed read is the default, never a failed run.
   expect(

@@ -24,7 +24,7 @@ catalog of translations of those strings. This page is how the two are kept toge
 
 | Setting | Meaning |
 | --- | --- |
-| `OPENBOT_LOCALES` | The languages offered, comma-separated: `en,el`. English is always offered. Unset means English alone and no switcher. |
+| `OPENBOT_LOCALES` | The languages offered, comma-separated: `en,el`. English is always offered. Unset offers every language this build has; `en` means English alone and no switcher. |
 | `OPENBOT_DEFAULT_LOCALE` | The language somebody who chose none starts in, when it is offered. |
 
 `?i18n-preview=1` offers every language in one browser before the deployment does, for reviewing a
