@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { CommandOption } from "@/components/channels/composer";
+import { useContentText } from "@/lib/i18n/content";
 import { agentPluginsQueryOptions } from "@/lib/plugins/queries";
 
 /**
@@ -8,13 +9,14 @@ import { agentPluginsQueryOptions } from "@/lib/plugins/queries";
  */
 export function useSkillCommands(agentId: string): CommandOption[] {
   const { data } = useQuery(agentPluginsQueryOptions(agentId));
+  const content = useContentText();
 
   return useMemo(
     () =>
       (data?.skills ?? []).map((skill) => ({
         id: skill.slug,
         name: skill.slug,
-        description: skill.summary || skill.title,
+        description: content(skill.summary || skill.title),
         /*
          * A CHIP, NOT AN EXPANSION. `prompt` used to paste the skill's whole instruction into the
          * box, which meant a person watched a paragraph they did not write appear over the message
@@ -33,6 +35,6 @@ export function useSkillCommands(agentId: string): CommandOption[] {
          */
         prompt: skill.instructions,
       })),
-    [data],
+    [data, content],
   );
 }

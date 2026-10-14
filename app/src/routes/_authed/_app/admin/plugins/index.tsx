@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { i18n, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   type CatalogueItem,
   connectionsQueryOptions,
@@ -85,6 +86,7 @@ function summaryFor(
 
 function RouteComponent() {
   const { t } = useTranslation("admin");
+  const content = useContentText();
   const plugins = useQuery(pluginsPageQueryOptions());
   const connections = useQuery(connectionsQueryOptions());
 
@@ -160,7 +162,7 @@ function RouteComponent() {
                               server.lastError ? "text-destructive" : undefined
                             }
                           >
-                            {server.lastError ?? server.summary}
+                            {server.lastError ?? content(server.summary)}
                           </ItemDescription>
                         </ItemContent>
                         <ItemActions>
@@ -215,7 +217,9 @@ function RouteComponent() {
                         </RowMark>
                         <ItemContent>
                           <ItemTitle>{entry.title}</ItemTitle>
-                          <ItemDescription>{entry.summary}</ItemDescription>
+                          <ItemDescription>
+                            {content(entry.summary)}
+                          </ItemDescription>
                         </ItemContent>
                         <ItemActions>
                           <span className="text-muted-foreground text-xs">

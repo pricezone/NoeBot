@@ -75,6 +75,7 @@ import {
 import { type AgentProfile, agentQueryOptions } from "@/lib/agents/queries";
 import { isComposing } from "@/lib/composing";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { agentPluginsQueryOptions } from "@/lib/plugins/queries";
 import { readToolName } from "@/lib/plugins/tool-name";
 
@@ -125,6 +126,7 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 
 function AgentDialogBody({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const [section, setSection] = useState<SectionId>("general");
   const agent = useQuery(agentQueryOptions(agentId));
 
@@ -179,7 +181,7 @@ function AgentDialogBody({ agentId }: { agentId: string }) {
                 {profile.name}
               </span>
               <span className="truncate text-xs text-muted-foreground">
-                {profile.title}
+                {content(profile.title)}
               </span>
             </div>
           </SidebarHeader>
@@ -595,6 +597,7 @@ function connectorName(key: string): string {
  */
 export function AccessSection({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const plugins = useQuery(agentPluginsQueryOptions(agentId));
 
   if (plugins.isPending) return null;
@@ -676,8 +679,10 @@ export function AccessSection({ agentId }: { agentId: string }) {
         {skills.map((skill) => (
           <Item key={skill.slug} variant="muted">
             <ItemContent>
-              <ItemTitle>{skill.title}</ItemTitle>
-              <ItemDescription>{skill.summary}</ItemDescription>
+              <ItemTitle>{content(skill.title)}</ItemTitle>
+              <ItemDescription>
+                {skill.summary ? content(skill.summary) : skill.summary}
+              </ItemDescription>
             </ItemContent>
             <ItemActions>
               <span className="text-sm text-muted-foreground">

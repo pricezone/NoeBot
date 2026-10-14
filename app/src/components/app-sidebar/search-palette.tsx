@@ -10,6 +10,7 @@ import { agentListQueryOptions } from "@/lib/agents/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { cn } from "@/lib/utils";
 import { botLandingTarget } from "./bot-target";
 import {
@@ -215,6 +216,7 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
 
 function PaletteRow({ item }: { item: PaletteItem }) {
   const { t } = useTranslation();
+  const content = useContentText();
   if (item.kind === "setting") {
     const Icon = item.setting.icon;
     return (
@@ -252,7 +254,11 @@ function PaletteRow({ item }: { item: PaletteItem }) {
       <span className="shrink-0">
         <ChannelAvatar participantIds={[item.bot.id]} size={28} />
       </span>
-      <TwoLines label={label} primary={item.bot.name} secondary={description} />
+      <TwoLines
+        label={label && content(label)}
+        primary={item.bot.name}
+        secondary={description && content(description)}
+      />
     </>
   );
 }

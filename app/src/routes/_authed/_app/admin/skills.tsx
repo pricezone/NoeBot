@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
@@ -57,6 +58,7 @@ const EMPTY_DRAFT = { slug: "", title: "", summary: "", instructions: "" };
 
 function RouteComponent() {
   const { t } = useTranslation("admin");
+  const content = useContentText();
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
 
@@ -121,7 +123,7 @@ function RouteComponent() {
                       <code className="font-mono text-foreground/80 text-xs">
                         /{skill.slug}
                       </code>{" "}
-                      {skill.title}
+                      {content(skill.title)}
                       {/*
                        * A default skill — the package's, or a plugin's — is read-only here and
                        * everywhere: the package rewrites its own on every boot, and a plugin's
@@ -134,7 +136,9 @@ function RouteComponent() {
                         </span>
                       ) : null}
                     </ItemTitle>
-                    <ItemDescription>{skill.summary}</ItemDescription>
+                    <ItemDescription>
+                      {skill.summary ? content(skill.summary) : skill.summary}
+                    </ItemDescription>
                     {/* A set, so it wraps onto its own line rather than crowding the title. */}
                     <ItemFooter>
                       <SkillBots

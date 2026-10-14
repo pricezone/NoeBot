@@ -39,6 +39,7 @@ import {
 } from "@/lib/channels/attachments";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { newId } from "@/lib/new-id";
 import { cn } from "@/lib/utils";
 import { Button } from "../../ui/button";
@@ -363,6 +364,7 @@ export function Composer({
   queuedAttachmentCount = 0,
 }: ComposerProps) {
   const { t } = useTranslation();
+  const content = useContentText();
   const placeholder = givenPlaceholder ?? t("Ask anything");
   // The commands' words are English keys (`sources.ts`), shown and inserted in this language.
   const commands = useMemo(
@@ -1089,8 +1091,18 @@ export function Composer({
 
   const isBusy = pending || isSubmitting;
   const triggers = useMemo(
-    () => buildTriggers({ agents, commands, t }),
-    [agents, commands, t],
+    () =>
+      buildTriggers({
+        // A stock Bot's title is ours to translate; anybody's own is shown as they wrote it.
+        agents: agents.map((agent) =>
+          agent.description
+            ? { ...agent, description: content(agent.description) }
+            : agent,
+        ),
+        commands,
+        t,
+      }),
+    [agents, commands, t, content],
   );
   const draft = useMemo(() => toDraft(value, staged), [staged, value]);
 

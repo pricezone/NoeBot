@@ -35,6 +35,7 @@ import { PluginLogo } from "@/components/plugins/plugin-logo";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { i18n, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   enablePluginMutationOptions,
   installPluginMutationOptions,
@@ -107,6 +108,7 @@ export function AppsTab({
   onSearchChange: SetMarketplaceSearch;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
   const connections = useQuery(connectionsQueryOptions());
@@ -209,7 +211,7 @@ export function AppsTab({
           data-testid={`account-${app.key}`}
           key={app.key}
           mark={markFor(app)}
-          summary={app.summary}
+          summary={content(app.summary)}
           title={titleFor(app)}
         />
       )),
@@ -245,7 +247,7 @@ export function AppsTab({
         data-testid={`account-${app.key}`}
         key={app.key}
         mark={markFor(app)}
-        summary={app.summary}
+        summary={content(app.summary)}
         title={titleFor(app)}
       />
     ));

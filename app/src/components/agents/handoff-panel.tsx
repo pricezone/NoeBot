@@ -22,6 +22,7 @@ import {
   agentListQueryOptions,
 } from "@/lib/agents/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 
 /**
  * Which Bots this one may hand work to.
@@ -38,6 +39,7 @@ import { useTranslation } from "@/lib/i18n";
  */
 export function HandoffPanel({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const queryClient = useQueryClient();
   const handoff = useQuery(agentHandoffQueryOptions(agentId));
   const agents = useQuery(agentListQueryOptions());
@@ -163,7 +165,7 @@ export function HandoffPanel({ agentId }: { agentId: string }) {
                     ? t("{{title}} · hidden from your roster", {
                         title: candidate.title,
                       })
-                    : candidate.title}
+                    : content(candidate.title)}
                 </ItemDescription>
               </ItemContent>
               <ItemActions>

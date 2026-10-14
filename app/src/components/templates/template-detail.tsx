@@ -23,6 +23,7 @@ import {
   templateListQueryOptions,
 } from "@/lib/agents/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 
 /**
  * A Bot template's own page inside the Marketplace, in place of the Agents tab, laid out the way a
@@ -48,6 +49,7 @@ export function TemplateDetail({
   onAdded: (agentId: string) => void;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const queryClient = useQueryClient();
   const templates = useQuery(templateListQueryOptions());
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +164,7 @@ export function TemplateDetail({
       </header>
 
       <p className="mt-6 text-[15px] leading-6 text-foreground/90">
-        {template.description}
+        {content(template.description)}
       </p>
 
       <section aria-label={t("Instructions")} className="mt-8">
@@ -170,7 +172,11 @@ export function TemplateDetail({
         <p className="mb-3 text-sm text-muted-foreground">
           {t("How this Bot should work")}
         </p>
-        <pre className="whitespace-pre-wrap rounded-2xl bg-muted/40 px-5 py-4 text-sm">
+        {/* The Bot's prompt, as the model reads it: English whatever the interface speaks. */}
+        <pre
+          className="whitespace-pre-wrap rounded-2xl bg-muted/40 px-5 py-4 text-sm"
+          lang="en"
+        >
           {template.instructions}
         </pre>
       </section>
@@ -190,8 +196,8 @@ export function TemplateDetail({
           <Row
             key={routine.name}
             mark={<IconRepeat aria-hidden="true" />}
-            summary={routine.summary}
-            title={routine.name}
+            summary={content(routine.summary)}
+            title={content(routine.name)}
           />
         ))}
       </Group>
@@ -232,7 +238,9 @@ export function TemplateDetail({
             {countOf(template.apps.length, "app")}
           </Fact>
           <Fact label={t("Creator")}>{template.creator}</Fact>
-          <Fact label={t("Category")}>{template.categories.join(", ")}</Fact>
+          <Fact label={t("Category")}>
+            {template.categories.map(content).join(", ")}
+          </Fact>
         </dl>
       </section>
     </div>

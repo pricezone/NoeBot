@@ -35,6 +35,7 @@ import {
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   type PluginSkill,
   pluginsPageQueryOptions,
@@ -140,6 +141,7 @@ function RecordSkillButton() {
  */
 export function SkillsSections({ query = "" }: { query?: string }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const navigate = useNavigate();
   const { data, isPending: skillsPending } = useQuery(
     pluginsPageQueryOptions(),
@@ -163,7 +165,7 @@ export function SkillsSections({ query = "" }: { query?: string }) {
    * another person's lands in neither list. Not a leak, but an administrator cannot see here what
    * they are entitled to. Worth an owner column or a third section before this page is called done.
    */
-  const skills = matchingSkills(data?.skills ?? [], query);
+  const skills = matchingSkills(data?.skills ?? [], query, content);
   const mine = skills.filter((skill) => skill.ownerUserId === me?.id);
   const deployment = skills.filter((skill) => skill.ownerUserId === null);
 
@@ -181,8 +183,8 @@ export function SkillsSections({ query = "" }: { query?: string }) {
         <Link
           aria-label={
             action === "Edit"
-              ? t("Edit {{title}}", { title: skill.title })
-              : t("View {{title}}", { title: skill.title })
+              ? t("Edit {{title}}", { title: content(skill.title) })
+              : t("View {{title}}", { title: content(skill.title) })
           }
           className={cn(
             buttonVariants({ size: "sm", variant: "secondary" }),
@@ -198,13 +200,13 @@ export function SkillsSections({ query = "" }: { query?: string }) {
       key={skill.id}
       mark={<IconBolt aria-hidden="true" data-mark="skill" />}
       onOpen={() => open(skill)}
-      openLabel={t("About {{name}}", { name: skill.title })}
+      openLabel={t("About {{name}}", { name: content(skill.title) })}
       /*
        * The command when there is no summary: `/slug` is what a person actually types, and a row
        * that shows neither leaves them guessing at it.
        */
-      summary={skill.summary || `/${skill.slug}`}
-      title={skill.title}
+      summary={skill.summary ? content(skill.summary) : `/${skill.slug}`}
+      title={content(skill.title)}
     />
   );
 
@@ -294,15 +296,19 @@ export function SkillsSections({ query = "" }: { query?: string }) {
   );
 }
 
-/** The skills whose title, slug or summary contains the query. An empty query keeps them all. */
+/**
+ * The skills whose title, slug or summary contains the query. An empty query keeps them all.
+ * `translate` is how the screen shows a title or summary; both it and the English are searched.
+ */
 export function matchingSkills(
   skills: PluginSkill[],
   query: string,
+  translate: (text: string) => string = (text) => text,
 ): PluginSkill[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return skills;
   return skills.filter((skill) =>
-    `${skill.title} /${skill.slug} ${skill.summary}`
+    `${skill.title} /${skill.slug} ${skill.summary} ${translate(skill.title)} ${translate(skill.summary ?? "")}`
       .toLocaleLowerCase()
       .includes(needle),
   );

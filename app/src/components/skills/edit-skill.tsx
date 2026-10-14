@@ -6,6 +6,7 @@ import { SkillFields } from "@/components/skills/skill-fields";
 import { Button } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { i18n, Trans, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
@@ -42,6 +43,7 @@ export function EditSkill({
   onClose?: () => void;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isPending } = useQuery(pluginsPageQueryOptions());
@@ -110,12 +112,14 @@ export function EditSkill({
     return (
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
         <header>
-          <h1 className="text-2xl font-semibold">{skill.title}</h1>
+          <h1 className="text-2xl font-semibold">{content(skill.title)}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {readOnlySentence(skill)}
           </p>
         </header>
-        {skill.summary ? <p className="text-sm">{skill.summary}</p> : null}
+        {skill.summary ? (
+          <p className="text-sm">{content(skill.summary)}</p>
+        ) : null}
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-4 text-xs">
           {skill.instructions}
         </pre>

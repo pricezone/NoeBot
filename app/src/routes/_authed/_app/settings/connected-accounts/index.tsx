@@ -21,6 +21,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   connectionsQueryOptions,
   pluginsPageQueryOptions,
@@ -53,6 +54,7 @@ export const Route = createFileRoute(
 
 function RouteComponent() {
   const { t } = useTranslation("settings");
+  const content = useContentText();
   const { connected: outcome } = Route.useSearch();
   const [search, setSearch] = React.useState("");
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -76,7 +78,7 @@ function RouteComponent() {
     return {
       key: account.key,
       title: account.title,
-      summary: account.summary,
+      summary: content(account.summary),
       mark: account.logo ? (
         <PluginLogo logo={account.logo} />
       ) : (

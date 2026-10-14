@@ -51,6 +51,7 @@ import {
 } from "@/lib/credentials/mutations";
 import { credentialListQueryOptions } from "@/lib/credentials/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { modelKeyKeys, modelKeyQueryOptions } from "@/lib/model-key/queries";
 import {
   connectAccountMutationOptions,
@@ -82,6 +83,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 
 function RouteComponent() {
   const { t } = useTranslation("settings");
+  const content = useContentText();
   const queryClient = useQueryClient();
   const me = useQuery(currentUserQueryOptions());
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -182,7 +184,7 @@ function RouteComponent() {
                             ? t(
                                 "Key added. Every Bot can use this with your key.",
                               )
-                            : row.summary}
+                            : content(row.summary)}
                         </ItemDescription>
                       </ItemContent>
                       <ItemActions>
@@ -296,7 +298,7 @@ function RouteComponent() {
                           <ItemDescription>
                             {isConnected
                               ? t("Connected. Every Bot can use this as you.")
-                              : app.summary}
+                              : content(app.summary)}
                           </ItemDescription>
                         </ItemContent>
                         <ItemActions>

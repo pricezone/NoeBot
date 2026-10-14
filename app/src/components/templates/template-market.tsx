@@ -22,6 +22,7 @@ import {
   templateListQueryOptions,
 } from "@/lib/agents/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { cn } from "@/lib/utils";
 import { type AvatarColor, avatarSchemeOf } from "../../../../shared/avatar";
 import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
@@ -65,6 +66,7 @@ export function TemplateMarket({
   onSearchChange: SetMarketplaceSearch;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const queryClient = useQueryClient();
   const query = search.q ?? "";
   const category = search.category;
@@ -97,7 +99,8 @@ export function TemplateMarket({
   const matching = (templates.data ?? []).filter(
     (template) =>
       needle === "" ||
-      `${template.name} ${template.creator} ${template.summary}`
+      // What is on the screen, and the English under it.
+      `${template.name} ${template.creator} ${template.summary} ${content(template.summary)}`
         .toLocaleLowerCase()
         .includes(needle),
   );
@@ -165,7 +168,7 @@ export function TemplateMarket({
             </span>
           </span>
           <span className="line-clamp-1 text-sm text-muted-foreground">
-            {template.summary}
+            {content(template.summary)}
           </span>
         </span>
       </button>
@@ -205,7 +208,7 @@ export function TemplateMarket({
           {agent.name}
           <span className="font-normal text-muted-foreground">
             {" "}
-            · {agent.title}
+            · {content(agent.title)}
           </span>
         </span>
         <span className="line-clamp-1 text-sm text-muted-foreground">
@@ -232,7 +235,7 @@ export function TemplateMarket({
         className="mt-1"
         items={[
           { key: YOUR_BOTS, label: t("Your Bots") },
-          ...categories.map((name) => ({ key: name, label: name })),
+          ...categories.map((name) => ({ key: name, label: content(name) })),
         ]}
         onSelect={show}
       />
@@ -300,12 +303,14 @@ export function TemplateMarket({
             ) : null}
             {sections.map((section) => (
               <section
-                aria-label={section.name}
+                aria-label={content(section.name)}
                 className="pt-10 first:pt-6"
                 key={section.name}
               >
                 <div className="mb-3 flex items-baseline justify-between pr-3">
-                  <h2 className="text-lg font-medium">{section.name}</h2>
+                  <h2 className="text-lg font-medium">
+                    {content(section.name)}
+                  </h2>
                   {section.hasMore ? (
                     <button
                       className="text-sm text-muted-foreground transition-colors hover:text-foreground"

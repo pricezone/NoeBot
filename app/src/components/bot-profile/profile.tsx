@@ -21,6 +21,7 @@ import {
   updateRoutingQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { queryClient } from "@/query-client";
 import { BotActivitySections } from "./activity";
 import { ForYouSection } from "./for-you-section";
@@ -127,6 +128,7 @@ function UpdateRoutingSection() {
 /** A Bot's own page: its state for you, what it is doing, and the lifecycle controls. */
 export function BotProfile({ agent }: { agent: AgentProfile }) {
   const { t } = useTranslation();
+  const content = useContentText();
   return (
     <>
       <div className="mt-6 flex items-center gap-3">
@@ -137,7 +139,7 @@ export function BotProfile({ agent }: { agent: AgentProfile }) {
           size={56}
         />
         <div className="min-w-0">
-          <p className="truncate font-medium">{agent.title}</p>
+          <p className="truncate font-medium">{content(agent.title)}</p>
           <p className="line-clamp-2 text-muted-foreground text-sm">
             {agent.roleDescription}
           </p>

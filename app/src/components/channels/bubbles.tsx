@@ -1,5 +1,4 @@
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
-import { AVATAR_COLORS, avatarSchemeOf } from "../../../../shared/avatar";
 import { hairlineClassName } from "@/components/noe-bot/hairline";
 import {
   type AvatarChoice,
@@ -8,6 +7,7 @@ import {
 } from "@/components/noe-bot/pixel-art";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { cn } from "@/lib/utils";
+import { AVATAR_COLORS, avatarSchemeOf } from "../../../../shared/avatar";
 
 /**
  * The two bubbles a conversation draws, written once so the single-Bot transcript and the group

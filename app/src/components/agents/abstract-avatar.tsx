@@ -1,5 +1,5 @@
-import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { NoeBotAvatar } from "@/components/noe-bot/noe-bot-avatar";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 
 /**
  * A coworker's avatar, announced once, by name.

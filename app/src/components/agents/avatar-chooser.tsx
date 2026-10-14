@@ -27,6 +27,7 @@ import {
 } from "@/lib/agents/mutations";
 import type { AgentProfile } from "@/lib/agents/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/query-client";
 import { AVATAR_COLORS } from "../../../../shared/avatar";
@@ -63,6 +64,7 @@ export function AvatarChooser({
   align?: "start" | "center" | "end";
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const [open, setOpen] = useState(false);
   const setAvatar = useMutation(setAgentAvatarMutationOptions(queryClient));
   const pending = setAvatar.isPending ? setAvatar.variables?.choice : undefined;
@@ -139,7 +141,7 @@ export function AvatarChooser({
           {FACE_GROUPS.map((group) => (
             <div key={group.id}>
               <p className="mb-1.5 text-xs text-muted-foreground">
-                {group.label}
+                {content(group.label)}
               </p>
               <div className="grid grid-cols-5 justify-items-start gap-2">
                 {group.faces.map((candidate) => (
@@ -162,7 +164,7 @@ export function AvatarChooser({
           <legend className="sr-only">{t("Color")}</legend>
           {AVATAR_COLORS.map((scheme) => (
             <button
-              aria-label={scheme.label}
+              aria-label={content(scheme.label)}
               aria-pressed={look.scheme.background === scheme.background}
               className={cn(
                 "size-8 rounded-full border border-transparent outline-none transition-shadow focus-visible:ring-3 focus-visible:ring-ring/50",
@@ -201,10 +203,11 @@ function FaceTile({
   pressed: boolean;
   onChoose: () => void;
 }) {
+  const content = useContentText();
   const [active, setActive] = useState(false);
   return (
     <button
-      aria-label={faceLabel(candidate)}
+      aria-label={content(faceLabel(candidate))}
       aria-pressed={pressed}
       className={cn(
         "flex size-11 items-center justify-center rounded-lg outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
@@ -218,7 +221,7 @@ function FaceTile({
       onPointerEnter={() => setActive(true)}
       onPointerLeave={() => setActive(false)}
       style={{ color: colour }}
-      title={faceLabel(candidate)}
+      title={content(faceLabel(candidate))}
       type="button"
     >
       <NoeBotFace

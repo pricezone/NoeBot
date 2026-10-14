@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Glob } from "bun";
+import { scanContent } from "./content-scan";
 import {
   type FoundKey,
   keysIn,
@@ -28,14 +29,15 @@ export function appSourceFiles(): string[] {
 }
 
 /**
- * Every key the app asks for, plus the server's sentences (namespace `server`), which the app
- * translates where it shows them; and the untranslated English in the app's own files.
+ * Every key the app asks for, plus the server's sentences (namespace `server`) and this
+ * deployment's own content (namespace `content`), which the app translates where it shows them;
+ * and the untranslated English in the app's own files.
  */
 export function scanApp(): {
   keys: FoundKey[];
   untranslated: Map<string, Untranslated[]>;
 } {
-  const keys: FoundKey[] = scanServer(ROOT);
+  const keys: FoundKey[] = [...scanServer(ROOT), ...scanContent(ROOT)];
   const untranslated = new Map<string, Untranslated[]>();
   for (const file of appSourceFiles()) {
     const source = parse(file, readFileSync(path.join(ROOT, file), "utf8"));

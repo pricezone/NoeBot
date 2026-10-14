@@ -22,6 +22,7 @@ import {
   channelListQueryOptions,
 } from "@/lib/channels/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { type LandingTarget, landingTarget } from "@/lib/landing";
 
 /**
@@ -55,6 +56,7 @@ export function conversationWith(
  */
 export function BotsSection() {
   const { t } = useTranslation("settings");
+  const content = useContentText();
   const agents = useQuery(agentListQueryOptions());
   const attention = useQuery(botAttentionQueryOptions());
   const channels = useInfiniteQuery(channelListQueryOptions());
@@ -104,7 +106,7 @@ export function BotsSection() {
                 {agent.name}
               </ItemTitle>
               <ItemDescription className="text-[13px] leading-[18px]">
-                {summary || agent.title}
+                {summary || content(agent.title)}
               </ItemDescription>
             </ItemContent>
             <ItemActions>

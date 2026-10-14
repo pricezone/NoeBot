@@ -34,6 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { msg, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { intlLocale } from "@/lib/i18n/format";
 import {
   connectAccountMutationOptions,
@@ -66,6 +67,7 @@ export const Route = createFileRoute(
 
 function RouteComponent() {
   const { t } = useTranslation("settings");
+  const content = useContentText();
   const { key } = useParams({
     from: "/_authed/_app/settings/connected-accounts/$key",
   });
@@ -351,7 +353,7 @@ function RouteComponent() {
       <SettingsPage
         backButton={back}
         description={
-          server.summary ||
+          (server.summary && content(server.summary)) ||
           (plugin?.name
             ? t("Reached as you, from the {{plugin}} plugin.", {
                 plugin: plugin.name,
@@ -508,7 +510,7 @@ function RouteComponent() {
   return (
     <SettingsPage
       backButton={back}
-      description={entry.summary}
+      description={content(entry.summary)}
       title={entry.title}
     >
       {notice ? (

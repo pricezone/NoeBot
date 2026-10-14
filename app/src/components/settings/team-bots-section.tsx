@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { SettingsSection } from "@/components/ui/settings-rows";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   assignTeamBotMutationOptions,
   clearTeamBotConsentsMutationOptions,
@@ -127,6 +128,7 @@ function Group({
 
 function TeamBotRow({ bot }: { bot: TeamBot }) {
   const { t } = useTranslation("settings");
+  const content = useContentText();
   const queryClient = useQueryClient();
   const unpublish = useMutation(unpublishTeamBotMutationOptions(queryClient));
   const [copied, setCopied] = useState(false);
@@ -139,7 +141,7 @@ function TeamBotRow({ bot }: { bot: TeamBot }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="text-sm font-medium">{bot.name}</span>
         <span className="truncate text-sm text-muted-foreground">
-          {bot.title}
+          {content(bot.title)}
           {bot.assigned ? t(" · assigned to you") : ""}
           {bot.mine && !bot.visibleToTeam
             ? t(

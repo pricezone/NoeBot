@@ -27,7 +27,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
-import { i18n, msg, useTranslation } from "@/lib/i18n";
+import { i18n, msg, useInterfaceLocale, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import {
   deleteRoutineMutationOptions,
@@ -43,6 +43,7 @@ import {
 } from "@/lib/routines/queries";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/query-client";
+import { scheduleInGreek } from "../../../../shared/i18n/schedule-words";
 
 /**
  * What the last-run cell says, and in what tone.
@@ -230,6 +231,10 @@ export function RoutinesList({
   embedded?: boolean;
 } = {}) {
   const { t } = useTranslation();
+  const locale = useInterfaceLocale();
+  // The server's words for the schedule, said in Greek when the interface is.
+  const schedule = (words: string) =>
+    locale === "el" ? (scheduleInGreek(words) ?? words) : words;
   const routines = useQuery(routinesQueryOptions());
   const setEnabled = useMutation(setRoutineEnabledMutationOptions(queryClient));
   const deleteRoutine = useMutation(deleteRoutineMutationOptions(queryClient));
@@ -310,7 +315,7 @@ export function RoutinesList({
                 {/* Paused reads at a glance: the content dims, and a chip below says the word. */}
                 <ItemContent className={routine.enabled ? "" : "opacity-60"}>
                   <ItemTitle>
-                    {routine.schedule}
+                    {schedule(routine.schedule)}
                     <span className="font-normal text-muted-foreground text-xs">
                       {routine.timezone}
                     </span>
@@ -386,7 +391,7 @@ export function RoutinesList({
                   <Button
                     aria-label={t(
                       "Run the routine scheduled {{schedule}} now",
-                      { schedule: routine.schedule },
+                      { schedule: schedule(routine.schedule) },
                     )}
                     disabled={
                       !routine.enabled ||
@@ -415,7 +420,7 @@ export function RoutinesList({
                     aria-expanded={historyId === routine.id}
                     aria-label={t(
                       "Run history for the routine scheduled {{schedule}}",
-                      { schedule: routine.schedule },
+                      { schedule: schedule(routine.schedule) },
                     )}
                     onClick={() =>
                       setHistoryId(historyId === routine.id ? null : routine.id)
@@ -434,7 +439,7 @@ export function RoutinesList({
                    */}
                   <Switch
                     aria-label={t("Enable the routine scheduled {{schedule}}", {
-                      schedule: routine.schedule,
+                      schedule: schedule(routine.schedule),
                     })}
                     checked={routine.enabled}
                     disabled={
@@ -447,7 +452,7 @@ export function RoutinesList({
                   />
                   <Button
                     aria-label={t("Delete the routine scheduled {{schedule}}", {
-                      schedule: routine.schedule,
+                      schedule: schedule(routine.schedule),
                     })}
                     onClick={() => {
                       deleteRoutine.reset();
@@ -484,7 +489,7 @@ export function RoutinesList({
           <DialogHeader>
             <DialogTitle>
               {t('Delete "{{schedule}}"?', {
-                schedule: confirming?.schedule ?? "",
+                schedule: confirming ? schedule(confirming.schedule) : "",
               })}
             </DialogTitle>
             <DialogDescription>

@@ -130,5 +130,5 @@ function SettingsRow({
   );
 }
 
-export { SettingsCard, SettingsRow, SettingsSection };
 export type { SettingsRowProps };
+export { SettingsCard, SettingsRow, SettingsSection };

@@ -250,6 +250,21 @@ describe("the server's sentences", () => {
   });
 });
 
+describe("this deployment's own content", () => {
+  test("has Greek, every word of it", () => {
+    const content = catalogs.get("content") ?? {};
+    expect(
+      [
+        ...new Set(
+          keys
+            .filter((key) => key.namespace === "content")
+            .map((key) => `${key.file}: ${key.key}`),
+        ),
+      ].filter((line) => !content[line.slice(line.indexOf(": ") + 2)]),
+    ).toEqual([]);
+  });
+});
+
 describe("translated files", () => {
   const translated = translatedFiles();
 

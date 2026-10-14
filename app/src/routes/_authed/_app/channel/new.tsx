@@ -49,6 +49,7 @@ import { useStartChannel } from "@/lib/channels/start";
 import { serverMessageOf } from "@/lib/client";
 import { createGroupMutationOptions, postGroupMessage } from "@/lib/groups";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import { newId } from "../../../../lib/new-id";
 
@@ -132,11 +133,14 @@ const toRecipient = (profile: AgentProfile): Recipient => ({
 
 /** One Bot in the To: menu: its face, its name, and what it does. */
 function BotRowContent({ bot }: { bot: AgentProfile }) {
+  const content = useContentText();
   return (
     <>
       <ChannelAvatar participantIds={[bot.id]} size={24} />
       {bot.name}
-      <span className="ml-1 truncate text-muted-foreground">{bot.title}</span>
+      <span className="ml-1 truncate text-muted-foreground">
+        {content(bot.title)}
+      </span>
     </>
   );
 }
