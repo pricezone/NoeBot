@@ -746,5 +746,8 @@
   "That closes the tab.": "Αυτό κλείνει την καρτέλα.",
   "That reloads the page, and anything typed on it may be lost.": "Αυτό φορτώνει ξανά τη σελίδα και ό,τι έχει πληκτρολογηθεί μπορεί να χαθεί.",
   "That button sends the form it is in.": "Αυτό το κουμπί στέλνει τη φόρμα στην οποία βρίσκεται.",
-  "Clicky cannot see into that part of the page.": "Το Clicky δεν μπορεί να δει μέσα σε αυτό το μέρος της σελίδας."
+  "Clicky cannot see into that part of the page.": "Το Clicky δεν μπορεί να δει μέσα σε αυτό το μέρος της σελίδας.",
+  "Clicky only types plain text, without line breaks or tabs. Those are keys it presses on their own.": "Το Clicky πληκτρολογεί μόνο απλό κείμενο, χωρίς αλλαγές γραμμής ή στηλοθέτες. Αυτά είναι πλήκτρα που πατά χωριστά.",
+  "That goes to the browser's address bar, which Clicky cannot read.": "Αυτό πηγαίνει στη γραμμή διευθύνσεων του προγράμματος περιήγησης, την οποία το Clicky δεν μπορεί να διαβάσει.",
+  "That answers a question the page is asking.": "Αυτό απαντά σε μια ερώτηση που κάνει η σελίδα."
 }
