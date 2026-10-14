@@ -145,6 +145,77 @@ export function xKeyFor(message: { key: string; code: string }): XKey {
   return { kind: "none" };
 }
 
+/** Playwright's modifier names, as the X keysym of their left-hand key. */
+const COMBO_MODIFIERS: Record<string, string> = {
+  control: "Control_L",
+  ctrl: "Control_L",
+  controlormeta: "Control_L",
+  shift: "Shift_L",
+  alt: "Alt_L",
+  meta: "Super_L",
+  super: "Super_L",
+};
+
+/**
+ * A key or combination in Playwright's notation (`Enter`, `Control+L`, `Shift+Tab`), as X keysyms
+ * pressed in order and released in reverse: what Clicky sends when it presses a key for the person on
+ * the desktop. A lone character the US keymap does not have comes back as text to type instead, and
+ * anything it cannot read as null, so nothing is pressed on a guess.
+ */
+export function xKeysForCombo(
+  combo: string,
+):
+  | { kind: "keysyms"; keysyms: string[] }
+  | { kind: "text"; text: string }
+  | null {
+  const trimmed = combo.trim();
+  if (!trimmed) return null;
+  // `+` alone, or a combination ending in it (`Shift++`), is the plus key, not a separator.
+  const parts =
+    trimmed === "+"
+      ? ["+"]
+      : trimmed.endsWith("++")
+        ? [...trimmed.slice(0, -2).split("+"), "+"]
+        : trimmed.split("+");
+  if (parts.some((part) => part === "")) return null;
+  const keyName = parts.at(-1) as string;
+  const modifiers: string[] = [];
+  for (const part of parts.slice(0, -1)) {
+    const modifier = COMBO_MODIFIERS[part.toLowerCase()];
+    if (!modifier) return null;
+    modifiers.push(modifier);
+  }
+  const key = keysymsForKeyName(keyName);
+  if (!key) {
+    // One character with no modifier and no US key: typed, like a Greek letter from the keyboard.
+    return modifiers.length === 0 && [...keyName].length === 1
+      ? { kind: "text", text: keyName }
+      : null;
+  }
+  return { kind: "keysyms", keysyms: [...modifiers, ...key] };
+}
+
+/** One Playwright key name as keysyms (a shifted character carries its Shift). */
+function keysymsForKeyName(name: string): string[] | null {
+  const modifier = COMBO_MODIFIERS[name.toLowerCase()];
+  if (modifier) return [modifier];
+  if (name === "Space" || name === " ") return ["space"];
+  const named = NAMED_KEYS[name];
+  if (named) return [named];
+  const numpad = NUMPAD[name];
+  if (numpad) return [numpad];
+  const code = /^Key([A-Z])$/.exec(name);
+  if (code?.[1]) return [code[1].toLowerCase()];
+  const digit = /^Digit([0-9])$/.exec(name);
+  if (digit?.[1]) return [digit[1]];
+  if ([...name].length !== 1) return null;
+  for (const [base, shifted] of Object.values(US_KEYS)) {
+    if (name === base) return [KEYSYM_OF_CHARACTER[base] ?? base];
+    if (name === shifted) return ["Shift_L", KEYSYM_OF_CHARACTER[base] ?? base];
+  }
+  return null;
+}
+
 /** The X button a wheel turn presses, and how many times, from the browser's pixel delta. */
 export function wheelClicks(
   deltaX: number,

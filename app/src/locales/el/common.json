@@ -1553,5 +1553,15 @@
   "{{value}} left": "Απομένουν {{value}}",
   "{{value}}. Sidebar badges always show.": "{{value}}. Οι ενδείξεις στην πλαϊνή στήλη εμφανίζονται πάντα.",
   "· stopped at the ten-minute limit": "· σταμάτησε στο όριο των δέκα λεπτών",
-  "“{{name}}” moves into it.": "Το «{{name}}» μεταφέρεται εκεί."
+  "“{{name}}” moves into it.": "Το «{{name}}» μεταφέρεται εκεί.",
+  "Clicky opened": "Το Clicky άνοιξε",
+  "Clicky asked to do something": "Το Clicky ζήτησε να κάνει κάτι",
+  "A person let Clicky do it": "Ένα άτομο άφησε το Clicky να το κάνει",
+  "A person said no to Clicky": "Ένα άτομο είπε όχι στο Clicky",
+  "Clicky did it for the person": "Το Clicky το έκανε για το άτομο",
+  "Clicky could not do it": "Το Clicky δεν μπόρεσε να το κάνει",
+  "Clicky pointed instead of acting": "Το Clicky έδειξε αντί να το κάνει",
+  "A person stopped Clicky": "Ένα άτομο σταμάτησε το Clicky",
+  "A phone was linked": "Συνδέθηκε ένα τηλέφωνο",
+  "A phone was signed out": "Ένα τηλέφωνο αποσυνδέθηκε"
 }

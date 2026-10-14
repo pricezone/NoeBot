@@ -11,6 +11,16 @@ import {
 } from "@ag-ui/client";
 import { Observable, type Subscriber, type Subscription } from "rxjs";
 import { z } from "zod";
+import {
+  COMPUTER_GUIDE_PERSON_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_GOAL_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_REF_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_SAY_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_STEP_LIMIT,
+  COMPUTER_GUIDE_PERSON_STEPS_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_TOOL,
+  POINT_AT_DESCRIPTION,
+} from "../../../shared/clicky-tools";
 import { SIGN_IN_TOOL_DESCRIPTION } from "../../../shared/sign-in-guidance";
 import {
   type ApprovalContinuation,
@@ -689,8 +699,16 @@ export function createHeadlessComputerTools(options: {
    * With neither, the tool says it cannot show one.
    */
   pageFrames?: PageFrameStore;
+  /**
+   * Clicky Mode's walkthrough on the person's screen (`computer_guide_person`). Absent, where Clicky
+   * is off, and the tool is not offered.
+   */
+  guide?: (input: {
+    goal: string;
+    steps: { say: string; ref?: string }[];
+  }) => Promise<{ pointed: number; missing: string[]; rejected?: string }>;
 }): HeadlessTool[] {
-  const { gateway, botId, actor, auditStore, signIn } = options;
+  const { gateway, botId, actor, auditStore, signIn, guide } = options;
   const pageFrames = options.pageFrames ?? gateway.pageFrames;
   const snapshotId = z.number().int().positive();
   const ref = z.string().min(1);
@@ -760,6 +778,8 @@ export function createHeadlessComputerTools(options: {
   const acted = async <T extends { challenge?: unknown }>(
     result: Promise<T>,
   ) => ({ ok: true, ...unlessChallenged(await result) });
+  /** A ref as Clicky can point at it: what the snapshot hands out, and nothing longer. */
+  const aRef = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
   const optionalRef = z.strictObject({
     ref: ref.optional(),
     snapshotId: snapshotId.optional(),
@@ -1003,10 +1023,19 @@ export function createHeadlessComputerTools(options: {
     tool(
       "computer_request_help",
       "Create a durable request for the person to take the browser and sign in or clear a challenge. This unattended turn pauses until a person helps; never ask them to send you a password.",
-      z.strictObject({ reason: text }),
-      async ({ reason }, { toolCallId }) =>
+      z.strictObject({
+        reason: text,
+        point_at: aRef.optional().describe(POINT_AT_DESCRIPTION),
+      }),
+      async ({ reason, point_at }, { toolCallId }) =>
         waiting(
-          await gateway.requestHelp(botId, actor, reason, toolCallId),
+          await gateway.requestHelp(
+            botId,
+            actor,
+            reason,
+            toolCallId,
+            point_at ? { pointAt: point_at } : undefined,
+          ),
           reason,
         ),
     ),
@@ -1022,6 +1051,57 @@ export function createHeadlessComputerTools(options: {
         ),
     ),
   ];
+  if (guide)
+    tools.push(
+      tool(
+        COMPUTER_GUIDE_PERSON_TOOL,
+        COMPUTER_GUIDE_PERSON_DESCRIPTION,
+        z.strictObject({
+          goal: z
+            .string()
+            .trim()
+            .min(1)
+            .max(200)
+            .describe(COMPUTER_GUIDE_PERSON_GOAL_DESCRIPTION),
+          steps: z
+            .array(
+              z.strictObject({
+                say: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(300)
+                  .describe(COMPUTER_GUIDE_PERSON_SAY_DESCRIPTION),
+                ref: aRef
+                  .optional()
+                  .describe(COMPUTER_GUIDE_PERSON_REF_DESCRIPTION),
+              }),
+            )
+            .min(1)
+            .max(COMPUTER_GUIDE_PERSON_STEP_LIMIT)
+            .describe(COMPUTER_GUIDE_PERSON_STEPS_DESCRIPTION),
+        }),
+        async (input) => {
+          const shown = await guide(input);
+          if (shown.rejected)
+            return {
+              ok: false,
+              reason:
+                "Clicky is busy carrying out a step for the person. Try again in a moment.",
+            };
+          return {
+            ok: true,
+            shown: `Clicky is showing the person ${input.steps.length} step${input.steps.length === 1 ? "" : "s"} on your screen, pointing at ${shown.pointed}.`,
+            ...(shown.missing.length > 0
+              ? {
+                  notOnScreen: shown.missing,
+                  note: "Those refs are not on the screen now, so Clicky shows their steps without pointing. Take a snapshot if you want to point at them.",
+                }
+              : {}),
+          };
+        },
+      ),
+    );
   if (signIn)
     tools.push(
       tool(

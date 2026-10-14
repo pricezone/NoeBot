@@ -460,6 +460,18 @@ const identityProviderStore = createIdentityProviderStore(database);
  * built those seams have nobody to tell, which is the same as Clicky being off.
  */
 let clickyWiring: ClickyWiring | undefined;
+/** Clicky's walkthrough for a Bot's in-run tools (`computer_guide_person`), where Clicky is on. */
+const clickyGuideFor = (userId: string, botId: string) => {
+  const wiring = clickyWiring;
+  return wiring?.enabled
+    ? {
+        guide: (input: {
+          goal: string;
+          steps: { say: string; ref?: string }[];
+        }) => wiring.guide({ userId, botId, ...input }),
+      }
+    : {};
+};
 /*
  * Built before `auth` for the same reason the people store is: sign-in writes to the trail, and the
  * store that receives those rows has to exist before anything can sign in.
@@ -1908,6 +1920,7 @@ const routineRunner = createRoutineRunner({
         actor: { id: actor.id, userId: actor.id, initiator },
         auditStore: bootAuditStore,
         ...(signInService ? { signIn: signInService } : {}),
+        ...clickyGuideFor(actor.id, agentId),
       });
     },
     learningContainerForThread: (input) =>
@@ -1999,6 +2012,7 @@ const copilotRuntime = mountCopilotRuntime(
                       },
                     }
                   : {}),
+                ...clickyGuideFor(actor.id, botId),
               });
             },
             onWaiting: (botId: string, wait: HeadlessWait) => {
@@ -3313,6 +3327,8 @@ clickyWiring = computerGateway
           keyId: tenantPackage.model.credentialSecretRef,
           environment: process.env,
         }),
+      // "Noë Bot needs you" on the person's linked phones.
+      ...(deliveryProviders.push ? { push: deliveryProviders.push } : {}),
     })
   : undefined;
 if (clickyWiring?.enabled)

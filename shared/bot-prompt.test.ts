@@ -22,6 +22,7 @@ const CONTRACT = [
   "computer_request_sign_in",
   "computer_request_secret",
   "computer_request_help",
+  "computer_guide_person",
   "computer_run_command",
   "computer_read_file",
   "computer_write_file",
@@ -119,7 +120,8 @@ describe("COMPUTER_GUIDANCE", () => {
     expect(COMPUTER_GUIDANCE).toContain(
       "Say what you found or did in plain language, briefly.",
     );
-    // It is sent on every run: the gov.gr-era text was 5,924 characters.
-    expect(COMPUTER_GUIDANCE.length).toBeLessThan(4200);
+    // It is sent on every run: the gov.gr-era text was 5,924 characters. Clicky's line (point the
+    // person at what to use) took it from 4,189 to just under 4,400.
+    expect(COMPUTER_GUIDANCE.length).toBeLessThan(4400);
   });
 });

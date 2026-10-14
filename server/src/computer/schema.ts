@@ -541,12 +541,64 @@ export type SecretResult = {
   url: string;
 };
 
-/** What a person did with their mouse or keyboard. Coordinates are viewport pixels. */
-export type HumanInput =
-  | { kind: "click"; x: number; y: number }
+/**
+ * What a person did with their mouse or keyboard. Coordinates are viewport pixels, or screen pixels
+ * with `space: "screen"`: Clicky carrying out what the person approved at a point on a desktop, where
+ * the page is one window among others. A computer without a desktop refuses screen space.
+ */
+export type HumanInput = { space?: "screen" } & (
+  | {
+      kind: "click";
+      x: number;
+      y: number;
+      button?: "left" | "right";
+      double?: boolean;
+    }
   | { kind: "type"; text: string }
   | { kind: "key"; key: string }
-  | { kind: "scroll"; deltaY?: number };
+  | { kind: "scroll"; deltaY?: number; x?: number; y?: number }
+);
+
+/**
+ * Clicky Mode: what is on the computer's screen and where (`/elements`).
+ *
+ * The boxes are SCREEN pixels: on a desktop the page's boxes are moved by where its viewport sits,
+ * and without one the screen is the page's viewport. Names are whatever the page says they are, so
+ * they reach a model only inside an untrusted envelope (`clicky/brain.ts`).
+ */
+export type ScreenElement = {
+  ref: string;
+  role: string;
+  name: string;
+  rect: { x: number; y: number; width: number; height: number };
+  /** A password, a code, a card number: Clicky never types into one. */
+  sensitive: boolean;
+  focused: boolean;
+};
+
+export type ScreenElements = {
+  screen: { width: number; height: number };
+  mode: "desktop" | "page";
+  /** Where the browser's window is, on a desktop. */
+  window?: { x: number; y: number; innerOffsetX: number; innerOffsetY: number };
+  /** The page the boxes are on; empty when no browser is open on a desktop. */
+  url: string;
+  elements: ScreenElement[];
+};
+
+/** What is under one screen point, asked of the page just before Clicky acts there. */
+export type ElementAtResult = {
+  role: string;
+  name: string;
+  sensitive: boolean;
+  ref?: string;
+  /** False for a point on the desktop outside the page: the toolbar, another window, the dock. */
+  inPage: boolean;
+  url: string;
+};
+
+/** The masked picture Clicky's model is shown: a JPEG, base64, at the size it was drawn. */
+export type ClickyFrame = { image: string; width: number; height: number };
 
 /**
  * What a person's input reports back.
