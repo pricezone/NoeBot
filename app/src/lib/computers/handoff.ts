@@ -212,11 +212,16 @@ function requestFrom(result: ToolOutcome): HandoffRequest | undefined {
     : undefined;
 }
 
+/**
+ * `pointAt` is the element the person should use first (`point_at` on the tool), so Clicky can point
+ * at it while they help. A server that predates Clicky ignores it.
+ */
 export async function runHelpRequest(
   botId: string,
   reason: string,
   toolCallId?: string,
   signal?: AbortSignal,
+  pointAt?: string,
 ): Promise<ToolOutcome> {
   const stored = pendingHandoff(botId);
   if (toolCallId && stored?.toolCallId === toolCallId)
@@ -224,7 +229,14 @@ export async function runHelpRequest(
   const asked = await callComputer(
     botId,
     "/control/request",
-    { method: "POST", body: { reason, ...(toolCallId ? { toolCallId } : {}) } },
+    {
+      method: "POST",
+      body: {
+        reason,
+        ...(toolCallId ? { toolCallId } : {}),
+        ...(pointAt?.trim() ? { pointAt: pointAt.trim() } : {}),
+      },
+    },
     signal,
   );
   if (!asked.ok) return asked;

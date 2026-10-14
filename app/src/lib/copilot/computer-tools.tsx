@@ -15,9 +15,12 @@ import {
   type SecureFormState,
   SecureNote,
 } from "@/components/chat-cards/secure-form";
+import { ClickyGuideCard } from "@/components/clicky/clicky-guide-card";
 import { CommandOutput } from "@/components/computer/command-output";
 import { ComputerView } from "@/components/computer/computer-view";
 import { Button } from "@/components/ui/button";
+import { postClickyGuide } from "@/lib/clicky/mutations";
+import { useClickyCapability } from "@/lib/clicky/queries";
 import { tryClient } from "@/lib/client";
 import { noteBrowsed, recordActivity } from "@/lib/computers/activity";
 import { callComputer, type ToolOutcome } from "@/lib/computers/call";
@@ -35,6 +38,16 @@ import {
 import { showScreen } from "@/lib/computers/screen";
 import { useTranslation } from "@/lib/i18n";
 import { type UiStrings, useUiStrings } from "@/lib/i18n/strings";
+import {
+  COMPUTER_GUIDE_PERSON_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_GOAL_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_REF_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_SAY_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_STEP_LIMIT,
+  COMPUTER_GUIDE_PERSON_STEPS_DESCRIPTION,
+  COMPUTER_GUIDE_PERSON_TOOL,
+  POINT_AT_DESCRIPTION,
+} from "../../../../shared/clicky-tools";
 import { useActiveBotHolder } from "./active-bot";
 import { useFrontendTool } from "./approval-tools";
 import { useComputerAvailable } from "./computer-available";
@@ -229,6 +242,8 @@ export function ComputerTools() {
   const bot = useActiveBotHolder();
   // Not offered to a Team Bot's teammates; see useComputerAvailable.
   const available = useComputerAvailable();
+  // Clicky Mode's guide is offered only where Clicky is there to draw it.
+  const clicky = useClickyCapability();
 
   useFrontendTool({
     available,
@@ -653,19 +668,78 @@ export function ComputerTools() {
         .describe(
           "What you need the person to do, in one sentence, e.g. 'This page is asking for a code sent to your phone.'",
         ),
+      // `POINT_AT_FIELD` in shared/clicky-tools.ts: Clicky points at it while the person helps.
+      point_at: z.string().optional().describe(POINT_AT_DESCRIPTION),
     }),
     handler: async (
-      input: { reason: string },
+      input: { reason: string; point_at?: string },
       {
         signal,
         toolCall,
       }: { signal?: AbortSignal; toolCall?: { id?: string } } = {},
-    ) => runHelpRequest(bot.current, input.reason, toolCall?.id, signal),
+    ) =>
+      runHelpRequest(
+        bot.current,
+        input.reason,
+        toolCall?.id,
+        signal,
+        input.point_at,
+      ),
     // In the conversation as well as in the panel: the person is reading the chat, not the panel.
     render: ({ args, result, status }) => (
       <HelpCard
         computerId={bot.current}
         reason={typeof args?.reason === "string" ? args.reason : ""}
+        result={result}
+        running={status !== "complete"}
+      />
+    ),
+  });
+
+  /*
+   * Clicky Mode: the Bot shows the person where to go on its screen, step by step, without touching
+   * anything. Names and model-facing words are shared with the server's in-run copy
+   * (`shared/clicky-tools.ts`) and never translated.
+   */
+  useFrontendTool({
+    available: available && clicky.enabled,
+    name: COMPUTER_GUIDE_PERSON_TOOL,
+    description: COMPUTER_GUIDE_PERSON_DESCRIPTION,
+    parameters: z.object({
+      goal: z.string().describe(COMPUTER_GUIDE_PERSON_GOAL_DESCRIPTION),
+      steps: z
+        .array(
+          z.object({
+            say: z.string().describe(COMPUTER_GUIDE_PERSON_SAY_DESCRIPTION),
+            ref: z
+              .string()
+              .optional()
+              .describe(COMPUTER_GUIDE_PERSON_REF_DESCRIPTION),
+          }),
+        )
+        .min(1)
+        .max(COMPUTER_GUIDE_PERSON_STEP_LIMIT)
+        .describe(COMPUTER_GUIDE_PERSON_STEPS_DESCRIPTION),
+    }),
+    handler: async (
+      input: { goal: string; steps: { say: string; ref?: string }[] },
+      { signal }: { signal?: AbortSignal } = {},
+    ) =>
+      postClickyGuide(
+        bot.current,
+        {
+          goal: input.goal,
+          steps: input.steps.map((step) => ({
+            say: step.say,
+            ...(step.ref ? { ref: step.ref } : {}),
+          })),
+        },
+        signal,
+      ),
+    render: ({ args, result, status }) => (
+      <ClickyGuideCard
+        computerId={bot.current}
+        goal={typeof args?.goal === "string" ? args.goal : ""}
         result={result}
         running={status !== "complete"}
       />
