@@ -2,6 +2,7 @@ import { Link, router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   Button,
+  Pressable,
   RefreshControl,
   ScrollView,
   Text,
@@ -10,16 +11,35 @@ import {
 } from "react-native";
 import { api, type Conversation } from "../src/api";
 import { authClient, serverUrl, signIn, signInEnterprise } from "../src/auth";
+import { getLocale, useLocale, useT } from "../src/i18n";
+import { LOCALE_LABELS, LOCALES, type Locale } from "../src/i18n/locales";
+import { chooseLocale, settleSignedInLocale } from "../src/i18n/sync";
 import { registerPush, unregisterPush } from "../src/notifications";
 import { useLoad } from "../src/use-load";
 export default function Home() {
   const { data: session, isPending } = authClient.useSession();
+  const t = useT();
+  const locale = useLocale();
+  const [offered, setOffered] = useState<Locale[]>(["en"]);
+  const [localeNote, setLocaleNote] = useState("");
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [pushRegistered, setPushRegistered] = useState(false);
   const [older, setOlder] = useState<Conversation[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null | undefined>();
+  // Once per sign-in: the language this person chose here or on the web, and which ones are offered.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: settle for whoever is signed in now
+  useEffect(() => {
+    if (!session) return;
+    let live = true;
+    void settleSignedInLocale().then((locales) => {
+      if (live) setOffered(locales);
+    });
+    return () => {
+      live = false;
+    };
+  }, [session?.user.id]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload for whoever is signed in now, not the previous person
   useEffect(() => {
     setOlder([]);
@@ -63,7 +83,7 @@ export default function Home() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not complete this action.",
+          : t("Could not complete this action."),
       );
     } finally {
       setBusy(false);
@@ -83,8 +103,10 @@ export default function Home() {
     >
       <Text style={{ fontSize: 24, fontWeight: "600" }}>
         {session
-          ? `Welcome, ${session.user.name ?? session.user.email}`
-          : "Sign in to OpenBot"}
+          ? t("Welcome, {{name}}", {
+              name: session.user.name ?? session.user.email,
+            })
+          : t("Sign in to OpenBot")}
       </Text>
       <Text>{serverUrl}</Text>
       {(error || options.error || conversations.error) && (
@@ -96,14 +118,14 @@ export default function Home() {
         <View style={{ gap: 12 }}>
           <Text>
             {isPending
-              ? "Checking your session…"
-              : "Continue with your organization account."}
+              ? t("Checking your session…")
+              : t("Continue with your organization account.")}
           </Text>
           {options.data?.authProviders?.map((provider) => (
             <Button
               key={provider}
               disabled={busy}
-              title={`Sign in with ${provider}`}
+              title={t("Sign in with {{provider}}", { provider })}
               onPress={() => {
                 void act(async () => {
                   await signIn(provider);
@@ -115,8 +137,8 @@ export default function Home() {
           {options.data?.ssoConfigured && (
             <>
               <TextInput
-                accessibilityLabel="Work email"
-                placeholder="Work email"
+                accessibilityLabel={t("Work email")}
+                placeholder={t("Work email")}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={email}
@@ -125,7 +147,7 @@ export default function Home() {
               />
               <Button
                 disabled={busy || !email}
-                title="Continue with organization"
+                title={t("Continue with organization")}
                 onPress={() => {
                   void act(() => signInEnterprise(email));
                 }}
@@ -136,18 +158,20 @@ export default function Home() {
       ) : (
         <>
           <Link href="/approvals" style={{ fontSize: 18, color: "#2563eb" }}>
-            Questions and approvals
+            {t("Questions and approvals")}
           </Link>
           <Link href="/bots" style={{ fontSize: 18, color: "#2563eb" }}>
-            Bots, routines and computers
+            {t("Bots, routines and computers")}
           </Link>
           <Link href="/memory" style={{ fontSize: 18, color: "#2563eb" }}>
-            Memory
+            {t("Memory")}
           </Link>
           <Button
             disabled={busy}
             title={
-              pushRegistered ? "Notifications enabled" : "Enable notifications"
+              pushRegistered
+                ? t("Notifications enabled")
+                : t("Enable notifications")
             }
             onPress={() => {
               void act(async () => {
@@ -156,7 +180,9 @@ export default function Home() {
               });
             }}
           />
-          <Text style={{ fontSize: 20, fontWeight: "600" }}>Conversations</Text>
+          <Text style={{ fontSize: 20, fontWeight: "600" }}>
+            {t("Conversations")}
+          </Text>
           {allConversations.map((conversation) => (
             <Link
               key={conversation.id}
@@ -167,12 +193,12 @@ export default function Home() {
               style={{ paddingVertical: 12, color: "#2563eb" }}
             >
               {conversation.name}
-              {conversation.active ? "" : " (inactive)"}
+              {conversation.active ? "" : t(" (inactive)")}
             </Link>
           ))}
           {nextCursor && (
             <Button
-              title="Older conversations"
+              title={t("Older conversations")}
               disabled={busy}
               onPress={() => {
                 void act(async () => {
@@ -190,19 +216,62 @@ export default function Home() {
           )}
           {allConversations.length === 0 && (
             <Text>
-              No conversations yet. Create one in OpenBot on your computer.
+              {t(
+                "No conversations yet. Create one in OpenBot on your computer.",
+              )}
             </Text>
+          )}
+          {/* Shown once this deployment offers another language, or this phone already speaks one. */}
+          {(offered.length > 1 || locale !== "en") && (
+            <View accessibilityRole="radiogroup" style={{ gap: 8 }}>
+              <Text style={{ fontSize: 18, fontWeight: "600" }}>
+                {t("Language")}
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {LOCALES.map((option) => (
+                  <Pressable
+                    key={option}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: option === locale }}
+                    accessibilityLanguage={option}
+                    disabled={busy}
+                    onPress={() => {
+                      setLocaleNote("");
+                      void chooseLocale(option).then((saved) => {
+                        if (!saved && getLocale() === option)
+                          setLocaleNote(t("Saved on this phone only."));
+                      });
+                    }}
+                    style={{
+                      borderWidth: option === locale ? 2 : 1,
+                      borderColor: option === locale ? "#2563eb" : "#9ca3af",
+                      borderRadius: 8,
+                      paddingVertical: 10,
+                      paddingHorizontal: 14,
+                    }}
+                  >
+                    <Text>
+                      {option === locale ? "✓ " : ""}
+                      {LOCALE_LABELS[option]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+              {localeNote ? (
+                <Text style={{ color: "#6b7280" }}>{localeNote}</Text>
+              ) : null}
+            </View>
           )}
           <Button
             disabled={busy}
-            title="Sign out"
+            title={t("Sign out")}
             onPress={() => {
               void act(async () => {
                 await unregisterPush();
                 const result = await authClient.signOut();
                 if (result.error)
                   throw new Error(
-                    result.error.message ?? "Could not sign out.",
+                    result.error.message ?? t("Could not sign out."),
                   );
               });
             }}

@@ -2,6 +2,7 @@ import { expoClient } from "@better-auth/expo/client";
 import { ssoClient } from "@better-auth/sso/client";
 import { createAuthClient } from "better-auth/react";
 import * as SecureStore from "expo-secure-store";
+import { t } from "./i18n";
 
 const configured = process.env.EXPO_PUBLIC_SERVER_URL;
 if (!configured)
@@ -36,7 +37,7 @@ export async function signIn(provider: "google" | "microsoft" | "okta") {
     callbackURL: "openbotmobile://",
   });
   if (result.error)
-    throw new Error(result.error.message ?? "Could not sign in.");
+    throw new Error(result.error.message ?? t("Could not sign in."));
 }
 export async function signInEnterprise(email: string) {
   const result = await authClient.signIn.sso({
@@ -45,6 +46,6 @@ export async function signInEnterprise(email: string) {
   });
   if (result.error)
     throw new Error(
-      result.error.message ?? "Could not sign in to your organization.",
+      result.error.message ?? t("Could not sign in to your organization."),
     );
 }

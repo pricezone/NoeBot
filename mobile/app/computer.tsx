@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { api, type ControlState, type Screenshot } from "../src/api";
 import { authClient, serverUrl } from "../src/auth";
+import { localizeServerMessage, t, useT } from "../src/i18n";
 import { colors, input, muted, Problem, Screen, useAction } from "../src/ui";
 
 type Frame = { uri: string; width: number; height: number };
@@ -98,7 +99,7 @@ function useLiveFrame(botId: string, enabled: boolean) {
         setProblem(
           failure instanceof Error
             ? failure.message
-            : "The screen is not available right now.",
+            : t("The screen is not available right now."),
         );
       }
     }, 1500);
@@ -118,6 +119,7 @@ function useLiveFrame(botId: string, enabled: boolean) {
 export default function ComputerScreen() {
   const { botId = "" } = useLocalSearchParams<{ botId: string }>();
   const { data: session, isPending } = authClient.useSession();
+  const t = useT();
   const action = useAction();
   const [control, setControl] = useState<ControlState | null>(null);
   const [requestId, setRequestId] = useState("");
@@ -153,7 +155,7 @@ export default function ComputerScreen() {
               body: { reason: "Opened on mobile." },
             })
           ).request?.id;
-        if (!id) throw new Error("Control could not be requested.");
+        if (!id) throw new Error(t("Control could not be requested."));
         setRequestId(id);
         setControl(
           await api<ControlState>(path(botId, "/control/take"), {
@@ -162,7 +164,7 @@ export default function ComputerScreen() {
           }),
         );
       }),
-    [action, botId, readControl],
+    [action, botId, readControl, t],
   );
 
   // Opening the computer puts it in your control, once per visit.
@@ -212,21 +214,25 @@ export default function ComputerScreen() {
       >
         <Text style={{ fontWeight: "600" }}>
           {!control
-            ? "Checking who has control…"
+            ? t("Checking who has control…")
             : control.transitioning
-              ? "Finishing the Bot's current action before giving you control…"
+              ? t(
+                  "Finishing the Bot's current action before giving you control…",
+                )
               : driving
-                ? "You have control. Tap the screen to click."
-                : "The Bot has control."}
+                ? t("You have control. Tap the screen to click.")
+                : t("The Bot has control.")}
         </Text>
-        {control?.reason ? <Text style={muted}>{control.reason}</Text> : null}
+        {control?.reason ? (
+          <Text style={muted}>{localizeServerMessage(control.reason)}</Text>
+        ) : null}
       </View>
       <Problem message={action.error || live.problem} />
       {control?.secretWanted ? (
         <View style={{ gap: 8 }}>
           <Text>{control.secretWanted}</Text>
           <TextInput
-            accessibilityLabel="Secret value"
+            accessibilityLabel={t("Secret value")}
             secureTextEntry
             autoCapitalize="none"
             autoCorrect={false}
@@ -235,7 +241,7 @@ export default function ComputerScreen() {
             style={input}
           />
           <Button
-            title="Enter it for the Bot"
+            title={t("Enter it for the Bot")}
             disabled={!secret || Boolean(action.busy)}
             onPress={() => {
               void action
@@ -252,8 +258,8 @@ export default function ComputerScreen() {
         </View>
       ) : null}
       <Pressable
-        accessibilityLabel="Bot computer screen"
-        accessibilityHint={driving ? "Tap to click here" : undefined}
+        accessibilityLabel={t("Bot computer screen")}
+        accessibilityHint={driving ? t("Tap to click here") : undefined}
         disabled={!driving || !frame}
         onLayout={(event) => setSize(event.nativeEvent.layout)}
         onPress={(event) => {
@@ -282,15 +288,15 @@ export default function ComputerScreen() {
           />
         ) : (
           <Text style={{ color: "white", padding: 16 }}>
-            Connecting to the screen…
+            {t("Connecting to the screen…")}
           </Text>
         )}
       </Pressable>
       {driving ? (
         <View style={{ gap: 10 }}>
           <TextInput
-            accessibilityLabel="Type into the page"
-            placeholder="Type into the focused field"
+            accessibilityLabel={t("Type into the page")}
+            placeholder={t("Type into the focused field")}
             autoCapitalize="none"
             autoCorrect={false}
             value={text}
@@ -299,7 +305,7 @@ export default function ComputerScreen() {
           />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
             <Button
-              title="Type"
+              title={t("Type")}
               disabled={!text || Boolean(action.busy)}
               onPress={() => {
                 void send("type", { text }).then((sent) => {
@@ -310,6 +316,7 @@ export default function ComputerScreen() {
             {(["Enter", "Tab", "Backspace", "Escape"] as const).map((key) => (
               <Button
                 key={key}
+                // The key's own name, as printed on it.
                 title={key}
                 disabled={Boolean(action.busy)}
                 onPress={() => {
@@ -318,20 +325,20 @@ export default function ComputerScreen() {
               />
             ))}
             <Button
-              title="Scroll up"
+              title={t("Scroll up")}
               onPress={() => {
                 void send("scroll", { deltaY: -500 });
               }}
             />
             <Button
-              title="Scroll down"
+              title={t("Scroll down")}
               onPress={() => {
                 void send("scroll", { deltaY: 500 });
               }}
             />
           </View>
           <Button
-            title="Return control to the Bot"
+            title={t("Return control to the Bot")}
             disabled={Boolean(action.busy)}
             onPress={() => {
               void action.run("release", async () => {
@@ -347,7 +354,7 @@ export default function ComputerScreen() {
         </View>
       ) : (
         <Button
-          title="Take control"
+          title={t("Take control")}
           disabled={Boolean(action.busy) || control?.transitioning}
           onPress={() => {
             void take();

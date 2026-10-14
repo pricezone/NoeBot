@@ -9,6 +9,7 @@ import {
   type Routine,
 } from "../src/api";
 import { authClient } from "../src/auth";
+import { content, msg, schedule, useT } from "../src/i18n";
 import {
   ADD_ROUTINE_DRAFT,
   RUN_COLORS,
@@ -31,6 +32,7 @@ import { useLoad } from "../src/use-load";
 export default function BotScreen() {
   const { botId = "" } = useLocalSearchParams<{ botId: string }>();
   const { data: session, isPending } = authClient.useSession();
+  const t = useT();
   const action = useAction();
   const loadBot = useCallback(
     () => api<{ agent: Bot }>(`/api/agents/${encodeURIComponent(botId)}`),
@@ -55,7 +57,7 @@ export default function BotScreen() {
     (routine) => routine.agentId === botId,
   );
   const paused = lifecycle.data?.lifecycle.paused;
-  const name = bot.data?.agent.name ?? "This Bot";
+  const name = bot.data?.agent.name ?? t("This Bot");
 
   async function setPaused(next: boolean) {
     await action.run("pause", async () => {
@@ -85,14 +87,17 @@ export default function BotScreen() {
       );
       if (!conversation)
         throw new Error(
-          `Start a conversation with ${name} first, then add a routine from it.`,
+          t(
+            "Start a conversation with {{name}} first, then add a routine from it.",
+            { name },
+          ),
         );
       router.push({
         pathname: "/conversation",
         params: {
           channelId: conversation.id,
           agentId: botId,
-          draft: ADD_ROUTINE_DRAFT,
+          draft: t(ADD_ROUTINE_DRAFT),
         },
       });
     });
@@ -109,7 +114,7 @@ export default function BotScreen() {
     >
       <Text style={heading}>{name}</Text>
       {bot.data?.agent.title ? (
-        <Text style={muted}>{bot.data.agent.title}</Text>
+        <Text style={muted}>{content(bot.data.agent.title)}</Text>
       ) : null}
       <Problem
         message={action.error || bot.error || lifecycle.error || routines.error}
@@ -125,19 +130,23 @@ export default function BotScreen() {
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={{ fontWeight: "600" }}>
               {paused === undefined
-                ? "Checking…"
+                ? t("Checking…")
                 : paused
-                  ? "Paused"
-                  : "Active"}
+                  ? t("Paused")
+                  : t("Active")}
             </Text>
             <Text style={muted}>
               {paused
-                ? "It does no work for you, including routines, until you resume it."
-                : "Pausing stops its running work for you and skips routines."}
+                ? t(
+                    "It does no work for you, including routines, until you resume it.",
+                  )
+                : t(
+                    "Pausing stops its running work for you and skips routines.",
+                  )}
             </Text>
           </View>
           <Switch
-            accessibilityLabel={`${name} is active`}
+            accessibilityLabel={t("{{name}} is active", { name })}
             value={paused === false}
             disabled={paused === undefined || Boolean(action.busy)}
             onValueChange={(active) => {
@@ -147,17 +156,19 @@ export default function BotScreen() {
         </View>
       </View>
       <Button
-        title="Open computer"
+        title={t("Open computer")}
         onPress={() =>
           router.push({ pathname: "/computer", params: { botId } })
         }
       />
-      <Section title="Routines">
+      <Section title={t("Routines")}>
         {mine?.map((routine) => (
           <Pressable
             key={routine.id}
             accessibilityRole="link"
-            accessibilityLabel={`Routine: ${routine.instruction}`}
+            accessibilityLabel={t("Routine: {{instruction}}", {
+              instruction: routine.instruction,
+            })}
             onPress={() =>
               router.push({
                 pathname: "/routine",
@@ -179,21 +190,23 @@ export default function BotScreen() {
                   {routine.instruction}
                 </Text>
                 <Text style={muted}>
-                  {routine.schedule} · {routine.timezone}
+                  {schedule(routine.schedule)} · {routine.timezone}
                 </Text>
                 <Text style={muted}>
                   {routine.enabled
-                    ? `Next run ${when(routine.nextRunAt)}`
-                    : "Paused"}
+                    ? t("Next run {{when}}", { when: when(routine.nextRunAt) })
+                    : t("Paused")}
                 </Text>
                 {routine.lastRun?.status ? (
                   <Text style={{ color: RUN_COLORS[routine.lastRun.status] }}>
-                    Last run: {RUN_LABELS[routine.lastRun.status]}
+                    {t("Last run: {{status}}", {
+                      status: t(RUN_LABELS[routine.lastRun.status]),
+                    })}
                   </Text>
                 ) : null}
               </View>
               <Switch
-                accessibilityLabel="Active"
+                accessibilityLabel={t("Active")}
                 value={routine.enabled}
                 disabled={Boolean(action.busy)}
                 onValueChange={(enabled) => {
@@ -203,24 +216,26 @@ export default function BotScreen() {
             </View>
           </Pressable>
         ))}
-        {mine?.length === 0 && <Text style={muted}>No routines yet.</Text>}
+        {mine?.length === 0 && (
+          <Text style={muted}>{t("No routines yet.")}</Text>
+        )}
         <Button
-          title="Add routine"
+          title={t("Add routine")}
           disabled={Boolean(action.busy)}
           onPress={() => {
             void addRoutine();
           }}
         />
       </Section>
-      <Section title="Customize">
+      <Section title={t("Customize")}>
         {[
           {
-            label: "Plugins",
+            label: msg("Plugins"),
             go: () => router.push({ pathname: "/plugins", params: { botId } }),
           },
-          { label: "Memory", go: () => router.push("/memory") },
+          { label: msg("Memory"), go: () => router.push("/memory") },
           {
-            label: "Custom rules",
+            label: msg("Custom rules"),
             go: () => router.push({ pathname: "/rules", params: { botId } }),
           },
         ].map((item) => (
@@ -231,7 +246,7 @@ export default function BotScreen() {
             style={card}
           >
             <Text style={{ color: colors.link, fontSize: 16 }}>
-              {item.label}
+              {t(item.label)}
             </Text>
           </Pressable>
         ))}

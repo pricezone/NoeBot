@@ -10,10 +10,12 @@ import {
 } from "react-native";
 import { type ApprovalInbox, api } from "../src/api";
 import { authClient } from "../src/auth";
+import { useT } from "../src/i18n";
 import { useLoad } from "../src/use-load";
 export default function ApprovalsScreen() {
   const { requestId } = useLocalSearchParams<{ requestId?: string }>();
   const { data: session, isPending } = authClient.useSession();
+  const t = useT();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -36,7 +38,7 @@ export default function ApprovalsScreen() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not save your decision.",
+          : t("Could not save your decision."),
       );
     } finally {
       setBusy("");
@@ -55,7 +57,7 @@ export default function ApprovalsScreen() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not send your answer.",
+          : t("Could not send your answer."),
       );
     } finally {
       setBusy("");
@@ -74,7 +76,7 @@ export default function ApprovalsScreen() {
       }
     >
       <Text style={{ fontSize: 24, fontWeight: "600" }}>
-        Questions and approvals
+        {t("Questions and approvals")}
       </Text>
       {(error || inbox.error) && (
         <Text accessibilityRole="alert" style={{ color: "#b42318" }}>
@@ -95,8 +97,10 @@ export default function ApprovalsScreen() {
             }}
           >
             <Text style={{ fontWeight: "600" }}>
-              {request.botId ?? request.action?.botId} asks to use{" "}
-              {request.toolRef ?? request.action?.toolRef}
+              {t("{{bot}} asks to use {{tool}}", {
+                bot: request.botId ?? request.action?.botId ?? "",
+                tool: request.toolRef ?? request.action?.toolRef ?? "",
+              })}
             </Text>
             <Text>
               {request.effect ?? request.action?.effect} ·{" "}
@@ -107,21 +111,21 @@ export default function ApprovalsScreen() {
             </Text>
             <Button
               disabled={Boolean(busy)}
-              title="Allow once"
+              title={t("Allow once")}
               onPress={() => {
                 void decide(request.id, "allow_once");
               }}
             />
             <Button
               disabled={Boolean(busy)}
-              title="Always allow this scope"
+              title={t("Always allow this scope")}
               onPress={() => {
                 void decide(request.id, "allow_always");
               }}
             />
             <Button
               disabled={Boolean(busy)}
-              title="Deny"
+              title={t("Deny")}
               onPress={() => {
                 void decide(request.id, "deny");
               }}
@@ -143,9 +147,9 @@ export default function ApprovalsScreen() {
           <Text>{question.question}</Text>
           {question.why && <Text>{question.why}</Text>}
           <TextInput
-            accessibilityLabel="Your answer"
+            accessibilityLabel={t("Your answer")}
             multiline
-            placeholder="Your answer"
+            placeholder={t("Your answer")}
             value={answers[question.id] ?? ""}
             onChangeText={(answer) =>
               setAnswers((current) => ({ ...current, [question.id]: answer }))
@@ -154,7 +158,7 @@ export default function ApprovalsScreen() {
           />
           <Button
             disabled={Boolean(busy) || !answers[question.id]?.trim()}
-            title="Send answer"
+            title={t("Send answer")}
             onPress={() => {
               void respond(question.id);
             }}
@@ -162,7 +166,9 @@ export default function ApprovalsScreen() {
         </View>
       ))}
       {inbox.data?.requests.every((request) => request.status !== "pending") &&
-        !inbox.data.questions?.length && <Text>No pending requests.</Text>}
+        !inbox.data.questions?.length && (
+          <Text>{t("No pending requests.")}</Text>
+        )}
     </ScrollView>
   );
 }

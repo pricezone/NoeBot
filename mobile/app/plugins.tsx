@@ -3,6 +3,7 @@ import { useCallback } from "react";
 import { Switch, Text, View } from "react-native";
 import { api, type GrantedPlugins, type SkillSummary } from "../src/api";
 import { authClient } from "../src/auth";
+import { content, useT } from "../src/i18n";
 import {
   card,
   heading,
@@ -18,6 +19,7 @@ import { useLoad } from "../src/use-load";
 export default function PluginsScreen() {
   const { botId = "" } = useLocalSearchParams<{ botId: string }>();
   const { data: session, isPending } = authClient.useSession();
+  const t = useT();
   const action = useAction();
   const loadGranted = useCallback(
     () => api<GrantedPlugins>(`/api/plugins/for/${encodeURIComponent(botId)}`),
@@ -55,11 +57,11 @@ export default function PluginsScreen() {
         void catalogue.refresh();
       }}
     >
-      <Text style={heading}>Plugins</Text>
+      <Text style={heading}>{t("Plugins")}</Text>
       <Problem message={action.error || granted.error || catalogue.error} />
-      <Section title="Skills">
+      <Section title={t("Skills")}>
         {catalogue.data?.skills.length === 0 && (
-          <Text style={muted}>No skills yet.</Text>
+          <Text style={muted}>{t("No skills yet.")}</Text>
         )}
         {catalogue.data?.skills.map((skill) => (
           <View
@@ -71,12 +73,14 @@ export default function PluginsScreen() {
           >
             <View style={{ flex: 1, gap: 4 }}>
               <Text style={{ fontWeight: "600" }}>
-                {skill.title} (/{skill.slug})
+                {content(skill.title)} (/{skill.slug})
               </Text>
-              <Text style={muted}>{skill.summary}</Text>
+              <Text style={muted}>{content(skill.summary)}</Text>
             </View>
             <Switch
-              accessibilityLabel={`Use ${skill.title}`}
+              accessibilityLabel={t("Use {{title}}", {
+                title: content(skill.title),
+              })}
               value={on.has(skill.slug)}
               disabled={Boolean(action.busy) || !granted.data}
               onValueChange={(enabled) => {
@@ -86,13 +90,14 @@ export default function PluginsScreen() {
           </View>
         ))}
       </Section>
-      <Section title="Connected tools">
+      <Section title={t("Connected tools")}>
         <Text style={muted}>
-          Connecting an app needs its sign-in, so add and remove tools in
-          OpenBot on your computer.
+          {t(
+            "Connecting an app needs its sign-in, so add and remove tools in OpenBot on your computer.",
+          )}
         </Text>
         {granted.data?.tools.length === 0 && (
-          <Text style={muted}>No connected tools.</Text>
+          <Text style={muted}>{t("No connected tools.")}</Text>
         )}
         {granted.data?.tools.map((tool) => (
           <View key={tool.ref} style={card}>

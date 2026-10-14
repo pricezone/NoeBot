@@ -17,6 +17,7 @@ import {
   type RuleBehaviour,
 } from "../src/api";
 import { authClient } from "../src/auth";
+import { t, useT } from "../src/i18n";
 import {
   card,
   colors,
@@ -41,6 +42,7 @@ function BehaviourPicker({
   disabled?: boolean;
   onChange: (value: RuleBehaviour) => void;
 }) {
+  const t = useT();
   return (
     <View accessibilityRole="radiogroup" style={{ gap: 6 }}>
       {BEHAVIOURS.map((behaviour) => (
@@ -57,7 +59,7 @@ function BehaviourPicker({
             padding: 10,
           }}
         >
-          <Text>{BEHAVIOUR_LABELS[behaviour]}</Text>
+          <Text>{t(BEHAVIOUR_LABELS[behaviour])}</Text>
         </Pressable>
       ))}
     </View>
@@ -66,7 +68,7 @@ function BehaviourPicker({
 
 const describe = (rule: ApprovalRule) =>
   [
-    rule.toolRef === "*" ? "Any tool" : rule.toolRef,
+    rule.toolRef === "*" ? t("Any tool") : rule.toolRef,
     rule.effect === "*" ? null : rule.effect,
     rule.scope === "*" ? null : rule.scope,
   ]
@@ -76,6 +78,7 @@ const describe = (rule: ApprovalRule) =>
 /** Custom rules: what a Bot may do without asking, and the ask-first switches. */
 export default function RulesScreen() {
   const { botId = "*" } = useLocalSearchParams<{ botId?: string }>();
+  const t = useT();
   const { data: session, isPending } = authClient.useSession();
   const action = useAction();
   const [toolRef, setToolRef] = useState("");
@@ -112,7 +115,7 @@ export default function RulesScreen() {
       refreshing={settings.pending}
       onRefresh={() => void settings.refresh()}
     >
-      <Text style={heading}>Custom rules</Text>
+      <Text style={heading}>{t("Custom rules")}</Text>
       <Problem message={action.error || settings.error} />
       {data?.preferences && (
         <View style={card}>
@@ -123,9 +126,11 @@ export default function RulesScreen() {
               alignItems: "center",
             }}
           >
-            <Text style={{ flex: 1 }}>Ask before acting on my behalf</Text>
+            <Text style={{ flex: 1 }}>
+              {t("Ask before acting on my behalf")}
+            </Text>
             <Switch
-              accessibilityLabel="Ask before acting on my behalf"
+              accessibilityLabel={t("Ask before acting on my behalf")}
               value={data.preferences.enabled}
               disabled={Boolean(action.busy)}
               onValueChange={(enabled) => {
@@ -141,11 +146,13 @@ export default function RulesScreen() {
             }}
           >
             <Text style={{ flex: 1 }}>
-              Auto-review low-risk actions
-              {data.team?.enforceAutoReview ? " (required by your team)" : ""}
+              {t("Auto-review low-risk actions")}
+              {data.team?.enforceAutoReview
+                ? t(" (required by your team)")
+                : ""}
             </Text>
             <Switch
-              accessibilityLabel="Auto-review low-risk actions"
+              accessibilityLabel={t("Auto-review low-risk actions")}
               value={data.preferences.autoReview}
               disabled={
                 Boolean(action.busy) || Boolean(data.team?.enforceAutoReview)
@@ -158,28 +165,30 @@ export default function RulesScreen() {
         </View>
       )}
       {teamRules && teamRules.length > 0 && (
-        <Section title="Team rules">
+        <Section title={t("Team rules")}>
           {teamRules.map((rule) => (
             <View key={rule.id} style={card}>
               <Text style={{ fontWeight: "600" }}>{describe(rule)}</Text>
               <Text style={muted}>
-                {BEHAVIOUR_LABELS[rule.behaviour]} · set by your team
+                {t("{{behaviour}} · set by your team", {
+                  behaviour: t(BEHAVIOUR_LABELS[rule.behaviour]),
+                })}
               </Text>
             </View>
           ))}
         </Section>
       )}
-      <Section title="Your rules">
+      <Section title={t("Your rules")}>
         {!editable && (
           <Text style={muted}>
-            Your workspace has switched custom rules off.
+            {t("Your workspace has switched custom rules off.")}
           </Text>
         )}
-        {rules?.length === 0 && <Text style={muted}>No rules yet.</Text>}
+        {rules?.length === 0 && <Text style={muted}>{t("No rules yet.")}</Text>}
         {rules?.map((rule) => (
           <View key={rule.id} style={card}>
             <Text style={{ fontWeight: "600" }}>{describe(rule)}</Text>
-            {rule.botId === "*" && <Text style={muted}>Every Bot</Text>}
+            {rule.botId === "*" && <Text style={muted}>{t("Every Bot")}</Text>}
             <BehaviourPicker
               value={rule.behaviour}
               disabled={!editable || Boolean(action.busy)}
@@ -188,14 +197,14 @@ export default function RulesScreen() {
               }}
             />
             <Button
-              title="Remove rule"
+              title={t("Remove rule")}
               color={colors.error}
               disabled={Boolean(action.busy)}
               onPress={() =>
-                Alert.alert("Remove this rule?", describe(rule), [
-                  { text: "Cancel", style: "cancel" },
+                Alert.alert(t("Remove this rule?"), describe(rule), [
+                  { text: t("Cancel"), style: "cancel" },
                   {
-                    text: "Remove",
+                    text: t("Remove"),
                     style: "destructive",
                     onPress: () => {
                       void action.run(rule.id, async () => {
@@ -214,11 +223,11 @@ export default function RulesScreen() {
         ))}
       </Section>
       {editable && (
-        <Section title="Add a rule">
+        <Section title={t("Add a rule")}>
           <View style={card}>
             <TextInput
-              accessibilityLabel="Tool or app"
-              placeholder="Tool or app, such as gmail/send_email or *"
+              accessibilityLabel={t("Tool or app")}
+              placeholder={t("Tool or app, such as gmail/send_email or *")}
               autoCapitalize="none"
               autoCorrect={false}
               value={toolRef}
@@ -228,7 +237,7 @@ export default function RulesScreen() {
             />
             <BehaviourPicker value={behaviour} onChange={setBehaviour} />
             <Button
-              title="Add rule"
+              title={t("Add rule")}
               disabled={Boolean(action.busy) || !toolRef.trim()}
               onPress={() => {
                 void action.run("add", async () => {

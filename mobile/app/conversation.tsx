@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { api, type Conversation, type TranscriptMessage } from "../src/api";
 import { authClient } from "../src/auth";
+import { useT } from "../src/i18n";
 import { useLoad } from "../src/use-load";
 export default function ConversationScreen() {
   const {
@@ -24,6 +25,7 @@ export default function ConversationScreen() {
   }>();
   const { data: session, isPending } = authClient.useSession();
   const [agentId, setAgentId] = useState("");
+  const t = useT();
   // A Bot profile's "Add routine" arrives with its sentence started for the person to finish.
   const [text, setText] = useState(draft ?? "");
   const [error, setError] = useState("");
@@ -75,7 +77,7 @@ export default function ConversationScreen() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not send your message.",
+          : t("Could not send your message."),
       );
     } finally {
       setSending(false);
@@ -84,7 +86,7 @@ export default function ConversationScreen() {
   return (
     <View style={{ flex: 1, padding: 16, gap: 12 }}>
       <Text style={{ fontSize: 22, fontWeight: "600" }}>
-        {conversation?.name ?? "Conversation"}
+        {conversation?.name ?? t("Conversation")}
       </Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {conversation?.agentIds.map((id) => (
@@ -122,26 +124,26 @@ export default function ConversationScreen() {
             }}
           >
             <Text style={{ fontWeight: "600" }}>
-              {message.role === "user" ? "You" : agentId}
+              {message.role === "user" ? t("You") : agentId}
             </Text>
             <Text>
               {typeof message.content === "string"
                 ? message.content
                 : message.toolCalls?.length
-                  ? "The Bot is using a tool."
+                  ? t("The Bot is using a tool.")
                   : ""}
             </Text>
           </View>
         ))}
       </ScrollView>
       <TextInput
-        accessibilityLabel="Message"
+        accessibilityLabel={t("Message")}
         multiline
         autoFocus={Boolean(draft)}
         value={text}
         onChangeText={setText}
         editable={conversation?.active && !sending}
-        placeholder="Message this Bot"
+        placeholder={t("Message this Bot")}
         style={{
           borderWidth: 1,
           borderColor: "#9ca3af",
@@ -151,7 +153,7 @@ export default function ConversationScreen() {
         }}
       />
       <Button
-        title={sending ? "Sending…" : "Send"}
+        title={sending ? t("Sending…") : t("Send")}
         disabled={!conversation?.active || !agentId || !text.trim() || sending}
         onPress={() => {
           void send();

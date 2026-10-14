@@ -1,4 +1,5 @@
 import { authClient, serverUrl } from "./auth";
+import { localizeServerMessage, msg, t } from "./i18n";
 export async function api<T>(
   path: string,
   input?: { method?: string; body?: unknown; signal?: AbortSignal },
@@ -25,8 +26,8 @@ export async function api<T>(
         typeof body === "object" &&
         "error" in body &&
         typeof body.error === "string"
-        ? body.error
-        : `Request failed (${response.status}).`,
+        ? localizeServerMessage(body.error)
+        : t("Request failed ({{status}}).", { status: response.status }),
     );
   return body as T;
 }
@@ -113,11 +114,12 @@ export type Memory = {
   updatedAt: string;
 };
 export type RuleBehaviour = "allow" | "pre_approved" | "ask" | "hand_off";
+/** English keys, said with `t` where they are shown. */
 export const BEHAVIOUR_LABELS: Record<RuleBehaviour, string> = {
-  allow: "Take action without asking",
-  pre_approved: "Take action if pre-approved",
-  ask: "Ask before taking action",
-  hand_off: "Hand off to you",
+  allow: msg("Take action without asking"),
+  pre_approved: msg("Take action if pre-approved"),
+  ask: msg("Ask before taking action"),
+  hand_off: msg("Hand off to you"),
 };
 export type ApprovalRule = {
   id: string;

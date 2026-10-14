@@ -98,6 +98,25 @@ without Greek. A file goes on that list once somebody has translated it; it neve
 Mark text that is code or data rather than prose with `// i18n-ignore` on the line before (or
 `{/* i18n-ignore */}` in JSX); text inside `<code>`, `<kbd>` and `<pre>` is skipped already.
 
+## Beyond the web app's own words
+
+- **The server's sentences** (`server` namespace) are read out of `server/src` by
+  `scripts/i18n/server-scan.ts`: route bodies (`error`, `message`, `reason`) and refusal messages.
+  The server keeps sending English; `client()` translates on the way in, exactly or by pattern
+  (`{{0}}` for each value), and keeps the English as `serverMessageOf(error)` for anything that
+  compares it. A new sentence on the server fails the catalog test until it has Greek.
+- **This deployment's own content** (`content` namespace) is read by `scripts/i18n/content-scan.ts`
+  from the templates, skills, stock Bots, catalogue, categories and avatars, and shown through
+  `useContentText()`. Third-party text is not ours and shows as written.
+- **What the Bot says** follows the person: a Greek interface adds one line to their standing
+  instructions (`server/src/i18n/bot-language.ts`); English prompts are unchanged.
+- **The server's own few words to a person** with no browser in between (a routine's failure post,
+  SMS, the desktop sign-in page, Slack and Teams) are in `server/src/i18n/server-text.ts`.
+- **The mobile app** (`mobile/src/i18n/`) has its own small translator and `el.json`, and keeps
+  byte copies of `locales.ts`, `schedule-words.ts` and the `server` and `content` catalogs, held to
+  their originals by `app/tests/i18n-mobile.test.ts`. After changing one of the originals, copy it
+  again: `cp app/src/locales/el/server.json mobile/src/i18n/server.el.json` and so on.
+
 ## Greek style
 
 Informal second person singular (εσύ), as on the HyperNoesis platform's Noë Bot pages. Buttons are

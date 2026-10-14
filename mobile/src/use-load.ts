@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
+import { t } from "./i18n";
 export function useLoad<T>(load: () => Promise<T>, enabled = true) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState<string>();
@@ -13,7 +14,7 @@ export function useLoad<T>(load: () => Promise<T>, enabled = true) {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not load this screen.",
+          : t("Could not load this screen."),
       );
     } finally {
       setPending(false);

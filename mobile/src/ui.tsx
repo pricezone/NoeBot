@@ -7,6 +7,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import { t } from "./i18n";
 
 export const colors = {
   link: "#2563eb",
@@ -104,7 +105,7 @@ export function useAction() {
       setError(
         failure instanceof Error
           ? failure.message
-          : "Could not complete this action.",
+          : t("Could not complete this action."),
       );
       return false;
     } finally {
