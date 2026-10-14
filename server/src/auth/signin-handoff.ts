@@ -1,10 +1,15 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
-import { createAuthEndpoint } from "better-auth/api";
+import { APIError, createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
 import { type Locale, normalizeLocale } from "../../../shared/i18n/locales";
-import type { MobilePlatform } from "../../../shared/mobile-link";
+import {
+  MOBILE_DEVICE_NAME_LIMIT,
+  MOBILE_LINK_AUDIENCE,
+  type MobileLinkResponse,
+  type MobilePlatform,
+} from "../../../shared/mobile-link";
 import { deploymentLocales } from "../i18n/deployment-locale";
 
 /**
@@ -38,6 +43,13 @@ export type SignInHandoffClaims = {
    * suggestion: see `SignInHandoffOptions.seedLocale`.
    */
   locale?: string;
+  /**
+   * Who the token is for. Absent on a browser's token; `mobile` on one the platform minted for the
+   * person's phone to trade for a session of its own (`POST /signin-handoff/mobile`). Each endpoint
+   * refuses the other's, so a token copied out of a phone cannot sign a browser in, and a link a
+   * browser followed cannot be replayed by an app as a phone.
+   */
+  aud?: string;
 };
 
 /** How far ahead of this clock an `iat` may sit before the token is refused as not yet valid. */
@@ -52,7 +64,8 @@ function isClaims(value: unknown): value is SignInHandoffClaims {
     typeof record.iat === "number" &&
     typeof record.exp === "number" &&
     typeof record.jti === "string" &&
-    (record.locale === undefined || typeof record.locale === "string")
+    (record.locale === undefined || typeof record.locale === "string") &&
+    (record.aud === undefined || typeof record.aud === "string")
   );
 }
 
@@ -142,6 +155,35 @@ export function handoffLocale(
   return suggested && offered.includes(suggested) ? suggested : null;
 }
 
+/** The fields of a user this endpoint reads. */
+type HandoffUser = { id: string; email: string; name?: string | null };
+
+/**
+ * The `Cookie` header that carries exactly these cookies, read back from the `Set-Cookie` headers
+ * Better Auth wrote: the names with their prefixes (`__Host-` on https here) and the signed values
+ * as they were set, so the header is byte for byte what a browser would send. Null when any of them
+ * is missing.
+ */
+export function sessionCookieHeader(
+  headers: Headers | undefined,
+  names: readonly string[],
+): string | null {
+  const set = new Map<string, string>();
+  for (const line of headers?.getSetCookie() ?? []) {
+    const pair = line.split(";", 1)[0] ?? "";
+    const separator = pair.indexOf("=");
+    if (separator <= 0) continue;
+    set.set(pair.slice(0, separator).trim(), pair.slice(separator + 1).trim());
+  }
+  const pairs: string[] = [];
+  for (const name of names) {
+    const value = set.get(name);
+    if (!value) return null;
+    pairs.push(`${name}=${value}`);
+  }
+  return pairs.join("; ");
+}
+
 export type SignInHandoffOptions = {
   secret: string;
   /** The one address a token may sign in, compared case-insensitively. */
@@ -173,7 +215,8 @@ export type MobileLinkedInput = {
 };
 
 /**
- * The Better Auth plugin: one GET endpoint at `/signin-handoff` under the auth base path.
+ * The Better Auth plugin: a GET endpoint at `/signin-handoff` under the auth base path, and the
+ * phone's POST at `/signin-handoff/mobile` (below), sharing one memory of spent tokens.
  *
  * On success it creates the person's account if this is their first visit (the ordinary user hooks
  * run, so the configured administrator role and the deny list apply), opens a session, sets the
@@ -194,6 +237,40 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
     if (spent.has(claims.jti)) return false;
     spent.set(claims.jti, claims.exp);
     return true;
+  };
+
+  /**
+   * The person a verified token names: their account, made on their first visit (the ordinary user
+   * hooks run, so the configured administrator role and the deny list apply), and the platform's
+   * language for them recorded when they have not chosen one here.
+   */
+  const admit = async <U extends HandoffUser>(
+    adapter: {
+      findUserByEmail: (email: string) => Promise<{ user: U } | null>;
+      createUser: (
+        user: { email: string; emailVerified: boolean; name: string },
+        context: { method: string },
+      ) => Promise<U>;
+    },
+    claims: SignInHandoffClaims,
+  ): Promise<U> => {
+    const existing = await adapter.findUserByEmail(admitted);
+    const user =
+      existing?.user ??
+      (await adapter.createUser(
+        {
+          email: admitted,
+          emailVerified: true,
+          name: admitted.split("@")[0] ?? admitted,
+        },
+        { method: "signin-handoff" },
+      ));
+    const suggested = handoffLocale(claims, deploymentLocales().locales);
+    if (suggested && options.seedLocale)
+      await options.seedLocale(user.id, suggested).catch(() => {
+        // A language not recorded is English until they choose; the sign-in goes on.
+      });
+    return user;
   };
 
   return {
@@ -221,29 +298,15 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
             options.deploymentId ? { deploymentId: options.deploymentId } : {},
           );
           if (!claims) return refuse("handoff_refused");
+          // A phone's token is for the phone's endpoint, never for a browser.
+          if (claims.aud === MOBILE_LINK_AUDIENCE)
+            return refuse("handoff_refused");
           if (claims.sub.trim().toLowerCase() !== admitted) {
             return refuse("handoff_refused");
           }
           if (!remember(claims)) return refuse("handoff_replayed");
 
-          const existing =
-            await ctx.context.internalAdapter.findUserByEmail(admitted);
-          const user =
-            existing?.user ??
-            (await ctx.context.internalAdapter.createUser(
-              {
-                email: admitted,
-                emailVerified: true,
-                name: admitted.split("@")[0] ?? admitted,
-              },
-              { method: "signin-handoff" },
-            ));
-
-          const suggested = handoffLocale(claims, deploymentLocales().locales);
-          if (suggested && options.seedLocale)
-            await options.seedLocale(user.id, suggested).catch(() => {
-              // A language not recorded is English until they choose; the sign-in goes on.
-            });
+          const user = await admit(ctx.context.internalAdapter, claims);
 
           const session = await ctx.context.internalAdapter.createSession(
             user.id,
@@ -253,6 +316,107 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
           throw ctx.redirect(
             localRedirect(ctx.query.redirect, new URL(ctx.context.baseURL)),
           );
+        },
+      ),
+      /**
+       * A phone linked through the HyperNoesis app: a `mobile` token traded for a session of its own.
+       *
+       * The same checks as the browser's endpoint (signature, deployment, expiry, the one admitted
+       * address, single use, the language), plus the audience. Every answer is JSON, never a
+       * redirect: the caller is an app reading a body. The session is a "don't remember me" one,
+       * which Better Auth makes last a day and never extends, and the phone is handed the exact
+       * Cookie header to send with it (see `shared/mobile-link.ts`). Nothing is set in the response's
+       * own cookies: a native HTTP stack keeps a jar of its own, and a second copy of the session in
+       * it would travel beside the header the phone sends.
+       */
+      signInHandoffMobile: createAuthEndpoint(
+        "/signin-handoff/mobile",
+        {
+          method: "POST",
+          body: z.object({
+            token: z.string().min(1).max(4096),
+            device: z.object({
+              name: z.string().trim().min(1).max(MOBILE_DEVICE_NAME_LIMIT),
+              platform: z.enum(["ios", "android"]),
+            }),
+          }),
+        },
+        async (ctx) => {
+          const refuse = (
+            code: string,
+            status: "UNAUTHORIZED" | "CONFLICT",
+          ) => {
+            throw new APIError(status, {
+              code,
+              message:
+                status === "CONFLICT"
+                  ? "This sign-in link was already used. Ask for a new one."
+                  : "This sign-in link is not valid here.",
+            });
+          };
+          const linked = options.onMobileLinked;
+          if (!linked) {
+            throw new APIError("NOT_FOUND", {
+              code: "mobile_link_unavailable",
+              message: "Linking a phone is not available on this deployment.",
+            });
+          }
+          const claims = verifySignInHandoffToken(
+            ctx.body.token,
+            options.secret,
+            options.deploymentId ? { deploymentId: options.deploymentId } : {},
+          );
+          if (!claims) return refuse("handoff_refused", "UNAUTHORIZED");
+          // A browser's token is for the browser's endpoint, never for a phone.
+          if (claims.aud !== MOBILE_LINK_AUDIENCE)
+            return refuse("handoff_refused", "UNAUTHORIZED");
+          if (claims.sub.trim().toLowerCase() !== admitted)
+            return refuse("handoff_refused", "UNAUTHORIZED");
+          if (!remember(claims)) return refuse("handoff_replayed", "CONFLICT");
+
+          const user = await admit(ctx.context.internalAdapter, claims);
+          // `true`: don't remember me. A day from now, and not slid forward by using it.
+          const session = await ctx.context.internalAdapter.createSession(
+            user.id,
+            true,
+          );
+          await setSessionCookie(ctx, { session, user }, true);
+          const cookie = sessionCookieHeader(ctx.responseHeaders, [
+            ctx.context.authCookies.sessionToken.name,
+            ctx.context.authCookies.dontRememberToken.name,
+          ]);
+          ctx.responseHeaders?.delete("set-cookie");
+
+          let deviceId: string;
+          try {
+            if (!cookie) throw new Error("The session cookie was not set.");
+            ({ deviceId } = await linked({
+              userId: user.id,
+              sessionId: session.id,
+              device: ctx.body.device,
+            }));
+          } catch (error) {
+            // A phone that could not be recorded cannot be listed or revoked, so it gets no session.
+            await ctx.context.internalAdapter
+              .deleteSession(session.token)
+              .catch(() => undefined);
+            console.error(
+              JSON.stringify({
+                type: "mobile-link-failed",
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            );
+            throw new APIError("NOT_FOUND", {
+              code: "mobile_link_unavailable",
+              message: "Linking a phone is not available on this deployment.",
+            });
+          }
+          return ctx.json({
+            cookie,
+            deviceId,
+            expiresAt: new Date(session.expiresAt).toISOString(),
+            user: { id: user.id, email: user.email, name: user.name ?? null },
+          } satisfies MobileLinkResponse);
         },
       ),
     },

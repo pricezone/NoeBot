@@ -10,7 +10,7 @@ import {
   type OpenTagAgentDeps,
   type PairedApprovals,
 } from "./opentag-agent";
-import { createExpoPushTransport } from "./push";
+import { createExpoPushTransport, mobileLinkBase } from "./push";
 import type { DeliveryRouter } from "./router";
 import type { DeliveryStore } from "./store";
 import {
@@ -475,6 +475,7 @@ export function configuredDeliveryProviders(
       ? createExpoPushTransport({
           projectId: pushProjectId,
           accessToken: env.EXPO_ACCESS_TOKEN,
+          linkBase: mobileLinkBase(env),
         })
       : undefined,
     pushProjectId,

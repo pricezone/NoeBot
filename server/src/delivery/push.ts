@@ -3,14 +3,48 @@ import {
   type ProviderFetch,
   providerJson,
 } from "./types";
+/** The scheme the upstream OpenBot app registers, and the default where links point. */
+export const DEFAULT_MOBILE_LINK_BASE = "openbotmobile://";
+
+/**
+ * Where a notification's link opens: `OPENBOT_MOBILE_LINK_BASE`, or the OpenBot app's scheme.
+ *
+ * A deployment whose phones are the HyperNoesis app points this at that app's own scheme, so a tap
+ * opens the screen the notification is about instead of an app that is not installed. The base is
+ * used as written with the screen's path appended (`<base>approvals?…`), so it ends in `//` or `/`.
+ */
+export function mobileLinkBase(
+  environment: Record<string, string | undefined>,
+): string {
+  return (
+    environment.OPENBOT_MOBILE_LINK_BASE?.trim() || DEFAULT_MOBILE_LINK_BASE
+  );
+}
+
+/**
+ * What a notification is about, and so which screen its link opens. `clicky` is Clicky Mode asking
+ * the person to come to a Bot's computer (the Bot needs them for a sign-in, a code, a challenge).
+ */
+export type PushKind = "reply" | "question" | "approval" | "clicky";
+
+const PUSH_PATHS: Record<PushKind, string> = {
+  reply: "conversation",
+  question: "approvals",
+  approval: "approvals",
+  clicky: "clicky",
+};
+
 export function createExpoPushTransport(
   config: {
     accessToken?: string;
     projectId?: string;
     fetch?: ProviderFetch;
+    /** See `mobileLinkBase`. Absent, the OpenBot app's scheme. */
+    linkBase?: string;
   } = {},
 ) {
   const wire = config.fetch ?? fetch;
+  const linkBase = config.linkBase?.trim() || DEFAULT_MOBILE_LINK_BASE;
   async function call(method: "send" | "getReceipts", body: unknown) {
     let response: Response;
     try {
@@ -31,17 +65,25 @@ export function createExpoPushTransport(
     return providerJson("Expo", response);
   }
   return {
-    async send(input: {
-      token: string;
-      title: string;
-      body: string;
-      channelId: string;
-      kind: "reply" | "question" | "approval";
-      requestId?: string | null;
-    }) {
-      const path = input.kind === "reply" ? "conversation" : "approvals";
+    async send(
+      input: {
+        token: string;
+        title: string;
+        body: string;
+        requestId?: string | null;
+      } & (
+        | { kind: "reply" | "question" | "approval"; channelId: string }
+        /** Clicky: about a Bot's computer rather than a conversation. */
+        | { kind: "clicky"; botId: string }
+      ),
+    ) {
+      const path = PUSH_PATHS[input.kind];
+      const about: Record<string, string> =
+        input.kind === "clicky"
+          ? { bot: input.botId }
+          : { channelId: input.channelId };
       const query = new URLSearchParams({
-        channelId: input.channelId,
+        ...about,
         ...(input.requestId ? { requestId: input.requestId } : {}),
       });
       const result = await call("send", {
@@ -50,10 +92,12 @@ export function createExpoPushTransport(
         body: Array.from(input.body).slice(0, 200).join(""),
         sound: "default",
         data: {
-          channelId: input.channelId,
+          ...(input.kind === "clicky"
+            ? { botId: input.botId }
+            : { channelId: input.channelId }),
           kind: input.kind,
           ...(input.requestId ? { requestId: input.requestId } : {}),
-          url: `openbotmobile://${path}?${query}`,
+          url: `${linkBase}${path}?${query}`,
         },
       });
       const ticket = result.data;
