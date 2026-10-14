@@ -519,6 +519,21 @@ export const auditEventTypes = [
   "routine.enabled_changed",
   /* A run refused because its model is not on the team model allowlist. */
   "model.refused",
+  /*
+   * Clicky Mode (server/src/clicky): the companion beside a Bot's screen waking, proposing an action,
+   * the person's yes or no, what it then did as the person or was not allowed to, and Stop.
+   */
+  "clicky.session_started",
+  "clicky.action_proposed",
+  "clicky.action_approved",
+  "clicky.action_denied",
+  "clicky.action_performed",
+  "clicky.action_failed",
+  "clicky.action_blocked",
+  "clicky.stopped",
+  /* A phone linked through the HyperNoesis app, and one signed out from Settings or the phone. */
+  "mobile.device_linked",
+  "mobile.device_revoked",
 ] as const;
 
 export type AuditEventType = (typeof auditEventTypes)[number];
