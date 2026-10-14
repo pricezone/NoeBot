@@ -43,6 +43,12 @@ relocate() {
   chown "$owner" "$target"
 }
 
+# Where the API and the worker say a turn is running (server/src/busy-marker.ts). HyperNoesis's agent
+# on the VPS reads it from the host and holds an automatic update while a marker in it is fresh.
+mkdir -p "$DATA_DIR/.hypernoesis"
+chown apiuser:apiuser "$DATA_DIR/.hypernoesis"
+chmod 0755 "$DATA_DIR/.hypernoesis"
+
 relocate /var/lib/postgresql postgresql postgres:postgres
 relocate /workspace workspace pwuser:pwuser
 relocate /profiles profiles pwuser:pwuser

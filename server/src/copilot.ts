@@ -76,6 +76,7 @@ import {
 } from "./plugins/selection";
 import type { GrantedTool } from "./plugins/tools";
 import { grantedToolGuidance, parametersFor } from "./plugins/tools";
+import { busyMarker } from "./busy-marker";
 import { beginRunTiming, endRunTiming, timed } from "./run-timing";
 import { UNTRUSTED_GUIDANCE } from "./untrusted-content";
 
@@ -1787,6 +1788,8 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
       const stop = new AbortController();
       this.activeRun = stop;
       const timing = beginRunTiming(input.threadId, input.runId);
+      // An automatic update of this server waits while a run is going (busy-marker.ts).
+      const endBusy = busyMarker.runStarted();
       const subscription = withModelRun(
         {
           botId: this.runOptions.botId ?? this.agentId ?? "",
@@ -1802,6 +1805,7 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
         subscription.unsubscribe();
         if (this.activeRun === stop) this.activeRun = undefined;
         endRunTiming(timing);
+        endBusy();
       };
     });
   }
