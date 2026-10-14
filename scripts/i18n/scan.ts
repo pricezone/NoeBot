@@ -294,7 +294,12 @@ export function untranslatedIn(
       node.parent &&
       (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))
     ) {
-      const text = literalText(node.expression);
+      const text =
+        literalText(node.expression) ??
+        // `{`${count} connected`}`: a sentence built in place is still words on the screen.
+        (node.expression && ts.isTemplateExpression(node.expression)
+          ? node.expression.getText(source).slice(1, -1)
+          : undefined);
       if (text !== undefined) add(node, text, "text");
     }
     ts.forEachChild(node, visit);

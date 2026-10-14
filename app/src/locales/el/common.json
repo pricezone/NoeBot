@@ -1391,6 +1391,8 @@
   "{{actionCount}} actions": "{{actionCount}} ενέργειες",
   "{{botId}} asks: {{question}}": "{{botId}} ρωτά: {{question}}",
   "{{botId}} wants to {{toolRef}}": "{{botId}} θέλει: {{toolRef}}",
+  "{{count}} connected_one": "{{count}} συνδεδεμένη",
+  "{{count}} connected_other": "{{count}} συνδεδεμένες",
   "{{count}} conversations are shared with other people or Bots and will be kept._one": "{{count}} συνομιλία είναι κοινή με άλλα άτομα ή Bots και θα διατηρηθεί.",
   "{{count}} conversations are shared with other people or Bots and will be kept._other": "{{count}} συνομιλίες είναι κοινές με άλλα άτομα ή Bots και θα διατηρηθούν.",
   "{{count}} earlier messages could not be read and are not shown. The rest of this conversation is complete._one": "Ένα προηγούμενο μήνυμα δεν ήταν δυνατό να διαβαστεί και δεν εμφανίζεται. Η υπόλοιπη συνομιλία είναι πλήρης.",

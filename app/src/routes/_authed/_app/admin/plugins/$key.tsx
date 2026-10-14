@@ -1495,15 +1495,30 @@ function RouteComponent() {
               {/* What is about to happen, in one sentence, before it does. */}
               {selectedRefs.size > 0 && chosenNames.length > 0 ? (
                 <p className="flex-1 text-muted-foreground text-xs">
-                  {`Grant ${selectedRefs.size} ${
-                    selectedRefs.size === 1 ? "tool" : "tools"
-                  }${
-                    chosenWrites > 0
-                      ? `, ${chosenWrites} of which ${
-                          chosenWrites === 1 ? "changes" : "change"
-                        } things,`
-                      : ""
-                  } to ${chosenNames.join(", ")}.`}
+                  {chosenWrites === 0
+                    ? t("Grant {{count}} tools to {{bots}}.", {
+                        count: selectedRefs.size,
+                        bots: chosenNames.join(", "),
+                        defaultValue_one: "Grant {{count}} tool to {{bots}}.",
+                      })
+                    : chosenWrites === 1
+                      ? t(
+                          "Grant {{count}} tools, 1 of which changes things, to {{bots}}.",
+                          {
+                            count: selectedRefs.size,
+                            bots: chosenNames.join(", "),
+                            defaultValue_one:
+                              "Grant {{count}} tool, 1 of which changes things, to {{bots}}.",
+                          },
+                        )
+                      : t(
+                          "Grant {{count}} tools, {{writes}} of which change things, to {{bots}}.",
+                          {
+                            count: selectedRefs.size,
+                            writes: chosenWrites,
+                            bots: chosenNames.join(", "),
+                          },
+                        )}
                 </p>
               ) : null}
               <Button onClick={() => setDialog(null)} size="sm" variant="ghost">

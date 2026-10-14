@@ -384,9 +384,11 @@ function RouteComponent() {
           {ungranted.length > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               <p className="text-muted-foreground text-xs">
-                {`This Bot would then hold ${wouldHold} ${
-                  wouldHold === 1 ? "tool" : "tools"
-                } from this app.`}
+                {t("This Bot would then hold {{count}} tools from this app.", {
+                  count: wouldHold,
+                  defaultValue_one:
+                    "This Bot would then hold {{count}} tool from this app.",
+                })}
               </p>
               <Button
                 disabled={granting !== null}

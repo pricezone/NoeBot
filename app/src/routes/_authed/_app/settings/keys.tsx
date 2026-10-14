@@ -332,7 +332,9 @@ function RouteComponent() {
                                   }}
                                   variant="destructive"
                                 >
-                                  {`Disconnect your ${app.title} account`}
+                                  {t("Disconnect your {{title}} account", {
+                                    title: app.title,
+                                  })}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>

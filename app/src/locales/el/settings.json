@@ -85,7 +85,7 @@
   "Disable": "Απενεργοποίηση",
   "Disabled": "Ανενεργό",
   "Disconnect": "Αποσύνδεση",
-  "Disconnect your {{title}} account": "Αποσύνδεση του λογαριασμού σου στο {{title}}",
+  "Disconnect your {{title}} account": "Αποσύνδεση του λογαριασμού σου {{title}}",
   "Disconnected here. {{vendor}} still lists this deployment under your account's third-party access until you revoke it there.": "Αποσυνδέθηκε εδώ. Το {{vendor}} εξακολουθεί να δείχνει αυτή την εγκατάσταση στην πρόσβαση τρίτων του λογαριασμού σου μέχρι να την ανακαλέσεις εκεί.",
   "Email copied": "Το email αντιγράφηκε",
   "Enable": "Ενεργοποίηση",

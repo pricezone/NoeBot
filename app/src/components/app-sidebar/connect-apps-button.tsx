@@ -85,7 +85,9 @@ export function ConnectAppsButton() {
       <span className="truncate">{t("Connect apps")}</span>
       <span className="flex shrink-0 items-center" data-testid="connected-apps">
         {connected > 0 ? (
-          <span className="sr-only">{`${connected} connected`}</span>
+          <span className="sr-only">
+            {t("{{count}} connected", { count: connected })}
+          </span>
         ) : null}
         {faces.map((face, index) => (
           <span
