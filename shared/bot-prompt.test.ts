@@ -89,6 +89,11 @@ describe("COMPUTER_GUIDANCE", () => {
     );
     expect(flat).toContain("Never ask for usernames, passwords or codes");
     expect(flat).toContain("never refuse government, bank or identity logins");
+    // Asked to issue an official document, the Bot does it on the service (O8, and again on
+    // 2026-10-14 after the prompt was made site-agnostic): never a draft to print.
+    expect(flat).toContain(
+      "rather than drafting a document for the person to print or sign",
+    );
     expect(flat).toContain(
       "do not ask again in the same turn: say what you need and stop",
     );
