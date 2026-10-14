@@ -1,4 +1,8 @@
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import {
+  queryOptions,
+  replaceEqualDeep,
+  useQuery,
+} from "@tanstack/react-query";
 import { client, httpStatusOf } from "@/lib/client";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
@@ -27,26 +31,22 @@ export const clickyKeys = {
   devices: () => ["clicky", "devices"] as const,
 };
 
-/** The copy to keep: the one with the higher `seq`, and the incoming one on a tie. */
+/**
+ * The copy to keep: the one with the higher `seq`, and the incoming one on a tie, unless the held
+ * copy has a reply still arriving.
+ *
+ * WHY A TIE KEEPS A STREAMING REPLY. While Clicky thinks, its words arrive as `reply.delta`s stamped
+ * with the thinking snapshot's `seq` and are appended here, in the browser only. Anything else the
+ * server answers with at that same `seq` (a refused command's POST answer, the snapshot a reconnect
+ * sends) is the session from before those words, and would wipe them.
+ */
 export function newerSession(
   held: ClickySession | undefined,
   incoming: ClickySession,
 ): ClickySession {
   if (!held || held.id !== incoming.id) return incoming;
   if (incoming.seq < held.seq) return held;
-  /*
-   * The same `seq` with a reply still arriving: the words the events socket appended
-   * (`reply.delta`) are newer than a snapshot taken before them, so the longer one stays.
-   */
-  if (
-    incoming.seq === held.seq &&
-    held.reply &&
-    !held.reply.final &&
-    incoming.reply &&
-    !incoming.reply.final &&
-    incoming.reply.text.length < held.reply.text.length
-  )
-    return held;
+  if (incoming.seq === held.seq && held.reply && !held.reply.final) return held;
   return incoming;
 }
 
@@ -72,12 +72,15 @@ export function clickySessionQueryOptions(botId: string) {
       }),
     /*
      * Never let an older copy replace a newer one, whichever way it arrived: this runs for the
-     * fetch's own answer and for every `setQueryData` the socket and the commands make.
+     * fetch's own answer and for every `setQueryData` the socket and the commands make. It also
+     * runs for each surface's `select`, so a view that came out the same (the bar while words
+     * stream into the reply) keeps its reference, and whatever drew it is not drawn again.
      */
-    structuralSharing: (held: unknown, incoming: unknown) =>
-      isSession(incoming)
-        ? newerSession(isSession(held) ? held : undefined, incoming)
-        : incoming,
+    structuralSharing: (held: unknown, incoming: unknown) => {
+      if (!isSession(incoming)) return replaceEqualDeep(held, incoming);
+      const kept = newerSession(isSession(held) ? held : undefined, incoming);
+      return kept === held ? held : replaceEqualDeep(held, kept);
+    },
     // The events socket keeps it current; a refetch on focus would only race it.
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,

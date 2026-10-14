@@ -57,7 +57,7 @@ export const CLICKY_STATE_LABEL: Record<ClickyChipState, string> = {
 };
 
 export function chipStateOf(
-  session: ClickySession | null | undefined,
+  session: Pick<ClickySession, "awake" | "state"> | null | undefined,
 ): ClickyChipState {
   if (!session) return "asleep";
   // Stopped stays on screen until the person resumes: that is the point of saying it.

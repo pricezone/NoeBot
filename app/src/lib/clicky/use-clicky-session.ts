@@ -19,6 +19,10 @@ import { showClickySession } from "./shown-sessions";
  * a lower `seq` than the one held is late and ignored (`newerSession`); a delta for a later `seq` than
  * the one held means a snapshot was missed, and the session is fetched again rather than patched.
  * The socket reconnects with backoff and fetches the session again each time it does.
+ *
+ * WORDS ARRIVE CHEAPLY. Deltas are gathered and written once per animation frame, and each surface
+ * reads only the slice it draws (`select`): while a reply streams, only the line that shows the reply
+ * is drawn again, not the viewer around it.
  */
 
 /** What the events socket may send. Anything else is ignored. */
@@ -58,8 +62,13 @@ function parseMessage(data: unknown): ServerMessage | null {
 }
 
 /**
- * The session with a piece of Clicky's reply appended, or `"refetch"` when the piece is for a
- * snapshot this tab never saw, or null when it is late and there is nothing to do.
+ * The session with a piece of Clicky's reply added, or `"refetch"` when the piece is for a snapshot
+ * this tab never saw, or null when it is late and there is nothing to do.
+ *
+ * The server stamps a delta with the `seq` of the thinking snapshot it belongs to, and that snapshot
+ * still carries the PREVIOUS reply, whole ("Hi! Ask me anything…" after a wake, the Bot's request
+ * after an activation): the reducer only replaces it when the answer is in. So the first piece of a
+ * new answer starts a new reply of its own, and the pieces after it are appended to that one.
  */
 export function applyReplyDelta(
   held: ClickySession | undefined,
@@ -67,21 +76,33 @@ export function applyReplyDelta(
 ): ClickySession | "refetch" | null {
   if (!held || delta.seq > held.seq) return "refetch";
   if (delta.seq < held.seq) return null;
-  // A reply already marked whole has nothing more coming; a straggler must not add to it.
-  if (held.reply?.final) return null;
-  return {
-    ...held,
-    reply: {
-      ...(held.reply ?? {}),
-      text: `${held.reply?.text ?? ""}${delta.text}`,
-      final: false,
-    },
-  };
+  const reply = held.reply;
+  if (reply && !reply.final)
+    return { ...held, reply: { ...reply, text: `${reply.text}${delta.text}` } };
+  // A reply already whole, with Clicky not thinking: nothing more is coming, a straggler is dropped.
+  if (held.state !== "thinking") return null;
+  return { ...held, reply: { text: delta.text, final: false } };
 }
 
 /** The first retry waits a second, each one after twice as long, up to half a minute. */
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+/**
+ * How long a socket has to stay open before it counts as working again. One that opens and drops at
+ * once (a proxy that accepts and closes) keeps backing off instead of reconnecting every second.
+ */
+const STABLE_AFTER_MS = 5_000;
+
+/** Once per frame where there are frames; a hidden tab has none, so a short timer there. */
+function nextFrame(run: () => void): void {
+  if (
+    typeof requestAnimationFrame === "function" &&
+    typeof document !== "undefined" &&
+    document.visibilityState === "visible"
+  )
+    requestAnimationFrame(() => run());
+  else setTimeout(run, 16);
+}
 
 function openEvents(botId: string, client: QueryClient): () => void {
   const key = clickyKeys.session(botId);
@@ -89,9 +110,41 @@ function openEvents(botId: string, client: QueryClient): () => void {
   let closed = false;
   let attempt = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let stable: ReturnType<typeof setTimeout> | undefined;
+  /** Pieces of a reply waiting for the next frame, in order. */
+  let pending: { seq: number; text: string }[] = [];
+  let flushing = false;
 
+  /*
+   * One fetch at a time: a refetch already on its way answers a second reason to ask as well, so a
+   * burst of resyncs or a reconnect during a fetch does not cancel and restart it.
+   */
   const refetch = () =>
-    void client.invalidateQueries({ queryKey: key, exact: true });
+    void client.invalidateQueries(
+      { queryKey: key, exact: true },
+      { cancelRefetch: false },
+    );
+
+  const flush = () => {
+    flushing = false;
+    if (closed) return;
+    const pieces = pending;
+    pending = [];
+    let held = client.getQueryData<ClickySession>(key);
+    let changed = false;
+    for (const piece of pieces) {
+      const next = applyReplyDelta(held, piece);
+      if (next === "refetch") {
+        refetch();
+        return;
+      }
+      if (next) {
+        held = next;
+        changed = true;
+      }
+    }
+    if (changed && held) client.setQueryData(key, held);
+  };
 
   const onMessage = (message: ServerMessage) => {
     if (message.type === "resync") {
@@ -99,14 +152,17 @@ function openEvents(botId: string, client: QueryClient): () => void {
       return;
     }
     if (message.type === "snapshot") {
+      // Pieces still waiting belong before this snapshot; apply them first so the order holds.
+      if (pending.length) flush();
       client.setQueryData<ClickySession>(key, (held) =>
         newerSession(held, message.session),
       );
       return;
     }
-    const next = applyReplyDelta(client.getQueryData(key), message);
-    if (next === "refetch") refetch();
-    else if (next) client.setQueryData(key, next);
+    pending.push({ seq: message.seq, text: message.text });
+    if (flushing) return;
+    flushing = true;
+    nextFrame(flush);
   };
 
   const connect = () => {
@@ -124,13 +180,17 @@ function openEvents(botId: string, client: QueryClient): () => void {
     opened.onopen = () => {
       // A reconnect may have missed changes; the server's own snapshot follows, but ask anyway.
       if (attempt > 0) refetch();
-      attempt = 0;
+      clearTimeout(stable);
+      stable = setTimeout(() => {
+        if (socket === opened) attempt = 0;
+      }, STABLE_AFTER_MS);
     };
     opened.onmessage = (event: MessageEvent) => {
       const message = parseMessage(event.data);
       if (message) onMessage(message);
     };
     opened.onclose = () => {
+      clearTimeout(stable);
       if (socket === opened) socket = null;
       if (!closed) schedule();
     };
@@ -149,6 +209,8 @@ function openEvents(botId: string, client: QueryClient): () => void {
   return () => {
     closed = true;
     clearTimeout(timer);
+    clearTimeout(stable);
+    pending = [];
     const open = socket;
     socket = null;
     if (open) {
@@ -182,21 +244,32 @@ export function subscribeClickyEvents(
   };
 }
 
+const whole = (session: ClickySession) => session;
+
 /**
- * This person's Clicky session on `botId`'s computer, live. Nothing is fetched or opened while
- * `enabled` is false (Clicky off on this deployment, a finished turn, no Bot).
+ * This person's Clicky session on `botId`'s computer, live, or the slice of it `select` picks.
+ * Nothing is fetched or opened while `enabled` is false (Clicky off on this deployment, a finished
+ * turn, no Bot).
+ *
+ * `select` should be a function defined once, outside the component: the slice is compared with the
+ * last one, and the caller is drawn again only when it changed.
  *
  * `surface` says what is drawing it, for the stop pill: a viewer draws its own Stop, so the pill
  * stays out of the way of one.
  */
-export function useClickySession(
+export function useClickySession<T = ClickySession>(
   botId: string | undefined,
   enabled: boolean,
   surface: "viewer" | "preview" | "watch" = "preview",
-) {
+  select?: (session: ClickySession) => T,
+): T | undefined {
   const active = enabled && Boolean(botId);
-  const session = useQuery(
-    { ...clickySessionQueryOptions(botId ?? ""), enabled: active },
+  const { data } = useQuery(
+    {
+      ...clickySessionQueryOptions(botId ?? ""),
+      enabled: active,
+      select: select ?? (whole as (session: ClickySession) => T),
+    },
     queryClient,
   );
   useEffect(() => {
@@ -208,5 +281,44 @@ export function useClickySession(
       hide?.();
     };
   }, [active, botId, surface]);
-  return session;
+  return data;
+}
+
+/**
+ * A slice of a Bot's session as the cache holds it, for a part of a surface that already subscribed
+ * (`useClickySession`): it never fetches and never opens a socket of its own.
+ */
+export function useClickySessionView<T>(
+  botId: string,
+  select: (session: ClickySession) => T,
+): T | undefined {
+  return useQuery(
+    { ...clickySessionQueryOptions(botId), enabled: false, select },
+    queryClient,
+  ).data;
+}
+
+/** Where Clicky is, and whether it is awake: what the screen around it needs, and nothing more. */
+export function selectClickyPresence(session: ClickySession): {
+  awake: boolean;
+  state: ClickySession["state"];
+} {
+  return { awake: session.awake, state: session.state };
+}
+
+/**
+ * The session with a reply that is still arriving blanked out, so a surface that does not draw the
+ * words is not drawn again for each one. Whether a reply is arriving is still there to read.
+ */
+export function selectClickyCalm(session: ClickySession): ClickySession {
+  const reply = session.reply;
+  if (!reply || reply.final) return session;
+  return { ...session, reply: { text: "", final: false } };
+}
+
+/** The reply alone, for the one line that draws its words as they arrive. */
+export function selectClickyReply(
+  session: ClickySession,
+): ClickySession["reply"] {
+  return session.reply;
 }

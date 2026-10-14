@@ -4,6 +4,7 @@ import { intlLocale } from "@/lib/i18n/format";
 import type { ClickySession } from "../../../../shared/clicky";
 import type { Locale } from "../../../../shared/i18n/locales";
 import { replyText } from "./notices";
+import { useClickySessionView } from "./use-clicky-session";
 
 /**
  * Clicky reading its replies aloud, when the person turned that on (`clickySpeakReplies`).
@@ -36,38 +37,47 @@ export function hush(): void {
   if (speechAvailable()) window.speechSynthesis.cancel();
 }
 
-/** The session without the two fields every change bumps, to tell "nothing changed" apart. */
-function bodyOf(session: ClickySession): string {
-  const { seq: _seq, updatedAt: _updatedAt, ...rest } = session;
-  return JSON.stringify(rest);
+/**
+ * What reading aloud needs from the session: its `seq`, the reply once it is whole, and everything
+ * else (minus the two fields every change bumps, and minus words still arriving), to tell a `repeat`
+ * (nothing changed but `seq`) from a session that moved on. Words arriving change none of it, so the
+ * hook is not run for each one.
+ */
+function selectSpoken(session: ClickySession): {
+  seq: number;
+  reply: string | null;
+  body: string;
+  stopped: boolean;
+} {
+  const { seq, updatedAt: _updatedAt, ...rest } = session;
+  const whole = session.reply?.final ? session.reply : null;
+  return {
+    seq,
+    reply: whole ? JSON.stringify(whole) : null,
+    body: JSON.stringify({ ...rest, reply: whole }),
+    stopped: session.state === "stopped",
+  };
 }
 
-export function useClickySpeech(
-  session: ClickySession | undefined,
-  enabled: boolean,
-): void {
+export function useClickySpeech(botId: string, enabled: boolean): void {
   const { t } = useTranslation();
   const locale = useInterfaceLocale();
-  const last = useRef<{
-    seq: number;
-    reply: string | null;
-    body: string;
-  } | null>(null);
+  const spoken = useClickySessionView(botId, selectSpoken);
+  const last = useRef<ReturnType<typeof selectSpoken> | null>(null);
 
   useEffect(() => {
-    if (!session) return;
-    const reply = session.reply?.final ? JSON.stringify(session.reply) : null;
-    const body = bodyOf(session);
+    if (!spoken) return;
     const previous = last.current;
-    last.current = { seq: session.seq, reply, body };
+    last.current = spoken;
     // What was already on screen when this started is not news.
-    if (!previous || session.seq <= previous.seq) return;
-    if (session.state === "stopped" && previous.body !== body) hush();
-    if (!enabled || !reply) return;
-    const repeated = previous.body === body;
-    if (reply === previous.reply && !repeated) return;
-    speak(replyText(session.reply, t), locale);
-  }, [session, enabled, t, locale]);
+    if (!previous || spoken.seq <= previous.seq) return;
+    if (spoken.stopped && previous.body !== spoken.body) hush();
+    if (!enabled || !spoken.reply) return;
+    const repeated = previous.body === spoken.body;
+    if (spoken.reply === previous.reply && !repeated) return;
+    const reply = JSON.parse(spoken.reply) as ClickySession["reply"];
+    speak(replyText(reply, t), locale);
+  }, [spoken, enabled, t, locale]);
 
   // Turned off, or the bar closed: stop talking.
   useEffect(() => {
