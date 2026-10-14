@@ -114,6 +114,11 @@ instance end to end, using tasks on the-internet.herokuapp.com.
 
 | After (3f3f8ae, tools in the run, 2026-10-14 00:46) | 3 steps on selenium.dev: a 5-field form with submit, a JavaScript prompt, an input revealed on click | 1 min 30 s | 3 / 3 | One run of 81 s. There were 12 browser actions, about 5 s in all (the whole form was one `computer_fill`, 1 s). The 13 model calls took about 76 s. |
 
+**A turn survives its tab closing (O9), verified live on 2026-10-14.**
+- A form task was sent and its tab closed 7 s later.
+- The server carried the turn on: navigate, then fill, then read.
+- The answer ("Received!") was in the conversation about 30 s after the send.
+
 **On a site that answers promptly, the model is now nearly all of the time:** about 4–7 s per
 step at reasoning effort `low`. Browser actions add well under a second each.
 
