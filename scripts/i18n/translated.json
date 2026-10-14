@@ -1,0 +1,7 @@
+[
+  "app/src/components/app-sidebar/account-menu-row.ts",
+  "app/src/components/app-sidebar/account-menu.tsx",
+  "app/src/components/app-sidebar/language-row.tsx",
+  "app/src/components/language-options.tsx",
+  "app/src/components/settings/language-preference.tsx"
+]

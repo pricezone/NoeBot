@@ -82,6 +82,22 @@ function SaveButton() {
   `REFUSAL_MARKER`, the `Error:` prefix, and the English patterns `stopped-turn.ts` matches.
 - Product and brand names: Noë Bot, Bots, HyperNoesis, Composio, OpenClaw, credits.
 
+## Tools
+
+| Command | What it says |
+| --- | --- |
+| `bun run i18n:extract` | Per namespace: how many entries the code asks for, how many have no Greek yet, how many Greek entries nothing asks for any more. `--missing` lists each gap with where it is used (`--ns settings`, `--json`); `--stale` lists the unused Greek. |
+| `bun run i18n:guard` | Per file: English a person would see that is not going through a translation (JSX text and text props such as `title`, `aria-label`, `placeholder`). Give a path to list every hit under it. `--mark <paths>` records files that reached zero in `scripts/i18n/translated.json`. |
+
+`app/tests/i18n-catalogs.test.ts` holds the catalogs to the source: no Greek entry nothing asks
+for, the English's `{{placeholders}}` and `<tags>` kept, the glossary (`glossary.json`) followed, Greek
+spelling (final sigma, `;` for a question, no Latin letters inside Greek words, the informal
+register), and every file listed in `translated.json` free of untranslated English and of keys
+without Greek. A file goes on that list once somebody has translated it; it never comes off.
+
+Mark text that is code or data rather than prose with `// i18n-ignore` on the line before (or
+`{/* i18n-ignore */}` in JSX); text inside `<code>`, `<kbd>` and `<pre>` is skipped already.
+
 ## Greek style
 
 Informal second person singular (εσύ), as on the HyperNoesis platform's Noë Bot pages. Buttons are

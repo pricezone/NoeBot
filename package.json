@@ -26,7 +26,9 @@
     "diagram": "bun scripts/architecture-diagram.ts",
     "bench:browser": "bun scripts/bench-browser.ts",
     "composio:smoke": "bun scripts/composio-smoke.ts",
-    "mock:knowledge": "bun scripts/mock-knowledge-mcp.ts"
+    "mock:knowledge": "bun scripts/mock-knowledge-mcp.ts",
+    "i18n:extract": "bun scripts/i18n/extract.ts",
+    "i18n:guard": "bun scripts/i18n/guard.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
