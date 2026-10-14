@@ -25,8 +25,13 @@ export function createMobileRoutes(deps: {
   /** Whether this person may use this Bot's computer, as the computer routes ask it. */
   canUseComputer: (actor: AgentActor, botId: string) => Promise<boolean>;
   auditStore?: AuditStore;
+  /** Refuses requests a page on another site made with the person's cookies (same-site-guard.ts). */
+  sameSite?: MiddlewareHandler;
+  /** Told the session token of a phone just signed out, so its open sockets close. */
+  onRevoked?: (sessionToken: string) => void;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
+  if (deps.sameSite) routes.use("*", deps.sameSite);
   routes.use("*", deps.requireUser, bodyLimit({ maxSize: 16 * 1024 }));
 
   /** The phone this request came from, marked seen; null for a browser. */
@@ -101,6 +106,7 @@ export function createMobileRoutes(deps: {
     const revoked = await deps.store.revoke(actor.id, id);
     if (!revoked)
       return context.json({ error: "There is no such phone." }, 404);
+    if (revoked.sessionToken) deps.onRevoked?.(revoked.sessionToken);
     if (deps.auditStore)
       await recordAuditEvent(deps.auditStore, {
         eventType: "mobile.device_revoked",

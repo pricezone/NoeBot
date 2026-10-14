@@ -68,6 +68,15 @@ export const SERVER_TEXT_EL: Record<string, string> = {
   "Noë Bot needs you": "Το Noë Bot σε χρειάζεται",
   "Open Clicky to see what to do.":
     "Άνοιξε το Clicky για να δεις τι να κάνεις.",
+  "Noë Bot needs your help on its computer.":
+    "Το Noë Bot χρειάζεται τη βοήθειά σου στον υπολογιστή του.",
+  "Noë Bot needs you to sign in.": "Το Noë Bot χρειάζεται να συνδεθείς.",
+  "Noë Bot needs you to enter a password or a code.":
+    "Το Noë Bot χρειάζεται να βάλεις έναν κωδικό πρόσβασης ή έναν κωδικό.",
+  "Noë Bot needs you to finish a check on a website.":
+    "Το Noë Bot χρειάζεται να ολοκληρώσεις έναν έλεγχο σε έναν ιστότοπο.",
+  "Noë Bot needs you to do a step yourself.":
+    "Το Noë Bot χρειάζεται να κάνεις ένα βήμα μόνος σου.",
 };
 
 const TABLES: Partial<Record<Locale, Record<string, string>>> = {

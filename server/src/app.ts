@@ -67,6 +67,7 @@ import type { ComputerGateway } from "./computer/gateway";
 import type { PageFrameStore } from "./computer/page-frames";
 import type { PolicyStore } from "./computer/policy-store";
 import { createComputerRoutes } from "./computer/routes";
+import { deploymentOrigins, sameSiteGuard } from "./computer/same-site-guard";
 import { configuredAuthProviders, type DeploymentConfig } from "./config";
 import {
   type CredentialAdminService,
@@ -1368,13 +1369,12 @@ export function createApp(
         pageFrames,
         auditReader,
         clicky?.enabled ? clicky.computerRoutes() : undefined,
+        sameSiteGuard(deploymentOrigins(config)),
       ),
     );
   }
-  // A person's linked phones (Settings › Phones, and the HyperNoesis app signing out).
-  const mobileRoutes = clicky?.enabled
-    ? clicky.mobileRoutes(requireUser)
-    : undefined;
+  // A person's linked phones (Settings › Phones, and the HyperNoesis app), with or without Clicky.
+  const mobileRoutes = clicky?.mobileRoutes(requireUser);
   if (mobileRoutes) app.route("/api/mobile", mobileRoutes);
 
   if (hostAccessBroker) {

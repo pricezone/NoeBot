@@ -143,6 +143,7 @@ import {
   createComputerProvider,
   describeComputerIsolation,
 } from "./computer/provider";
+import { checkSameSite, deploymentOrigins } from "./computer/same-site-guard";
 import { createSnapshotStore } from "./computer/snapshot-store";
 import { streamPathBotId } from "./computer/stream-path";
 import { loadConfig } from "./config";
@@ -3309,28 +3310,27 @@ const credentialAdmin = createCredentialAdminService(
   credentialStore,
   createAuditStore(database),
 );
-clickyWiring = computerGateway
-  ? createClickyWiring({
-      config,
-      database,
-      databaseUrl: config.databaseUrl,
-      gateway: computerGateway,
-      auditStore: bootAuditStore,
-      agentProfileStore,
-      userPreferences: userPreferencesStore,
-      model: runtimeModel,
-      resolveApiKey: () =>
-        resolveModelApiKey({
-          encryptionKey: config.keyEncryptionKey,
-          reader: credentialStore,
-          provider: runtimeModel.provider,
-          keyId: tenantPackage.model.credentialSecretRef,
-          environment: process.env,
-        }),
-      // "Noë Bot needs you" on the person's linked phones.
-      ...(deliveryProviders.push ? { push: deliveryProviders.push } : {}),
-    })
-  : undefined;
+// Always built: linking a phone needs no computer. Clicky itself needs one (and CLICKY_MODE).
+clickyWiring = createClickyWiring({
+  config,
+  database,
+  databaseUrl: config.databaseUrl,
+  ...(computerGateway ? { gateway: computerGateway } : {}),
+  auditStore: bootAuditStore,
+  agentProfileStore,
+  userPreferences: userPreferencesStore,
+  model: runtimeModel,
+  resolveApiKey: () =>
+    resolveModelApiKey({
+      encryptionKey: config.keyEncryptionKey,
+      reader: credentialStore,
+      provider: runtimeModel.provider,
+      keyId: tenantPackage.model.credentialSecretRef,
+      environment: process.env,
+    }),
+  // "Noë Bot needs you" on the person's linked phones.
+  ...(deliveryProviders.push ? { push: deliveryProviders.push } : {}),
+});
 if (clickyWiring?.enabled)
   void clickyWiring.start().catch((error) => {
     console.error("Clicky could not start", error);
@@ -3619,6 +3619,9 @@ type StreamData = {
   frame?: { width: number; height: number };
 };
 
+/** The origins the live screen's socket accepts besides this deployment's own host. */
+const streamTrustedOrigins = new Set(deploymentOrigins(config));
+
 /**
  * The size a frame message names, read from its tail without parsing it: `"width":N,"height":N}` is
  * how the computer ends every frame, and parsing a quarter-megabyte of base64 per frame to learn two
@@ -3700,6 +3703,10 @@ serve<SocketData>({
       if (!config.computer) {
         return new Response("No computer is configured.", { status: 503 });
       }
+      // Only this deployment's own pages may watch and drive a screen (same-site-guard.ts).
+      const sameSite = checkSameSite(request, streamTrustedOrigins);
+      if (!sameSite.ok)
+        return new Response(sameSite.error, { status: sameSite.status });
       // The session guard, applied by hand because middleware does not run on an upgrade. An
       // unauthenticated socket here would be the whole point of the proxy defeated.
       const actor = await resolveRequestActor(request).catch(() => null);

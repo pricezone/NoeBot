@@ -64,8 +64,14 @@ export function createComputerRoutes(
    * every one of them. See clicky/index.ts.
    */
   clicky?: Hono<{ Variables: AppVariables }>,
+  /**
+   * Refuses requests a page on another site made with this person's cookies, before anything else:
+   * the person's input, the live sockets and the policy alike. See same-site-guard.ts.
+   */
+  sameSite?: MiddlewareHandler,
 ) {
   const routes = new Hono<{ Variables: AppVariables }>();
+  if (sameSite) routes.use("*", sameSite);
 
   /**
    * Every route under a Bot id, in one place.
