@@ -2,6 +2,10 @@ import { IconAlertTriangle } from "@tabler/icons-react";
 import { memo, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/lib/i18n";
+import {
+  loadServerMessages,
+  localizeServerMessage,
+} from "@/lib/i18n/server-messages";
 import { formatElapsed } from "@/lib/i18n/strings";
 import type {
   ClickyAction,
@@ -10,17 +14,62 @@ import type {
 } from "../../../../shared/clicky";
 import type { ClickyActionPolicy } from "../../../../shared/user-preferences";
 
-/** Seconds left until `expiresAt`, ticking once a second; never below zero. */
-function useSecondsLeft(expiresAt: string): number {
-  const deadline = Date.parse(expiresAt);
+/**
+ * How long the Allow buttons stay asleep after a proposal appears, as a browser's permission prompt
+ * does: a click aimed at whatever was under the pointer a moment ago must not become a yes.
+ */
+export const CLICKY_ALLOW_ARM_MS = 700;
+
+/**
+ * Seconds left, ticking once a second; never below zero.
+ *
+ * Counted from when THIS tab first saw the proposal, for as long as the server gave it
+ * (`expiresAt - createdAt`), rather than by comparing this computer's clock with the server's: a
+ * clock a minute out would otherwise show a fresh request as already lapsed, or a lapsed one as open.
+ * The server is what expires it; this only says roughly how long is left.
+ */
+function useSecondsLeft(proposal: ClickyProposal): number {
+  const [deadline] = useState(() => {
+    const lifetime =
+      Date.parse(proposal.expiresAt) - Date.parse(proposal.createdAt);
+    return Number.isFinite(lifetime) ? Date.now() + Math.max(0, lifetime) : 0;
+  });
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (!Number.isFinite(deadline)) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [deadline]);
-  if (!Number.isFinite(deadline)) return 0;
+  }, []);
   return Math.max(0, Math.ceil((deadline - now) / 1000));
+}
+
+/** Whether `ms` have passed since this was first drawn. */
+function useArmed(ms: number): boolean {
+  const [armed, setArmed] = useState(ms <= 0);
+  useEffect(() => {
+    if (ms <= 0) return;
+    const timer = window.setTimeout(() => setArmed(true), ms);
+    return () => window.clearTimeout(timer);
+  }, [ms]);
+  return armed;
+}
+
+/**
+ * A sentence the server wrote (the guardrails' reason), in the interface's language where the
+ * server's catalog has it, and as the server sent it otherwise.
+ */
+function useServerSentence(english: string | undefined): string {
+  const [, setLoaded] = useState(0);
+  useEffect(() => {
+    if (!english) return;
+    let current = true;
+    void loadServerMessages().then(() => {
+      if (current) setLoaded((n) => n + 1);
+    });
+    return () => {
+      current = false;
+    };
+  }, [english]);
+  return english ? localizeServerMessage(english) : "";
 }
 
 /** What the action is, as a short instruction: "Click: the Search box". */
@@ -52,22 +101,30 @@ function useActionWords(action: ClickyAction): string {
  * answers: Allow once, Allow for this task (only for a low-risk action, and only for somebody whose
  * setting lets one yes cover a task), and Not now. The request lapses after two minutes, counted
  * down here; the server is what expires it.
+ *
+ * Drawn with `key={proposal.id}`, so a new proposal is a new card: its Allow buttons wait a moment
+ * again, and its countdown starts again.
  */
 export const ClickyProposalCard = memo(function ClickyProposalCard({
   proposal,
   actionPolicy,
   busy,
   onCommand,
+  armDelayMs = CLICKY_ALLOW_ARM_MS,
 }: {
   proposal: ClickyProposal;
-  actionPolicy: ClickyActionPolicy;
+  /** The person's setting; null until it has loaded, when nothing that depends on it is offered. */
+  actionPolicy: ClickyActionPolicy | null;
   busy: boolean;
   onCommand: (command: ClickyCommand) => void;
+  armDelayMs?: number;
 }) {
   const { t } = useTranslation();
-  const left = useSecondsLeft(proposal.expiresAt);
+  const left = useSecondsLeft(proposal);
   const expired = left <= 0;
+  const armed = useArmed(armDelayMs);
   const words = useActionWords(proposal.action);
+  const riskReason = useServerSentence(proposal.riskReason);
   const taskWide =
     proposal.risk === "low" && actionPolicy === "ask_once_per_task";
   return (
@@ -91,12 +148,12 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
           </span>
         ) : null}
       </div>
-      {proposal.risk === "confirm" && proposal.riskReason ? (
-        <p className="text-xs text-zinc-600">{proposal.riskReason}</p>
+      {proposal.risk === "confirm" && riskReason ? (
+        <p className="text-xs text-zinc-600">{riskReason}</p>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button
-          disabled={busy || expired}
+          disabled={busy || expired || !armed}
           onClick={() =>
             onCommand({
               type: "approve",
@@ -111,7 +168,7 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
         {taskWide ? (
           <Button
             className="border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100"
-            disabled={busy || expired}
+            disabled={busy || expired || !armed}
             onClick={() =>
               onCommand({
                 type: "approve",

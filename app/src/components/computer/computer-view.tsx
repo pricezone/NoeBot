@@ -7,10 +7,16 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { ClickyPanelRow } from "@/components/clicky/clicky-launcher";
-import { ClickyOverlay } from "@/components/clicky/clicky-overlay";
+import {
+  ClickyScreenOverlay,
+  containedFrame,
+} from "@/components/clicky/clicky-overlay";
 import { ClickyStateChip } from "@/components/clicky/clicky-state-chip";
 import { useClickyCapability } from "@/lib/clicky/queries";
-import { useClickySession } from "@/lib/clicky/use-clicky-session";
+import {
+  selectClickyPresence,
+  useClickySession,
+} from "@/lib/clicky/use-clicky-session";
 import { useClickyViewerRequest } from "@/lib/clicky/viewer-request";
 import {
   type Desktop,
@@ -539,8 +545,23 @@ export function ComputerView({
    */
   const clicky = useClickyCapability();
   const clickyOn = clicky.enabled && !settled && !asleep;
-  const clickySession = useClickySession(computerId, clickyOn, "preview").data;
-  const clickyAwake = clickyOn && clickySession?.awake === true;
+  const clickyPresence = useClickySession(
+    computerId,
+    clickyOn,
+    "preview",
+    selectClickyPresence,
+  );
+  const clickyAwake = clickyOn && clickyPresence?.awake === true;
+  /*
+   * The picture is fitted whole inside the card (`object-contain`), so a frame of another shape
+   * than the card is drawn with bands beside it; Clicky's layer covers the picture, not the bands.
+   */
+  const clickyFrame = containedFrame(
+    frameAspect,
+    shot && shot.width > 0 && shot.height > 0
+      ? shot.width / shot.height
+      : frameAspect,
+  );
   const openViewer = useCallback(() => setExpanded(true), []);
   useClickyViewerRequest(
     computerId,
@@ -588,13 +609,19 @@ export function ComputerView({
             >
               {polledScreen}
 
-              {clickyAwake && clickySession && showScreen ? (
-                <ClickyOverlay compact session={clickySession} />
+              {clickyAwake && showScreen ? (
+                <span
+                  className="pointer-events-none absolute"
+                  data-slot="clicky-frame"
+                  style={clickyFrame}
+                >
+                  <ClickyScreenOverlay botId={computerId} compact />
+                </span>
               ) : null}
-              {clickyAwake && clickySession ? (
+              {clickyAwake ? (
                 <ClickyStateChip
                   className="absolute top-2 left-2 z-20 bg-black/60 text-white backdrop-blur-sm"
-                  session={clickySession}
+                  session={clickyPresence}
                 />
               ) : null}
 
@@ -674,7 +701,7 @@ export function ComputerView({
             <ClickyPanelRow
               botId={computerId}
               onOpenScreen={openViewer}
-              session={clickySession}
+              session={clickyPresence}
             />
           ) : null}
           {!settled && control?.transitioning ? (

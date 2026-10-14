@@ -4,11 +4,15 @@ import { memo, useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { CLICKY_STOP_ARIA, useClickyStopShortcut } from "@/lib/clicky/keyboard";
-import { stopClickyNow } from "@/lib/clicky/mutations";
+
 import { type ClickyChipState, chipStateOf } from "@/lib/clicky/notices";
 import { useClickyCapability } from "@/lib/clicky/queries";
 import { useShownClickySessions } from "@/lib/clicky/shown-sessions";
-import { useClickySession } from "@/lib/clicky/use-clicky-session";
+import { stopClickyNow, useClickyStopFailed } from "@/lib/clicky/stop";
+import {
+  selectClickyPresence,
+  useClickySession,
+} from "@/lib/clicky/use-clicky-session";
 import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
@@ -16,7 +20,8 @@ const BUSY: readonly ClickyChipState[] = ["acting", "awaiting_permission"];
 
 /**
  * Watches one Bot's session for the pill, and draws the pill while Clicky is doing something there
- * (or waiting for a yes) and no viewer is showing its own Stop.
+ * (or waiting for a yes) and no viewer is showing its own Stop, or while a Stop for it did not get
+ * through, which is never left unsaid.
  */
 const ClickyWatch = memo(function ClickyWatch({
   botId,
@@ -28,25 +33,29 @@ const ClickyWatch = memo(function ClickyWatch({
   onState: (botId: string, state: ClickyChipState | null) => void;
 }) {
   const { t } = useTranslation();
-  const session = useClickySession(botId, true, "watch");
-  const state = chipStateOf(session.data);
+  const presence = useClickySession(botId, true, "watch", selectClickyPresence);
+  const state = chipStateOf(presence);
+  const stopFailed = useClickyStopFailed(botId);
   const bot = useQuery(agentQueryOptions(botId), queryClient);
   useEffect(() => onState(botId, state), [botId, state, onState]);
   useEffect(() => () => onState(botId, null), [botId, onState]);
-  if (inViewer || !BUSY.includes(state)) return null;
+  if (inViewer || !(BUSY.includes(state) || stopFailed)) return null;
   const name = bot.data?.name ?? "Noë Bot";
   return (
     <div
       className="pointer-events-auto flex items-center gap-3 rounded-full bg-zinc-900 py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg ring-1 ring-white/10"
       data-clicky="stop-pill"
-      role="status"
+      data-clicky-ui
+      role={stopFailed ? "alert" : "status"}
     >
       <span>
-        {state === "acting"
-          ? t("Clicky is doing something on {{name}}'s computer.", { name })
-          : t("Clicky is waiting for your OK on {{name}}'s computer.", {
-              name,
-            })}
+        {stopFailed
+          ? t("Clicky couldn't be stopped. Try again.")
+          : state === "acting"
+            ? t("Clicky is doing something on {{name}}'s computer.", { name })
+            : t("Clicky is waiting for your OK on {{name}}'s computer.", {
+                name,
+              })}
       </span>
       <Button
         aria-keyshortcuts={CLICKY_STOP_ARIA}

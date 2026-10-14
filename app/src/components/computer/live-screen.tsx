@@ -87,8 +87,12 @@ function isLocalField(target: EventTarget | null): boolean {
       target.tagName === "TEXTAREA" ||
       target.tagName === "SELECT" ||
       target.closest('[data-slot="dialog-content"]') !== null ||
-      // Clicky's bar under the screen: its buttons, its box and its microphone are this page's.
-      target.closest("[data-clicky-bar]") !== null)
+      /*
+       * Clicky's own controls: the bar under the screen and whatever it opens in a portal (its menu),
+       * each marked `data-clicky-ui`. Arrows, Enter and Space there move through this page's menu
+       * and press its buttons; forwarded, an Enter could submit a form on the Bot's computer.
+       */
+      target.closest("[data-clicky-ui]") !== null)
   );
 }
 

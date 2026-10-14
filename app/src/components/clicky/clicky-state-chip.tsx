@@ -25,7 +25,7 @@ export const ClickyStateChip = memo(function ClickyStateChip({
   session,
   className,
 }: {
-  session: ClickySession | undefined;
+  session: Pick<ClickySession, "awake" | "state"> | undefined;
   className?: string;
 }) {
   const label = useClickyStateLabel(session);

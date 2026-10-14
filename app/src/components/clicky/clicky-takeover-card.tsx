@@ -38,7 +38,8 @@ export const ClickyTakeoverCard = memo(function ClickyTakeoverCard({
   onGuide,
 }: {
   trigger: ClickyTrigger;
-  actionPolicy: ClickyActionPolicy;
+  /** The person's setting; null until it has loaded, when "Do it for me" is not offered yet. */
+  actionPolicy: ClickyActionPolicy | null;
   busy: boolean;
   onCommand: (command: ClickyCommand) => void;
   /** "I'll guide you": the person goes on with Clicky pointing, and the card goes away. */
@@ -46,6 +47,7 @@ export const ClickyTakeoverCard = memo(function ClickyTakeoverCard({
 }) {
   const { t } = useTranslation();
   const mayAct =
+    actionPolicy !== null &&
     actionPolicy !== "never" &&
     !CLICKY_PERSON_ONLY_TRIGGERS.includes(trigger.kind);
   return (
