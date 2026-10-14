@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
+  handoffLocale,
   localRedirect,
   type SignInHandoffClaims,
   verifySignInHandoffToken,
@@ -104,5 +105,34 @@ describe("localRedirect", () => {
     ]) {
       expect(localRedirect(value, base)).toBe("https://abcdefghijkl.fly.dev/");
     }
+  });
+});
+
+describe("handoffLocale", () => {
+  test("a language the deployment offers is suggested, normalised", () => {
+    expect(handoffLocale({ locale: "el" }, ["en", "el"])).toBe("el");
+    expect(handoffLocale({ locale: "el-GR" }, ["en", "el"])).toBe("el");
+  });
+
+  test("nothing is suggested without a claim, or for a language not offered yet", () => {
+    expect(handoffLocale({}, ["en", "el"])).toBeNull();
+    expect(handoffLocale({ locale: "el" }, ["en"])).toBeNull();
+    expect(handoffLocale({ locale: "fr" }, ["en", "el"])).toBeNull();
+  });
+
+  test("a token carrying a language verifies, and one carrying a non-string does not", () => {
+    expect(
+      verifySignInHandoffToken(mint({ locale: "el" }), secret, {
+        deploymentId: "abcdefghijkl",
+        now,
+      })?.locale,
+    ).toBe("el");
+    expect(
+      verifySignInHandoffToken(
+        mint({ locale: 7 } as unknown as Partial<SignInHandoffClaims>),
+        secret,
+        { deploymentId: "abcdefghijkl", now },
+      ),
+    ).toBeNull();
   });
 });

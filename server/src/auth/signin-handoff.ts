@@ -3,6 +3,8 @@ import type { BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { z } from "zod";
+import { type Locale, normalizeLocale } from "../../../shared/i18n/locales";
+import { deploymentLocales } from "../i18n/deployment-locale";
 
 /**
  * Signing in from the platform that runs this deployment.
@@ -30,6 +32,11 @@ export type SignInHandoffClaims = {
   exp: number;
   /** Single-use id. */
   jti: string;
+  /**
+   * The language the platform speaks to this person in, such as "el". Optional, and only ever a
+   * suggestion: see `SignInHandoffOptions.seedLocale`.
+   */
+  locale?: string;
 };
 
 /** How far ahead of this clock an `iat` may sit before the token is refused as not yet valid. */
@@ -43,7 +50,8 @@ function isClaims(value: unknown): value is SignInHandoffClaims {
     typeof record.iid === "string" &&
     typeof record.iat === "number" &&
     typeof record.exp === "number" &&
-    typeof record.jti === "string"
+    typeof record.jti === "string" &&
+    (record.locale === undefined || typeof record.locale === "string")
   );
 }
 
@@ -124,12 +132,30 @@ export function localRedirect(value: string | undefined, base: URL): string {
   return target.toString();
 }
 
+/** The language a token suggests, when it is one this deployment offers; otherwise none. */
+export function handoffLocale(
+  claims: Pick<SignInHandoffClaims, "locale">,
+  offered: readonly Locale[],
+): Locale | null {
+  const suggested = normalizeLocale(claims.locale);
+  return suggested && offered.includes(suggested) ? suggested : null;
+}
+
 export type SignInHandoffOptions = {
   secret: string;
   /** The one address a token may sign in, compared case-insensitively. */
   email: string;
   /** This deployment's id; a token for another one is refused. Unset skips that check. */
   deploymentId?: string;
+  /**
+   * Records the language the platform named, for somebody who has not chosen one here.
+   *
+   * Their own choice in this deployment always stands: the write is conditional on there being
+   * none, so the next sign-in from a Greek platform does not undo somebody switching to English
+   * here. A language this deployment does not offer is not recorded, which is what keeps everybody
+   * in English until a deployment turns Greek on. Never fails the sign-in.
+   */
+  seedLocale?: (userId: string, locale: Locale) => Promise<void>;
 };
 
 /**
@@ -198,6 +224,12 @@ export function signInHandoff(options: SignInHandoffOptions): BetterAuthPlugin {
               },
               { method: "signin-handoff" },
             ));
+
+          const suggested = handoffLocale(claims, deploymentLocales().locales);
+          if (suggested && options.seedLocale)
+            await options.seedLocale(user.id, suggested).catch(() => {
+              // A language not recorded is English until they choose; the sign-in goes on.
+            });
 
           const session = await ctx.context.internalAdapter.createSession(
             user.id,

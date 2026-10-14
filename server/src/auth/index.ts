@@ -26,6 +26,7 @@ import {
   users,
   verifications,
 } from "../db/schema";
+import { createUserPreferencesStore } from "../user-preferences";
 import { DOMAIN_REFUSAL_MESSAGE, emailDomainAllowed } from "./email-domain";
 import { encryptSsoConfig } from "./encrypt-sso-config";
 import { applyConfiguredAdmin, isConfiguredAdmin, seedRole } from "./roles";
@@ -262,6 +263,8 @@ export function createAuth(
             ...(config.deploymentId
               ? { deploymentId: config.deploymentId }
               : {}),
+            // The platform's language for this person, unless they have chosen one here.
+            seedLocale: createUserPreferencesStore(database).seedLocale,
           }),
         ]
       : []),
