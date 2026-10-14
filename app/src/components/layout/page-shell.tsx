@@ -2,6 +2,7 @@ import { IconChevronLeft } from "@tabler/icons-react";
 import { Link, type LinkProps } from "@tanstack/react-router";
 import type * as React from "react";
 import { createContext, useContext } from "react";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/button";
 import { SidebarToggle, useSidebarToggleVisible } from "./sidebar-toggle";
@@ -68,6 +69,7 @@ export function PageShell({
     label: string;
   };
 }) {
+  const { t } = useTranslation();
   /*
    * The bar carries the toggle and the Back link, and is drawn when it has at least one of them.
    * The screens with a Back link already drew exactly this bar, so for them nothing changes; what
@@ -106,7 +108,8 @@ export function PageShell({
               render={(props) => <Link {...backButton.linkProps} {...props} />}
             >
               <IconChevronLeft />
-              {backButton.label}
+              {/* Callers pass English keys or words already translated; either reads right. */}
+              {t(backButton.label)}
             </Button>
           )}
         </div>

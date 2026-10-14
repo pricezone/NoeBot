@@ -53,7 +53,16 @@
     "CopilotKit",
     "token",
     "cron",
-    "Cron"
+    "Cron",
+    "Intelligence",
+    "Playground",
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "OpenTelemetry",
+    "SAML",
+    "OpenID Connect",
+    "SCIM"
   ],
   "exact": {
     "Account": "Λογαριασμός",

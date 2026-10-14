@@ -11,6 +11,7 @@ import { useSettingsNav } from "@/components/settings/settings-nav";
 import { Button } from "@/components/ui/button";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { useTranslation } from "@/lib/i18n";
 import { ensureNamespaces } from "@/lib/i18n/set-locale";
 
 /**
@@ -43,6 +44,7 @@ export const Route = createFileRoute("/_authed/_app/admin")({
 });
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   const nav = useSettingsNav();
   const { pathname } = useLocation();
   const depth = pathname.split("/").filter(Boolean).length;
@@ -51,18 +53,18 @@ function RouteComponent() {
     <>
       {/* The main column under the modal: plain, so nothing half-drawn shows through the overlay. */}
       <div aria-hidden className="flex-1 bg-background" />
-      <ModalShell nav={nav} title="Settings" width={1100}>
+      <ModalShell nav={nav} title={t("Settings")} width={1100}>
         <PageFrame.Provider value="modal">
           {depth === 2 ? (
             <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-6">
               <Button
-                aria-label="Back to Admin"
+                aria-label={t("Back to Admin")}
                 render={(props) => <Link to="/admin" {...props} />}
                 size="sm"
                 variant="ghost"
               >
                 <IconChevronLeft />
-                Admin
+                {t("Admin")}
               </Button>
             </div>
           ) : null}

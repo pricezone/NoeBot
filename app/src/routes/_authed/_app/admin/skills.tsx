@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "@/lib/i18n";
 import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
@@ -55,6 +56,7 @@ export const Route = createFileRoute("/_authed/_app/admin/skills")({
 const EMPTY_DRAFT = { slug: "", title: "", summary: "", instructions: "" };
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
 
@@ -79,11 +81,13 @@ function RouteComponent() {
       action={
         <Button onClick={() => setWriting(true)} size="lg" type="button">
           <IconPlus />
-          Write a skill
+          {t("Write a skill")}
         </Button>
       }
-      description="Named instructions anybody here can invoke with a slash. A skill adds no capability: it can only ask a Bot to use what that Bot already holds, and every one of those calls is still decided and recorded."
-      title="Skills"
+      description={t(
+        "Named instructions anybody here can invoke with a slash. A skill adds no capability: it can only ask a Bot to use what that Bot already holds, and every one of those calls is still decided and recorded.",
+      )}
+      title={t("Skills")}
     >
       {error ? (
         <p className="text-destructive text-sm" role="alert">
@@ -92,16 +96,18 @@ function RouteComponent() {
       ) : null}
 
       <PageSection
-        description="Written for the whole deployment. People write their own on their Skills page."
-        title="Installed"
+        description={t(
+          "Written for the whole deployment. People write their own on their Skills page.",
+        )}
+        title={t("Installed")}
       >
         {/* A read that failed says so; `isPending` goes false on it too, and it is not "none". */}
         {plugins.isPending ? null : !plugins.data ? (
           <p className="mt-4 text-destructive text-sm" role="alert">
-            Skills could not be loaded.
+            {t("Skills could not be loaded.")}
           </p>
         ) : skills.length === 0 ? (
-          <PageEmpty>No skills yet.</PageEmpty>
+          <PageEmpty>{t("No skills yet.")}</PageEmpty>
         ) : (
           <PageRows>
             {skills.map((skill, index) => (
@@ -124,7 +130,7 @@ function RouteComponent() {
                        */}
                       {skill.origin !== "yours" ? (
                         <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Default
+                          {t("Default")}
                         </span>
                       ) : null}
                     </ItemTitle>
@@ -145,7 +151,7 @@ function RouteComponent() {
                         type="button"
                         variant="ghost"
                       >
-                        Remove
+                        {t("Remove")}
                       </Button>
                     </ItemActions>
                   ) : null}
@@ -160,17 +166,17 @@ function RouteComponent() {
       <Dialog onOpenChange={setWriting} open={writing}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Write a skill for the deployment</DialogTitle>
+            <DialogTitle>{t("Write a skill for the deployment")}</DialogTitle>
             <DialogDescription>
-              The slug is what a person types after a slash, and the
-              instructions are added to the run when they do. Everybody here can
-              use it, and you decide which Bots have it.
+              {t(
+                "The slug is what a person types after a slash, and the instructions are added to the run when they do. Everybody here can use it, and you decide which Bots have it.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogBody className="mt-4">
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="skill-slug">Slug</FieldLabel>
+                <FieldLabel htmlFor="skill-slug">{t("Slug")}</FieldLabel>
                 <Input
                   id="skill-slug"
                   onChange={(event) =>
@@ -179,12 +185,12 @@ function RouteComponent() {
                       slug: event.target.value,
                     }))
                   }
-                  placeholder="standup-notes"
+                  placeholder="standup-notes" /* i18n-ignore: an example of the format, not prose */
                   value={draft.slug}
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="skill-title">Title</FieldLabel>
+                <FieldLabel htmlFor="skill-title">{t("Title")}</FieldLabel>
                 <Input
                   id="skill-title"
                   onChange={(event) =>
@@ -193,12 +199,12 @@ function RouteComponent() {
                       title: event.target.value,
                     }))
                   }
-                  placeholder="Title"
+                  placeholder={t("Title")}
                   value={draft.title}
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="skill-summary">Summary</FieldLabel>
+                <FieldLabel htmlFor="skill-summary">{t("Summary")}</FieldLabel>
                 <Input
                   id="skill-summary"
                   onChange={(event) =>
@@ -207,13 +213,13 @@ function RouteComponent() {
                       summary: event.target.value,
                     }))
                   }
-                  placeholder="One line"
+                  placeholder={t("One line")}
                   value={draft.summary}
                 />
               </Field>
               <Field>
                 <FieldLabel htmlFor="skill-instructions">
-                  Instructions
+                  {t("Instructions")}
                 </FieldLabel>
                 <Textarea
                   className="h-28 font-mono text-sm"
@@ -224,7 +230,9 @@ function RouteComponent() {
                       instructions: event.target.value,
                     }))
                   }
-                  placeholder="What the Bot should do when this skill is used."
+                  placeholder={t(
+                    "What the Bot should do when this skill is used.",
+                  )}
                   value={draft.instructions}
                 />
               </Field>
@@ -232,7 +240,7 @@ function RouteComponent() {
           </DialogBody>
           <DialogFooter className="mt-4">
             <Button onClick={() => setWriting(false)} size="sm" variant="ghost">
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={!(draft.slug && draft.title && draft.instructions)}
@@ -244,7 +252,7 @@ function RouteComponent() {
               }}
               size="sm"
             >
-              Install skill
+              {t("Install skill")}
             </Button>
           </DialogFooter>
         </DialogContent>

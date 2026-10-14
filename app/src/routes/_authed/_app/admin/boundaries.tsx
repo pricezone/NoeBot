@@ -13,6 +13,7 @@ import {
   dryRunActionPolicy,
   type PolicyMode,
 } from "@/lib/computers/queries";
+import { i18n, msg, Trans, useTranslation } from "@/lib/i18n";
 import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
@@ -26,23 +27,29 @@ import { queryClient } from "@/query-client";
  */
 const PRESETS: { label: string; rule: string; cost?: string }[] = [
   {
-    label: "Never submit a form",
+    label: msg("Never submit a form"),
     // `key` is guarded by tool name so the clause short-circuits before it on actions that have no
     // keypress in them. Both tools that can press Enter are named: `computer_type` takes a `submit`
     // flag that presses it once the text is in, and a rule naming only `computer_key` left that door
     // open.
     rule: '(intent == "activate" && contains(element.name, "submit")) || ((tool.name == "computer_key" || tool.name == "computer_type") && key == "Enter")',
-    cost: "Also stops the Bot pressing Enter for anything else, because a form submits from Enter in any of its fields.",
+    cost: msg(
+      "Also stops the Bot pressing Enter for anything else, because a form submits from Enter in any of its fields.",
+    ),
   },
   {
-    label: "Never type into a password field",
+    label: msg("Never type into a password field"),
     rule: 'intent == "type" && contains(element.name, "password")',
-    cost: "A password box the page labels something else is not covered, the rule matches the label.",
+    cost: msg(
+      "A password box the page labels something else is not covered, the rule matches the label.",
+    ),
   },
   {
-    label: "Stay off social media",
+    label: msg("Stay off social media"),
     rule: 'intent == "navigate" && (contains(page.host, "facebook.com") || contains(page.host, "x.com"))',
-    cost: "Only the two hosts named. A link that redirects there from somewhere else is allowed.",
+    cost: msg(
+      "Only the two hosts named. A link that redirects there from somewhere else is allowed.",
+    ),
   },
 ];
 
@@ -51,6 +58,7 @@ export const Route = createFileRoute("/_authed/_app/admin/boundaries")({
 });
 
 function BoundariesPage() {
+  const { t } = useTranslation("admin");
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [draft, setDraft] = useState("");
@@ -88,7 +96,7 @@ function BoundariesPage() {
   const unreadable = problem ?? stored.error?.message ?? null;
   if (unreadable && !policy) {
     return (
-      <PageShell title="Boundaries">
+      <PageShell title={t("Boundaries")}>
         <p className="mt-4 text-destructive text-sm" role="alert">
           {unreadable}
         </p>
@@ -98,7 +106,7 @@ function BoundariesPage() {
 
   /* Nothing until the policy is known: a rule list that guesses is worse than a blank. */
   if (!policy) {
-    return <PageShell title="Boundaries">{null}</PageShell>;
+    return <PageShell title={t("Boundaries")}>{null}</PageShell>;
   }
 
   const addRule = (rule: string) => {
@@ -137,19 +145,22 @@ function BoundariesPage() {
     <PageShell
       description={
         <>
-          What every Bot may and may not do with its computer. Rules are checked
-          on every action before it happens, and a refusal is recorded in{" "}
-          <Link className="underline" to="/admin/audit">
-            Audit
-          </Link>{" "}
-          with the rule that refused it.
+          <Trans
+            t={t}
+            i18nKey="What every Bot may and may not do with its computer. Rules are checked on every action before it happens, and a refusal is recorded in <audit>Audit</audit> with the rule that refused it."
+            components={{
+              audit: <Link className="underline" to="/admin/audit" />,
+            }}
+          />
         </>
       }
-      title="Boundaries"
+      title={t("Boundaries")}
     >
       <PageSection
-        description="Enforce stops the action. Record it and allow it writes the same row and lets the action through, which is how a rule is tried on real traffic before it starts refusing anybody."
-        title="When a rule matches"
+        description={t(
+          "Enforce stops the action. Record it and allow it writes the same row and lets the action through, which is how a rule is tried on real traffic before it starts refusing anybody.",
+        )}
+        title={t("When a rule matches")}
       >
         <div className="mt-2 flex gap-2">
           {(["enforce", "dry-run"] as PolicyMode[]).map((mode) => (
@@ -163,43 +174,35 @@ function BoundariesPage() {
               variant="outline"
             >
               {mode === "enforce"
-                ? "Stop the action"
-                : "Record it and allow it"}
+                ? t("Stop the action")
+                : t("Record it and allow it")}
             </Button>
           ))}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {policy.mode === "enforce"
-            ? "The Bot is stopped and told which rule refused it."
-            : "Nothing is stopped. Every action a rule matches is recorded as it would have been refused, which is how a rule is tried out before it is switched on."}
+            ? t("The Bot is stopped and told which rule refused it.")
+            : t(
+                "Nothing is stopped. Every action a rule matches is recorded as it would have been refused, which is how a rule is tried out before it is switched on.",
+              )}
         </p>
       </PageSection>
 
       <PageSection
         description={
           <>
-            Checked first, and a match ends it: nothing below is consulted and
-            the Bot is told which rule refused it. Rules are CEL, and can ask
-            about <code>tool.name</code>, <code>intent</code>,{" "}
-            <code>bot.id</code>, <code>actor.id</code>, <code>page.url</code>{" "}
-            and <code>page.host</code>, the element being acted on, the{" "}
-            <code>key</code> being pressed, the file being touched, the{" "}
-            <code>command</code> being run, and <code>mcp.server</code>,{" "}
-            <code>mcp.tool</code> and <code>mcp.effect</code> for a call to
-            somebody else&rsquo;s tools. <code>initiator.kind</code> says what
-            started the run &mdash; <code>person</code>, <code>routine</code> or{" "}
-            <code>handoff</code> &mdash; which <code>actor.id</code> cannot,
-            because a scheduled run carries its owner&rsquo;s authority while
-            nobody is watching. A rule that cannot be evaluated counts as a
-            match, so a mistyped deny refuses rather than quietly permitting
-            what it was meant to forbid.
+            <Trans
+              t={t}
+              i18nKey="Checked first, and a match ends it: nothing below is consulted and the Bot is told which rule refused it. Rules are CEL, and can ask about <code>tool.name</code>, <code>intent</code>, <code>bot.id</code>, <code>actor.id</code>, <code>page.url</code> and <code>page.host</code>, the element being acted on, the <code>key</code> being pressed, the file being touched, the <code>command</code> being run, and <code>mcp.server</code>, <code>mcp.tool</code> and <code>mcp.effect</code> for a call to somebody else’s tools. <code>initiator.kind</code> says what started the run — <code>person</code>, <code>routine</code> or <code>handoff</code> — which <code>actor.id</code> cannot, because a scheduled run carries its owner’s authority while nobody is watching. A rule that cannot be evaluated counts as a match, so a mistyped deny refuses rather than quietly permitting what it was meant to forbid."
+              components={{ code: <code /> }}
+            />
           </>
         }
-        title="It may never"
+        title={t("It may never")}
       >
         {policy.deny.length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">
-            No rules. Every action is allowed and recorded.
+            {t("No rules. Every action is allowed and recorded.")}
           </p>
         ) : (
           <ul className="mt-2 divide-y divide-border rounded-md border border-border">
@@ -222,7 +225,7 @@ function BoundariesPage() {
                   size="sm"
                   variant="ghost"
                 >
-                  Remove
+                  {t("Remove")}
                 </Button>
               </li>
             ))}
@@ -231,7 +234,7 @@ function BoundariesPage() {
 
         <div className="mt-3 flex gap-2">
           <Input
-            aria-label="A rule, written in CEL"
+            aria-label={t("A rule, written in CEL")}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
@@ -246,7 +249,10 @@ function BoundariesPage() {
               // rule into the policy in force.
               if (event.key === "Enter" && !isComposing(event)) addRule(draft);
             }}
-            placeholder='tool.name == "computer_click" && contains(element.name, "submit")'
+            placeholder={
+              // i18n-ignore: an example of the format, not prose
+              'tool.name == "computer_click" && contains(element.name, "submit")'
+            }
             value={draft}
           />
           <Button
@@ -255,14 +261,14 @@ function BoundariesPage() {
             size="sm"
             variant="outline"
           >
-            {testing ? "Testing…" : "Test first"}
+            {testing ? t("Testing…") : t("Test first")}
           </Button>
           <Button
             disabled={saving || draft.trim().length === 0}
             onClick={() => addRule(draft)}
             size="sm"
           >
-            Add rule
+            {t("Add rule")}
           </Button>
         </div>
 
@@ -278,11 +284,11 @@ function BoundariesPage() {
                 size="sm"
                 variant="outline"
               >
-                {preset.label}
+                {t(preset.label)}
               </Button>
               {preset.cost ? (
                 <span className="pt-1 text-xs text-muted-foreground">
-                  {preset.cost}
+                  {t(preset.cost)}
                 </span>
               ) : null}
             </li>
@@ -291,13 +297,15 @@ function BoundariesPage() {
       </PageSection>
 
       <PageSection
-        description="The floor, applied to anything the deny list did not catch. It is not a formality: an empty list here permits nothing, so a deployment that clears this refuses every action rather than allowing every action."
-        title="Otherwise it may"
+        description={t(
+          "The floor, applied to anything the deny list did not catch. It is not a formality: an empty list here permits nothing, so a deployment that clears this refuses every action rather than allowing every action.",
+        )}
+        title={t("Otherwise it may")}
       >
         <ul className="mt-2 space-y-1">
           {policy.allow.map((rule) => (
             <li className="font-mono text-xs text-muted-foreground" key={rule}>
-              {rule === "true" ? "true, anything not refused above" : rule}
+              {rule === "true" ? t("true, anything not refused above") : rule}
             </li>
           ))}
         </ul>
@@ -309,9 +317,11 @@ function BoundariesPage() {
             {problem}
           </span>
         ) : saved ? (
-          "Saved. It applies to the next action any Bot takes."
+          i18n.t("Saved. It applies to the next action any Bot takes.")
         ) : (
-          "Changes apply to the next action any Bot takes, and are kept: a restart comes back up enforcing what is here."
+          i18n.t(
+            "Changes apply to the next action any Bot takes, and are kept: a restart comes back up enforcing what is here.",
+          )
         )}
       </p>
     </PageShell>
@@ -325,11 +335,13 @@ function BoundariesPage() {
  * who stops at the rows should not believe the rows are the whole answer.
  */
 function DryRunResult({ report }: { report: DryRunReport }) {
+  const { t } = useTranslation("admin");
   if (report.scanned === 0) {
     return (
       <p className="mt-2 text-xs text-muted-foreground" role="status">
-        No recorded computer actions to test against yet. The rule is valid;
-        what it matches will only be known once Bots have acted.
+        {t(
+          "No recorded computer actions to test against yet. The rule is valid; what it matches will only be known once Bots have acted.",
+        )}
       </p>
     );
   }
@@ -338,8 +350,14 @@ function DryRunResult({ report }: { report: DryRunReport }) {
     <div className="mt-2" role="status">
       <p className="text-xs text-muted-foreground">
         {report.wouldRefuse === 0
-          ? `Tested against the last ${report.scanned} recorded actions: this rule would have refused none of them. It may still match future actions.`
-          : `Tested against the last ${report.scanned} recorded actions: this rule would have refused ${report.wouldRefuse}.`}
+          ? t(
+              "Tested against the last {{scanned}} recorded actions: this rule would have refused none of them. It may still match future actions.",
+              { scanned: report.scanned },
+            )
+          : t(
+              "Tested against the last {{scanned}} recorded actions: this rule would have refused {{wouldRefuse}}.",
+              { scanned: report.scanned, wouldRefuse: report.wouldRefuse },
+            )}
       </p>
       {report.changes.length > 0 ? (
         <ul className="mt-2 divide-y divide-border rounded-md border border-border">
@@ -348,18 +366,23 @@ function DryRunResult({ report }: { report: DryRunReport }) {
               <p className="text-xs">
                 <span className="font-medium">
                   {change.would === "refused"
-                    ? "Would refuse"
-                    : "Would now allow"}
+                    ? t("Would refuse")
+                    : t("Would now allow")}
                 </span>{" "}
                 <code className="font-mono">{change.action}</code>
-                {change.element?.name ? <> on “{change.element.name}”</> : null}
+                {change.element?.name ? (
+                  <> {t("on “{{name}}”", { name: change.element.name })}</>
+                ) : null}
                 {change.command ? (
                   <>
                     {" "}
-                    running <code className="font-mono">{change.command}</code>
+                    {t("running")}{" "}
+                    <code className="font-mono">{change.command}</code>
                   </>
                 ) : null}
-                {change.file ? <> touching {change.file}</> : null}
+                {change.file ? (
+                  <> {t("touching {{file}}", { file: change.file })}</>
+                ) : null}
               </p>
               <p className="mt-0.5 text-muted-foreground text-xs">
                 {change.bot}
@@ -372,8 +395,10 @@ function DryRunResult({ report }: { report: DryRunReport }) {
       ) : null}
       {report.wouldRefuse > report.changes.length ? (
         <p className="mt-1 text-muted-foreground text-xs">
-          Showing the first {report.changes.length}; the count above covers
-          everything scanned.
+          {t(
+            "Showing the first {{length}}; the count above covers everything scanned.",
+            { length: report.changes.length },
+          )}
         </p>
       ) : null}
     </div>

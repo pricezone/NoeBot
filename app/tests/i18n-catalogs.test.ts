@@ -49,7 +49,8 @@ const entries = [...catalogs].flatMap(([namespace, catalog]) =>
 const plain = (text: string) =>
   text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Every entry for which `bad` says something, as "entry: what". */
 function violations(
@@ -152,13 +153,24 @@ describe("the glossary", () => {
   });
 
   test("names kept as they are stay as they are", () => {
+    // A term may open the sentence with a capital, and a singular may keep the singular of a plural
+    // term ("Bot" for "Bots" in a `_one` entry, whose English is the plural form).
+    const kept = (term: string, value: string, entry: string) =>
+      [
+        term,
+        `${term[0]?.toUpperCase() ?? ""}${term.slice(1)}`,
+        ...(entry.endsWith("_one") && term.endsWith("s")
+          ? [term.slice(0, -1)]
+          : []),
+      ].some((form) => value.includes(form));
     expect(
       violations(({ entry, value }) => {
         const lost = glossary.keep.filter(
           (term) =>
-            new RegExp(`(^|[^\\p{L}])${escapeRegExp(term)}([^\\p{L}]|$)`, "u").test(
-              englishOf(entry),
-            ) && !value.includes(term),
+            new RegExp(
+              `(^|[^\\p{L}])${escapeRegExp(term)}([^\\p{L}]|$)`,
+              "u",
+            ).test(englishOf(entry)) && !kept(term, value, entry),
         );
         return lost.length ? `lost ${lost.join(", ")}` : undefined;
       }),

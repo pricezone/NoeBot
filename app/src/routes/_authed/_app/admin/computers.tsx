@@ -38,6 +38,7 @@ import {
 } from "@/lib/computers/host-access";
 import { setComputerStateMutationOptions } from "@/lib/computers/mutations";
 import { computerFleetQueryOptions } from "@/lib/computers/queries";
+import { i18n, Trans, useTranslation } from "@/lib/i18n";
 import { intlLocale } from "@/lib/i18n/format";
 
 export const Route = createFileRoute("/_authed/_app/admin/computers")({
@@ -45,6 +46,7 @@ export const Route = createFileRoute("/_authed/_app/admin/computers")({
 });
 
 function ComputersPage() {
+  const { t } = useTranslation("admin");
   /** Bot id currently running a stop/reset request. */
   const [busy, setBusy] = useState<string | null>(null);
   /** Reset deletes the browser profile, so it requires confirmation. */
@@ -74,7 +76,9 @@ function ComputersPage() {
    * A list that could not be read. A refused stop, reset or update is said beside the buttons
    * instead, because the top of this page is a long scroll away from them.
    */
-  const problem = fleet.error ? "The computers could not be listed." : null;
+  const problem = fleet.error
+    ? i18n.t("The computers could not be listed.")
+    : null;
   const hostProblem = hostAccess.error
     ? hostAccess.error.message
     : requestGrant.error
@@ -94,8 +98,10 @@ function ComputersPage() {
 
   return (
     <PageShell
-      description="Each Bot's browser and the profile it keeps. A profile is what makes a Bot still signed in tomorrow, and resetting one signs it out of everything."
-      title="Computers"
+      description={t(
+        "Each Bot's browser and the profile it keeps. A profile is what makes a Bot still signed in tomorrow, and resetting one signs it out of everything.",
+      )}
+      title={t("Computers")}
     >
       {problem ? (
         <p
@@ -108,17 +114,20 @@ function ComputersPage() {
 
       {isolation === "shared" ? (
         <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-          <span className="font-medium">
-            Every Bot is sharing one computer.
-          </span>{" "}
-          They share its logins, its files and its session, so a Bot can reach
-          what another signed into. Set <code>COMPUTER_SUPERVISOR_URL</code> to
-          give each Bot its own.
+          <Trans
+            t={t}
+            i18nKey="<strong>Every Bot is sharing one computer.</strong> They share its logins, its files and its session, so a Bot can reach what another signed into. Set <code>COMPUTER_SUPERVISOR_URL</code> to give each Bot its own."
+            components={{
+              strong: <span className="font-medium" />,
+              code: <code />,
+            }}
+          />
         </p>
       ) : isolation === "per-bot" ? (
         <p className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-2 text-muted-foreground text-sm">
-          Each Bot has a computer of its own: its own container, its own files
-          and its own browser profile.
+          {t(
+            "Each Bot has a computer of its own: its own container, its own files and its own browser profile.",
+          )}
         </p>
       ) : null}
 
@@ -146,7 +155,7 @@ function ComputersPage() {
         stopping={stopHostAccess.isPending}
       />
 
-      <PageSection title="Computers in this deployment">
+      <PageSection title={t("Computers in this deployment")}>
         {setState.error ? (
           <p
             className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
@@ -156,10 +165,12 @@ function ComputersPage() {
           </p>
         ) : null}
         {computers === null && problem ? (
-          <PageEmpty>The list could not be loaded.</PageEmpty>
+          <PageEmpty>{t("The list could not be loaded.")}</PageEmpty>
         ) : computers === null ? null : computers.length === 0 ? (
           <PageEmpty>
-            No computers yet. One appears the first time a Bot opens a page.
+            {t(
+              "No computers yet. One appears the first time a Bot opens a page.",
+            )}
           </PageEmpty>
         ) : (
           <PageRows>
@@ -172,15 +183,23 @@ function ComputersPage() {
                     </ItemTitle>
                     <ItemDescription>
                       {computer.running
-                        ? `Browser running since ${new Date(computer.startedAt ?? "").toLocaleTimeString(intlLocale())}`
-                        : "No browser running. It starts when the Bot next needs it."}
+                        ? t("Browser running since {{value}}", {
+                            value: new Date(
+                              computer.startedAt ?? "",
+                            ).toLocaleTimeString(intlLocale()),
+                          })
+                        : t(
+                            "No browser running. It starts when the Bot next needs it.",
+                          )}
                       {" · "}
                       {computer.egress === undefined
-                        ? "Egress not reported"
+                        ? t("Egress not reported")
                         : computer.egress === null
-                          ? "Leaves directly"
-                          : `Leaves through ${computer.egress}`}
-                      {computer.updateAvailable ? " · Update available" : ""}
+                          ? t("Leaves directly")
+                          : t("Leaves through {{egress}}", {
+                              egress: computer.egress,
+                            })}
+                      {computer.updateAvailable ? t(" · Update available") : ""}
                     </ItemDescription>
                   </ItemContent>
                   <ItemActions>
@@ -191,7 +210,7 @@ function ComputersPage() {
                         size="sm"
                         variant="outline"
                       >
-                        Update computer
+                        {t("Update computer")}
                       </Button>
                     ) : null}
                     <Button
@@ -200,7 +219,9 @@ function ComputersPage() {
                       size="sm"
                       variant="outline"
                     >
-                      {busy === computer.botId ? "Working…" : "Stop browser"}
+                      {busy === computer.botId
+                        ? t("Working…")
+                        : t("Stop browser")}
                     </Button>
                     <Button
                       disabled={busy === computer.botId}
@@ -208,7 +229,7 @@ function ComputersPage() {
                       size="sm"
                       variant="outline"
                     >
-                      Reset
+                      {t("Reset")}
                     </Button>
                   </ItemActions>
                 </Item>
@@ -234,11 +255,14 @@ function ComputersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Reset {confirming ? nameFor(confirming) : ""}'s computer?
+              {t("Reset {{name}}'s computer?", {
+                name: confirming ? nameFor(confirming) : "",
+              })}
             </DialogTitle>
             <DialogDescription>
-              Its profile is deleted, so the Bot is signed out of every service
-              it had logged into and starts clean. This cannot be undone.
+              {t(
+                "Its profile is deleted, so the Bot is signed out of every service it had logged into and starts clean. This cannot be undone.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -247,7 +271,7 @@ function ComputersPage() {
               size="sm"
               variant="ghost"
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={busy === confirming}
@@ -257,7 +281,7 @@ function ComputersPage() {
               size="sm"
               variant="destructive"
             >
-              {busy === confirming ? "Resetting…" : "Reset it"}
+              {busy === confirming ? t("Resetting…") : t("Reset it")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -272,13 +296,14 @@ function ComputersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Update {confirmingUpdate ? nameFor(confirmingUpdate) : ""}'s
-              computer?
+              {t("Update {{name}}'s computer?", {
+                name: confirmingUpdate ? nameFor(confirmingUpdate) : "",
+              })}
             </DialogTitle>
             <DialogDescription>
-              It moves onto the computer image this deployment now runs. Its
-              files and sign-ins are kept. If it is running it restarts, which
-              interrupts anything it is doing right now.
+              {t(
+                "It moves onto the computer image this deployment now runs. Its files and sign-ins are kept. If it is running it restarts, which interrupts anything it is doing right now.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -287,7 +312,7 @@ function ComputersPage() {
               size="sm"
               variant="ghost"
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button
               disabled={busy === confirmingUpdate}
@@ -296,24 +321,21 @@ function ComputersPage() {
               }}
               size="sm"
             >
-              {busy === confirmingUpdate ? "Updating…" : "Update it"}
+              {busy === confirmingUpdate ? t("Updating…") : t("Update it")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <p className="mt-4 text-muted-foreground text-sm">
-        <strong>Stop</strong> closes the browser and keeps its logins: the next
-        thing the Bot does starts it again where it left off.{" "}
-        <strong>Reset</strong> deletes the profile, so the Bot is signed out of
-        everything and starts clean. <strong>Update computer</strong> appears
-        when a computer runs an older image than this deployment, and moves it
-        onto the new one with its files and sign-ins kept. All three are
-        recorded in{" "}
-        <Link className="underline" to="/admin/audit">
-          Audit
-        </Link>
-        .
+        <Trans
+          t={t}
+          i18nKey="<strong>Stop</strong> closes the browser and keeps its logins: the next thing the Bot does starts it again where it left off. <strong>Reset</strong> deletes the profile, so the Bot is signed out of everything and starts clean. <strong>Update computer</strong> appears when a computer runs an older image than this deployment, and moves it onto the new one with its files and sign-ins kept. All three are recorded in <audit>Audit</audit>."
+          components={{
+            strong: <strong />,
+            audit: <Link className="underline" to="/admin/audit" />,
+          }}
+        />
       </p>
     </PageShell>
   );
@@ -350,6 +372,7 @@ function HostFoldersSection({
   revokingGrantId,
   stopping,
 }: HostFoldersSectionProps) {
+  const { t } = useTranslation("admin");
   const botIds = Array.from(
     new Set([
       ...knownBotIds,
@@ -360,8 +383,11 @@ function HostFoldersSection({
 
   return (
     <PageSection
-      description={`Choose folders a Bot can read on this computer. The desktop app asks before each edit or command. Access ends when you stop ${brand.productName}.`}
-      title="Folders on this computer"
+      description={t(
+        "Choose folders a Bot can read on this computer. The desktop app asks before each edit or command. Access ends when you stop {{productName}}.",
+        { productName: brand.productName },
+      )}
+      title={t("Folders on this computer")}
     >
       {problem ? (
         <p
@@ -374,14 +400,15 @@ function HostFoldersSection({
 
       {!connected && !loading ? (
         <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-          The desktop app is offline. Folders can only be approved from the
-          desktop app, and command access stays unavailable while it is offline.
+          {t(
+            "The desktop app is offline. Folders can only be approved from the desktop app, and command access stays unavailable while it is offline.",
+          )}
         </p>
       ) : null}
 
       {loading ? null : botIds.length === 0 ? (
         <PageEmpty>
-          No Bots yet. Create a Bot before choosing folders.
+          {t("No Bots yet. Create a Bot before choosing folders.")}
         </PageEmpty>
       ) : (
         <PageRows>
@@ -408,7 +435,9 @@ function HostFoldersSection({
                     size="sm"
                     variant="outline"
                   >
-                    {requestingBotId === botId ? "Waiting…" : "Choose folder"}
+                    {requestingBotId === botId
+                      ? t("Waiting…")
+                      : t("Choose folder")}
                   </Button>
                 </ItemActions>
               </Item>
@@ -420,8 +449,9 @@ function HostFoldersSection({
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-muted-foreground text-sm">
         <p>
-          Grants are read-only by default. Writes are requested from the native
-          desktop prompt when a Bot needs them.
+          {t(
+            "Grants are read-only by default. Writes are requested from the native desktop prompt when a Bot needs them.",
+          )}
         </p>
         <div className="flex items-center gap-3">
           <Button
@@ -430,10 +460,10 @@ function HostFoldersSection({
             size="sm"
             variant="outline"
           >
-            {stopping ? "Stopping…" : "Stop folder access"}
+            {stopping ? t("Stopping…") : t("Stop folder access")}
           </Button>
           <Link className="underline" to="/admin/audit">
-            View audit
+            {t("View audit")}
           </Link>
         </div>
       </div>
@@ -454,6 +484,7 @@ function FolderGrantList({
   pending: HostAccessPendingOperation[];
   revokingGrantId: string | null;
 }) {
+  const { t } = useTranslation("admin");
   const botGrants = grants.filter(
     (grant) => grant.botId === botId && !grant.revoked,
   );
@@ -471,7 +502,7 @@ function FolderGrantList({
           <div className="min-w-0">
             <p className="truncate font-medium text-sm">{grant.displayName}</p>
             <p className="text-muted-foreground text-xs">
-              {ownerLabel(grant)} · Read-only
+              {t("{{value}} · Read-only", { value: ownerLabel(grant) })}
             </p>
           </div>
           <Button
@@ -480,7 +511,7 @@ function FolderGrantList({
             size="sm"
             variant="ghost"
           >
-            {revokingGrantId === grant.id ? "Revoking…" : "Revoke"}
+            {revokingGrantId === grant.id ? t("Revoking…") : t("Revoke")}
           </Button>
         </div>
       ))}
@@ -489,8 +520,14 @@ function FolderGrantList({
           className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
           key={request.operationId}
         >
-          {pendingLabel(request)} from {ownerLabel(request)}
-          {request.displayName ? ` for ${request.displayName}` : ""}.
+          {t("{{value}} from {{value2}}", {
+            value: pendingLabel(request),
+            value2: ownerLabel(request),
+          })}
+          {request.displayName
+            ? t(" for {{displayName}}", { displayName: request.displayName })
+            : ""}
+          .
         </div>
       ))}
     </div>
@@ -511,7 +548,7 @@ function summaryFor(
     parts.push(`${active} read-only ${active === 1 ? "folder" : "folders"}`);
   if (waiting > 0)
     parts.push(`${waiting} pending ${waiting === 1 ? "request" : "requests"}`);
-  return parts.length > 0 ? parts.join(" · ") : "No folders approved.";
+  return parts.length > 0 ? parts.join(" · ") : i18n.t("No folders approved.");
 }
 
 function ownerLabel(grant: { ownerName?: string; ownerEmail?: string }) {
@@ -521,17 +558,17 @@ function ownerLabel(grant: { ownerName?: string; ownerEmail?: string }) {
 function pendingLabel(request: HostAccessPendingOperation) {
   switch (request.kind) {
     case "write_file":
-      return "File change awaiting approval or completion";
+      return i18n.t("File change awaiting approval or completion");
     case "run_command":
-      return "Command awaiting approval or completion";
+      return i18n.t("Command awaiting approval or completion");
     case "list_files":
-      return "Listing files";
+      return i18n.t("Listing files");
     case "read_file":
-      return "Reading a file";
+      return i18n.t("Reading a file");
     case "cancel":
     case "stop":
-      return "Stopping folder work";
+      return i18n.t("Stopping folder work");
     default:
-      return "Folder access awaiting approval";
+      return i18n.t("Folder access awaiting approval");
   }
 }

@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { terminateMemberComputersMutationOptions } from "@/lib/enterprise/mutations";
+import { i18n, useTranslation } from "@/lib/i18n";
 import { intlLocale } from "@/lib/i18n/format";
 import {
   setPersonAccessMutationOptions,
@@ -53,18 +54,21 @@ function describe(person: Person): string {
     .map((provider) => PROVIDER_NAMES[provider] ?? provider)
     .join(", ");
   const when = person.lastSignedInAt
-    ? `last signed in ${new Date(person.lastSignedInAt).toLocaleDateString(intlLocale())}`
-    : "never signed in";
+    ? i18n.t("last signed in {{date}}", {
+        date: new Date(person.lastSignedInAt).toLocaleDateString(intlLocale()),
+      })
+    : i18n.t("never signed in");
 
   if (person.revoked)
-    return `Access removed · ${providers || "no provider"} · ${when}`;
+    return `${i18n.t("Access removed")} · ${providers || i18n.t("no provider")} · ${when}`;
   if (person.configuredAdmin) {
-    return `Administrator by configuration · ${when}`;
+    return `${i18n.t("Administrator by configuration")} · ${when}`;
   }
-  return `${providers || "no provider"} · ${when}`;
+  return `${providers || i18n.t("no provider")} · ${when}`;
 }
 
 function PeoplePage() {
+  const { t } = useTranslation("admin");
   const [search, setSearch] = useState("");
   /*
    * Debounced, so typing a name is one request rather than one per keystroke against an aggregate
@@ -90,12 +94,16 @@ function PeoplePage() {
 
   return (
     <PageShell
-      description="Everybody who has signed in. Administrators reach these screens; everybody else talks to Bots."
-      title="People"
+      description={t(
+        "Everybody who has signed in. Administrators reach these screens; everybody else talks to Bots.",
+      )}
+      title={t("People")}
     >
       <PageSection
-        description="An address named in INITIAL_ADMIN_EMAILS is an administrator whatever this screen says, so it cannot be changed here."
-        title="Who is here"
+        description={t(
+          "An address named in INITIAL_ADMIN_EMAILS is an administrator whatever this screen says, so it cannot be changed here.",
+        )}
+        title={t("Who is here")}
       >
         {failure ? (
           <p className="mt-4 text-destructive text-sm" role="alert">
@@ -104,12 +112,21 @@ function PeoplePage() {
         ) : null}
         {terminate.data ? (
           <p className="mt-4 text-muted-foreground text-sm" role="status">
-            Stopped {terminate.data.stopped.length}{" "}
-            {terminate.data.stopped.length === 1 ? "computer" : "computers"}
             {terminate.data.failed.length > 0
-              ? `; ${terminate.data.failed.length} could not be stopped`
-              : ""}
-            . Their disks are kept.
+              ? t(
+                  "Stopped {{count}} computers; {{failed}} could not be stopped. Their disks are kept.",
+                  {
+                    count: terminate.data.stopped.length,
+                    failed: terminate.data.failed.length,
+                    defaultValue_one:
+                      "Stopped {{count}} computer; {{failed}} could not be stopped. Their disks are kept.",
+                  },
+                )
+              : t("Stopped {{count}} computers. Their disks are kept.", {
+                  count: terminate.data.stopped.length,
+                  defaultValue_one:
+                    "Stopped {{count}} computer. Their disks are kept.",
+                })}
           </p>
         ) : null}
         {/*
@@ -117,22 +134,22 @@ function PeoplePage() {
           is the opposite of what somebody looking for a colleague needs.
         */}
         <Input
-          aria-label="Search people"
+          aria-label={t("Search people")}
           className="mt-4"
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by name or address"
+          placeholder={t("Search by name or address")}
           value={search}
         />
 
         {people.isPending ? null : people.error ? (
           <p className="mt-4 text-destructive text-sm" role="alert">
-            Could not load people.
+            {t("Could not load people.")}
           </p>
         ) : rows.length === 0 ? (
           <PageEmpty>
             {query
-              ? `Nobody here matches "${query}".`
-              : "Nobody has signed in yet. People appear here once they do."}
+              ? t('Nobody here matches "{{query}}".', { query })
+              : t("Nobody has signed in yet. People appear here once they do.")}
           </PageEmpty>
         ) : (
           <PageRows>
@@ -171,7 +188,7 @@ function PeoplePage() {
                         size="sm"
                         variant="outline"
                       >
-                        Stop computers
+                        {t("Stop computers")}
                       </Button>
                       <Button
                         disabled={busy || isSelf || person.configuredAdmin}
@@ -184,10 +201,12 @@ function PeoplePage() {
                         size="sm"
                         variant={person.revoked ? "outline" : "destructive"}
                       >
-                        {person.revoked ? "Restore" : "Remove"}
+                        {person.revoked ? t("Restore") : t("Remove")}
                       </Button>
                       <Switch
-                        aria-label={`Administrator: ${person.email}`}
+                        aria-label={t("Administrator: {{email}}", {
+                          email: person.email,
+                        })}
                         checked={person.role === "admin"}
                         disabled={busy || person.configuredAdmin || isSelf}
                         onCheckedChange={(checked) =>
@@ -218,7 +237,7 @@ function PeoplePage() {
             size="sm"
             variant="outline"
           >
-            {people.isFetchingNextPage ? "Loading…" : "Show more"}
+            {people.isFetchingNextPage ? t("Loading…") : t("Show more")}
           </Button>
         ) : null}
       </PageSection>

@@ -30,6 +30,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
+import { msg, useTranslation } from "@/lib/i18n";
 
 export const Route = createFileRoute("/_authed/_app/admin/")({
   component: RouteComponent,
@@ -52,102 +53,110 @@ const SECTIONS: {
   }[];
 }[] = [
   {
-    title: "What Bots can reach",
-    description:
+    title: msg("What Bots can reach"),
+    description: msg(
       "Everything a Bot can touch outside this app, and the limits on it.",
+    ),
     items: [
       {
-        title: "Credentials",
-        description: "Keys and tokens held for this deployment.",
+        title: msg("Credentials"),
+        description: msg("Keys and tokens held for this deployment."),
         icon: IconKey,
         linkOptions: { to: "/admin/credentials" },
       },
       {
-        title: "Boundaries",
-        description: "Rules that decide what a Bot may never do.",
+        title: msg("Boundaries"),
+        description: msg("Rules that decide what a Bot may never do."),
         icon: IconShieldCheck,
         linkOptions: { to: "/admin/boundaries" },
       },
       {
-        title: "Computers",
-        description: "The machines Bots run their tools on.",
+        title: msg("Computers"),
+        description: msg("The machines Bots run their tools on."),
         icon: IconDeviceDesktop,
         linkOptions: { to: "/admin/computers" },
       },
     ],
   },
   {
-    title: "What Bots can do",
-    description: "Capabilities and interface pieces available across Bots.",
+    title: msg("What Bots can do"),
+    description: msg(
+      "Capabilities and interface pieces available across Bots.",
+    ),
     items: [
       {
-        title: "Plugins",
-        description:
+        title: msg("Plugins"),
+        description: msg(
           "The services this deployment can reach, and which Bots may.",
+        ),
         icon: IconPuzzle,
         linkOptions: { to: "/admin/plugins" },
       },
       {
-        title: "Skills",
-        description: "Named instructions anybody can invoke with a slash.",
+        title: msg("Skills"),
+        description: msg("Named instructions anybody can invoke with a slash."),
         icon: IconFileText,
         linkOptions: { to: "/admin/skills" },
       },
       {
-        title: "Automatic Learning",
-        description:
+        title: msg("Automatic Learning"),
+        description: msg(
           "Learn from completed conversations and review proposed skills.",
+        ),
         icon: IconFileText,
         linkOptions: { to: "/admin/learning" },
       },
       {
-        title: "UI Components",
-        description: "Custom pieces a Bot can draw in a conversation.",
+        title: msg("UI Components"),
+        description: msg("Custom pieces a Bot can draw in a conversation."),
         icon: IconLayoutGrid,
         linkOptions: { to: "/admin/components" },
       },
       {
-        title: "Playground",
-        description: "Write a component and watch it render as you type.",
+        title: msg("Playground"),
+        description: msg("Write a component and watch it render as you type."),
         icon: IconCode,
         linkOptions: { to: "/admin/playground" },
       },
     ],
   },
   {
-    title: "Who can get in",
+    title: msg("Who can get in"),
     description: "",
     items: [
       {
-        title: "People",
-        description:
+        title: msg("People"),
+        description: msg(
           "Everybody who has signed in, who administers this deployment, and whose access has been removed.",
+        ),
         icon: IconUsers,
         linkOptions: { to: "/admin/people" },
       },
       {
-        title: "Enterprise controls",
-        description:
+        title: msg("Enterprise controls"),
+        description: msg(
           "Capabilities by role and group, SSO required, SCIM, network policy, MCP and model allowlists, Action Recording.",
+        ),
         icon: IconShieldCheck,
         linkOptions: { to: "/admin/enterprise" },
       },
       {
-        title: "Identity providers",
-        description:
+        title: msg("Identity providers"),
+        description: msg(
           "A company's own SAML or OpenID Connect provider, routed by email domain.",
+        ),
         icon: IconBuildingBank,
         linkOptions: { to: "/admin/identity-providers" },
       },
     ],
   },
   {
-    title: "What happened",
+    title: msg("What happened"),
     description: "",
     items: [
       {
-        title: "Audit",
-        description: "Every action taken in this deployment, and by whom.",
+        title: msg("Audit"),
+        description: msg("Every action taken in this deployment, and by whom."),
         icon: IconListDetails,
         linkOptions: { to: "/admin/audit" },
       },
@@ -156,16 +165,19 @@ const SECTIONS: {
 ];
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   return (
     <PageShell
-      description="Settings that apply to everybody in this deployment. Anything here affects every person and every Bot, which is what separates it from your own preferences."
-      title="Admin"
+      description={t(
+        "Settings that apply to everybody in this deployment. Anything here affects every person and every Bot, which is what separates it from your own preferences.",
+      )}
+      title={t("Admin")}
     >
       {SECTIONS.map((section) => (
         <PageSection
-          description={section.description || undefined}
+          description={section.description ? t(section.description) : undefined}
           key={section.title}
-          title={section.title}
+          title={t(section.title)}
         >
           <PageRows>
             {section.items.map((item, index) => (
@@ -182,8 +194,8 @@ function RouteComponent() {
                     <item.icon className="size-4 text-muted-foreground" />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>{item.title}</ItemTitle>
-                    <ItemDescription>{item.description}</ItemDescription>
+                    <ItemTitle>{t(item.title)}</ItemTitle>
+                    <ItemDescription>{t(item.description)}</ItemDescription>
                   </ItemContent>
                   <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </Item>

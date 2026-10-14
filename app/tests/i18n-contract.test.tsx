@@ -133,6 +133,25 @@ test("a tag named after a void HTML element loses its words, which is why tags n
   expect(view.getByRole("link").textContent).toBe("");
 });
 
+test("Trans reuses one named tag as often as the sentence needs it", () => {
+  const view = render(
+    <p data-testid="line">
+      <Trans
+        i18n={i18n}
+        i18nKey="Ask about <code>tool.name</code>, <code>intent</code> and <code>page.host</code>."
+        components={{ code: <code /> }}
+      />
+    </p>,
+  );
+  const codes = [...view.getByTestId("line").querySelectorAll("code")].map(
+    (code) => code.textContent,
+  );
+  expect(codes).toEqual(["tool.name", "intent", "page.host"]);
+  expect(view.getByTestId("line").textContent).toBe(
+    "Ask about tool.name, intent and page.host.",
+  );
+});
+
 test("msg marks a key without translating it", () => {
   expect(msg("Usage & Billing")).toBe("Usage & Billing");
 });

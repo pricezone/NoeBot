@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
+import { useTranslation } from "@/lib/i18n";
 import { intlLocale } from "@/lib/i18n/format";
 import {
   learningDeliveryQueryOptions,
@@ -33,17 +34,18 @@ function TargetFields({
   onChange: (target: LearningTarget | null) => void;
   label: string;
 }) {
+  const { t } = useTranslation("admin");
   const fieldId = useId();
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="grid gap-2 text-sm" htmlFor={`${fieldId}-container`}>
-        {label} container ID
+        {t("{{label}} container ID", { label })}
         <Input
           id={`${fieldId}-container`}
-          aria-label={`${label} container ID`}
+          aria-label={t("{{label}} container ID", { label })}
           value={target?.containerId ?? ""}
           maxLength={64}
-          placeholder="support-learning"
+          placeholder="support-learning" /* i18n-ignore: an example of the format, not prose */
           onChange={(event) =>
             onChange(
               event.target.value
@@ -54,13 +56,13 @@ function TargetFields({
         />
       </label>
       <label className="grid gap-2 text-sm" htmlFor={`${fieldId}-revision`}>
-        Exact revision (optional)
+        {t("Exact revision (optional)")}
         <Input
           id={`${fieldId}-revision`}
-          aria-label={`${label} revision`}
+          aria-label={t("{{label}} revision", { label })}
           value={target?.revision ?? ""}
           disabled={!target}
-          placeholder="Latest published"
+          placeholder={t("Latest published")}
           maxLength={256}
           onChange={(event) => {
             if (target)
@@ -76,6 +78,7 @@ function TargetFields({
 }
 
 export function LearningPage() {
+  const { t } = useTranslation("admin");
   const queryClient = useQueryClient();
   const settingsQuery = useQuery(learningSettingsQueryOptions());
   const agents = useQuery(agentListQueryOptions());
@@ -115,15 +118,19 @@ export function LearningPage() {
 
   return (
     <PageShell
-      title="Automatic Learning"
-      description="Collect completed conversations as evidence, review the skills Intelligence proposes, and deliver published guidance to Bots."
+      title={t("Automatic Learning")}
+      description={t(
+        "Collect completed conversations as evidence, review the skills Intelligence proposes, and deliver published guidance to Bots.",
+      )}
     >
       <PageSection
-        title="Participation"
-        description="Changes to container assignments apply to new threads. Existing threads keep their first assignment. Containers must already exist in the same Intelligence project."
+        title={t("Participation")}
+        description={t(
+          "Changes to container assignments apply to new threads. Existing threads keep their first assignment. Containers must already exist in the same Intelligence project.",
+        )}
       >
         {settingsQuery.isPending && (
-          <p role="status">Loading Learning settings…</p>
+          <p role="status">{t("Loading Learning settings…")}</p>
         )}
         {settingsQuery.error && (
           <p role="alert" className="text-destructive">
@@ -146,28 +153,29 @@ export function LearningPage() {
                   change({ ...settings, enabled: event.target.checked })
                 }
               />
-              Enable Automatic Learning and skill delivery
+              {t("Enable Automatic Learning and skill delivery")}
             </label>
             <TargetFields
-              label="Default"
+              label={t("Default")}
               target={settings.defaultTarget}
               onChange={(defaultTarget) =>
                 change({ ...settings, defaultTarget })
               }
             />
             <p className="text-muted-foreground text-sm">
-              An empty default leaves unmapped Bots out. IDs use 1–64 lowercase
-              letters, numbers, and single hyphens. Leave revision empty to
-              follow the latest published skills.
+              {t(
+                "An empty default leaves unmapped Bots out. IDs use 1–64 lowercase letters, numbers, and single hyphens. Leave revision empty to follow the latest published skills.",
+              )}
             </p>
             <fieldset className="grid gap-4">
               <legend className="mb-3 font-medium">
-                Per-Bot participation
+                {t("Per-Bot participation")}
               </legend>
               {(agents.error || hiddenAgents.error) && (
                 <p role="alert" className="text-destructive">
-                  The Bot list could not be loaded. Existing mappings are shown
-                  below.
+                  {t(
+                    "The Bot list could not be loaded. Existing mappings are shown below.",
+                  )}
                 </p>
               )}
               {botIds.map((id) => {
@@ -183,7 +191,9 @@ export function LearningPage() {
                       {nameFor(id)}
                       <select
                         className={selectClass}
-                        aria-label={`${nameFor(id)} participation`}
+                        aria-label={t("{{value}} participation", {
+                          value: nameFor(id),
+                        })}
                         value={mode}
                         onChange={(event) => {
                           const mappings = { ...settings.agents };
@@ -200,10 +210,14 @@ export function LearningPage() {
                           change({ ...settings, agents: mappings });
                         }}
                       >
-                        <option value="inherit">Use deployment default</option>
-                        <option value="exclude">Exclude from Learning</option>
+                        <option value="inherit">
+                          {t("Use deployment default")}
+                        </option>
+                        <option value="exclude">
+                          {t("Exclude from Learning")}
+                        </option>
                         <option value="container">
-                          Use a specific container
+                          {t("Use a specific container")}
                         </option>
                       </select>
                     </label>
@@ -228,11 +242,11 @@ export function LearningPage() {
             </fieldset>
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={save.isPending}>
-                {save.isPending ? "Saving…" : "Save Learning settings"}
+                {save.isPending ? t("Saving…") : t("Save Learning settings")}
               </Button>
               {saved && (
                 <p role="status" className="text-sm">
-                  Settings saved.
+                  {t("Settings saved.")}
                 </p>
               )}
             </div>
@@ -245,18 +259,20 @@ export function LearningPage() {
         )}
       </PageSection>
       <PageSection
-        title="Review and publish"
-        description="Intelligence analyzes completed runs and proposes skills. Review their supporting evidence and publish approved revisions in Intelligence before Bots can use them."
+        title={t("Review and publish")}
+        description={t(
+          "Intelligence analyzes completed runs and proposes skills. Review their supporting evidence and publish approved revisions in Intelligence before Bots can use them.",
+        )}
       >
         <div className="grid gap-4">
           <label className="grid gap-2 text-sm">
-            Inspect container for
+            {t("Inspect container for")}
             <select
               className={selectClass}
               value={selected}
               onChange={(event) => setSelected(event.target.value)}
             >
-              <option value="">Deployment default</option>
+              <option value="">{t("Deployment default")}</option>
               {botIds.map((id) => (
                 <option key={id} value={id}>
                   {nameFor(id)}
@@ -264,7 +280,9 @@ export function LearningPage() {
               ))}
             </select>
           </label>
-          {overview.isPending && <p role="status">Checking Intelligence…</p>}
+          {overview.isPending && (
+            <p role="status">{t("Checking Intelligence…")}</p>
+          )}
           {overview.error && (
             <p role="alert" className="text-destructive">
               {overview.error.message}
@@ -276,34 +294,40 @@ export function LearningPage() {
                 {snapshot.configuration === "configured"
                   ? `${snapshot.container?.name} (${snapshot.container?.id})`
                   : snapshot.configuration === "invalid"
-                    ? "The selected container or instrumentation is unavailable."
+                    ? t(
+                        "The selected container or instrumentation is unavailable.",
+                      )
                     : snapshot.configuration === "selection_required"
-                      ? "Select a Bot or configure a default container."
-                      : "No Learning container is assigned."}
+                      ? t("Select a Bot or configure a default container.")
+                      : t("No Learning container is assigned.")}
               </p>
               <dl className="grid grid-cols-2 gap-4 rounded-lg border p-4 text-sm">
                 <div>
-                  <dt className="text-muted-foreground">Threads ready</dt>
+                  <dt className="text-muted-foreground">
+                    {t("Threads ready")}
+                  </dt>
                   <dd className="font-semibold text-xl">
                     {snapshot.pendingThreadCount}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">
-                    Candidates to review
+                    {t("Candidates to review")}
                   </dt>
                   <dd className="font-semibold text-xl">
                     {snapshot.pendingCandidateCount}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Published skills</dt>
+                  <dt className="text-muted-foreground">
+                    {t("Published skills")}
+                  </dt>
                   <dd className="font-semibold text-xl">
                     {snapshot.publishedSkillCount}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-muted-foreground">Insights</dt>
+                  <dt className="text-muted-foreground">{t("Insights")}</dt>
                   <dd className="font-semibold text-xl">
                     {snapshot.insightCount}
                   </dd>
@@ -311,10 +335,12 @@ export function LearningPage() {
               </dl>
               <p className="text-sm">
                 {snapshot.hasActiveRun
-                  ? "An analysis is running."
+                  ? t("An analysis is running.")
                   : snapshot.latestRunStatus
-                    ? `Latest analysis: ${snapshot.latestRunStatus}.`
-                    : "No analysis has run yet."}
+                    ? t("Latest analysis: {{latestRunStatus}}.", {
+                        latestRunStatus: snapshot.latestRunStatus,
+                      })
+                    : t("No analysis has run yet.")}
               </p>
               <div className="flex flex-wrap gap-4 text-sm underline">
                 <a
@@ -322,7 +348,7 @@ export function LearningPage() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Manage Learning in Intelligence
+                  {t("Manage Learning in Intelligence")}
                 </a>
                 {snapshot.links.candidates && (
                   <a
@@ -330,7 +356,7 @@ export function LearningPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Review skill candidates
+                    {t("Review skill candidates")}
                   </a>
                 )}
                 {snapshot.links.runs && (
@@ -339,7 +365,7 @@ export function LearningPage() {
                     target="_blank"
                     rel="noreferrer"
                   >
-                    View analysis runs
+                    {t("View analysis runs")}
                   </a>
                 )}
               </div>
@@ -347,9 +373,9 @@ export function LearningPage() {
           )}
           {selected && (
             <div className="grid gap-2 rounded-lg border p-4 text-sm">
-              <h3 className="font-medium">Skill delivery</h3>
+              <h3 className="font-medium">{t("Skill delivery")}</h3>
               {delivery.isPending ? (
-                <p>Checking delivery…</p>
+                <p>{t("Checking delivery…")}</p>
               ) : delivery.error ? (
                 <p role="alert">{delivery.error.message}</p>
               ) : (
@@ -357,22 +383,29 @@ export function LearningPage() {
                   <>
                     <p>
                       {!delivery.data.configured
-                        ? "Delivery is off for this Bot."
+                        ? t("Delivery is off for this Bot.")
                         : !delivery.data.initialized
-                          ? "Waiting for the first verified skill snapshot."
+                          ? t("Waiting for the first verified skill snapshot.")
                           : delivery.data.stale
-                            ? "Using the last verified snapshot; refresh is pending."
-                            : "A verified snapshot is available."}
+                            ? t(
+                                "Using the last verified snapshot; refresh is pending.",
+                              )
+                            : t("A verified snapshot is available.")}
                     </p>
                     {delivery.data.revision && (
-                      <p>Loaded revision: {delivery.data.revision}</p>
+                      <p>
+                        {t("Loaded revision: {{revision}}", {
+                          revision: delivery.data.revision,
+                        })}
+                      </p>
                     )}
                     {delivery.data.lastCheckedAt && (
                       <p>
-                        Last checked:{" "}
-                        {new Date(delivery.data.lastCheckedAt).toLocaleString(
-                          intlLocale(),
-                        )}
+                        {t("Last checked: {{value}}", {
+                          value: new Date(
+                            delivery.data.lastCheckedAt,
+                          ).toLocaleString(intlLocale()),
+                        })}
                       </p>
                     )}
                     {delivery.data.error && (
@@ -392,13 +425,13 @@ export function LearningPage() {
               if (selected) void delivery.refetch();
             }}
           >
-            Refresh status
+            {t("Refresh status")}
           </Button>
           <p className="text-muted-foreground text-sm">
-            Management requires your Intelligence account and project
-            permissions. {brand.productName} keeps project credentials on the
-            server. Pausing here preserves settings and thread assignments;
-            schedules and publication remain managed in Intelligence.
+            {t(
+              "Management requires your Intelligence account and project permissions. {{productName}} keeps project credentials on the server. Pausing here preserves settings and thread assignments; schedules and publication remain managed in Intelligence.",
+              { productName: brand.productName },
+            )}
           </p>
         </div>
       </PageSection>

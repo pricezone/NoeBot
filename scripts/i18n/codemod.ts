@@ -100,8 +100,15 @@ const compiler = ts.parseJsonConfigFileContent(
   ts.sys,
   path.dirname(configPath),
 );
+// The whole app project, not just the files rewritten: route data is typed through the generated
+// route tree, which a program of the target files alone does not see, and reads as `any`.
 const program = ts.createProgram({
-  rootNames: files.map((file) => path.join(ROOT, file)),
+  rootNames: [
+    ...new Set([
+      ...compiler.fileNames,
+      ...files.map((file) => path.join(ROOT, file)),
+    ]),
+  ],
   options: compiler.options,
 });
 const checker = program.getTypeChecker();
@@ -187,13 +194,31 @@ function renderedJsxText(raw: string): string {
   return result;
 }
 
+const TEXT = ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike;
+const NOTHING = ts.TypeFlags.Undefined | ts.TypeFlags.Null;
+
+/** Text to the type checker: strings and numbers, possibly missing (drawn as nothing). */
 function isTextType(expression: ts.Expression): boolean {
   const type = checker.getTypeAtLocation(expression);
   const parts = type.isUnion() ? type.types : [type];
-  return parts.every(
-    (part) =>
-      (part.flags & (ts.TypeFlags.StringLike | ts.TypeFlags.NumberLike)) !== 0,
+  return (
+    parts.some((part) => (part.flags & TEXT) !== 0) &&
+    parts.every((part) => (part.flags & (TEXT | NOTHING)) !== 0)
   );
+}
+
+/** Whether a value may be missing, so its placeholder needs `?? ""` rather than "undefined". */
+function mayBeMissing(expression: ts.Expression): boolean {
+  const type = checker.getTypeAtLocation(expression);
+  return (type.isUnion() ? type.types : [type]).some(
+    (part) => (part.flags & NOTHING) !== 0,
+  );
+}
+
+/** The source of a value as it goes into a sentence. */
+function valueSource(expression: ts.Expression, source: ts.SourceFile): string {
+  const text = expression.getText(source);
+  return mayBeMissing(expression) ? `${text} ?? ""` : text;
 }
 
 /** A readable name for a value in a sentence: `name` for `user.name`, `query` for `query.trim()`. */
@@ -208,6 +233,8 @@ function placeholderName(expression: ts.Expression): string {
   }
   if (ts.isParenthesizedExpression(expression))
     return placeholderName(expression.expression);
+  if (ts.isBinaryExpression(expression))
+    return placeholderName(expression.left);
   return "value";
 }
 
@@ -217,8 +244,13 @@ function sentenceValue(expression: ts.Expression): boolean {
     ts.isJsxElement(expression) ||
     ts.isJsxSelfClosingElement(expression) ||
     ts.isJsxFragment(expression) ||
-    ts.isConditionalExpression(expression) ||
-    ts.isBinaryExpression(expression)
+    ts.isConditionalExpression(expression)
+  )
+    return false;
+  if (
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind !== ts.SyntaxKind.QuestionQuestionToken &&
+    expression.operatorToken.kind !== ts.SyntaxKind.BarBarToken
   )
     return false;
   return isTextType(expression);
@@ -435,7 +467,7 @@ for (const file of files) {
           continue;
         }
         let name = placeholderName(child.expression);
-        const value = child.expression.getText(source);
+        const value = valueSource(child.expression, source);
         const taken = values.find(([existing]) => existing === name);
         if (taken && taken[1] !== value) {
           let suffix = 2;
@@ -547,7 +579,7 @@ for (const file of files) {
       }
       const name = placeholderName(span.expression);
       if (!values.some(([existing]) => existing === name))
-        values.push([name, span.expression.getText(source)]);
+        values.push([name, valueSource(span.expression, source)]);
       key += `{{${name}}}${span.literal.text}`;
     }
     if (!WORDY.test(key.replace(/\{\{[^}]*\}\}/g, "")) || ignored(template))
@@ -621,7 +653,7 @@ for (const file of files) {
             }
             const name = placeholderName(span.expression);
             if (!values.some(([existing]) => existing === name))
-              values.push([name, span.expression.getText(source)]);
+              values.push([name, valueSource(span.expression, source)]);
             key += `{{${name}}}${span.literal.text}`;
           }
           if (!plain)

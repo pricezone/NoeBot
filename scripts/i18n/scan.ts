@@ -237,12 +237,14 @@ const VERBATIM_ELEMENTS = new Set([
 ]);
 
 function ignored(source: ts.SourceFile, node: ts.Node): boolean {
-  // `// i18n-ignore` (or `{/* i18n-ignore */}`) on the line before, or at the end of the same line.
-  const line = lineOf(source, node);
+  // `// i18n-ignore` (or `{/* i18n-ignore */}`) on the line before, on any line the node spans (a
+  // formatter may wrap a long attribute value onto its own lines), or at the end of its last line.
+  const first = lineOf(source, node);
+  const last = source.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
   const lines = source.text.split("\n");
-  return [lines[line - 2], lines[line - 1]].some((text) =>
-    text?.includes("i18n-ignore"),
-  );
+  return lines
+    .slice(Math.max(0, first - 2), last)
+    .some((text) => text.includes("i18n-ignore"));
 }
 
 function insideVerbatim(node: ts.Node, source: ts.SourceFile): boolean {

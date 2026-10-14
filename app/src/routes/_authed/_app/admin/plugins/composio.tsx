@@ -3,6 +3,7 @@ import * as React from "react";
 import { PageSection, PageShell } from "@/components/layout/page-shell";
 import { ComposioAppList } from "@/components/plugins/composio-app-list";
 import { Input } from "@/components/ui/input";
+import { i18n, useTranslation } from "@/lib/i18n";
 
 /**
  * Composio's directory, searched rather than listed.
@@ -23,23 +24,31 @@ export const Route = createFileRoute("/_authed/_app/admin/plugins/composio")({
 export { matchingApps } from "@/components/plugins/composio-app-list";
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   const [search, setSearch] = React.useState("");
 
   return (
     <PageShell
-      backButton={{ label: "Plugins", linkProps: { to: "/admin/plugins" } }}
-      description="Composio's own directory. Adding an app makes its tools available to grant; each person still connects their own account before any of them reads anything."
-      title="Browse Composio"
+      backButton={{
+        label: i18n.t("Plugins"),
+        linkProps: { to: "/admin/plugins" },
+      }}
+      description={t(
+        "Composio's own directory. Adding an app makes its tools available to grant; each person still connects their own account before any of them reads anything.",
+      )}
+      title={t("Browse Composio")}
     >
       <PageSection
-        description="Search by name. The directory is too long to read, and nothing here has been reviewed by this deployment."
-        title="Apps"
+        description={t(
+          "Search by name. The directory is too long to read, and nothing here has been reviewed by this deployment.",
+        )}
+        title={t("Apps")}
       >
         <Input
-          aria-label="Search Composio apps"
+          aria-label={t("Search Composio apps")}
           className="mt-4"
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by app name"
+          placeholder={t("Search by app name")}
           value={search}
         />
         <ComposioAppList search={search} />

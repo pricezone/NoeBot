@@ -21,6 +21,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useBotNames } from "@/lib/agents/bot-names";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { i18n, useTranslation } from "@/lib/i18n";
 import {
   grantPlugin,
   invalidatePlugins,
@@ -71,6 +72,7 @@ export function readOnlyRefs(tools: PluginTool[]): string[] {
 }
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   const { key, agentId } = useParams({
     from: "/_authed/_app/admin/plugins/$key_/bots/$agentId",
   });
@@ -149,7 +151,7 @@ function RouteComponent() {
 
   /* Nothing rather than a placeholder, so no sentence asserts anything while a fetch is open. */
   if (plugins.isPending || agents.isPending || hiddenAgents.isPending) {
-    return <PageShell title="Bot">{null}</PageShell>;
+    return <PageShell title={t("Bot")}>{null}</PageShell>;
   }
 
   /*
@@ -163,11 +165,14 @@ function RouteComponent() {
   if (plugins.data && !server) {
     return (
       <PageShell
-        backButton={{ label: "Plugins", linkProps: { to: "/admin/plugins" } }}
-        description="This deployment has not enabled an app by that name."
+        backButton={{
+          label: i18n.t("Plugins"),
+          linkProps: { to: "/admin/plugins" },
+        }}
+        description={t("This deployment has not enabled an app by that name.")}
         title={appTitle}
       >
-        <PageEmpty>There is nothing here to grant.</PageEmpty>
+        <PageEmpty>{t("There is nothing here to grant.")}</PageEmpty>
       </PageShell>
     );
   }
@@ -182,11 +187,14 @@ function RouteComponent() {
   if (!server) {
     return (
       <PageShell
-        backButton={{ label: "Plugins", linkProps: { to: "/admin/plugins" } }}
-        title="Plugins"
+        backButton={{
+          label: i18n.t("Plugins"),
+          linkProps: { to: "/admin/plugins" },
+        }}
+        title={t("Plugins")}
       >
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Plugins could not be loaded.
+          {t("Plugins could not be loaded.")}
         </p>
       </PageShell>
     );
@@ -208,11 +216,13 @@ function RouteComponent() {
     return (
       <PageShell
         backButton={back}
-        description="This deployment has no Bot by that name, so there is nobody to grant these actions to."
-        title="Not a Bot"
+        description={t(
+          "This deployment has no Bot by that name, so there is nobody to grant these actions to.",
+        )}
+        title={t("Not a Bot")}
       >
         <PageEmpty>
-          It may have been deleted since this page was opened.
+          {t("It may have been deleted since this page was opened.")}
         </PageEmpty>
       </PageShell>
     );
@@ -264,7 +274,7 @@ function RouteComponent() {
             <ItemContent>
               <ItemTitle className="font-mono text-xs">{tool.name}</ItemTitle>
               <ItemDescription>
-                {tool.description || "This action came with no description."}
+                {tool.description || t("This action came with no description.")}
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -280,12 +290,14 @@ function RouteComponent() {
                */}
               {tool.destructive ? (
                 <span className="text-destructive text-xs">
-                  destroys things
+                  {t("destroys things")}
                 </span>
               ) : null}
               {/* The reason the switch is on and will not move, said beside it. */}
               {offeredToAll ? (
-                <span className="text-muted-foreground text-xs">Every Bot</span>
+                <span className="text-muted-foreground text-xs">
+                  {t("Every Bot")}
+                </span>
               ) : null}
               {/*
                * Binary and immediate, which is what a Switch is for: it takes effect when switched
@@ -296,7 +308,10 @@ function RouteComponent() {
                * not here.
                */}
               <Switch
-                aria-label={`Let ${botName} call ${tool.name}`}
+                aria-label={t("Let {{botName}} call {{name}}", {
+                  botName,
+                  name: tool.name,
+                })}
                 checked={held(tool)}
                 disabled={
                   offeredToAll ||
@@ -326,10 +341,16 @@ function RouteComponent() {
       backButton={back}
       description={
         offeredToAll
-          ? `${appTitle} is offered to every Bot from the Marketplace, so ${botName} may call every action. Switch “Offered to every Bot” off on the app's page to decide per action here.`
-          : `Which of ${appTitle}'s actions ${botName} may call. Every call is decided again when it happens, so switching one off takes effect on the next one.`
+          ? t(
+              "{{appTitle}} is offered to every Bot from the Marketplace, so {{botName}} may call every action. Switch “Offered to every Bot” off on the app's page to decide per action here.",
+              { appTitle, botName },
+            )
+          : t(
+              "Which of {{appTitle}}'s actions {{botName}} may call. Every call is decided again when it happens, so switching one off takes effect on the next one.",
+              { appTitle, botName },
+            )
       }
-      title={`${botName} and ${appTitle}`}
+      title={t("{{botName}} and {{appTitle}}", { botName, appTitle })}
     >
       {error ? (
         <p className="mt-4 text-destructive text-sm" role="alert">
@@ -345,10 +366,10 @@ function RouteComponent() {
       ) : (
         <>
           <Input
-            aria-label={`Search ${appTitle} actions`}
+            aria-label={t("Search {{appTitle}} actions", { appTitle })}
             className="mt-6"
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by action name"
+            placeholder={t("Search by action name")}
             value={search}
           />
 
@@ -376,21 +397,30 @@ function RouteComponent() {
               >
                 {/* The one in flight, not the ones finished: a count starting at zero of forty reads as nothing happening. */}
                 {granting
-                  ? `Granting ${Math.min(granting.done + 1, granting.total)} of ${granting.total}…`
-                  : "Turn on every read-only action"}
+                  ? t("Granting {{current}} of {{total}}…", {
+                      current: Math.min(granting.done + 1, granting.total),
+                      total: granting.total,
+                    })
+                  : t("Turn on every read-only action")}
               </Button>
             </div>
           ) : null}
 
           <PageSection
-            description="These only read. A boundary written about writes does not apply to them."
-            title="Reads"
+            description={t(
+              "These only read. A boundary written about writes does not apply to them.",
+            )}
+            title={t("Reads")}
           >
             {reads.length === 0 ? (
               <PageEmpty>
                 {needle
-                  ? `Nothing that only reads matches "${search.trim()}".`
-                  : `${appTitle} offers nothing that only reads.`}
+                  ? t('Nothing that only reads matches "{{search}}".', {
+                      search: search.trim(),
+                    })
+                  : t("{{appTitle}} offers nothing that only reads.", {
+                      appTitle,
+                    })}
               </PageEmpty>
             ) : (
               rows(reads)
@@ -398,14 +428,20 @@ function RouteComponent() {
           </PageSection>
 
           <PageSection
-            description="These change something at the vendor. A boundary written about writes applies to them, and each call is refused when one matches."
-            title="Changes things"
+            description={t(
+              "These change something at the vendor. A boundary written about writes applies to them, and each call is refused when one matches.",
+            )}
+            title={t("Changes things")}
           >
             {writes.length === 0 ? (
               <PageEmpty>
                 {needle
-                  ? `Nothing that changes things matches "${search.trim()}".`
-                  : `${appTitle} offers nothing that changes anything.`}
+                  ? t('Nothing that changes things matches "{{search}}".', {
+                      search: search.trim(),
+                    })
+                  : t("{{appTitle}} offers nothing that changes anything.", {
+                      appTitle,
+                    })}
               </PageEmpty>
             ) : (
               rows(writes)

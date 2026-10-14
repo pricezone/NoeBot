@@ -17,6 +17,7 @@ import {
 } from "@/lib/audit/outcome";
 import { auditEventsQueryOptions } from "@/lib/audit/queries";
 import { silenceOf } from "@/lib/audit/silence";
+import { i18n, msg, useTranslation } from "@/lib/i18n";
 import { intlLocale } from "@/lib/i18n/format";
 
 /**
@@ -49,20 +50,24 @@ type AuditEvent = {
  * answered.
  */
 const FILTERS = [
-  { label: "Everything", search: "" },
-  { label: "Computer actions", search: "?eventType=computer.action_allowed" },
-  { label: "Blocked", search: eventTypeFilter(REFUSED_EVENT_TYPES) },
+  { label: msg("Everything"), search: "" },
   {
-    label: "Did not happen",
+    label: msg("Computer actions"),
+    search: "?eventType=computer.action_allowed",
+  },
+  { label: msg("Blocked"), search: eventTypeFilter(REFUSED_EVENT_TYPES) },
+  {
+    label: msg("Did not happen"),
     search: eventTypeFilter(DID_NOT_HAPPEN_EVENT_TYPES),
   },
   {
-    label: "Nobody watching",
+    label: msg("Nobody watching"),
     search: "?initiatorKind=routine,handoff,responsibility,memory",
   },
 ] as const;
 
 function AuditPage() {
+  const { t } = useTranslation("admin");
   const [search, setSearch] = useState<string>(FILTERS[0].search);
   const events = useQuery(auditEventsQueryOptions(search));
   const rows = (events.data?.events ?? []) as AuditEvent[];
@@ -79,18 +84,20 @@ function AuditPage() {
       action={
         <Button onClick={() => events.refetch()} size="sm" variant="ghost">
           <IconRefresh />
-          Refresh
+          {t("Refresh")}
         </Button>
       }
-      description="Every action a Bot took, and every one this deployment's policy refused."
-      title="Audit"
+      description={t(
+        "Every action a Bot took, and every one this deployment's policy refused.",
+      )}
+      title={t("Audit")}
       width="wide"
     >
       <PageSection>
         <div className="flex flex-wrap gap-2">
           {FILTERS.map((filter) => (
             <Button
-              key={filter.label}
+              key={t(filter.label)}
               onClick={() => setSearch(filter.search)}
               size="sm"
               type="button"
@@ -104,21 +111,21 @@ function AuditPage() {
 
         {events.isPending ? null : events.isError ? (
           <p className="mt-4 text-destructive text-sm" role="alert">
-            The audit trail could not be loaded.
+            {t("The audit trail could not be loaded.")}
           </p>
         ) : rows.length === 0 ? (
-          <PageEmpty>No events match this filter yet.</PageEmpty>
+          <PageEmpty>{t("No events match this filter yet.")}</PageEmpty>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-lg border border-border bg-card">
             <table className="w-full text-left text-sm">
               <thead className="text-muted-foreground text-xs uppercase">
                 <tr className="border-border border-b">
-                  <th className="px-4 py-2 font-medium">When</th>
-                  <th className="px-4 py-2 font-medium">What</th>
-                  <th className="px-4 py-2 font-medium">On</th>
-                  <th className="px-4 py-2 font-medium">Bot</th>
-                  <th className="px-4 py-2 font-medium">Started by</th>
-                  <th className="px-4 py-2 font-medium">Decision</th>
+                  <th className="px-4 py-2 font-medium">{t("When")}</th>
+                  <th className="px-4 py-2 font-medium">{t("What")}</th>
+                  <th className="px-4 py-2 font-medium">{t("On")}</th>
+                  <th className="px-4 py-2 font-medium">{t("Bot")}</th>
+                  <th className="px-4 py-2 font-medium">{t("Started by")}</th>
+                  <th className="px-4 py-2 font-medium">{t("Decision")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,13 +148,14 @@ function StartedBy({
   event: AuditEvent;
   nameFor: (botId: string) => string;
 }) {
+  const { t } = useTranslation("admin");
   if (event.initiatorKind === "routine") {
     return (
       <span
         className="font-medium text-amber-600 dark:text-amber-500"
         title={event.initiatorId ?? undefined}
       >
-        A routine
+        {t("A routine")}
       </span>
     );
   }
@@ -158,8 +166,8 @@ function StartedBy({
         title={event.initiatorId ?? undefined}
       >
         {event.initiatorId
-          ? `Handed on by ${nameFor(event.initiatorId)}`
-          : "Handed on"}
+          ? t("Handed on by {{value}}", { value: nameFor(event.initiatorId) })
+          : t("Handed on")}
       </span>
     );
   }
@@ -173,15 +181,17 @@ function StartedBy({
         title={event.initiatorId ?? undefined}
       >
         {event.initiatorKind === "memory"
-          ? "A memory source"
-          : "A responsibility"}
+          ? t("A memory source")
+          : t("A responsibility")}
       </span>
     );
   }
   if (event.initiatorKind === "deployment") {
-    return <span className="text-muted-foreground">This deployment</span>;
+    return (
+      <span className="text-muted-foreground">{t("This deployment")}</span>
+    );
   }
-  return <span className="text-muted-foreground">A person</span>;
+  return <span className="text-muted-foreground">{t("A person")}</span>;
 }
 
 function Row({
@@ -191,6 +201,7 @@ function Row({
   event: AuditEvent;
   nameFor: (botId: string) => string;
 }) {
+  const { t } = useTranslation("admin");
   const payload = event.payload ?? {};
   const decision = (payload.decision ?? {}) as {
     allowed?: boolean;
@@ -216,10 +227,10 @@ function Row({
   const routed =
     event.eventType === "channel.routed"
       ? payload.viaMention === true
-        ? "The person chose this coworker"
+        ? i18n.t("The person chose this coworker")
         : payload.fallback === true
-          ? "Sent to the default coworker"
-          : "Sent to the coworker it is for"
+          ? i18n.t("Sent to the default coworker")
+          : i18n.t("Sent to the coworker it is for")
       : null;
   // Allowed by policy but not carried out. A stalled turn belongs in the same family: the Bot was
   // asked and the answer never arrived. Colour is how this table is read, and a row left in the
@@ -257,7 +268,10 @@ function Row({
           <span className="font-mono text-xs">
             {typeof payload.offered === "number" &&
             typeof payload.granted === "number"
-              ? `${payload.offered} of ${payload.granted} tools`
+              ? t("{{offered}} of {{granted}} tools", {
+                  offered: payload.offered,
+                  granted: payload.granted,
+                })
               : "-"}
           </span>
         ) : /* Named targets and file paths are the audit subject before page elements. */
@@ -320,8 +334,14 @@ function Row({
           }
         >
           {routed ??
-            DECISIONS[event.eventType] ??
-            (refused ? "Blocked" : failed ? "Did not happen" : "Allowed")}
+            (DECISIONS[event.eventType]
+              ? t(DECISIONS[event.eventType] as string)
+              : undefined) ??
+            (refused
+              ? i18n.t("Blocked")
+              : failed
+                ? i18n.t("Did not happen")
+                : i18n.t("Allowed"))}
         </span>
         {/* Refusal reasons mirror the conversation-facing reason. */}
         {(event.eventType === "component.refused" ||
@@ -340,7 +360,7 @@ function Row({
         {event.eventType === "mcp.tools_discovered" &&
         typeof payload.reason === "string" ? (
           <div className="mt-0.5 text-xs text-muted-foreground">
-            {DISCOVERY_REASONS[payload.reason] ?? payload.reason}
+            {t(DISCOVERY_REASONS[payload.reason] ?? payload.reason)}
             {Array.isArray(payload.skills) && payload.skills.length > 0
               ? `: ${payload.skills.join(", ")}`
               : ""}
@@ -374,7 +394,7 @@ function Row({
         typeof payload.reason === "string" ? (
           <div className="mt-0.5 text-xs text-muted-foreground">
             {payload.reason}
-            <span className="italic">, reported by the Bot itself</span>
+            <span className="italic">{t(", reported by the Bot itself")}</span>
           </div>
         ) : null}
         {failed && typeof payload.failure === "string" ? (
@@ -400,7 +420,7 @@ function Row({
         decision.allowed === false &&
         decision.carriedOut ? (
           <div className="text-xs text-muted-foreground">
-            dry-run: recorded, not enforced
+            {t("dry-run: recorded, not enforced")}
           </div>
         ) : null}
       </td>
@@ -421,11 +441,11 @@ function Row({
  * and one whose selector could not be reached, and only the last is a fault.
  */
 const DISCOVERY_REASONS: Record<string, string> = {
-  "under-floor": "Few enough tools to offer them all",
-  "nothing-declared": "No skill declares any of these tools",
-  unavailable: "Could not choose, so all were offered",
-  "nothing-chosen": "No skill applied, so all were offered",
-  selected: "Chosen by skill",
+  "under-floor": msg("Few enough tools to offer them all"),
+  "nothing-declared": msg("No skill declares any of these tools"),
+  unavailable: msg("Could not choose, so all were offered"),
+  "nothing-chosen": msg("No skill applied, so all were offered"),
+  selected: msg("Chosen by skill"),
 };
 
 const NAMED_TARGETS = new Set([
@@ -437,45 +457,45 @@ const NAMED_TARGETS = new Set([
 ]);
 
 const DECISIONS: Record<string, string> = {
-  "bot.declined": "The Bot declined",
+  "bot.declined": msg("The Bot declined"),
   // Not a refusal, so not the refusal colour: nothing was blocked. The Bot was asked and never
   // answered, which is the same complaint as an action that was allowed and then did not happen.
-  "agent.stream_stalled": "The Bot stopped responding",
-  "computer.policy_loaded": "Boundary at start-up",
-  "computer.isolation_loaded": "Isolation at start-up",
-  "computer.control_taken": "A person took the wheel",
-  "computer.control_released": "The wheel was handed back",
-  "computer.help_requested": "The Bot asked for help",
-  "computer.secret_requested": "The Bot asked for a secret",
-  "computer.secret_supplied": "A person supplied a secret",
-  "computer.reset": "The computer was reset",
-  "computer.updated": "The computer was updated",
-  "computer.stopped": "A person pressed stop",
+  "agent.stream_stalled": msg("The Bot stopped responding"),
+  "computer.policy_loaded": msg("Boundary at start-up"),
+  "computer.isolation_loaded": msg("Isolation at start-up"),
+  "computer.control_taken": msg("A person took the wheel"),
+  "computer.control_released": msg("The wheel was handed back"),
+  "computer.help_requested": msg("The Bot asked for help"),
+  "computer.secret_requested": msg("The Bot asked for a secret"),
+  "computer.secret_supplied": msg("A person supplied a secret"),
+  "computer.reset": msg("The computer was reset"),
+  "computer.updated": msg("The computer was updated"),
+  "computer.stopped": msg("A person pressed stop"),
 
-  "component.granted": "Granted to this Bot",
-  "component.revoked": "Taken away from this Bot",
-  "component.published": "Published, so every Bot may use it",
-  "component.unpublished": "Unpublished, so no Bot may use it",
-  "component.draft_saved": "Draft saved, not yet published",
-  "component.refused": "Refused",
-  "component.function_granted": "May read this",
-  "component.function_revoked": "May no longer read this",
-  "component.function_called": "Read real data",
-  "component.function_refused": "Refused",
+  "component.granted": msg("Granted to this Bot"),
+  "component.revoked": msg("Taken away from this Bot"),
+  "component.published": msg("Published, so every Bot may use it"),
+  "component.unpublished": msg("Unpublished, so no Bot may use it"),
+  "component.draft_saved": msg("Draft saved, not yet published"),
+  "component.refused": msg("Refused"),
+  "component.function_granted": msg("May read this"),
+  "component.function_revoked": msg("May no longer read this"),
+  "component.function_called": msg("Read real data"),
+  "component.function_refused": msg("Refused"),
   // A function failure is execution failure, not a policy refusal.
-  "component.function_failed": "Could not be read",
+  "component.function_failed": msg("Could not be read"),
 
   // Not a call and not a decision: the tools this run was allowed to see. Worded so nobody reads it
   // as permission, which it is not — everything named was already granted.
-  "mcp.tools_discovered": "Tools offered for one run",
-  "mcp.call_succeeded": "Called on this Bot's behalf",
-  "mcp.call_rejected": "Blocked",
-  "mcp.call_failed": "The server did not answer",
+  "mcp.tools_discovered": msg("Tools offered for one run"),
+  "mcp.call_succeeded": msg("Called on this Bot's behalf"),
+  "mcp.call_rejected": msg("Blocked"),
+  "mcp.call_failed": msg("The server did not answer"),
   // Not "Blocked": nothing about the Bot was judged, because nothing proved which Bot it was.
-  "mcp.callback_refused": "Could not prove which Bot it was",
+  "mcp.callback_refused": msg("Could not prove which Bot it was"),
 
-  "configuration.changed": "Configuration changed",
-  "credential.created": "Credential saved",
+  "configuration.changed": msg("Configuration changed"),
+  "credential.created": msg("Credential saved"),
 };
 
 function hostOf(url: string): string {

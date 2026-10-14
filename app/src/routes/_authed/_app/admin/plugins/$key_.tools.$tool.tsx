@@ -18,6 +18,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { grantRoster } from "@/lib/agents/grant-roster";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { i18n, useTranslation } from "@/lib/i18n";
 import { setPluginGrantMutationOptions } from "@/lib/plugins/mutations";
 import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
 
@@ -38,6 +39,7 @@ export const Route = createFileRoute(
 )({ component: RouteComponent });
 
 function RouteComponent() {
+  const { t } = useTranslation("admin");
   const { key, tool: toolName } = useParams({
     from: "/_authed/_app/admin/plugins/$key_/tools/$tool",
   });
@@ -77,7 +79,7 @@ function RouteComponent() {
   const offeredToAll = server?.offeredToAllBots === true;
 
   const back = {
-    label: server?.title ?? "Plugin",
+    label: server?.title ?? i18n.t("Plugin"),
     linkProps: {
       params: { key },
       to: "/admin/plugins/$key" as const,
@@ -86,7 +88,7 @@ function RouteComponent() {
 
   /* Nothing rather than a placeholder, so no sentence asserts anything while the fetch is open. */
   if (plugins.isPending) {
-    return <PageShell title="Tool">{null}</PageShell>;
+    return <PageShell title={t("Tool")}>{null}</PageShell>;
   }
 
   /*
@@ -99,7 +101,7 @@ function RouteComponent() {
     return (
       <PageShell backButton={back} title={toolName}>
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Plugins could not be loaded.
+          {t("Plugins could not be loaded.")}
         </p>
       </PageShell>
     );
@@ -109,7 +111,9 @@ function RouteComponent() {
     return (
       <PageShell
         backButton={back}
-        description="This connector does not advertise a tool by that name."
+        description={t(
+          "This connector does not advertise a tool by that name.",
+        )}
         title={toolName}
       >
         {/*
@@ -118,8 +122,10 @@ function RouteComponent() {
          */}
         <PageEmpty>
           {server
-            ? "It may have been withdrawn since the tool list was last refreshed."
-            : "This deployment has not enabled that connector."}
+            ? t(
+                "It may have been withdrawn since the tool list was last refreshed.",
+              )
+            : t("This deployment has not enabled that connector.")}
         </PageEmpty>
       </PageShell>
     );
@@ -143,7 +149,7 @@ function RouteComponent() {
   return (
     <PageShell
       backButton={back}
-      description={tool.description || "This tool came with no description."}
+      description={tool.description || t("This tool came with no description.")}
       title={toolName}
     >
       {error ? (
@@ -155,10 +161,14 @@ function RouteComponent() {
       <PageSection
         description={
           tool.effect === "write"
-            ? "This tool changes something at the vendor. A boundary written about writes applies to it, and it is refused when one matches."
-            : "This tool only reads. A boundary written about writes does not apply to it."
+            ? t(
+                "This tool changes something at the vendor. A boundary written about writes applies to it, and it is refused when one matches.",
+              )
+            : t(
+                "This tool only reads. A boundary written about writes does not apply to it.",
+              )
         }
-        title="What it does"
+        title={t("What it does")}
       >
         <PageRows>
           {/*
@@ -168,10 +178,11 @@ function RouteComponent() {
            */}
           <Item size="sm">
             <ItemContent>
-              <ItemTitle>Effect</ItemTitle>
+              <ItemTitle>{t("Effect")}</ItemTitle>
               <ItemDescription>
-                Decided by the connector, not by the tool's name. Anything
-                unrecognised counts as a write.
+                {t(
+                  "Decided by the connector, not by the tool's name. Anything unrecognised counts as a write.",
+                )}
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -182,7 +193,7 @@ function RouteComponent() {
                     : "text-muted-foreground text-xs"
                 }
               >
-                {tool.effect === "write" ? "changes things" : "reads"}
+                {tool.effect === "write" ? t("changes things") : t("reads")}
               </span>
             </ItemActions>
           </Item>
@@ -192,15 +203,21 @@ function RouteComponent() {
       <PageSection
         description={
           offeredToAll
-            ? `${server?.title ?? key} is offered to every Bot from the Marketplace, so every Bot may call this tool. Switch “Offered to every Bot” off on the app's page to decide per Bot here.`
-            : "A Bot may call this tool only while its switch is on. Turning one off takes effect on the next call, with nothing cached in between."
+            ? t(
+                "{{title}} is offered to every Bot from the Marketplace, so every Bot may call this tool. Switch “Offered to every Bot” off on the app's page to decide per Bot here.",
+                { title: server?.title ?? key },
+              )
+            : t(
+                "A Bot may call this tool only while its switch is on. Turning one off takes effect on the next call, with nothing cached in between.",
+              )
         }
-        title="Bots"
+        title={t("Bots")}
       >
         {bots.length === 0 ? (
           <PageEmpty>
-            This deployment has no Bots yet, so there is nobody to grant this
-            to.
+            {t(
+              "This deployment has no Bots yet, so there is nobody to grant this to.",
+            )}
           </PageEmpty>
         ) : (
           <PageRows>
@@ -212,19 +229,25 @@ function RouteComponent() {
                     <ItemContent>
                       <ItemTitle>{bot.name}</ItemTitle>
                       <ItemDescription>
-                        {bot.hidden ? "Hidden from your roster. " : ""}
+                        {bot.hidden ? t("Hidden from your roster. ") : ""}
                         {held
                           ? canCallBack(bot)
-                            ? "May call this tool. Every call is still checked against the boundaries and written to the audit trail."
-                            : "Granted, but this Bot has no credential for calling tools back, so every call is refused before it reaches the boundary. Issue one on its own page, or set AGENT_TOOL_TOKEN for the deployment."
-                          : "Cannot call this tool. It is not offered to the model at all, so it has nothing to refuse."}
+                            ? t(
+                                "May call this tool. Every call is still checked against the boundaries and written to the audit trail.",
+                              )
+                            : t(
+                                "Granted, but this Bot has no credential for calling tools back, so every call is refused before it reaches the boundary. Issue one on its own page, or set AGENT_TOOL_TOKEN for the deployment.",
+                              )
+                          : t(
+                              "Cannot call this tool. It is not offered to the model at all, so it has nothing to refuse.",
+                            )}
                       </ItemDescription>
                     </ItemContent>
                     <ItemActions>
                       {/* The reason the switch is on and will not move, said beside it. */}
                       {offeredToAll ? (
                         <span className="text-muted-foreground text-xs">
-                          Every Bot
+                          {t("Every Bot")}
                         </span>
                       ) : null}
                       {/*
@@ -235,7 +258,10 @@ function RouteComponent() {
                        * not here.
                        */}
                       <Switch
-                        aria-label={`Let ${bot.name} call ${toolName}`}
+                        aria-label={t("Let {{name}} call {{toolName}}", {
+                          name: bot.name,
+                          toolName,
+                        })}
                         checked={held}
                         disabled={
                           offeredToAll ||
