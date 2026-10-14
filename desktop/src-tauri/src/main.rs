@@ -3825,9 +3825,11 @@ fn set_ui_locale<R: tauri::Runtime>(
     }
     let (tray_menu, window_menu) = build_menus(&app, locale).map_err(|error| error.to_string())?;
     if let Some(tray) = app.tray_by_id("openbot") {
-        tray.set_menu(Some(tray_menu)).map_err(|error| error.to_string())?;
+        tray.set_menu(Some(tray_menu))
+            .map_err(|error| error.to_string())?;
     }
-    app.set_menu(window_menu).map_err(|error| error.to_string())?;
+    app.set_menu(window_menu)
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
