@@ -1,5 +1,6 @@
 import {
   CLICKY_AUTO_STEP_LIMIT,
+  CLICKY_PERSON_ONLY_TRIGGERS,
   CLICKY_NUDGE_AFTER_MS,
   CLICKY_PROPOSAL_TTL_MS,
   CLICKY_TASK_GRANT_TTL_MS,
@@ -671,6 +672,13 @@ function reduceCommand(
       if (command.mode === "act") {
         if (context.actionPolicy === "never")
           return refuse(session, "guide_only");
+        // A sign-in, a secret or a CAPTCHA the Bot handed over is the person's to do, whatever the
+        // mode: Clicky points at it and never offers to do it.
+        if (
+          session.trigger &&
+          CLICKY_PERSON_ONLY_TRIGGERS.includes(session.trigger.kind)
+        )
+          return refuse(session, "yours");
         const acting: ClickySession = {
           ...session,
           awake: true,

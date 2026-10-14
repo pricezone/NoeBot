@@ -478,6 +478,18 @@ describe("the Bot needs the person", () => {
     );
   });
 
+  test.each(["sign_in", "secret", "challenge"] as const)(
+    "'Do it for me' is refused while a %s is the person's to do",
+    (kind) => {
+      const h = harness("ask_once_per_task");
+      h.command({ type: "activate", trigger: { kind, requestId: "r9" } });
+      expect(h.command({ type: "set_mode", mode: "act" }).rejected).toBe(
+        "yours",
+      );
+      expect(h.session.mode).toBe("guide");
+    },
+  );
+
   test("the handover ending clears its guidance and says thanks", () => {
     const h = harness();
     h.command({
