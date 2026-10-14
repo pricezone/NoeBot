@@ -481,6 +481,8 @@ const DECISIONS: Record<string, string> = {
   "clicky.action_failed": msg("Clicky could not do it"),
   "clicky.action_blocked": msg("Clicky pointed instead of acting"),
   "clicky.stopped": msg("A person stopped Clicky"),
+  "clicky.mode_changed": msg("Clicky's mode was changed"),
+  "clicky.guide_installed": msg("The Bot showed steps with Clicky"),
   "mobile.device_linked": msg("A phone was linked"),
   "mobile.device_revoked": msg("A phone was signed out"),
 

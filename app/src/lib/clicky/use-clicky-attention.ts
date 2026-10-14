@@ -81,8 +81,8 @@ export function clickyActivatedFor(
  *
  * THE SERVER OPENS CLICKY ITSELF, from the same handover events; this is the person's side of it
  * (the screen in front of them) and a fallback that does not race it. The screen is asked for at
- * once; the session is read again after a grace period, and `activate` is sent only if Clicky is
- * still not awake on this need, with the server's own ids. Once per need: the same request seen on
+ * once; the session is read again after a grace period, and Clicky is woken only if it is still
+ * asleep (the server alone opens it on the Bot's need). Once per need: the same request seen on
  * every poll asks nothing again, and a need that clears and comes back is a new one.
  */
 export function useClickyAttention(
@@ -123,10 +123,11 @@ export function useClickyAttention(
           staleTime: 0,
         });
         if (!current || clickyActivatedFor(session, wanted)) return;
-        const result = await sendClickyCommand(botId, {
-          type: "activate",
-          trigger: wanted,
-        });
+        // Only the server may open Clicky on the Bot's need (it refuses `activate` from a browser for
+        // anything but a person's own question), so the fallback is to wake it: the person sees it
+        // and can ask, and the server's activation, when it lands, carries the need itself.
+        if (session.awake) return;
+        const result = await sendClickyCommand(botId, { type: "wake" });
         keepClickySession(queryClient, botId, result.session);
       } catch {
         // The server opens Clicky for this too; a fallback that fails costs nothing but itself.

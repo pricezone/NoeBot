@@ -723,11 +723,6 @@
   "This sign-in link was already used. Ask for a new one.": "Αυτός ο σύνδεσμος σύνδεσης έχει ήδη χρησιμοποιηθεί. Ζήτησε νέο.",
   "This sign-in link is not valid here.": "Αυτός ο σύνδεσμος σύνδεσης δεν ισχύει εδώ.",
   "Linking a phone is not available on this deployment.": "Η σύνδεση τηλεφώνου δεν είναι διαθέσιμη σε αυτή την εγκατάσταση.",
-  "That key turns the computer off, locks it or signs out.": "Αυτό το πλήκτρο κλείνει ή κλειδώνει τον υπολογιστή ή σε αποσυνδέει.",
-  "That shortcut restarts or signs out of the computer.": "Αυτή η συντόμευση επανεκκινεί τον υπολογιστή ή σε αποσυνδέει.",
-  "That shortcut locks the screen.": "Αυτή η συντόμευση κλειδώνει την οθόνη.",
-  "That shortcut closes the browser window.": "Αυτή η συντόμευση κλείνει το παράθυρο του προγράμματος περιήγησης.",
-  "That shortcut closes a window or tab.": "Αυτή η συντόμευση κλείνει ένα παράθυρο ή μια καρτέλα.",
   "Clicky is set to guide only, so it never clicks or types.": "Το Clicky είναι ρυθμισμένο μόνο για καθοδήγηση, οπότε δεν κάνει ποτέ κλικ και δεν πληκτρολογεί.",
   "Clicky types at most {{0}} characters at a time.": "Το Clicky πληκτρολογεί έως {{0}} χαρακτήρες τη φορά.",
   "Clicky never types into a password, code or card field. That one is yours.": "Το Clicky δεν πληκτρολογεί ποτέ σε πεδίο κωδικού πρόσβασης, κωδικού ή κάρτας. Αυτό είναι δικό σου.",
@@ -743,5 +738,13 @@
   "Clicky is busy carrying out a step for the person. Try again in a moment.": "Το Clicky εκτελεί ένα βήμα για το άτομο. Δοκίμασε ξανά σε λίγο.",
   "There is no such phone.": "Δεν υπάρχει τέτοιο τηλέφωνο.",
   "Choose a Bot whose computer you can use.": "Διάλεξε έναν Bot του οποίου τον υπολογιστή μπορείς να χρησιμοποιήσεις.",
-  "Choose a push registration of your own.": "Διάλεξε μια δική σου καταχώριση ειδοποιήσεων."
+  "Choose a push registration of your own.": "Διάλεξε μια δική σου καταχώριση ειδοποιήσεων.",
+  "Clicky only presses everyday keys, such as Enter, Tab and the arrows. That one is yours to press.": "Το Clicky πατά μόνο συνηθισμένα πλήκτρα, όπως το Enter, το Tab και τα βέλη. Αυτό είναι δικό σου να το πατήσεις.",
+  "That part of the page belongs to another site, and Clicky cannot see into it. That one is yours.": "Αυτό το μέρος της σελίδας ανήκει σε άλλον ιστότοπο και το Clicky δεν μπορεί να δει μέσα του. Αυτό είναι δικό σου.",
+  "Clicky could not tell what has the keyboard.": "Το Clicky δεν μπόρεσε να καταλάβει πού πηγαίνει το πληκτρολόγιο.",
+  "A paste puts in whatever is on the clipboard.": "Η επικόλληση βάζει ό,τι υπάρχει στο πρόχειρο.",
+  "That closes the tab.": "Αυτό κλείνει την καρτέλα.",
+  "That reloads the page, and anything typed on it may be lost.": "Αυτό φορτώνει ξανά τη σελίδα και ό,τι έχει πληκτρολογηθεί μπορεί να χαθεί.",
+  "That button sends the form it is in.": "Αυτό το κουμπί στέλνει τη φόρμα στην οποία βρίσκεται.",
+  "Clicky cannot see into that part of the page.": "Το Clicky δεν μπορεί να δει μέσα σε αυτό το μέρος της σελίδας."
 }

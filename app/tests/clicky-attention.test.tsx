@@ -24,9 +24,9 @@ import { settleReactWork } from "./settle-react-work";
 /**
  * When the Bot needs the person on its computer, Clicky opens by itself for somebody who lets it:
  * the screen is asked to open full-window at once, and after a grace period that leaves the server
- * time to wake Clicky itself, the browser sends one `activate` only if Clicky is still not awake on
- * that need, with the server's own request ids. Once per need, however often the control poll says
- * the same thing; a need that clears and comes back is new.
+ * time to open Clicky itself, the browser only wakes Clicky if it is still asleep (the server alone
+ * opens it on the Bot's need, and refuses a browser's `activate` for one). Once per need, however
+ * often the control poll says the same thing; a need that clears and comes back is new.
  */
 
 let commands: { botId: string; command: ClickyCommand }[] = [];
@@ -143,7 +143,7 @@ function Quick({ botId, grace = 40 }: { botId: string; grace?: number }) {
 const settle = (ms = 60) =>
   act(() => new Promise((resolve) => setTimeout(resolve, ms)));
 
-test("a pending help request opens the screen at once and, after the grace, activates Clicky once", async () => {
+test("a pending help request opens the screen at once and, after the grace, wakes Clicky once", async () => {
   const view = render(<Attention botId="attention-1" />);
   await waitFor(() =>
     expect(takeClickyViewerRequest("attention-1")).toBe(true),
@@ -156,15 +156,7 @@ test("a pending help request opens the screen at once and, after the grace, acti
       expect(commands).toEqual([
         {
           botId: "attention-1",
-          command: {
-            type: "activate",
-            trigger: {
-              kind: "takeover",
-              requestId: "request-1",
-              reason: "Please sign in to the bank.",
-              targetRef: "e7",
-            },
-          },
+          command: { type: "wake" },
         },
       ]),
     { timeout: 3_000 },
@@ -193,24 +185,23 @@ test("when the server has woken Clicky for this request meanwhile, nothing is se
   expect(commands).toEqual([]);
 });
 
-test("a secret is named the way the server names it, and points at its field", async () => {
+test("a secret wakes Clicky too, and a session already awake is left to the server", async () => {
   need = "secret";
   render(<Quick botId="attention-3" />);
   await waitFor(() =>
     expect(commands).toEqual([
-      {
-        botId: "attention-3",
-        command: {
-          type: "activate",
-          trigger: {
-            kind: "secret",
-            requestId: "secret:e42:7",
-            targetRef: "e42",
-          },
-        },
-      },
+      { botId: "attention-3", command: { type: "wake" } },
     ]),
   );
+  sessions["attention-3b"] = session("attention-3b", {
+    awake: true,
+    state: "guiding",
+    seq: 2,
+  });
+  render(<Quick botId="attention-3b" />);
+  await settle(150);
+  expect(commands.filter(({ botId }) => botId === "attention-3b")).toEqual([]);
+  takeClickyViewerRequest("attention-3b");
 });
 
 test("a need that clears within the grace sends nothing; one that comes back is new", async () => {
@@ -231,15 +222,7 @@ test("a need that clears within the grace sends nothing; one that comes back is 
   await waitFor(
     () =>
       expect(commands.map(({ command }) => command)).toEqual([
-        {
-          type: "activate",
-          trigger: {
-            kind: "takeover",
-            requestId: "request-2",
-            reason: "Please sign in to the bank.",
-            targetRef: "e7",
-          },
-        },
+        { type: "wake" },
       ]),
     { timeout: 2_000 },
   );
