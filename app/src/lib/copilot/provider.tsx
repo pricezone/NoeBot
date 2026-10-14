@@ -12,8 +12,13 @@ import { EscalationTool } from "./escalation-tool";
 import { GalleryTools } from "./gallery-tools";
 import { GENERATIVE_UI_DESIGN_SKILL } from "./generative-ui";
 import { HandoffTool } from "./handoff-tool";
+import { loadFrameDefaults } from "./sandbox-frame";
 import { SandboxedTools } from "./sandboxed-tools";
 import { SkillTools } from "./skill-tools";
+
+// Before the first generated interface is drawn: every surface that draws one sits under this
+// provider, and the SDK makes each frame through the call this wraps (see sandbox-frame.ts).
+void loadFrameDefaults();
 
 /**
  * The CopilotKit client, wrapped once for the whole authenticated app.

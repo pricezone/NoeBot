@@ -20,7 +20,8 @@
  * that crosses, so a generated interface follows the browser rather than the app's own switch. A
  * person who has overridden their OS theme in OpenBot will see a generated interface that disagrees
  * with the surface around it. That is a known limitation of the sandbox rather than something this
- * text can fix.
+ * text can fix. What is fixed is the frame disagreeing with itself: its base document
+ * (sandbox-frame.ts) makes the canvas follow the same preference the interface's own CSS reads.
  */
 import { brand } from "@/lib/brand";
 
@@ -38,7 +39,9 @@ TYPE. font-family: Inter, ui-sans-serif, system-ui, sans-serif. Body 14px/1.5. H
 
 SHAPE AND SPACING. border-radius: 0.55rem on cards and controls, 0.375rem on small chips. 1px solid borders, never a drop shadow for elevation. Pad containers 12-16px. Space stacked blocks 8-12px.
 
-DARK MODE IS REQUIRED. Define the light palette first, then override inside @media (prefers-color-scheme: dark). Set an explicit background and colour on body — the iframe paints on nothing, so a transparent body shows through wrongly.
+DARK MODE IS REQUIRED. Define the light palette first, then override inside @media (prefers-color-scheme: dark). Set an explicit background and colour on body — the iframe paints on nothing, so a transparent body shows through wrongly. Any element that sets its own background sets its own text colour too, in both palettes: a white sheet that inherits dark mode's light text is invisible.
+
+PRINTING. window.print() prints just this interface, and always in the light palette, so a document meant for paper needs no print colours of its own. Hide its own buttons with @media print.
 
 LAYOUT. Assume a narrow column: roughly 320-680px wide, inside a chat message. Design for the narrow case first and let it grow. Never set a fixed pixel width on the outermost element; use max-width: 100%, flexbox or grid, and box-sizing: border-box everywhere. Anything wide — a table, a chart, a code block — scrolls inside its own container with overflow-x: auto. The page itself must never scroll sideways.
 
