@@ -32,12 +32,10 @@ export function clickyNeedOf(
   if (!control) return null;
   if (control.secretWanted !== undefined) {
     const ref = control.secretRef;
-    const snapshot = control.secretSnapshotId;
+    // Spelled exactly as the server's activation spells it, empty parts and all.
     return {
       kind: "secret",
-      ...(ref && snapshot !== undefined
-        ? { requestId: `secret:${ref}:${snapshot}` }
-        : {}),
+      requestId: `secret:${ref ?? ""}:${control.secretSnapshotId ?? ""}`,
       ...(ref ? { targetRef: ref } : {}),
     };
   }
@@ -45,7 +43,8 @@ export function clickyNeedOf(
     const request = control.request;
     const challenge =
       request.source === "cloudflare" || request.source === "visible-challenge";
-    const reason = control.reason ?? request.reason;
+    // Trimmed and capped as the server's activation does, so both say the same thing.
+    const reason = (control.reason ?? request.reason)?.trim().slice(0, 500);
     // The element the Bot asked the person to use (`point_at`), when the server kept it.
     const pointAt = (request as { pointAt?: unknown }).pointAt;
     return {

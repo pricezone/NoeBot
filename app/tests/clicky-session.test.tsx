@@ -6,8 +6,12 @@ import { keepClickySession, postClickyGuide } from "@/lib/clicky/mutations";
 import { CLICKY_NOTICE_KEYS, replyText } from "@/lib/clicky/notices";
 import { clickyKeys, newerSession } from "@/lib/clicky/queries";
 import {
-  applyReplyDelta,
+  acceptReplyDelta,
+  type ClickyStream,
   selectClickyPresence,
+  shownReply,
+  streamAfterSnapshot,
+  useClickyReply,
   useClickySession,
 } from "@/lib/clicky/use-clicky-session";
 import { queryClient } from "@/query-client";
@@ -21,11 +25,12 @@ import { settleReactWork } from "./settle-react-work";
 
 /**
  * A Bot's Clicky session in the browser: the GET for the first copy, then the events socket keeping
- * it current. Snapshots are ordered by `seq` and a late one never replaces a newer one; the pieces
- * of an answer start a reply of their own (the thinking snapshot still carries the last, whole one)
- * and are appended once a frame; a piece for a snapshot this tab never saw, or a `resync`, fetches the
- * session again; one socket is shared by everything showing the same Bot, and a surface that reads
- * only where Clicky is is not drawn again for each word.
+ * it current. Snapshots are ordered by `seq` and a late one never replaces a newer one. The words of
+ * an answer still arriving are kept apart, keyed by the session and the model call (`thinkId`) they
+ * belong to: shown while that session thinks on that call (the session's own reply until then is the
+ * previous one, whole), kept across a `seq` that moves mid-answer, never shown in another session.
+ * A piece for a snapshot never seen, or a `resync`, fetches the session again; one socket is shared
+ * by everything showing the same Bot, and only the reply line is drawn again for each word.
  */
 
 class SocketDouble {
@@ -102,8 +107,10 @@ afterAll(async () => {
 });
 
 let shown: ClickySession | undefined;
+let reply: ClickySession["reply"] | undefined;
 function Probe({ surface }: { surface?: "viewer" | "preview" }) {
   shown = useClickySession(BOT, true, surface);
+  reply = useClickyReply(BOT);
   return null;
 }
 
@@ -142,44 +149,99 @@ test("a reply reads Clicky's fixed line and then the model's words", () => {
   ).toBe("Notes saved.");
 });
 
-test("the newest copy wins, and on a tie a reply still arriving is kept", () => {
+test("the newest copy wins; a tie takes the incoming copy", () => {
   expect(newerSession(at(3), at(2)).seq).toBe(3);
   expect(newerSession(at(3), at(4)).seq).toBe(4);
   expect(newerSession(undefined, at(1)).seq).toBe(1);
-  // Another session (an old one expired) is simply the one to show now.
-  expect(newerSession(at(9), { ...at(1), id: "s2" }).id).toBe("s2");
-  const streaming = at(5, {
-    state: "thinking",
-    reply: { text: "Hello there", final: false },
-  });
-  // What a refused command's answer or a reconnect's snapshot says at the same seq: the old reply.
-  const before = at(5, { state: "thinking" });
-  expect(newerSession(streaming, before)).toBe(streaming);
-  // Without words arriving, the incoming copy of a tie is taken.
-  expect(newerSession(before, at(5, { state: "guiding" })).state).toBe(
+  // Another session (an old one expired) is simply the one to show now, whatever its seq.
+  expect(newerSession(at(9), { ...at(0), id: "s2" }).id).toBe("s2");
+  expect(newerSession(at(5), at(5, { state: "guiding" })).state).toBe(
     "guiding",
   );
 });
 
-test("the first piece of an answer starts a new reply; the rest are appended to it", () => {
-  // Thinking, with the greeting still there, whole: the answer's first piece replaces it.
-  const thinking = at(4, { state: "thinking" });
-  const started = applyReplyDelta(thinking, { seq: 4, text: "Cli" });
+test("pieces count for the call the session waits on, or for a snapshot not seen yet", () => {
+  const thinking = at(4, { state: "thinking", thinkId: "t1" });
+  const first = acceptReplyDelta(thinking, null, {
+    seq: 4,
+    thinkId: "t1",
+    text: "Cli",
+  });
+  expect(first).toEqual({
+    stream: { sessionId: "s1", thinkId: "t1", text: "Cli" },
+    refetch: false,
+  });
   expect(
-    started !== null && started !== "refetch" ? started.reply : null,
-  ).toEqual({ text: "Cli", final: false });
-  const more =
-    started !== null && started !== "refetch"
-      ? applyReplyDelta(started, { seq: 4, text: "ck" })
-      : null;
-  expect(more !== null && more !== "refetch" ? more.reply?.text : null).toBe(
-    "Click",
-  );
-  // Late, ahead, or for a session no longer thinking: dropped, fetched again, dropped.
-  expect(applyReplyDelta(thinking, { seq: 3, text: "late" })).toBeNull();
-  expect(applyReplyDelta(thinking, { seq: 6, text: "ahead" })).toBe("refetch");
+    acceptReplyDelta(thinking, first.stream, {
+      seq: 4,
+      thinkId: "t1",
+      text: "ck",
+    }).stream?.text,
+  ).toBe("Click");
+  // Another call, at a seq already seen: nobody is waiting on it.
   expect(
-    applyReplyDelta(at(4, { state: "guiding" }), { seq: 4, text: "!" }),
+    acceptReplyDelta(thinking, first.stream, {
+      seq: 4,
+      thinkId: "t0",
+      text: "late",
+    }),
+  ).toEqual({ stream: first.stream, refetch: false });
+  // Ahead of the snapshot that starts the call: kept, and the snapshot fetched.
+  const ahead = acceptReplyDelta(at(4, { state: "guiding" }), null, {
+    seq: 5,
+    thinkId: "t2",
+    text: "Next",
+  });
+  expect(ahead).toEqual({
+    stream: { sessionId: "s1", thinkId: "t2", text: "Next" },
+    refetch: true,
+  });
+  // A new call starts its own words rather than adding to the last call's.
+  expect(
+    acceptReplyDelta(
+      at(6, { state: "thinking", thinkId: "t3" }),
+      ahead.stream,
+      { seq: 6, thinkId: "t3", text: "Hi" },
+    ).stream,
+  ).toEqual({ sessionId: "s1", thinkId: "t3", text: "Hi" });
+  // No session yet: nothing to key the words by; it is fetched.
+  expect(
+    acceptReplyDelta(undefined, null, { seq: 1, thinkId: "t1", text: "x" }),
+  ).toEqual({ stream: null, refetch: true });
+});
+
+test("the words shown are the answer arriving, only while that session thinks on that call", () => {
+  const stream: ClickyStream = { sessionId: "s1", thinkId: "t1", text: "Top" };
+  // Thinking, the greeting still the session's reply, whole: the words arriving win.
+  const greeting = { text: "", final: true, notice: "awake" as const };
+  const thinking = at(4, { state: "thinking", thinkId: "t1", reply: greeting });
+  expect(shownReply(thinking, stream)).toEqual({ text: "Top", final: false });
+  // No words yet: the greeting stays.
+  expect(shownReply(thinking, { ...stream, text: "" })).toBe(greeting);
+  // Answered: the session's own reply.
+  expect(shownReply({ ...thinking, state: "guiding" }, stream)).toBe(greeting);
+  // Another call, or another session: never these words.
+  expect(shownReply({ ...thinking, thinkId: "t2" }, stream)).toBe(greeting);
+  expect(shownReply({ ...thinking, id: "s2" }, stream)).toBe(greeting);
+});
+
+test("a snapshot keeps the words only for the same session, the same call, still thinking", () => {
+  const stream: ClickyStream = { sessionId: "s1", thinkId: "t1", text: "Top" };
+  // Clicky's first pointer, mid-answer: a later seq of the same call keeps the beginning.
+  expect(
+    streamAfterSnapshot(stream, at(9, { state: "thinking", thinkId: "t1" })),
+  ).toBe(stream);
+  expect(
+    streamAfterSnapshot(stream, at(9, { state: "guiding", thinkId: null })),
+  ).toBeNull();
+  expect(
+    streamAfterSnapshot(stream, at(9, { state: "thinking", thinkId: "t2" })),
+  ).toBeNull();
+  expect(
+    streamAfterSnapshot(stream, {
+      ...at(0, { state: "thinking", thinkId: "t1" }),
+      id: "s2",
+    }),
   ).toBeNull();
 });
 
@@ -200,25 +262,34 @@ test("snapshots are kept in seq order; an older one arriving late is ignored", a
   expect(shown?.seq).toBe(3);
 });
 
-test("an answer streams in after a wake's greeting, and a same-seq answer does not wipe it", async () => {
+test("while thinking, the greeting is held until the answer's first words, which then stream", async () => {
   const { socket } = await mounted();
-  // Asked: thinking, with the greeting still the reply, as the reducer leaves it.
-  socket.emit({ type: "snapshot", session: at(2, { state: "thinking" }) });
+  // Asked: thinking on call t1, the greeting still the reply, whole, as the reducer leaves it.
+  socket.emit({
+    type: "snapshot",
+    session: at(2, { state: "thinking", thinkId: "t1" }),
+  });
   await waitFor(() => expect(shown?.state).toBe("thinking"));
+  expect(reply).toEqual({ text: "", final: true, notice: "awake" });
 
-  socket.emit({ type: "reply.delta", seq: 2, text: "Click " });
-  socket.emit({ type: "reply.delta", seq: 2, text: "Sign in." });
-  await waitFor(() => expect(shown?.reply?.text).toBe("Click Sign in."));
-  expect(shown?.reply?.final).toBe(false);
-  expect(shown?.reply?.notice).toBeUndefined();
+  socket.emit({ type: "reply.delta", seq: 2, thinkId: "t1", text: "Click " });
+  socket.emit({ type: "reply.delta", seq: 2, thinkId: "t1", text: "Sign in." });
+  await waitFor(() =>
+    expect(reply).toEqual({ text: "Click Sign in.", final: false }),
+  );
+  // The cache holds only what the server sent: a refused command's answer at the same seq changes
+  // nothing of the words arriving.
+  expect(shown?.reply?.notice).toBe("awake");
+  act(() =>
+    keepClickySession(
+      queryClient,
+      BOT,
+      at(2, { state: "thinking", thinkId: "t1" }),
+    ),
+  );
+  expect(reply?.text).toBe("Click Sign in.");
 
-  // A refused command's answer carries the session at that seq, greeting and all: kept out.
-  act(() => keepClickySession(queryClient, BOT, at(2, { state: "thinking" })));
-  expect(shown?.reply?.text).toBe("Click Sign in.");
-  // So is the snapshot a reconnect would send.
-  socket.emit({ type: "snapshot", session: at(2, { state: "thinking" }) });
-  expect(shown?.reply?.text).toBe("Click Sign in.");
-
+  // The answer: the session's own, whole reply.
   socket.emit({
     type: "snapshot",
     session: at(3, {
@@ -226,19 +297,78 @@ test("an answer streams in after a wake's greeting, and a same-seq answer does n
       reply: { text: "Click Sign in.", final: true },
     }),
   });
-  await waitFor(() => expect(shown?.reply?.final).toBe(true));
+  await waitFor(() => expect(reply?.final).toBe(true));
 });
 
-test("the same works after an activation, whose reply is the Bot's request", async () => {
+test("a seq that moves mid-answer (Clicky's first pointer) keeps the beginning", async () => {
   const { socket } = await mounted(
     at(6, {
       state: "thinking",
+      thinkId: "t1",
       trigger: { kind: "takeover", requestId: "r1", reason: "Sign in." },
       reply: { text: "Sign in.", final: true, notice: "takeover" },
     }),
   );
-  socket.emit({ type: "reply.delta", seq: 6, text: "Top right." });
-  await waitFor(() => expect(shown?.reply?.text).toBe("Top right."));
+  socket.emit({ type: "reply.delta", seq: 6, thinkId: "t1", text: "Top " });
+  await waitFor(() => expect(reply?.text).toBe("Top "));
+
+  // The deterministic first pointer: a snapshot of its own, the same call still answering.
+  socket.emit({
+    type: "snapshot",
+    session: at(7, {
+      state: "thinking",
+      thinkId: "t1",
+      overlays: [{ kind: "pointer", id: "p", at: { x: 0.9, y: 0.1 } }],
+      reply: { text: "Sign in.", final: true, notice: "takeover" },
+    }),
+  });
+  await waitFor(() => expect(shown?.seq).toBe(7));
+  socket.emit({ type: "reply.delta", seq: 7, thinkId: "t1", text: "right." });
+  await waitFor(() =>
+    expect(reply).toEqual({ text: "Top right.", final: false }),
+  );
+});
+
+test("a session started afresh, its seq back at zero, never shows the old words", async () => {
+  const { socket } = await mounted(at(8, { state: "thinking", thinkId: "t1" }));
+  socket.emit({
+    type: "reply.delta",
+    seq: 8,
+    thinkId: "t1",
+    text: "Old words",
+  });
+  await waitFor(() => expect(reply?.text).toBe("Old words"));
+
+  // The old session expired; a new one starts at seq 0, thinking on a call of the same name.
+  socket.emit({
+    type: "snapshot",
+    session: {
+      ...at(0, { state: "thinking", thinkId: "t1" }),
+      id: "s2",
+      reply: null,
+    },
+  });
+  await waitFor(() => expect(shown?.id).toBe("s2"));
+  expect(reply).toBeNull();
+  // Its own words start from nothing.
+  socket.emit({ type: "reply.delta", seq: 0, thinkId: "t1", text: "New" });
+  await waitFor(() => expect(reply).toEqual({ text: "New", final: false }));
+});
+
+test("words for a call nobody waits on any more are dropped", async () => {
+  const { socket } = await mounted(at(3, { state: "thinking", thinkId: "t2" }));
+  socket.emit({ type: "reply.delta", seq: 3, thinkId: "t1", text: "stale" });
+  socket.emit({ type: "reply.delta", seq: 3, thinkId: "t2", text: "fresh" });
+  await waitFor(() => expect(reply?.text).toBe("fresh"));
+});
+
+test("words ahead of their snapshot are kept, and the snapshot fetched", async () => {
+  const { socket } = await mounted(at(4, { state: "guiding" }));
+  served = at(5, { state: "thinking", thinkId: "t9" });
+  socket.emit({ type: "reply.delta", seq: 5, thinkId: "t9", text: "Early" });
+  await waitFor(() => expect(gets).toBe(2));
+  await waitFor(() => expect(shown?.seq).toBe(5));
+  await waitFor(() => expect(reply).toEqual({ text: "Early", final: false }));
 });
 
 test("a piece for a snapshot never seen, and a resync, fetch the session again", async () => {
@@ -246,7 +376,7 @@ test("a piece for a snapshot never seen, and a resync, fetch the session again",
   expect(gets).toBe(1);
 
   served = at(7, { state: "guiding" });
-  socket.emit({ type: "reply.delta", seq: 7, text: "ahead" });
+  socket.emit({ type: "reply.delta", seq: 7, thinkId: "t7", text: "ahead" });
   await waitFor(() => expect(gets).toBe(2));
   await waitFor(() => expect(shown?.seq).toBe(7));
 
@@ -278,13 +408,16 @@ test("a surface that reads only where Clicky is, is not drawn again while words 
     return null;
   }
   render(<Presence />);
-  socket.emit({ type: "snapshot", session: at(2, { state: "thinking" }) });
+  socket.emit({
+    type: "snapshot",
+    session: at(2, { state: "thinking", thinkId: "t1" }),
+  });
   await waitFor(() => expect(presence?.state).toBe("thinking"));
   const before = renders;
 
   for (const word of ["One ", "two ", "three ", "four."])
-    socket.emit({ type: "reply.delta", seq: 2, text: word });
-  await waitFor(() => expect(shown?.reply?.text).toBe("One two three four."));
+    socket.emit({ type: "reply.delta", seq: 2, thinkId: "t1", text: word });
+  await waitFor(() => expect(reply?.text).toBe("One two three four."));
   expect(renders).toBe(before);
 });
 

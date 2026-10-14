@@ -34,8 +34,8 @@ import {
 import { useClickySpeech } from "@/lib/clicky/speech";
 import { stopClickyNow, useClickyStopFailed } from "@/lib/clicky/stop";
 import {
-  selectClickyCalm,
-  selectClickyReply,
+  selectClickySession,
+  useClickyReply,
   useClickySessionView,
 } from "@/lib/clicky/use-clicky-session";
 import { useTranslation } from "@/lib/i18n";
@@ -75,7 +75,7 @@ const ClickyReplyLine = memo(function ClickyReplyLine({
   botId: string;
 }) {
   const { t } = useTranslation();
-  const reply = useClickySessionView(botId, selectClickyReply);
+  const reply = useClickyReply(botId);
   const [expanded, setExpanded] = useState(false);
   const text = replyText(reply ?? null, (key) => t(key));
   const streaming = reply !== null && reply !== undefined && !reply.final;
@@ -138,11 +138,11 @@ ClickyReplyLine.displayName = "ClickyReplyLine";
  * for somebody whose setting is guide only, for a sign-in, a secret or a challenge, which only the
  * person does, and before their settings have arrived.
  *
- * Reads its session from the cache the viewer keeps current, without the words still arriving: only
- * `ClickyReplyLine` is drawn again for each of those.
+ * Reads its session from the cache the viewer keeps current. The words of an answer still arriving
+ * are not in it: only `ClickyReplyLine` reads those, and only it is drawn again as they arrive.
  */
 export const ClickyBar = memo(function ClickyBar({ botId }: { botId: string }) {
-  const session = useClickySessionView(botId, selectClickyCalm);
+  const session = useClickySessionView(botId, selectClickySession);
   return session ? <ClickyBarBody botId={botId} session={session} /> : null;
 });
 

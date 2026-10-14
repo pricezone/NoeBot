@@ -32,22 +32,19 @@ export const clickyKeys = {
 };
 
 /**
- * The copy to keep: the one with the higher `seq`, and the incoming one on a tie, unless the held
- * copy has a reply still arriving.
+ * The copy to keep: the one with the higher `seq`, and the incoming one on a tie (the same change,
+ * answered twice: by the command's POST and by the events socket).
  *
- * WHY A TIE KEEPS A STREAMING REPLY. While Clicky thinks, its words arrive as `reply.delta`s stamped
- * with the thinking snapshot's `seq` and are appended here, in the browser only. Anything else the
- * server answers with at that same `seq` (a refused command's POST answer, the snapshot a reconnect
- * sends) is the session from before those words, and would wipe them.
+ * Only snapshots are compared here. The words of an answer still arriving are not part of the
+ * session in this cache (`use-clicky-session.ts` keeps them apart), so a copy taken before them never
+ * wipes them.
  */
 export function newerSession(
   held: ClickySession | undefined,
   incoming: ClickySession,
 ): ClickySession {
   if (!held || held.id !== incoming.id) return incoming;
-  if (incoming.seq < held.seq) return held;
-  if (incoming.seq === held.seq && held.reply && !held.reply.final) return held;
-  return incoming;
+  return incoming.seq < held.seq ? held : incoming;
 }
 
 function isSession(value: unknown): value is ClickySession {
