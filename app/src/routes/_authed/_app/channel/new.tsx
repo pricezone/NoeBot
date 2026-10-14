@@ -46,6 +46,7 @@ import {
   channelListQueryOptions,
 } from "@/lib/channels/queries";
 import { useStartChannel } from "@/lib/channels/start";
+import { serverMessageOf } from "@/lib/client";
 import { createGroupMutationOptions, postGroupMessage } from "@/lib/groups";
 import { useTranslation } from "@/lib/i18n";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
@@ -209,7 +210,7 @@ function RouteComponent() {
            * the Bot: a shared Team Bot link lands here once it is unpublished or undescribed. Any
            * other failure is a load that can be retried, and says so.
            */
-          detailFailure?.message === AGENT_NOT_FOUND
+          serverMessageOf(detailFailure) === AGENT_NOT_FOUND
           ? t(
               "This Bot isn't available to you. It may be unpublished, not shared with you, or not described yet.",
             )

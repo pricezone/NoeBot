@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client, tryClient, withTimeout } from "@/lib/client";
 import { i18n } from "@/lib/i18n";
+import { localizeServerMessageAsync } from "@/lib/i18n/server-messages";
 import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import type { TemplateCategory } from "../../../../shared/templates";
 
@@ -255,12 +256,16 @@ export async function testAgentConnection(
       | ConnectionVerdict
       | { error?: string }
       | null;
-    if (body && "ok" in body) return body;
+    if (body && "ok" in body)
+      return "reason" in body && typeof body.reason === "string"
+        ? { ...body, reason: await localizeServerMessageAsync(body.reason) }
+        : body;
+    const error = (body as { error?: string } | null)?.error;
     return {
       ok: false,
-      reason:
-        (body as { error?: string } | null)?.error ??
-        i18n.t("The connection could not be tested."),
+      reason: error
+        ? await localizeServerMessageAsync(error)
+        : i18n.t("The connection could not be tested."),
     };
   } catch {
     return { ok: false, reason: i18n.t("The connection could not be tested.") };

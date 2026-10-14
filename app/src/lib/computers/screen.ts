@@ -1,5 +1,6 @@
 import { tryClient } from "@/lib/client";
 import { i18n } from "@/lib/i18n";
+import { localizeServerMessageAsync } from "@/lib/i18n/server-messages";
 
 /**
  * One frame of a Bot's screen.
@@ -95,7 +96,11 @@ export async function readScreenshot(
       const body = (await response.json().catch(() => null)) as {
         error?: string;
       } | null;
-      return { error: body?.error ?? unavailable };
+      return {
+        error: body?.error
+          ? await localizeServerMessageAsync(body.error)
+          : unavailable,
+      };
     }
     return parseScreenshot(await response.json().catch(() => null));
   } catch {

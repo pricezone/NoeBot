@@ -3,6 +3,7 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 import { channelKeys } from "@/lib/channels/queries";
 import { client } from "@/lib/client";
 import { i18n } from "@/lib/i18n";
+import { localizeServerMessageAsync } from "@/lib/i18n/server-messages";
 import { queryClient } from "@/query-client";
 import type {
   SaveVoiceSessionInput,
@@ -103,17 +104,18 @@ export function saveVoiceSession(
       // Without a session there is nothing saved to show, whatever the status, as `client` holds.
       const body: { session?: VoiceSessionRecord; error?: string } =
         await response.json().catch(() => ({}));
+      const said = body.error
+        ? await localizeServerMessageAsync(body.error)
+        : undefined;
       if (!body.session)
-        throw new Error(
-          body.error ?? i18n.t("Could not save this voice chat."),
-        );
+        throw new Error(said ?? i18n.t("Could not save this voice chat."));
       const session = body.session;
       forgetVoiceCall(session, ownerId);
       queryClient.setQueryData<VoiceSessionRecord[]>(
         keys.saved(input.channelId),
         (entries) => upsert(entries, session),
       );
-      update({ ...session, ...(response.ok ? {} : { saveError: body.error }) });
+      update({ ...session, ...(response.ok ? {} : { saveError: said }) });
       await queryClient.invalidateQueries({ queryKey: channelKeys.all });
     } catch (error) {
       update({

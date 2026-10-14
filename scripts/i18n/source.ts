@@ -8,6 +8,7 @@ import {
   type Untranslated,
   untranslatedIn,
 } from "./scan";
+import { scanServer } from "./server-scan";
 
 /**
  * The app's source as the i18n tools read it: every `.ts`/`.tsx` under `app/src` except what is
@@ -26,11 +27,15 @@ export function appSourceFiles(): string[] {
   return files.sort();
 }
 
+/**
+ * Every key the app asks for, plus the server's sentences (namespace `server`), which the app
+ * translates where it shows them; and the untranslated English in the app's own files.
+ */
 export function scanApp(): {
   keys: FoundKey[];
   untranslated: Map<string, Untranslated[]>;
 } {
-  const keys: FoundKey[] = [];
+  const keys: FoundKey[] = scanServer(ROOT);
   const untranslated = new Map<string, Untranslated[]>();
   for (const file of appSourceFiles()) {
     const source = parse(file, readFileSync(path.join(ROOT, file), "utf8"));

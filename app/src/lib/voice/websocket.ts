@@ -1,4 +1,5 @@
 import { i18n } from "@/lib/i18n";
+import { localizeServerMessageAsync } from "@/lib/i18n/server-messages";
 import { decodePcm, encodePcm } from "./pcm";
 import type { ConnectVoice, VoiceEvent } from "./types";
 
@@ -134,7 +135,7 @@ export const connectWebSocket: ConnectVoice = async ({
           typeof body === "object" &&
           "error" in body &&
           typeof body.error === "string"
-          ? body.error
+          ? await localizeServerMessageAsync(body.error)
           : i18n.t("Could not start the voice call."),
       );
     if (

@@ -1,4 +1,5 @@
 import { i18n } from "@/lib/i18n";
+import { localizeServerMessageAsync } from "@/lib/i18n/server-messages";
 import type { ConnectVoice, VoiceEvent } from "./types";
 
 /** WebRTC owns audio buffering and interruption truncation; the data channel carries controls. */
@@ -134,7 +135,7 @@ export const connectWebRtc: ConnectVoice = async ({
           typeof body === "object" &&
           "error" in body &&
           typeof body.error === "string"
-          ? body.error
+          ? await localizeServerMessageAsync(body.error)
           : i18n.t("Could not connect the voice call. Please try again."),
       );
     }

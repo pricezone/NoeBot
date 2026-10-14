@@ -1,4 +1,8 @@
 import { i18n } from "@/lib/i18n";
+import {
+  loadServerMessages,
+  localizeServerMessage,
+} from "@/lib/i18n/server-messages";
 /**
  * The one place the browser talks to the API server.
  *
@@ -109,6 +113,23 @@ export function httpStatusOf(error: unknown): number | undefined {
 }
 
 /**
+ * The sentence the server refused a `client` request with, as it sent it: English, whatever the
+ * interface speaks. The thrown error's `message` is that sentence translated, for showing; this is
+ * the one to compare, since the translation changes with the language.
+ */
+export function serverMessageOf(error: unknown): string | undefined {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("serverMessage" in error)
+  )
+    return undefined;
+  return typeof error.serverMessage === "string"
+    ? error.serverMessage
+    : undefined;
+}
+
+/**
  * A request that throws when the server says no, carrying the server's own message and the status
  * (`httpStatusOf`), so a caller can tell a server that is restarting from one that refused.
  *
@@ -145,11 +166,16 @@ export async function client<T>(
       .json()
       .then((body: { error?: string }) => body.error)
       .catch(() => undefined);
+    // The server's sentence is translated where the catalog knows it (`serverMessageOf` keeps the
+    // English); the fallback is English written as a key, translated here.
+    if (message !== undefined) await loadServerMessages();
     throw Object.assign(
-      // The fallback is English written as a key, translated here; the server's own message is
-      // shown as it sent it.
-      new Error(message ?? i18n.t(options.fallback ?? "That request failed.")),
-      { status: response.status },
+      new Error(
+        message !== undefined
+          ? localizeServerMessage(message)
+          : i18n.t(options.fallback ?? "That request failed."),
+      ),
+      { status: response.status, serverMessage: message },
     );
   }
 

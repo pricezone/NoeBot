@@ -153,12 +153,14 @@ describe("the glossary", () => {
   });
 
   test("names kept as they are stay as they are", () => {
-    // A term may open the sentence with a capital, and a singular may keep the singular of a plural
-    // term ("Bot" for "Bots" in a `_one` entry, whose English is the plural form).
+    // A term may change the case of its first letter where a Greek sentence starts or does not, and
+    // a singular may keep the singular of a plural term ("Bot" for "Bots" in a `_one` entry, whose
+    // English is the plural form).
     const kept = (term: string, value: string, entry: string) =>
       [
         term,
         `${term[0]?.toUpperCase() ?? ""}${term.slice(1)}`,
+        `${term[0]?.toLowerCase() ?? ""}${term.slice(1)}`,
         ...(entry.endsWith("_one") && term.endsWith("s")
           ? [term.slice(0, -1)]
           : []),
@@ -228,6 +230,22 @@ describe("Greek spelling", () => {
           ? "formal σας"
           : undefined,
       ),
+    ).toEqual([]);
+  });
+});
+
+describe("the server's sentences", () => {
+  test("have Greek, every one of them", () => {
+    // The shell's catalog answers for the server's namespace too (`fallbackNS`).
+    const server = { ...catalogs.get("common"), ...catalogs.get("server") };
+    expect(
+      [
+        ...new Set(
+          keys
+            .filter((key) => key.namespace === "server")
+            .map((key) => key.key),
+        ),
+      ].filter((key) => !server[key]),
     ).toEqual([]);
   });
 });

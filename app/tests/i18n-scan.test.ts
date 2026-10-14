@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { keysIn, parse, untranslatedIn } from "../../scripts/i18n/scan";
+import { serverSentencesIn } from "../../scripts/i18n/server-scan";
 
 /**
  * What the i18n tools read out of source: which keys code asks for, in which namespace, and which
@@ -69,5 +70,29 @@ test("untranslated English is text and text props, never code, spaces or ignored
     "text: Untranslated words here",
     "text: Also untranslated",
     "placeholder: Type here",
+  ]);
+});
+
+test("the server's sentences: route bodies and refusals, as keys or patterns", () => {
+  const server = `
+    function route(c, name, kind) {
+      if (!name) return c.json({ error: "A name is required." }, 400);
+      if (kind) return c.json({ error: \`\${name} is not a Bot template here.\` }, 404);
+      if (name === "x") throw new PluginRefusedError("That plugin is not in the Marketplace.");
+      if (name === "y") throw new Error("Invariant: rows out of order.");
+      log({ reason: "the lease went elsewhere" });
+      return c.json({ error: "not_found" });
+    }
+  `;
+  const file = "server/src/example.ts";
+  expect(
+    serverSentencesIn(file, parse(file, server)).map((key) => [
+      key.namespace,
+      key.key,
+    ]),
+  ).toEqual([
+    ["server", "A name is required."],
+    ["server", "{{0}} is not a Bot template here."],
+    ["server", "That plugin is not in the Marketplace."],
   ]);
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { onComputerActivity } from "@/lib/copilot/computer-activity";
 import { useComputerControl } from "@/lib/computers/use-control";
+import { onComputerActivity } from "@/lib/copilot/computer-activity";
 
 /**
  * When a Bot's computer wants the person's eyes: the bot panel opens on its screen, for this
