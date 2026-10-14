@@ -117,6 +117,20 @@ async function placementOf(
   };
 }
 
+/** Where the page's whole browser window is on the screen, as the page itself reads it. */
+export async function pageWindowRect(
+  page: Page,
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  return page
+    .evaluate(() => ({
+      x: window.screenX,
+      y: window.screenY,
+      width: window.outerWidth,
+      height: window.outerHeight,
+    }))
+    .catch(() => null);
+}
+
 /** Where the page's viewport is on the screen, clipped to it. */
 export async function pageRectOnScreen(
   page: Page,
@@ -226,6 +240,8 @@ export type PageTarget = {
   submits: boolean;
   /** A frame: what is inside it (often another site's, such as a card field) cannot be read. */
   opaque: boolean;
+  /** Inside a dialog: its buttons are the "Yes", "OK" and "Continue" of a confirmation. */
+  inDialog: boolean;
 };
 
 /**
@@ -271,6 +287,7 @@ export function pageTarget(input: {
           sensitive: false,
           submits: false,
           opaque: false,
+          inDialog: false,
         }
       : null;
   const tag = element.tagName.toLowerCase();
@@ -281,6 +298,7 @@ export function pageTarget(input: {
       sensitive: false,
       submits: false,
       opaque: true,
+      inDialog: false,
     };
   const inputType =
     element instanceof HTMLInputElement ? element.type.toLowerCase() : "";
@@ -344,12 +362,16 @@ export function pageTarget(input: {
   const name = sensitive
     ? "[sensitive field]"
     : (label ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const inDialog = Boolean(
+    element.closest('dialog,[role="dialog"],[role="alertdialog"]'),
+  );
   return {
     role: role.slice(0, 40),
     name: name || role,
     sensitive,
     submits,
     opaque: false,
+    inDialog,
   };
 }
 
@@ -383,10 +405,18 @@ export async function elementAtScreen(
   point: Point,
   known?: ScreenElements,
   /**
-   * On a desktop, which window would receive input at this point: the Bot's browser or something
-   * else. Asked only for a point on the page; a point off it is outside the page already.
+   * On a desktop, which window would receive input at this point: the Bot's page or something else,
+   * against where the page says its window is. Asked only for a point on the page (a point off it
+   * is outside the page already), and only just before acting: when Clicky proposes, the page
+   * element under the point is what is rated, and which window is on top is checked when it would
+   * actually act.
    */
-  windowAt?: () => Promise<"browser" | "other">,
+  windowAt?: (pageWindow: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => Promise<"browser" | "other">,
 ): Promise<ElementAt> {
   const placement = await placementOf(page, desktop);
   const inPage = screenPointToPage(point, placement.offset, placement.viewport);
@@ -397,13 +427,23 @@ export async function elementAtScreen(
     sensitive: false,
     submits: false,
     opaque: false,
+    inDialog: false,
     inPage: false,
     url,
     ...(desktop ? { window: "other" as const } : {}),
   };
   if (!inPage) return outside;
   // Another window over the page (a terminal, a dialog of the desktop's) takes the input, not it.
-  const window = desktop && windowAt ? await windowAt() : undefined;
+  const view = placement.window;
+  const window =
+    desktop && windowAt && view
+      ? await windowAt({
+          x: view.x,
+          y: view.y,
+          width: placement.viewport.width + view.innerOffsetX,
+          height: placement.viewport.height + view.innerOffsetY,
+        })
+      : undefined;
   if (window === "other") return outside;
   const target = (await page.evaluate(pageTarget, {
     point: inPage,
@@ -414,6 +454,7 @@ export async function elementAtScreen(
     sensitive: false,
     submits: false,
     opaque: false,
+    inDialog: false,
   };
   const ref =
     known && known.url === url

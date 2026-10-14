@@ -9,13 +9,58 @@ import { xdotoolEnvironment } from "./x-input";
  * The guardrails rate what is on the Bot's PAGE, but input on a desktop goes to whatever window the
  * X server puts under the pointer or behind the keyboard: the terminal, the file manager, another
  * Chrome. So before Clicky clicks, scrolls or types on a desktop, it asks the X server which window
- * would receive it and whether that window is the Bot's own browser, by the process id the window
- * names (`_NET_WM_PID`) against the browser's (from its profile's `SingletonLock`), or, when a window
- * names no process, by its class. Any doubt is "other": the caller then treats the place as outside
- * the page, which is asked about every time.
+ * would receive it and whether that window is the Bot's PAGE: the browser's own process (the
+ * `_NET_WM_PID` it names against the browser's, from its profile's `SingletonLock`, or, naming none,
+ * a Chrome class) AND the very top-level window the page is in, by its geometry against the page's
+ * own `screenX`/`outerWidth`. The browser's bubbles (a permission's "Allow", save the password,
+ * autofill) are windows of the same process and fail the second test. Any doubt is "other": the
+ * caller then treats the place as outside the page, which is asked about every time.
  */
 
 export type WindowCheck = "browser" | "other";
+
+/** A window's place on the screen: where the page says its window is, or what X says. */
+export type WindowRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/** How far apart (in pixels, each edge) two readings of one window may be: a frame's border. */
+const GEOMETRY_TOLERANCE = 8;
+
+/** `xdotool getwindowgeometry --shell`: `WINDOW=…`, `X=…`, `Y=…`, `WIDTH=…`, `HEIGHT=…`. */
+export function parseGeometry(text: string | null): WindowRect | null {
+  const values = new Map<string, number>();
+  for (const line of (text ?? "").split("\n")) {
+    const match = /^([A-Z]+)=(-?\d+)$/.exec(line.trim());
+    if (match?.[1] && match[2] !== undefined)
+      values.set(match[1], Number(match[2]));
+  }
+  const x = values.get("X");
+  const y = values.get("Y");
+  const width = values.get("WIDTH");
+  const height = values.get("HEIGHT");
+  if (
+    x === undefined ||
+    y === undefined ||
+    width === undefined ||
+    height === undefined
+  )
+    return null;
+  return { x, y, width, height };
+}
+
+/** Whether two readings name the same window: every edge within a border's width. */
+export function sameWindowRect(a: WindowRect, b: WindowRect): boolean {
+  return (
+    Math.abs(a.x - b.x) <= GEOMETRY_TOLERANCE &&
+    Math.abs(a.y - b.y) <= GEOMETRY_TOLERANCE &&
+    Math.abs(a.x + a.width - (b.x + b.width)) <= GEOMETRY_TOLERANCE &&
+    Math.abs(a.y + a.height - (b.y + b.height)) <= GEOMETRY_TOLERANCE
+  );
+}
 
 const XDOTOOL_TIMEOUT_MS = 1_500;
 
@@ -93,43 +138,63 @@ export async function browserPid(profileDir: string): Promise<number | null> {
   return match?.[1] ? Number(match[1]) : null;
 }
 
-async function isBrowserWindow(
+/**
+ * Whether an X window is the one the Bot's page is in: the browser's process, and the top-level
+ * window whose place on the screen is where the page says its window is. With no page to compare
+ * with, no window is.
+ */
+async function isPageWindow(
   display: string,
   window: number,
   pid: number | null,
+  page: WindowRect | null,
 ): Promise<boolean> {
+  if (!page) return false;
   const owner = parseWindowId(
     await runX(display, "xdotool", ["getwindowpid", String(window)]),
   );
-  if (owner !== null) return pid !== null && owner === pid;
-  // A window that names no process: trusted only when it is a Chrome window at all.
-  return isChromeClass(
-    await runX(display, "xprop", ["-id", String(window), "WM_CLASS"]),
+  const browser =
+    owner !== null
+      ? pid !== null && owner === pid
+      : // A window that names no process: only ever a Chrome window at all.
+        isChromeClass(
+          await runX(display, "xprop", ["-id", String(window), "WM_CLASS"]),
+        );
+  if (!browser) return false;
+  const geometry = parseGeometry(
+    await runX(display, "xdotool", [
+      "getwindowgeometry",
+      "--shell",
+      String(window),
+    ]),
   );
+  return geometry !== null && sameWindowRect(geometry, page);
 }
 
-/** The window under the pointer right now: the Bot's browser, or something else. */
+/** The window under the pointer right now: the Bot's page, or something else. */
 export async function windowUnderPointer(
   display: string,
   pid: number | null,
+  page: WindowRect | null,
 ): Promise<WindowCheck> {
   const location = parseMouseLocation(
     (await runX(display, "xdotool", ["getmouselocation", "--shell"])) ?? "",
   );
   if (!location) return "other";
-  return (await isBrowserWindow(display, location.window, pid))
+  return (await isPageWindow(display, location.window, pid, page))
     ? "browser"
     : "other";
 }
 
-/** The window with the keyboard right now: the Bot's browser, or something else. */
+/** The window with the keyboard right now: the Bot's page, or something else. */
 export async function focusedWindow(
   display: string,
   pid: number | null,
+  page: WindowRect | null,
 ): Promise<WindowCheck> {
   const window = parseWindowId(
     await runX(display, "xdotool", ["getwindowfocus"]),
   );
   if (window === null) return "other";
-  return (await isBrowserWindow(display, window, pid)) ? "browser" : "other";
+  return (await isPageWindow(display, window, pid, page)) ? "browser" : "other";
 }

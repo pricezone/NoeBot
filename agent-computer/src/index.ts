@@ -62,6 +62,7 @@ import {
   focusOn,
   listScreenElements,
   maskedFrame,
+  pageWindowRect,
   type ScreenElements,
 } from "./elements";
 import { startDesktop } from "./desktop";
@@ -1738,6 +1739,7 @@ serve<StreamData>({
                 sensitive: false,
                 submits: false,
                 opaque: false,
+                inDialog: false,
                 inPage: false,
                 url: "",
                 window: "other",
@@ -1751,10 +1753,10 @@ serve<StreamData>({
               DESKTOP ? DISPLAY_SIZE : null,
               point,
               knownElements.get(botId),
-              DESKTOP && display
-                ? async () => {
+              // Only just before acting: a proposal is rated on the page element under the point.
+              DESKTOP && display && verify
+                ? async (pageWindow) => {
                     const pid = await browserPid(profiles.directory(botId));
-                    if (!verify) return focusedWindow(display.name, pid);
                     const pointer = await screenInputFor(display.name);
                     await pointer.move(
                       Math.round(point.x),
@@ -1762,7 +1764,7 @@ serve<StreamData>({
                     );
                     // A moment for the X server to settle the pointer before it is asked.
                     await Bun.sleep(40);
-                    return windowUnderPointer(display.name, pid);
+                    return windowUnderPointer(display.name, pid, pageWindow);
                   }
                 : undefined,
             ),
@@ -1787,6 +1789,7 @@ serve<StreamData>({
                 ? await focusedWindow(
                     display.name,
                     await browserPid(profiles.directory(botId)),
+                    await pageWindowRect(page),
                   )
                 : "other"
               : "browser";
@@ -2327,9 +2330,14 @@ async function performHumanInput(
 /** Which window the pointer is over and which has the keyboard, against this Bot's browser. */
 function windowChecks(display: string, botId: string) {
   const pid = () => browserPid(profiles.directory(botId));
+  // Where the page says its window is, read again each time: the person may have moved it.
+  const page = async () => {
+    const live = sessions.get(botId)?.livePage;
+    return live ? pageWindowRect(live) : null;
+  };
   return {
-    pointer: async () => windowUnderPointer(display, await pid()),
-    focus: async () => focusedWindow(display, await pid()),
+    pointer: async () => windowUnderPointer(display, await pid(), await page()),
+    focus: async () => focusedWindow(display, await pid(), await page()),
   };
 }
 

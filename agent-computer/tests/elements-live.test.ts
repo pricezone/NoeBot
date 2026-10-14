@@ -116,6 +116,7 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
       <form style="position:absolute;left:400px;top:50px"><button style="width:100px;height:40px">Go</button></form>
       <div id="host" style="position:absolute;left:400px;top:150px"></div>
       <iframe style="position:absolute;left:400px;top:250px;width:200px;height:80px" title="Card"></iframe>
+      <div role="alertdialog" style="position:absolute;left:700px;top:50px"><button style="width:80px;height:30px">OK</button></div>
       <script>
         const root = document.getElementById("host").attachShadow({ mode: "open" });
         root.innerHTML = '<input id="otp" name="otp" value="135790" style="width:150px">';
@@ -185,6 +186,16 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
       role: "frame",
       opaque: true,
     });
+    // "OK" in a confirmation says nothing about what it confirms.
+    expect(await api("/elements/at", { x: 720, y: 60 })).toMatchObject({
+      role: "button",
+      name: "OK",
+      inDialog: true,
+    });
+    // Without verifyWindow nothing is asked about windows: a page-only computer has none.
+    expect(
+      (await api("/elements/at", { x: 150, y: 70 })).window,
+    ).toBeUndefined();
     // The keyboard is in the password field the page focused.
     const focus = await api("/elements/focus");
     expect(focus).toMatchObject({
