@@ -2,6 +2,7 @@ import { useState } from "react";
 import { z } from "zod";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
 import { useTranslation } from "@/lib/i18n";
+import { compareText } from "@/lib/i18n/format";
 import { Badge, GalleryFrame } from "./frame";
 
 export const DataTableProps = z
@@ -60,7 +61,7 @@ export function DataTable(props: Record<string, unknown>) {
       const order =
         typeof a === "number" && typeof b === "number"
           ? a - b
-          : String(a).localeCompare(String(b), undefined, { numeric: true });
+          : compareText(String(a), String(b));
       return (
         (sort.ascending ? order : -order) || left.position - right.position
       );

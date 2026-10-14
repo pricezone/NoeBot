@@ -167,6 +167,7 @@ export function useVoiceArchive(channelId: string) {
   return {
     entries: [...entries.values()].sort(
       (a, b) =>
+        // i18n-ignore: ISO timestamps and ids, ordered as text
         a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id),
     ),
     error: saved.error,
@@ -193,6 +194,7 @@ export function cachedVoiceArchive(channelId: string): VoiceChatEntry[] {
       entries.set(entry.id, entry);
   return [...entries.values()].sort(
     (a, b) =>
+      // i18n-ignore: ISO timestamps and ids, ordered as text
       a.startedAt.localeCompare(b.startedAt) || a.id.localeCompare(b.id),
   );
 }

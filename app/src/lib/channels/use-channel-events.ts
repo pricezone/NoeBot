@@ -376,5 +376,6 @@ export function useChannelEvents() {
 function byRecency(left: ChannelSummary, right: ChannelSummary) {
   const at = (channel: ChannelSummary) =>
     channel.lastMessageAt ?? channel.createdAt;
+  // i18n-ignore: ISO timestamps, ordered as text
   return at(right).localeCompare(at(left));
 }

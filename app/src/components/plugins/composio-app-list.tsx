@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { useTranslation } from "@/lib/i18n";
+import { compareText } from "@/lib/i18n/format";
 import {
   enableComposioAppMutationOptions,
   invalidatePlugins,
@@ -53,7 +54,7 @@ import { queryClient } from "@/query-client";
  * app somebody typed half the name of.
  */
 export function matchingApps(apps: ComposioApp[]): ComposioApp[] {
-  return [...apps].sort((left, right) => left.name.localeCompare(right.name));
+  return [...apps].sort((left, right) => compareText(left.name, right.name));
 }
 
 /**

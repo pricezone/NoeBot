@@ -95,6 +95,11 @@ spelling (final sigma, `;` for a question, no Latin letters inside Greek words, 
 register), and every file listed in `translated.json` free of untranslated English and of keys
 without Greek. A file goes on that list once somebody has translated it; it never comes off.
 
+`app/tests/i18n-enforce.test.ts` holds every file in `app/src` to the same: no English a person
+would see outside a translation, no date or number formatted in the browser's language (use
+`intlLocale()`), and no list a person reads sorted the browser's way (use `compareText()`). It is
+what catches a raw string brought back by a merge from upstream OpenBot.
+
 Mark text that is code or data rather than prose with `// i18n-ignore` on the line before (or
 `{/* i18n-ignore */}` in JSX); text inside `<code>`, `<kbd>` and `<pre>` is skipped already.
 

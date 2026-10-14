@@ -30,6 +30,7 @@ import {
   subscribeToActivity,
 } from "@/lib/computers/activity";
 import { msg, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import { CommandOutput } from "./command-output";
 
 const ICONS = {
@@ -67,7 +68,7 @@ const BROWSING = new Set<ComputerActivity["kind"]>([
 ]);
 
 function timeOf(at: number): string {
-  return new Date(at).toLocaleTimeString(undefined, {
+  return new Date(at).toLocaleTimeString(intlLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

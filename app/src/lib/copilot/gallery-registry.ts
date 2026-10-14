@@ -83,6 +83,7 @@ try {
  */
 export const GALLERY_COMPONENTS: GalleryComponent[] = Object.values(modules)
   .flatMap((module) => module.GALLERY ?? [])
+  // i18n-ignore: identifiers in a fixed order for hook registration, not words a person reads
   .sort((left, right) => left.name.localeCompare(right.name));
 
 /** What the server is told exists. Deliberately not the schema or the renderer: it cannot use either. */

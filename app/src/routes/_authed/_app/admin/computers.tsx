@@ -39,7 +39,7 @@ import {
 import { setComputerStateMutationOptions } from "@/lib/computers/mutations";
 import { computerFleetQueryOptions } from "@/lib/computers/queries";
 import { i18n, Trans, useTranslation } from "@/lib/i18n";
-import { intlLocale } from "@/lib/i18n/format";
+import { compareText, intlLocale } from "@/lib/i18n/format";
 
 export const Route = createFileRoute("/_authed/_app/admin/computers")({
   component: ComputersPage,
@@ -379,7 +379,7 @@ function HostFoldersSection({
       ...grants.map((grant) => grant.botId),
       ...pending.map((one) => one.botId),
     ]),
-  ).sort((left, right) => nameFor(left).localeCompare(nameFor(right)));
+  ).sort((left, right) => compareText(nameFor(left), nameFor(right)));
 
   return (
     <PageSection
