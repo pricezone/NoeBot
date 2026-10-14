@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "./i18n";
 
 /** Only rendered when native setup has identified a recoverable leftover database. */
 export function DatabaseReset({
@@ -10,6 +11,7 @@ export function DatabaseReset({
   volume: string;
   onReset: (volume: string) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   if (!confirming) {
     return (
@@ -19,21 +21,23 @@ export function DatabaseReset({
         disabled={busy}
         onClick={() => setConfirming(true)}
       >
-        Reset leftover database
+        {t("Reset leftover database")}
       </button>
     );
   }
   return (
     <section className="blocker" aria-labelledby="database-reset-title">
       <h2 id="database-reset-title">
-        Delete the previous installation’s data?
+        {t("Delete the previous installation’s data?")}
       </h2>
       <p>
-        This permanently deletes the local OpenBot database, including saved
-        chats, Bots, and settings. Only continue if you want a fresh
-        installation and do not need that data.
+        {t(
+          "This permanently deletes the local OpenBot database, including saved chats, Bots, and settings. Only continue if you want a fresh installation and do not need that data.",
+        )}
       </p>
-      <p>To keep your data, restore its original encryption key instead.</p>
+      <p>
+        {t("To keep your data, restore its original encryption key instead.")}
+      </p>
       <div className="row">
         <button
           type="button"
@@ -41,10 +45,10 @@ export function DatabaseReset({
           disabled={busy}
           onClick={() => setConfirming(false)}
         >
-          Keep saved data
+          {t("Keep saved data")}
         </button>
         <button type="button" disabled={busy} onClick={() => onReset(volume)}>
-          {busy ? "Deleting saved data…" : "Delete saved data"}
+          {busy ? t("Deleting saved data…") : t("Delete saved data")}
         </button>
       </div>
     </section>

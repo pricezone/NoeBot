@@ -9,6 +9,7 @@ import {
   HarnessPicker,
 } from "./HarnessPicker";
 import { isHttpEndpointUrl } from "./http-endpoint-url";
+import { i18n, localizeNative, msg, useTranslation } from "./i18n";
 import { OrganizationSignIn } from "./OrganizationSignIn";
 import { asProblem, Failure, type Problem } from "./Problem";
 import {
@@ -74,9 +75,10 @@ const MANAGED_INTELLIGENCE_GATEWAY_WS_URL =
  * it before it calls anything, and the Rust side needs it for the case where somebody clears the
  * field, so neither can be the only one that has it.
  */
-const SUGGESTED_QUESTION = "What is 17 times 23?";
+const SUGGESTED_QUESTION = msg("What is 17 times 23?");
 
 export function App() {
+  const { t } = useTranslation();
   const [engine, setEngine] = useState<EngineStatus | null>(null);
   const [blocker, setBlocker] = useState<Blocker | null>(null);
   const [blockerFailure, setBlockerFailure] = useState<Problem | null>(null);
@@ -525,7 +527,7 @@ export function App() {
         step: "engine",
         ok: true,
         running: true,
-        detail: "Checking the software OpenBot needs.",
+        detail: i18n.t("Checking the software OpenBot needs."),
       },
     ]);
     setPreparation({ key: installationKey, status: "preparing" });
@@ -673,7 +675,7 @@ export function App() {
   if (blockerFailure) {
     return (
       <main>
-        <h1>OpenBot could not check Windows setup</h1>
+        <h1>{t("OpenBot could not check Windows setup")}</h1>
         <Failure problem={blockerFailure} />
       </main>
     );
@@ -682,7 +684,7 @@ export function App() {
   if (blocker) {
     return (
       <main>
-        <h1>OpenBot needs one thing first</h1>
+        <h1>{t("OpenBot needs one thing first")}</h1>
         <div className="blocker">
           <h2>{titleFor(blocker)}</h2>
           <p>{instruction}</p>
@@ -694,11 +696,11 @@ export function App() {
   if (resuming || checkingResume) {
     return (
       <main>
-        <h1>{resuming ? "Starting OpenBot" : "Opening OpenBot"}</h1>
+        <h1>{resuming ? t("Starting OpenBot") : t("Opening OpenBot")}</h1>
         <p role="status">
           {resuming
-            ? "Opening your saved setup…"
-            : "Checking your saved setup…"}
+            ? t("Opening your saved setup…")
+            : t("Checking your saved setup…")}
         </p>
         <SetupProgress steps={steps} />
       </main>
@@ -784,23 +786,30 @@ export function App() {
     return (
       <main>
         <div className="sheet">
-          <p className="steps-of">Step 2 of 4</p>
+          <p className="steps-of">{t("Step 2 of 4")}</p>
           <h1>
-            {installationReady ? "Installation complete" : "Install OpenBot"}
+            {installationReady
+              ? t("Installation complete")
+              : t("Install OpenBot")}
           </h1>
           <p className="lede">
             {installationReady
-              ? "OpenBot’s local software is ready. Next, connect your AI and CopilotKit accounts."
-              : "Install the software OpenBot needs on this computer. This can take a few minutes. You’ll sign in after installation finishes."}
+              ? t(
+                  "OpenBot’s local software is ready. Next, connect your AI and CopilotKit accounts.",
+                )
+              : t(
+                  "Install the software OpenBot needs on this computer. This can take a few minutes. You’ll sign in after installation finishes.",
+                )}
           </p>
           {!installationReady && engine?.responding && (
             <p className="footnote">
-              Using {engine.engine === "docker" ? "Docker" : "Podman"} for local
-              services.
+              {t("Using {{engine}} for local services.", {
+                engine: engine.engine === "docker" ? "Docker" : "Podman",
+              })}
             </p>
           )}
           <div className="field">
-            <label htmlFor="root">Where OpenBot lives</label>
+            <label htmlFor="root">{t("Where OpenBot lives")}</label>
             <input
               id="root"
               disabled={busy}
@@ -819,12 +828,12 @@ export function App() {
           </div>
           <SetupProgress steps={steps} />
           {displayedFailure && <Failure problem={displayedFailure} />}
-          {busy && <p role="status">Installing local software…</p>}
+          {busy && <p role="status">{t("Installing local software…")}</p>}
           {installationReady && (
             <details>
-              <summary>Installation options</summary>
+              <summary>{t("Installation options")}</summary>
               <button type="button" className="quiet" onClick={install}>
-                Repair installation
+                {t("Repair installation")}
               </button>
             </details>
           )}
@@ -835,7 +844,7 @@ export function App() {
               disabled={busy}
               onClick={() => setStep("harness")}
             >
-              Back
+              {t("Back")}
             </button>
             {installationReady ? (
               <button
@@ -845,7 +854,7 @@ export function App() {
                   setStep("model");
                 }}
               >
-                Continue to sign in
+                {t("Continue to sign in")}
               </button>
             ) : (
               <button
@@ -854,10 +863,10 @@ export function App() {
                 onClick={install}
               >
                 {busy
-                  ? "Installing…"
+                  ? t("Installing…")
                   : preparation?.status === "failed"
-                    ? "Retry installation"
-                    : "Install OpenBot"}
+                    ? t("Retry installation")
+                    : t("Install OpenBot")}
               </button>
             )}
           </div>
@@ -875,7 +884,7 @@ export function App() {
     return (
       <main>
         <Ask
-          suggestion={SUGGESTED_QUESTION}
+          suggestion={t(SUGGESTED_QUESTION)}
           onAsk={(question) =>
             invoke<string>("ask_the_bot", { root, question })
           }
@@ -918,9 +927,9 @@ export function App() {
   if (!running && returningToInstallation && !refreshIntelligence) {
     return (
       <main>
-        <h1>OpenBot is stopped</h1>
+        <h1>{t("OpenBot is stopped")}</h1>
         <p className="lede">
-          Your installation and saved connections are ready to reopen.
+          {t("Your installation and saved connections are ready to reopen.")}
         </p>
         <SetupProgress steps={steps} />
         {displayedFailure && <Failure problem={displayedFailure} />}
@@ -929,7 +938,7 @@ export function App() {
           disabled={busy || !installationReady || !modelCanStart()}
           onClick={() => start()}
         >
-          {busy ? "Starting…" : "Start OpenBot"}
+          {busy ? t("Starting…") : t("Start OpenBot")}
         </button>
         <button
           type="button"
@@ -937,7 +946,7 @@ export function App() {
           disabled={busy}
           onClick={() => setStep("model")}
         >
-          Change AI connection
+          {t("Change AI connection")}
         </button>
         <button
           type="button"
@@ -945,7 +954,7 @@ export function App() {
           disabled={busy}
           onClick={() => setRefreshIntelligence(true)}
         >
-          Change CopilotKit connection
+          {t("Change CopilotKit connection")}
         </button>
         {displayedFailure && (
           <button
@@ -954,11 +963,11 @@ export function App() {
             disabled={busy}
             onClick={install}
           >
-            Repair installation
+            {t("Repair installation")}
           </button>
         )}
         <details>
-          <summary>Installation options</summary>
+          <summary>{t("Installation options")}</summary>
           <button
             type="button"
             className="quiet"
@@ -969,7 +978,7 @@ export function App() {
               setStep("install");
             }}
           >
-            Change installation
+            {t("Change installation")}
           </button>
         </details>
       </main>
@@ -992,21 +1001,25 @@ export function App() {
         )}
 
         {!running && !returningToInstallation && (
-          <p className="steps-of">Step 4 of 4</p>
+          <p className="steps-of">{t("Step 4 of 4")}</p>
         )}
         <h1>
           {running && !displayedFailure
-            ? "OpenBot is running"
+            ? t("OpenBot is running")
             : returningToInstallation
-              ? "Refresh your CopilotKit connection"
-              : "Connect to CopilotKit"}
+              ? t("Refresh your CopilotKit connection")
+              : t("Connect to CopilotKit")}
         </h1>
         <p className="lede">
           {running && !displayedFailure
-            ? "The stack is up. OpenBot is in this window; the menu bar has it too, and stops it."
+            ? t(
+                "The stack is up. OpenBot is in this window; the menu bar has it too, and stops it.",
+              )
             : returningToInstallation
-              ? "Update this connection to reopen your existing OpenBot."
-              : "Local installation is complete. Connect CopilotKit, then start OpenBot."}
+              ? t("Update this connection to reopen your existing OpenBot.")
+              : t(
+                  "Local installation is complete. Connect CopilotKit, then start OpenBot.",
+                )}
         </p>
 
         {!running && (
@@ -1024,8 +1037,8 @@ export function App() {
               <>
                 <p className="lede">
                   {intelligenceSignInKind === "self-hosted"
-                    ? "Connected to Intelligence."
-                    : "Connected to CopilotKit."}
+                    ? t("Connected to Intelligence.")
+                    : t("Connected to CopilotKit.")}
                 </p>
                 {returningToInstallation && (
                   <button
@@ -1033,7 +1046,7 @@ export function App() {
                     className="quiet"
                     onClick={signInToCopilotKit}
                   >
-                    Sign in to CopilotKit again
+                    {t("Sign in to CopilotKit again")}
                   </button>
                 )}
               </>
@@ -1042,34 +1055,39 @@ export function App() {
               !projects ? (
               <>
                 <p className="lede">
-                  A saved CopilotKit connection will be checked when you start.
+                  {t(
+                    "A saved CopilotKit connection will be checked when you start.",
+                  )}
                 </p>
                 <button
                   type="button"
                   className="quiet"
                   onClick={signInToCopilotKit}
                 >
-                  Sign in to CopilotKit again
+                  {t("Sign in to CopilotKit again")}
                 </button>
               </>
             ) : signInUrl ? (
               <>
                 <p className="lede">
-                  Finish signing in to CopilotKit in your browser. If it did not
-                  open, this is the address:
+                  {t(
+                    "Finish signing in to CopilotKit in your browser. If it did not open, this is the address:",
+                  )}
                 </p>
                 {/* Selectable text, not a link: the browser has already been asked to open it, and
                   what is needed here is something a person can copy. */}
                 <p className="footnote" style={{ userSelect: "text" }}>
                   {signInUrl}
                 </p>
-                <p className="footnote">Waiting for you to approve it…</p>
+                <p className="footnote">
+                  {t("Waiting for you to approve it…")}
+                </p>
               </>
             ) : projects ? (
               <>
-                <p className="lede">Which project should OpenBot use?</p>
+                <p className="lede">{t("Which project should OpenBot use?")}</p>
                 <fieldset className="picker">
-                  <legend className="sr-only">Project</legend>
+                  <legend className="sr-only">{t("Project")}</legend>
                   {projects.map((project) => (
                     <button
                       type="button"
@@ -1086,8 +1104,12 @@ export function App() {
                   <>
                     <p className="footnote">
                       {intelligenceSignInKind === "self-hosted"
-                        ? "That account has no available projects. Ask your Intelligence administrator for access, or sign in with a different account."
-                        : "That account has no projects yet. Create one below, or sign in with a different account."}
+                        ? t(
+                            "That account has no available projects. Ask your Intelligence administrator for access, or sign in with a different account.",
+                          )
+                        : t(
+                            "That account has no projects yet. Create one below, or sign in with a different account.",
+                          )}
                     </p>
                     <button
                       type="button"
@@ -1100,8 +1122,8 @@ export function App() {
                       }
                     >
                       {signingIn
-                        ? "Waiting for your browser…"
-                        : "Sign in again"}
+                        ? t("Waiting for your browser…")
+                        : t("Sign in again")}
                     </button>
                   </>
                 )}
@@ -1114,7 +1136,9 @@ export function App() {
                     }}
                   >
                     <div className="field">
-                      <label htmlFor="new-project-name">New project name</label>
+                      <label htmlFor="new-project-name">
+                        {t("New project name")}
+                      </label>
                       <input
                         id="new-project-name"
                         value={projectName}
@@ -1128,7 +1152,9 @@ export function App() {
                       className={projects.length > 0 ? "quiet" : undefined}
                       disabled={signingIn || !projectName.trim()}
                     >
-                      {creatingProject ? "Creating project…" : "Create project"}
+                      {creatingProject
+                        ? t("Creating project…")
+                        : t("Create project")}
                     </button>
                   </form>
                 )}
@@ -1136,8 +1162,9 @@ export function App() {
             ) : (
               <>
                 <p className="lede">
-                  OpenBot keeps your conversations in CopilotKit. Sign in and it
-                  sets the rest up for you.
+                  {t(
+                    "OpenBot keeps your conversations in CopilotKit. Sign in and it sets the rest up for you.",
+                  )}
                 </p>
                 <div className="row connection-actions">
                   <button
@@ -1146,8 +1173,8 @@ export function App() {
                     onClick={signInToCopilotKit}
                   >
                     {signingIn
-                      ? "Waiting for your browser…"
-                      : "Sign in to CopilotKit"}
+                      ? t("Waiting for your browser…")
+                      : t("Sign in to CopilotKit")}
                   </button>
                   {!apiKey &&
                     !reuseIntelligence &&
@@ -1158,7 +1185,7 @@ export function App() {
                         className="quiet"
                         onClick={() => setReuseIntelligence(true)}
                       >
-                        Use a saved connection
+                        {t("Use a saved connection")}
                       </button>
                     )}
                 </div>
@@ -1171,28 +1198,27 @@ export function App() {
             The heading now describes the action, and the note says what the defaults are.
           */}
             <details>
-              <summary>Point at your own Intelligence server</summary>
+              <summary>{t("Point at your own Intelligence server")}</summary>
               <p className="footnote" style={{ margin: "0.6rem 0 0.75rem" }}>
-                Enter your Intelligence server’s addresses, then sign in to
-                choose a project. OpenBot creates its Learning container for
-                you. Sign-in requires Chrome or Microsoft Edge. You can also use
-                an existing project key.
+                {t(
+                  "Enter your Intelligence server’s addresses, then sign in to choose a project. OpenBot creates its Learning container for you. Sign-in requires Chrome or Microsoft Edge. You can also use an existing project key.",
+                )}
               </p>
               <div className="field">
-                <label htmlFor="key">Project key</label>
+                <label htmlFor="key">{t("Project key")}</label>
                 <input
                   id="key"
                   disabled={selfHostedActive}
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="the key from your own Intelligence"
+                  placeholder={t("the key from your own Intelligence")}
                   autoComplete="off"
                   spellCheck={false}
                 />
               </div>
               <div className="field" style={{ marginTop: "0.75rem" }}>
-                <label htmlFor="api">API URL</label>
+                <label htmlFor="api">{t("API URL")}</label>
                 <input
                   id="api"
                   disabled={selfHostedActive}
@@ -1202,7 +1228,7 @@ export function App() {
                 />
               </div>
               <div className="field">
-                <label htmlFor="ws">Gateway WebSocket URL</label>
+                <label htmlFor="ws">{t("Gateway WebSocket URL")}</label>
                 <input
                   id="ws"
                   value={wsUrl}
@@ -1216,7 +1242,7 @@ export function App() {
                   disabled={signingIn || selfHostedActive || !apiUrl.trim()}
                   onClick={signInToSelfHostedIntelligence}
                 >
-                  Sign in to Intelligence
+                  {t("Sign in to Intelligence")}
                 </button>
                 {selfHostedActive && (
                   <button
@@ -1224,25 +1250,26 @@ export function App() {
                     className="quiet"
                     onClick={cancelSelfHostedSignIn}
                   >
-                    Cancel Intelligence sign-in
+                    {t("Cancel Intelligence sign-in")}
                   </button>
                 )}
               </div>
               {selfHostedActive && signingIn && !projects && (
                 <p className="footnote" role="status">
-                  Finish signing in in the Intelligence browser window…
+                  {t("Finish signing in in the Intelligence browser window…")}
                 </p>
               )}
             </details>
             <details>
-              <summary>Sign in through your organization</summary>
+              <summary>{t("Sign in through your organization")}</summary>
               <p className="footnote">
-                Enter your organization’s OpenBot address to use its sign-in and
-                access rules.
+                {t(
+                  "Enter your organization’s OpenBot address to use its sign-in and access rules.",
+                )}
               </p>
               <div className="field">
                 <label htmlFor="organization-authority">
-                  Organization OpenBot URL
+                  {t("Organization OpenBot URL")}
                 </label>
                 <input
                   id="organization-authority"
@@ -1250,7 +1277,7 @@ export function App() {
                   onChange={(event) =>
                     setOrganizationAuthorityUrl(event.target.value)
                   }
-                  placeholder="https://openbot.your-company.com"
+                  placeholder="https://openbot.your-company.com" /* i18n-ignore: an example of the format, not prose */
                   spellCheck={false}
                 />
               </div>
@@ -1264,7 +1291,7 @@ export function App() {
 
         {!running && !returningToInstallation && (
           <details>
-            <summary>Installation options</summary>
+            <summary>{t("Installation options")}</summary>
             <button
               type="button"
               className="quiet"
@@ -1275,7 +1302,7 @@ export function App() {
                 setStep("install");
               }}
             >
-              Change installation
+              {t("Change installation")}
             </button>
           </details>
         )}
@@ -1291,7 +1318,7 @@ export function App() {
                   : setStep("model")
               }
             >
-              Back
+              {t("Back")}
             </button>
           )}
           {running ? (
@@ -1313,7 +1340,7 @@ export function App() {
                   )
                 }
               >
-                Show OpenBot
+                {t("Show OpenBot")}
               </button>
               <button
                 type="button"
@@ -1321,7 +1348,7 @@ export function App() {
                 onClick={stop}
                 disabled={busy}
               >
-                Stop OpenBot
+                {t("Stop OpenBot")}
               </button>
             </>
           ) : (
@@ -1341,7 +1368,7 @@ export function App() {
                 root.trim() === ""
               }
             >
-              {busy ? "Working…" : "Start OpenBot"}
+              {busy ? t("Working…") : t("Start OpenBot")}
             </button>
           )}
         </div>
@@ -1357,16 +1384,17 @@ function settleProgress(steps: Progress[], problem?: Problem): Progress[] {
           ...step,
           running: false,
           ok: !problem,
-          detail: problem?.said ?? "Finished.",
+          detail: problem?.said ?? i18n.t("Finished."),
         }
       : step,
   );
 }
 
 function SetupProgress({ steps }: { steps: Progress[] }) {
+  const { t } = useTranslation();
   if (steps.length === 0) return null;
   return (
-    <ol className="steps" aria-label="Setup progress" aria-live="polite">
+    <ol className="steps" aria-label={t("Setup progress")} aria-live="polite">
       {steps.map((step) => (
         <SetupProgressRow key={step.step} step={step} />
       ))}
@@ -1375,6 +1403,7 @@ function SetupProgress({ steps }: { steps: Progress[] }) {
 }
 
 function SetupProgressRow({ step }: { step: Progress }) {
+  const { t } = useTranslation();
   const [elapsed, setElapsed] = useState(0);
   const running = step.running ?? false;
   useEffect(() => {
@@ -1397,19 +1426,21 @@ function SetupProgressRow({ step }: { step: Progress }) {
       </span>
       <span className="step-label">{label(step.step)}</span>
       <span className="step-status">
-        {running ? "In progress" : step.ok ? "Complete" : "Failed"}
+        {running ? t("In progress") : step.ok ? t("Complete") : t("Failed")}
         {running && (
           <span className="step-elapsed" aria-hidden="true" aria-live="off">
             {" · "}
-            {elapsed < 60
-              ? `${elapsed}s`
-              : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`}{" "}
-            elapsed
+            {t("{{time}} elapsed", {
+              time:
+                elapsed < 60
+                  ? `${elapsed}s`
+                  : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`,
+            })}
           </span>
         )}
       </span>
       <span className="detail">
-        {step.detail}
+        {step.detail && localizeNative(step.detail)}
         {step.downloadBytes != null &&
           ` ${formatDownloadBytes(step.downloadBytes)} downloaded.`}
       </span>
@@ -1427,15 +1458,15 @@ function formatDownloadBytes(bytes: number): string {
 function titleFor(blocker: Blocker): string {
   switch (blocker) {
     case "wsl-absent":
-      return "Windows Subsystem for Linux is not installed";
+      return i18n.t("Windows Subsystem for Linux is not installed");
     case "wsl-one":
-      return "Windows Subsystem for Linux is at version 1";
+      return i18n.t("Windows Subsystem for Linux is at version 1");
     case "virtual-machine-platform-disabled":
-      return "Virtual Machine Platform is switched off";
+      return i18n.t("Virtual Machine Platform is switched off");
     case "virtualization-disabled":
-      return "Virtualization is off in this machine's firmware";
+      return i18n.t("Virtualization is off in this machine's firmware");
     case "not-administrator":
-      return "This account cannot install Windows components";
+      return i18n.t("This account cannot install Windows components");
   }
 }
 
@@ -1443,31 +1474,31 @@ function label(step: string): string {
   switch (step) {
     case "engine":
     case "install-engine":
-      return "Container engine";
+      return i18n.t("Container engine");
     case "create-machine":
-      return "Engine machine";
+      return i18n.t("Engine machine");
     case "start-machine":
-      return "Starting the machine";
+      return i18n.t("Starting the machine");
     case "health-gate":
-      return "Engine answering";
+      return i18n.t("Engine answering");
     case "deployment":
-      return "Deployment";
+      return i18n.t("Deployment");
     case "env":
-      return "Settings";
+      return i18n.t("Settings");
     case "ports":
-      return "Ports";
+      return i18n.t("Ports");
     case "dependencies":
-      return "Dependencies";
+      return i18n.t("Dependencies");
     case "images":
-      return "Local software";
+      return i18n.t("Local software");
     case "installation":
-      return "Installation";
+      return i18n.t("Installation");
     case "answering":
-      return "Answering";
+      return i18n.t("Answering");
     case "services":
-      return "Containers";
+      return i18n.t("Containers");
     case "migrate":
-      return "Database";
+      return i18n.t("Database");
     default:
       return step;
   }

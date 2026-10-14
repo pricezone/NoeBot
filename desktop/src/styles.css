@@ -739,3 +739,21 @@ details > summary:hover {
   color: var(--ink);
   white-space: pre-wrap;
 }
+
+/* The language choice: small, out of the way, on every screen. */
+.language-switch {
+  position: fixed;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  gap: 2px;
+  font-size: 12px;
+}
+.language-switch button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.language-switch button[aria-checked="true"] {
+  font-weight: 600;
+  text-decoration: underline;
+}

@@ -1,4 +1,5 @@
 import { ExternalLink } from "./ExternalLink";
+import { localizeNative, useTranslation } from "./i18n";
 
 /**
  * A failure, in both registers, wherever one happens.
@@ -24,27 +25,29 @@ export function asProblem(thrown: unknown): Problem {
 }
 
 function SetupHelp() {
+  const { t } = useTranslation();
   // Whitelabel builds can choose their own support page. Never prefill it with error data.
   const url =
     import.meta.env.VITE_OPENBOT_SUPPORT_URL?.trim() ||
     "https://github.com/CopilotKit/OpenBot/issues/new/choose";
   return (
     <ExternalLink className="setup-help" href={url}>
-      Get setup help
+      {t("Get setup help")}
     </ExternalLink>
   );
 }
 
 export function Failure({ problem }: { problem: Problem }) {
+  const { t } = useTranslation();
   return (
     <div className="blocker" role="alert">
-      <h2>That did not finish</h2>
-      <p>{problem.said}</p>
+      <h2>{t("That did not finish")}</h2>
+      <p>{localizeNative(problem.said)}</p>
       {/* The real output, kept but not the headline. Whoever is debugging opens this; the person
           reading the sentence above never has to. */}
       {problem.detail && (
         <details className="detail-of">
-          <summary>Technical details</summary>
+          <summary>{t("Technical details")}</summary>
           <pre>{problem.detail}</pre>
         </details>
       )}
@@ -61,12 +64,13 @@ export function Failure({ problem }: { problem: Problem }) {
  * less diagnosable than one that fails on its own screen.
  */
 export function InlineFailure({ problem }: { problem: Problem }) {
+  const { t } = useTranslation();
   return (
     <div role="alert">
-      <p className="caution">{problem.said}</p>
+      <p className="caution">{localizeNative(problem.said)}</p>
       {problem.detail && (
         <details className="detail-of">
-          <summary>Technical details</summary>
+          <summary>{t("Technical details")}</summary>
           <pre>{problem.detail}</pre>
         </details>
       )}

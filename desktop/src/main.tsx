@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { LanguageSwitch } from "./LanguageSwitch";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -10,5 +11,6 @@ if (!root)
 createRoot(root).render(
   <StrictMode>
     <App />
+    <LanguageSwitch />
   </StrictMode>,
 );

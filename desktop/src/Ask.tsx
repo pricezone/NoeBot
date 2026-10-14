@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "./i18n";
 import { asProblem, Failure, type Problem } from "./Problem";
 
 /**
@@ -25,6 +26,7 @@ export function Ask({
   onOpen: () => void;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const [question, setQuestion] = useState(suggestion);
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
@@ -54,14 +56,16 @@ export function Ask({
 
   return (
     <div className="sheet">
-      <p className="steps-of">Last step</p>
-      <h1>Ask it something.</h1>
+      <p className="steps-of">{t("Last step")}</p>
+      <h1>{t("Ask it something.")}</h1>
       <p className="lede">
-        Your Bot is set up. This proves it can answer before you start using it.
+        {t(
+          "Your Bot is set up. This proves it can answer before you start using it.",
+        )}
       </p>
 
       <div className="field">
-        <label htmlFor="question">Your question</label>
+        <label htmlFor="question">{t("Your question")}</label>
         <input
           id="question"
           value={question}
@@ -90,7 +94,7 @@ export function Ask({
 
       {answer !== null && (
         <div className="answer">
-          <p className="answer-from">Your Bot said</p>
+          <p className="answer-from">{t("Your Bot said")}</p>
           <p className="answer-text">{answer}</p>
         </div>
       )}
@@ -98,11 +102,11 @@ export function Ask({
       <div className="row">
         {answer === null ? (
           <button type="button" onClick={ask} disabled={asking}>
-            {asking ? "Asking…" : "Ask"}
+            {asking ? t("Asking…") : t("Ask")}
           </button>
         ) : (
           <button type="button" onClick={onOpen}>
-            Start using OpenBot
+            {t("Start using OpenBot")}
           </button>
         )}
         {/*
@@ -119,7 +123,7 @@ export function Ask({
               onBack();
             }}
           >
-            Change the model
+            {t("Change the model")}
           </button>
         )}
         {answer !== null && (
@@ -129,13 +133,13 @@ export function Ask({
             onClick={ask}
             disabled={asking}
           >
-            Ask again
+            {t("Ask again")}
           </button>
         )}
       </div>
 
       <p className="footnote">
-        Your question goes to the AI provider you connected.
+        {t("Your question goes to the AI provider you connected.")}
       </p>
     </div>
   );

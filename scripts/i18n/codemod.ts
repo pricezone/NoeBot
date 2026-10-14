@@ -3,6 +3,11 @@
  *
  *     bun scripts/i18n/codemod.ts [--dry-run] [--report <file.json>] <files or folders…>
  *     bun scripts/i18n/codemod.ts --errors <files or folders…>
+ *     bun scripts/i18n/codemod.ts --project desktop/tsconfig.json --module ./i18n <files…>
+ *
+ * `--project` names the TypeScript project the files belong to (the app's by default) and
+ * `--module` where they import `useTranslation` and `i18n` from (`@/lib/i18n` by default): the
+ * desktop launcher has its own translator with the same shape.
  *
  * `--errors` instead translates the message of every `new Error("…")` (and `Error("…")`) with
  * `i18n.t`, in `.ts` files too: a message thrown by a query or a mutation is what the screen shows.
@@ -43,11 +48,15 @@ type Note = { file: string; line: number; reason: string; text: string };
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const errorsMode = args.includes("--errors");
-const reportPath = args.includes("--report")
-  ? args[args.indexOf("--report") + 1]
-  : undefined;
+const flagValue = (flag: string) =>
+  args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined;
+const reportPath = flagValue("--report");
+const projectPath = flagValue("--project") ?? "app/tsconfig.json";
+const I18N_MODULE = flagValue("--module") ?? "@/lib/i18n";
 const targets = args.filter(
-  (arg, index) => !arg.startsWith("--") && args[index - 1] !== "--report",
+  (arg, index) =>
+    !arg.startsWith("--") &&
+    !["--report", "--project", "--module"].includes(args[index - 1] ?? ""),
 );
 
 /** The namespace a file's words belong to: its route chunk's. See `src/lib/i18n/loaders.ts`. */
@@ -93,7 +102,7 @@ if (!files.length) {
   process.exit(1);
 }
 
-const configPath = path.join(ROOT, "app/tsconfig.json");
+const configPath = path.join(ROOT, projectPath);
 const config = ts.readConfigFile(configPath, ts.sys.readFile);
 const compiler = ts.parseJsonConfigFileContent(
   config.config,
@@ -683,7 +692,7 @@ for (const file of files) {
       (statement): statement is ts.ImportDeclaration =>
         ts.isImportDeclaration(statement) &&
         ts.isStringLiteral(statement.moduleSpecifier) &&
-        statement.moduleSpecifier.text === "@/lib/i18n",
+        statement.moduleSpecifier.text === I18N_MODULE,
     );
     const namedImports = fromI18nModule?.importClause?.namedBindings;
     if (fromI18nModule && namedImports && ts.isNamedImports(namedImports)) {
@@ -703,7 +712,7 @@ for (const file of files) {
       edits.push({
         start: at,
         end: at,
-        text: `${at ? "\n" : ""}import { i18n } from "@/lib/i18n";${at ? "" : "\n"}`,
+        text: `${at ? "\n" : ""}import { i18n } from "${I18N_MODULE}";${at ? "" : "\n"}`,
       });
     }
     let output = text;
@@ -778,7 +787,7 @@ for (const file of files) {
     (statement): statement is ts.ImportDeclaration =>
       ts.isImportDeclaration(statement) &&
       ts.isStringLiteral(statement.moduleSpecifier) &&
-      statement.moduleSpecifier.text === "@/lib/i18n",
+      statement.moduleSpecifier.text === I18N_MODULE,
   );
   const named = fromI18n?.importClause?.namedBindings;
   if (fromI18n && named && ts.isNamedImports(named)) {
@@ -800,8 +809,8 @@ for (const file of files) {
       end: at,
       // After the last import, or first thing in a file that had none, ahead of its doc comment.
       text: at
-        ? `\nimport { useTranslation } from "@/lib/i18n";`
-        : `import { useTranslation } from "@/lib/i18n";\n\n`,
+        ? `\nimport { useTranslation } from "${I18N_MODULE}";`
+        : `import { useTranslation } from "${I18N_MODULE}";\n\n`,
     });
   }
 

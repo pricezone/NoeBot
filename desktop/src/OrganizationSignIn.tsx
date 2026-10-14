@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "./i18n";
 import { asProblem, Failure } from "./Problem";
 
 export function OrganizationSignIn({
@@ -13,6 +14,7 @@ export function OrganizationSignIn({
   onSignedIn: () => void | Promise<void>;
   onBack?: () => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [failure, setFailure] = useState<ReturnType<typeof asProblem> | null>(
@@ -49,10 +51,11 @@ export function OrganizationSignIn({
   }
   return (
     <div className="sheet">
-      <h1>Sign in to your organization</h1>
+      <h1>{t("Sign in to your organization")}</h1>
       <p>
-        Your installation is ready. Sign in through your organization's OpenBot
-        to continue.
+        {t(
+          "Your installation is ready. Sign in through your organization's OpenBot to continue.",
+        )}
       </p>
       <p>{authorityUrl}</p>
       {(
@@ -68,22 +71,22 @@ export function OrganizationSignIn({
           disabled={busy}
           onClick={() => void signIn(id)}
         >
-          Continue with {label}
+          {t("Continue with {{label}}", { label })}
         </button>
       ))}
       {busy && (
         <p role="status">
-          Complete sign-in in your browser, then return to OpenBot.
+          {t("Complete sign-in in your browser, then return to OpenBot.")}
         </p>
       )}
       {signInUrl && (
         <p>
           <a href={signInUrl} target="_blank" rel="noreferrer">
-            Open organization sign-in
+            {t("Open organization sign-in")}
           </a>
           <br />
           <input
-            aria-label="Organization sign-in address"
+            aria-label={t("Organization sign-in address")}
             readOnly
             value={signInUrl}
             onFocus={(event) => event.currentTarget.select()}
@@ -93,7 +96,7 @@ export function OrganizationSignIn({
       {failure && <Failure problem={failure} />}
       {onBack && (
         <button type="button" disabled={busy} onClick={onBack}>
-          Back
+          {t("Back")}
         </button>
       )}
     </div>
