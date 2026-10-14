@@ -7,7 +7,10 @@ import {
   verifySignInHandoffToken,
 } from "../src/auth/signin-handoff";
 import { viewerClick } from "../src/clicky/index";
-import { sessionTokenFromCookies } from "../src/mobile/store";
+import {
+  sessionCookieName,
+  sessionTokenFromCookies,
+} from "../src/mobile/store";
 
 /*
  * The parts of linking a phone that need no database: the audience claim on a token, the Cookie
@@ -103,17 +106,42 @@ describe("sessionCookieHeader", () => {
 });
 
 describe("sessionTokenFromCookies", () => {
-  test("reads the token under any prefix, without its signature", () => {
+  test("reads exactly this deployment's session cookie, its signature taken off", () => {
+    const name = sessionCookieName("https://abcdefghijkl.hypernoesis.app");
+    expect(name).toBe("__Host-better-auth.session_token");
+    expect(sessionCookieName("http://127.0.0.1:3000")).toBe(
+      "better-auth.session_token",
+    );
     expect(
       sessionTokenFromCookies(
         "theme=dark; __Host-better-auth.session_token=abc123.c2lnbmF0dXJl%3D; x=y",
+        name,
       ),
     ).toBe("abc123");
-    expect(sessionTokenFromCookies("better-auth.session_token=plain.sig")).toBe(
-      "plain",
-    );
-    expect(sessionTokenFromCookies("theme=dark")).toBeNull();
-    expect(sessionTokenFromCookies(undefined)).toBeNull();
+    expect(
+      sessionTokenFromCookies(
+        "better-auth.session_token=plain.sig",
+        "better-auth.session_token",
+      ),
+    ).toBe("plain");
+    expect(sessionTokenFromCookies("theme=dark", name)).toBeNull();
+    expect(sessionTokenFromCookies(undefined, name)).toBeNull();
+  });
+
+  test("a look-alike cookie, such as one a sibling set for the parent domain, is not it", () => {
+    const name = "__Host-better-auth.session_token";
+    expect(
+      sessionTokenFromCookies(
+        "evil.better-auth.session_token=forged.sig; better-auth.session_token=other.sig",
+        name,
+      ),
+    ).toBeNull();
+    expect(
+      sessionTokenFromCookies(
+        "better-auth.session_token=other.sig; __Host-better-auth.session_token=mine.sig",
+        name,
+      ),
+    ).toBe("mine");
   });
 });
 

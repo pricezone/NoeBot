@@ -3331,10 +3331,10 @@ clickyWiring = createClickyWiring({
   // "Noë Bot needs you" on the person's linked phones.
   ...(deliveryProviders.push ? { push: deliveryProviders.push } : {}),
 });
-if (clickyWiring?.enabled)
-  void clickyWiring.start().catch((error) => {
-    console.error("Clicky could not start", error);
-  });
+// Started whether or not Clicky is on: the sweep that closes sockets of ended sessions is the phones'.
+void clickyWiring.start().catch((error) => {
+  console.error("Clicky could not start", error);
+});
 const app = createApp(
   config,
   auth,
@@ -3617,6 +3617,9 @@ type StreamData = {
   inward?: WebSocket;
   /** The size of the last frame sent to this viewer, so Clicky can place the viewer's clicks. */
   frame?: { width: number; height: number };
+  /** The session that opened this screen, and the detach from the watch that closes it with it. */
+  sessionToken?: string | null;
+  unwatch?: () => void;
 };
 
 /** The origins the live screen's socket accepts besides this deployment's own host. */
@@ -3763,6 +3766,9 @@ serve<SocketData>({
             ownerUserId: actor.id,
             botId: streamBotId,
             ...(recording ? { recordingId: recording.id } : {}),
+            sessionToken:
+              clickyWiring?.sessionTokenOf(request.headers.get("cookie")) ??
+              null,
           },
         })
       ) {
@@ -3787,6 +3793,14 @@ serve<SocketData>({
         return;
       }
       const stream = ws.data;
+      /*
+       * A screen's frames and the person's input stay open only as long as the session that opened
+       * them: a phone signed out, or a session that ended, loses its screen too.
+       */
+      stream.unwatch = clickyWiring?.watchSession(
+        stream.sessionToken ?? null,
+        () => ws.close(4401, "signed out"),
+      );
       const inward = new WebSocket(stream.upstream);
       stream.inward = inward;
       // Frames outward, input inward. Buffered by neither side: a frame the browser is too slow for
@@ -3884,6 +3898,7 @@ serve<SocketData>({
         channelSocket.close(asChannelSocket(ws), code, reason);
         return;
       }
+      ws.data.unwatch?.();
       ws.data.inward?.close();
     },
   },

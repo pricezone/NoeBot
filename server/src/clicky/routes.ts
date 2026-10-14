@@ -4,7 +4,6 @@ import type { ClickyServerEvent } from "../../../shared/clicky";
 import type { AppVariables } from "../auth/guards";
 import { upgradeWebSocket } from "../channels/socket";
 import type { ClickyHub } from "./hub";
-import { sessionTokenFromCookies } from "../mobile/store";
 import { parseClickyCommand, parseClickyGuide } from "./schema";
 import type { ClickyService } from "./service";
 import { SIGNED_OUT_CLOSE, type SocketSessions } from "./socket-sessions";
@@ -28,6 +27,8 @@ export function createClickyRoutes(deps: {
   hub: ClickyHub;
   /** Closes a socket when the session it was opened on is revoked or ends. */
   sessions?: SocketSessions;
+  /** This deployment's session token in a Cookie header. */
+  sessionTokenOf?: (cookie: string | undefined) => string | null;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
   const limit = bodyLimit({ maxSize: 64 * 1024 });
@@ -100,7 +101,7 @@ export function createClickyRoutes(deps: {
       // Fixed at the upgrade: the socket belongs to whoever signed in for it, and to this Bot.
       const userId = context.var.actor.id;
       const botId = context.req.param("botId") ?? "";
-      const token = sessionTokenFromCookies(context.req.header("cookie"));
+      const token = deps.sessionTokenOf?.(context.req.header("cookie")) ?? null;
       let detach = () => {};
       let unwatch = () => {};
       let open = true;

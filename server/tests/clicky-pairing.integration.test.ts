@@ -11,7 +11,10 @@ import {
   createRequireUser,
   createRoleRepository,
 } from "../src/auth/guards";
-import type { MobileLinkedInput } from "../src/auth/signin-handoff";
+import {
+  type MobileLinkedInput,
+  sessionCookieHeader,
+} from "../src/auth/signin-handoff";
 import { websocket } from "../src/channels/socket";
 import { createClickyWiring } from "../src/clicky";
 import { createInMemoryClickyStore } from "../src/clicky/store";
@@ -25,6 +28,7 @@ import {
   sessions,
   users,
 } from "../src/db/schema";
+import { createMobileWiring, type MobileWiring } from "../src/mobile";
 import { createMobileRoutes } from "../src/mobile/routes";
 import { createMobileDeviceStore } from "../src/mobile/store";
 import { TEST_POOL, testDatabaseUrl } from "./support/database";
@@ -520,8 +524,13 @@ describe("the security round", () => {
     ]);
   });
 
-  function wiringFor(email: string, clicky: "on" | "off") {
+  function wiringFor(
+    email: string,
+    clicky: "on" | "off",
+    mobile?: MobileWiring,
+  ) {
     return createClickyWiring({
+      ...(mobile ? { mobile } : {}),
       config: configFor(email),
       database,
       databaseUrl: testDatabaseUrl(),
@@ -637,5 +646,102 @@ describe("the security round", () => {
     } finally {
       server.stop(true);
     }
+  });
+
+  test("the live screen's socket closes when its phone is signed out, or when its session ends", async () => {
+    const holder: { email?: string } = {};
+    const { link, auth } = setup({
+      onMobileLinked: (input) => wiring.onMobileLinked(input),
+    });
+    holder.email = created.at(-1) ?? "";
+    const mobile = createMobileWiring({
+      database,
+      agentProfileStore: { get: async () => null },
+      config: configFor(holder.email),
+    });
+    const wiring = wiringFor(holder.email, "off", mobile);
+    const phone = (await (
+      await link(mint(holder.email))
+    ).json()) as MobileLinkResponse;
+    const token = wiring.sessionTokenOf(phone.cookie);
+    expect(token).toBeTruthy();
+    const closed: string[] = [];
+    // What index.ts does for each live screen it relays.
+    wiring.watchSession(token, () => closed.push("first"));
+    const app = new Hono<{ Variables: AppVariables }>().route(
+      "/api/mobile",
+      wiring.mobileRoutes(
+        createRequireUser(
+          auth as unknown as AuthService,
+          createRoleRepository(database),
+        ),
+      ) as Hono<{ Variables: AppVariables }>,
+    );
+    const revoked = await app.request(
+      `http://x/api/mobile/devices/${phone.deviceId}`,
+      { method: "DELETE", headers: { cookie: phone.cookie } },
+    );
+    expect(revoked.status).toBe(204);
+    expect(closed).toEqual(["first"]);
+
+    const second = (await (
+      await link(mint(holder.email))
+    ).json()) as MobileLinkResponse;
+    wiring.watchSession(wiring.sessionTokenOf(second.cookie), () =>
+      closed.push("second"),
+    );
+    await mobile.sockets.sweep();
+    expect(closed).toEqual(["first"]);
+    // Its day is over.
+    await database
+      .update(sessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(
+        eq(sessions.token, wiring.sessionTokenOf(second.cookie) ?? "missing"),
+      );
+    await mobile.sockets.sweep();
+    expect(closed).toEqual(["first", "second"]);
+  });
+
+  test("a remembered web session still slides with the phone's hook installed", async () => {
+    const { email, auth, base } = setup();
+    const web = await auth.handler(
+      new Request(
+        `${base}/api/auth/signin-handoff?token=${encodeURIComponent(
+          mint(email, { aud: undefined }),
+        )}`,
+      ),
+    );
+    const cookie = sessionCookieHeader(web.headers, [
+      "better-auth.session_token",
+    ]);
+    expect(cookie).toBeTruthy();
+    const token = decodeURIComponent(
+      cookie?.split("=").slice(1).join("=") ?? "",
+    ).split(".")[0];
+    // Six and a half days into a week: due to be extended on its next use.
+    const sixAndAHalfDaysAgo = new Date(Date.now() - 6.5 * 24 * 60 * 60 * 1000);
+    await database
+      .update(sessions)
+      .set({
+        createdAt: sixAndAHalfDaysAgo,
+        expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000),
+      })
+      .where(eq(sessions.token, token ?? "missing"));
+    expect(
+      (
+        await auth.api.getSession({
+          headers: new Headers({ cookie: cookie ?? "" }),
+        })
+      )?.user.email,
+    ).toBe(email);
+    const [row] = await database
+      .select({ expiresAt: sessions.expiresAt })
+      .from(sessions)
+      .where(eq(sessions.token, token ?? "missing"));
+    // Slid to a week from now, as Better Auth does for a remembered session.
+    expect(row?.expiresAt.getTime() ?? 0).toBeGreaterThan(
+      Date.now() + 6 * 24 * 60 * 60 * 1000,
+    );
   });
 });

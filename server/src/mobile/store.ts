@@ -5,6 +5,7 @@ import {
   type MobileDevice,
   type MobilePlatform,
 } from "../../../shared/mobile-link";
+import { HOST_ONLY_COOKIE_PREFIX } from "../auth";
 import type { MobileLinkedInput } from "../auth/signin-handoff";
 import type { Database } from "../db/client";
 import { mobileDevices, pushDevices, sessions } from "../db/schema";
@@ -320,20 +321,30 @@ export function createMobileDeviceStore(database: Database): MobileDeviceStore {
 }
 
 /**
- * The session token in a request's cookies: Better Auth's `session_token` cookie under whatever
- * prefix this deployment uses (`__Host-` on https here), its signature taken off. Not verified here:
- * the request has already been signed in with it, and it is only used to find which of the person's
- * own phones is asking.
+ * The name of this deployment's session cookie, as Better Auth sets it: with the `__Host-` prefix
+ * on https (`hostOnlyCookies` in auth/index.ts), plain on http.
+ */
+export function sessionCookieName(baseUrl: string | undefined): string {
+  return baseUrl?.startsWith("https://")
+    ? `${HOST_ONLY_COOKIE_PREFIX}.session_token`
+    : "better-auth.session_token";
+}
+
+/**
+ * The session token in a request's cookies: the cookie with exactly this deployment's session cookie
+ * name (another one with a similar name, set by a sibling, is not it), its signature taken off. Not
+ * verified here: the request has already been signed in with it, and it is only used to find which
+ * of the person's own phones is asking, or which session a socket belongs to.
  */
 export function sessionTokenFromCookies(
-  header: string | undefined,
+  header: string | undefined | null,
+  name: string,
 ): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const separator = part.indexOf("=");
     if (separator <= 0) continue;
-    const name = part.slice(0, separator).trim();
-    if (!name.endsWith("better-auth.session_token")) continue;
+    if (part.slice(0, separator).trim() !== name) continue;
     let value = part.slice(separator + 1).trim();
     try {
       value = decodeURIComponent(value);

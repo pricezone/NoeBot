@@ -6,6 +6,7 @@ import { type AuditStore, PERSON_INITIATOR, recordAuditEvent } from "../audit";
 import type { AppVariables } from "../auth/guards";
 import {
   type MobileDeviceStore,
+  sessionCookieName,
   sessionTokenFromCookies,
   toMobileDevice,
 } from "./store";
@@ -29,6 +30,8 @@ export function createMobileRoutes(deps: {
   sameSite?: MiddlewareHandler;
   /** Told the session token of a phone just signed out, so its open sockets close. */
   onRevoked?: (sessionToken: string) => void;
+  /** This deployment's session cookie name (see `sessionCookieName`). */
+  sessionCookie?: string;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
   if (deps.sameSite) routes.use("*", deps.sameSite);
@@ -36,7 +39,10 @@ export function createMobileRoutes(deps: {
 
   /** The phone this request came from, marked seen; null for a browser. */
   const currentDevice = async (userId: string, cookie: string | undefined) => {
-    const token = sessionTokenFromCookies(cookie);
+    const token = sessionTokenFromCookies(
+      cookie,
+      deps.sessionCookie ?? sessionCookieName(undefined),
+    );
     if (!token) return null;
     const device = await deps.store.deviceForToken(userId, token);
     if (device) await deps.store.touch(device.id);

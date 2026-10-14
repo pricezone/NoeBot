@@ -15,7 +15,6 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Hono, MiddlewareHandler } from "hono";
-import { and, gt, inArray } from "drizzle-orm";
 import type {
   ClickyNotice,
   ClickySession,
@@ -37,7 +36,6 @@ import type { HeadlessWait } from "../computer/headless-tools";
 import type { DeploymentConfig } from "../config";
 import type { RuntimeModel } from "../copilot";
 import type { Database } from "../db/client";
-import { sessions as authSessions } from "../db/schema";
 import type { ExpoPushTransport } from "../delivery/push";
 import { interfaceLocaleOf } from "../i18n/bot-language";
 import { serverText } from "../i18n/server-text";
@@ -55,7 +53,6 @@ import {
 } from "./hub";
 import { createClickyRoutes } from "./routes";
 import type { ClickyGuideInput } from "./schema";
-import { createSocketSessions } from "./socket-sessions";
 import { type ClickyPreferences, createClickyService } from "./service";
 import { type ClickyStore, createClickyStore } from "./store";
 
@@ -135,6 +132,13 @@ export type ClickyWiring = {
     /** Why the walkthrough was not installed: Clicky was busy acting. */
     rejected?: ClickyNotice;
   }>;
+  /**
+   * Keep a long-lived socket (Clicky's events, the live screen) with the session it opened on, so it
+   * closes when that phone is signed out or the session ends. Returns the detach.
+   */
+  watchSession(token: string | null, close: () => void): () => void;
+  /** This deployment's session token in a Cookie header, or null. */
+  sessionTokenOf(cookie: string | undefined | null): string | null;
   /** Starts timers and the NOTIFY listener. */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -255,10 +259,17 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
         throw new Error("This person cannot use that Bot's computer.");
       return clicky.service.guide(userId, botId, input);
     },
+    watchSession(token, close) {
+      return mobile.sockets.watch(token, close);
+    },
+    sessionTokenOf(cookie) {
+      return mobile.sessionTokenOf(cookie);
+    },
     async start() {
+      // The sweep of ended sessions runs whether or not Clicky does: the live screen is a socket too.
+      mobile.start();
       if (!clicky) return;
       clicky.service.start();
-      clicky.sessions.start();
       if (!deps.store)
         listener = await startClickyActivityListener(
           deps.databaseUrl,
@@ -267,7 +278,7 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
     },
     async stop() {
       clicky?.service.stop();
-      clicky?.sessions.stop();
+      mobile.stop();
       await listener?.stop();
       listener = undefined;
     },
@@ -382,23 +393,8 @@ function buildClicky(
     needsYou,
     canUseComputer,
   });
-  const sessions = createSocketSessions({
-    alive: async (tokens) =>
-      new Set(
-        (
-          await deps.database
-            .select({ token: authSessions.token })
-            .from(authSessions)
-            .where(
-              and(
-                inArray(authSessions.token, tokens),
-                gt(authSessions.expiresAt, new Date()),
-              ),
-            )
-        ).map((row) => row.token),
-      ),
-  });
-  mobile.onRevoked((token) => sessions.revoke(token));
+  // The phone half keeps every socket with its session; Clicky's sockets are watched there too.
+  const sessions = mobile.sockets;
   let routes: AppRoutes | undefined;
 
   return {
@@ -408,7 +404,12 @@ function buildClicky(
     sessions,
     canUseComputer,
     routes() {
-      routes ??= createClickyRoutes({ service, hub, sessions });
+      routes ??= createClickyRoutes({
+        service,
+        hub,
+        sessions,
+        sessionTokenOf: (cookie) => mobile.sessionTokenOf(cookie),
+      });
       return routes;
     },
     onControlEvent(event: ComputerControlEvent) {

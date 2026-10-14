@@ -1,3 +1,4 @@
+import { and, gt, inArray } from "drizzle-orm";
 import type { Hono, MiddlewareHandler } from "hono";
 import { computerAccessCheck } from "../agents/computer-access";
 import type { AgentProfileStore } from "../agents/profile-store";
@@ -6,9 +7,19 @@ import type { AppVariables } from "../auth/guards";
 import type { MobileLinkedInput } from "../auth/signin-handoff";
 import { deploymentOrigins, sameSiteGuard } from "../computer/same-site-guard";
 import type { DeploymentConfig } from "../config";
+import {
+  createSocketSessions,
+  type SocketSessions,
+} from "../clicky/socket-sessions";
 import type { Database } from "../db/client";
+import { sessions as authSessions } from "../db/schema";
 import { createMobileRoutes } from "./routes";
-import { createMobileDeviceStore, type MobileDeviceStore } from "./store";
+import {
+  createMobileDeviceStore,
+  type MobileDeviceStore,
+  sessionCookieName,
+  sessionTokenFromCookies,
+} from "./store";
 
 /**
  * A person's linked phones, on every deployment with a database and a sign-in.
@@ -31,6 +42,15 @@ export type MobileWiring = {
    * open (a Clicky socket) can be closed at once. Returns the unsubscribe.
    */
   onRevoked(listener: (sessionToken: string) => void): () => void;
+  /** This deployment's session token in a Cookie header, or null. */
+  sessionTokenOf(cookie: string | undefined | null): string | null;
+  /**
+   * Every long-lived socket a person holds (Clicky's events, the live screen), kept with the session
+   * it opened on: closed when that phone is signed out, and swept for ended sessions.
+   */
+  sockets: SocketSessions;
+  start(): void;
+  stop(): void;
 };
 
 export function createMobileWiring(deps: {
@@ -41,7 +61,26 @@ export function createMobileWiring(deps: {
   store?: MobileDeviceStore;
 }): MobileWiring {
   const store = deps.store ?? createMobileDeviceStore(deps.database);
-  const listeners = new Set<(sessionToken: string) => void>();
+  const cookieName = sessionCookieName(deps.config.auth?.baseUrl);
+  const sockets = createSocketSessions({
+    alive: async (tokens) =>
+      new Set(
+        (
+          await deps.database
+            .select({ token: authSessions.token })
+            .from(authSessions)
+            .where(
+              and(
+                inArray(authSessions.token, tokens),
+                gt(authSessions.expiresAt, new Date()),
+              ),
+            )
+        ).map((row) => row.token),
+      ),
+  });
+  const listeners = new Set<(sessionToken: string) => void>([
+    (sessionToken) => sockets.revoke(sessionToken),
+  ]);
   const tell = (sessionToken: string) => {
     for (const listener of listeners) {
       try {
@@ -80,11 +119,22 @@ export function createMobileWiring(deps: {
         canUseComputer: computerAccessCheck(deps.agentProfileStore),
         ...(deps.auditStore ? { auditStore: deps.auditStore } : {}),
         onRevoked: tell,
+        sessionCookie: cookieName,
       });
     },
     onRevoked(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    sessionTokenOf(cookie) {
+      return sessionTokenFromCookies(cookie, cookieName);
+    },
+    sockets,
+    start() {
+      sockets.start();
+    },
+    stop() {
+      sockets.stop();
     },
   };
 }
