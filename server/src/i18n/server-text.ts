@@ -25,6 +25,10 @@ export const SERVER_TEXT_EL: Record<string, string> = {
     "Ο οργανισμός σου δεν μπόρεσε να εγκρίνει αυτή τη σύνδεση.",
   "Your organization could not start sign-in.":
     "Ο οργανισμός σου δεν μπόρεσε να ξεκινήσει τη σύνδεση.",
+  // What a Bot's question says on the roster and on the person's phone.
+  "A question needs your answer: {{question}}":
+    "Μια ερώτηση περιμένει την απάντησή σου: {{question}}",
+  "{{bot}} asks: {{question}}": "{{bot}} ρωτά: {{question}}",
   // Slack and Teams, to somebody linked to their OpenBot conversation.
   "your Bot": "ο Bot σου",
   "Your Bot": "Ο Bot σου",

@@ -188,6 +188,7 @@ import {
 } from "./host-access/broker";
 import { hostAccessTools } from "./host-access/tools";
 import { interfaceLocaleOf, withInterfaceLanguage } from "./i18n/bot-language";
+import { serverText } from "./i18n/server-text";
 import {
   createIntelligenceClient,
   observeIntelligenceAuthentication,
@@ -1647,11 +1648,19 @@ const coordination = createCoordinationTools({
     });
     if (queued === "refused")
       return { refusal: "The question could not be saved for its person." };
+    // Said in the asker's language: the roster and their phone show it as it is written here.
+    const askerLocale = await interfaceLocaleOf(() =>
+      userPreferencesStore.locale(question.actorId),
+    );
     await channelStore.recordActivity(
       await actorFor(question.actorId),
       source.channelId,
       {
-        text: `A question needs your answer: ${question.question}`,
+        text: serverText(
+          askerLocale,
+          "A question needs your answer: {{question}}",
+          { question: question.question },
+        ),
         agentId: source.botId,
         at: new Date(),
       },
@@ -1674,7 +1683,10 @@ const coordination = createCoordinationTools({
         },
         {
           id: key,
-          text: `${botName} asks: ${question.question}`,
+          text: serverText(askerLocale, "{{bot}} asks: {{question}}", {
+            bot: botName,
+            question: question.question,
+          }),
           kind: "question",
           requestId: key,
         },

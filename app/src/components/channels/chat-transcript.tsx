@@ -1688,6 +1688,7 @@ export function ChatTranscript({
   // The cards speak the person's language: the same rule the character's label follows. Before they
   // have said anything, the interface's language.
   const interfaceLocale = useInterfaceLocale();
+  const { t } = useTranslation();
   const language = conversationLanguage(lastUserText, interfaceLocale);
   const runningTool =
     busy && lastItem?.kind === "tool" && lastItem.result === undefined
@@ -1770,7 +1771,7 @@ export function ChatTranscript({
   const transcript = (
     <MessageScrollerProvider autoScroll scrollPreviousItemPeek={48}>
       <MessageScroller>
-        <MessageScrollerViewport ref={viewportRef}>
+        <MessageScrollerViewport aria-label={t("Messages")} ref={viewportRef}>
           <MessageScrollerContent
             aria-busy={busy}
             className="mx-auto w-full max-w-2xl px-4 py-6"

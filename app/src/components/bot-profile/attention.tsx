@@ -11,7 +11,7 @@ import {
   botAttentionQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
-import { useTranslation } from "@/lib/i18n";
+import { i18n, useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
 /** Questions, approvals and stalled hand-offs: the things only the person can move forward. */
@@ -23,14 +23,27 @@ export function needsInput(bot: BotAttention): number {
 export function attentionSummary(bot: BotAttention): string {
   const parts: string[] = [];
   if (bot.questions)
-    parts.push(`${bot.questions} question${bot.questions === 1 ? "" : "s"}`);
+    parts.push(
+      i18n.t("{{count}} questions", {
+        count: bot.questions,
+        defaultValue_one: "{{count}} question",
+      }),
+    );
   if (bot.approvals)
-    parts.push(`${bot.approvals} approval${bot.approvals === 1 ? "" : "s"}`);
+    parts.push(
+      i18n.t("{{count}} approvals", {
+        count: bot.approvals,
+        defaultValue_one: "{{count}} approval",
+      }),
+    );
   if (bot.handoffs)
     parts.push(
-      `${bot.handoffs} stalled hand-off${bot.handoffs === 1 ? "" : "s"}`,
+      i18n.t("{{count}} stalled hand-offs", {
+        count: bot.handoffs,
+        defaultValue_one: "{{count}} stalled hand-off",
+      }),
     );
-  if (bot.unread) parts.push(`${bot.unread} unread`);
+  if (bot.unread) parts.push(i18n.t("{{count}} unread", { count: bot.unread }));
   return parts.join(", ");
 }
 
