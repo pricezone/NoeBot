@@ -281,12 +281,19 @@ export function createWakeUpStore(
       return cancelled.length;
     },
 
-    /** Record how a follow-up ended, on its own row. */
+    /**
+     * Record how a follow-up ended, on its own row.
+     *
+     * The object, not its JSON text. Bun's driver sends a string as a jsonb STRING, and `||` then
+     * appended it as an array element: every settled follow-up became `[payload, "{…}"]`, lost its
+     * outcome and dropped out of the per-Bot listing (`payload->>'ownerUserId'` is null on an
+     * array). Migration 0058 folds the rows already written that way back into one object.
+     */
     async settle(id: string, outcome: NonNullable<WakeUpPayload["outcome"]>) {
       await database
         .update(workItems)
         .set({
-          payload: sql`${workItems.payload} || ${JSON.stringify({ outcome })}::jsonb`,
+          payload: sql`${workItems.payload} || ${{ outcome }}::jsonb`,
           updatedAt: sql`now()`,
         })
         .where(and(eq(workItems.kind, WAKE_UP_KIND), eq(workItems.key, id)));
