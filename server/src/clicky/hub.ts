@@ -40,7 +40,13 @@ export type ClickyHub = {
    * Part of a reply still arriving. `seq` is that of the latest snapshot in state "thinking" for the
    * model call it belongs to. This process's sockets only.
    */
-  delta(userId: string, botId: string, seq: number, text: string): void;
+  delta(
+    userId: string,
+    botId: string,
+    seq: number,
+    thinkId: string,
+    text: string,
+  ): void;
   /** An announcement heard through Postgres: read the session back and deliver it if it is news. */
   hear(note: ClickyNote): Promise<void>;
   /** Tell every socket to fetch its session again: something may have been missed. */
@@ -114,9 +120,9 @@ export function createClickyHub(deps: {
         });
     },
 
-    delta(userId, botId, seq, text) {
+    delta(userId, botId, seq, thinkId, text) {
       if (!text) return;
-      send(keyOf(userId, botId), { type: "reply.delta", seq, text });
+      send(keyOf(userId, botId), { type: "reply.delta", seq, thinkId, text });
     },
 
     async hear(note) {

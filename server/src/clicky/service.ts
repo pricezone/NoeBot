@@ -362,7 +362,13 @@ export function createClickyService(deps: {
             lastThinkId.get(key) !== effect.thinkId
           )
             return;
-          deps.hub.delta(userId, botId, lastSeq.get(key) ?? session.seq, text);
+          deps.hub.delta(
+            userId,
+            botId,
+            lastSeq.get(key) ?? session.seq,
+            effect.thinkId,
+            text,
+          );
         },
         ...(screen ? { screen } : {}),
       });

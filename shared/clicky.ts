@@ -321,8 +321,16 @@ export type ClickyCommand =
 /** What the server sends on the events socket. */
 export type ClickyServerEvent =
   | { type: "snapshot"; session: ClickySession }
-  /** Part of Clicky's reply while it is still arriving, for session `seq`. */
-  | { type: "reply.delta"; seq: number; text: string }
+  /**
+   * Part of Clicky's reply while it is still arriving: the next piece of text, to append.
+   *
+   * `thinkId` is the model call it belongs to (`ClickySession.thinkId`), and is what a client keys
+   * the words it is collecting by: `seq` can move while one call is still answering (Clicky's first
+   * pointer on activation is a snapshot of its own), and a session started afresh counts from zero
+   * again. Words for a call the client's session is no longer waiting on are dropped; the answer's
+   * snapshot always carries the whole reply.
+   */
+  | { type: "reply.delta"; seq: number; thinkId: string; text: string }
   /** Something may have been missed: fetch the snapshot again. */
   | { type: "resync" };
 

@@ -143,12 +143,12 @@ describe("the events socket", () => {
     const hub = createClickyHub({ load: (u, b) => store.load(u, b) });
     const seen: ClickyServerEvent[] = [];
     hub.subscribe("user-1", "bot-1", (event) => seen.push(event));
-    hub.delta("user-1", "bot-1", 3, "Hel");
-    hub.delta("user-1", "bot-1", 3, "lo");
-    hub.delta("user-1", "bot-1", 3, "");
+    hub.delta("user-1", "bot-1", 3, "t1", "Hel");
+    hub.delta("user-1", "bot-1", 3, "t1", "lo");
+    hub.delta("user-1", "bot-1", 3, "t1", "");
     expect(seen).toEqual([
-      { type: "reply.delta", seq: 3, text: "Hel" },
-      { type: "reply.delta", seq: 3, text: "lo" },
+      { type: "reply.delta", seq: 3, thinkId: "t1", text: "Hel" },
+      { type: "reply.delta", seq: 3, thinkId: "t1", text: "lo" },
     ]);
     hub.resyncAll();
     expect(seen.at(-1)).toEqual({ type: "resync" });
@@ -253,8 +253,13 @@ describe("reply.delta", () => {
     expect(
       thinking[1]?.overlays.some((overlay) => overlay.kind === "pointer"),
     ).toBe(true);
-    for (const delta of deltas)
+    for (const delta of deltas) {
       expect(delta.type === "reply.delta" && delta.seq).toBe(2);
+      // Keyed by the model call, which stayed the same across both thinking snapshots.
+      expect(delta.type === "reply.delta" && delta.thinkId).toBe(
+        thinking[1]?.thinkId ?? "missing",
+      );
+    }
   });
 });
 
