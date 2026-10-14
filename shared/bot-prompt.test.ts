@@ -102,6 +102,11 @@ describe("COMPUTER_GUIDANCE", () => {
   test("carries a form to its preview in one turn and asks before an irreversible submit", () => {
     expect(flat).toContain("final preview in ONE turn");
     expect(flat).toContain("Before an irreversible submit");
+    // Asked at the step that commits it: on 2026-10-14 a yes given at the text page was used to
+    // press Issue on a later, final preview without asking again.
+    expect(flat).toContain(
+      "a yes given at an earlier step does not cover a later one",
+    );
     expect(flat).toContain("The question card shows them your screen");
     expect(flat).toContain("never rebuild the page as a generated interface");
     expect(flat).toContain("the option that shares the least data");
