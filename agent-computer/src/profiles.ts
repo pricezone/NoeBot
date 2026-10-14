@@ -38,7 +38,11 @@ import { join } from "node:path";
 import { type BrowserContext, chromium, type Page } from "playwright";
 import { profileDirectoryFor } from "./bot-id";
 import { chooseEvictions, chooseIdle } from "./browser-eviction";
-import { homepageFromEnv, openStartPage } from "./browser-request";
+import {
+  homepageFromEnv,
+  openStartPage,
+  raiseBrowserWindow,
+} from "./browser-request";
 import { browserRuntimeFromEnv } from "./browser-runtime";
 import { partialDownloadsDir } from "./downloads";
 import { egressFor, egressLabel } from "./egress";
@@ -50,7 +54,7 @@ import {
   launchArgs,
   PLAYWRIGHT_DISABLED_FEATURES,
 } from "./launch-args";
-import { chooseLivePage } from "./live-page";
+import { followLivePage, type LivePage } from "./live-page";
 import {
   botIdsIn,
   browserProcessAlive,
@@ -235,6 +239,31 @@ const ANNOUNCE_BUDGET_MS = 2_000;
  */
 const LAUNCH_WAIT_MS = 30_000;
 
+/**
+ * How long bringing a page forward may take. Raising a window is a courtesy to the person watching,
+ * never a reason for the Bot's own request to wait on a browser that will not answer.
+ */
+const FORWARD_BUDGET_MS = 3_000;
+
+/**
+ * Put a page in front of whoever is watching: its tab the active one and its window raised, and on
+ * the desktop restored if minimized and maximized, since the person there watches the whole display.
+ * Headless takes the same call and only switches the tab.
+ *
+ * Not for a person's own Chrome: there raising the window takes the keyboard from whatever they are
+ * doing in another program, and they watch the Bot through the live screen rather than the window.
+ * Never rejects: a browser that will not raise a window is still a browser the Bot can use.
+ */
+async function bringForward(page: Page): Promise<void> {
+  if (LOCAL_CHROME || page.isClosed()) return;
+  await settleWithin(
+    BROWSER_RUNTIME.desktop
+      ? raiseBrowserWindow(page, { maximize: true })
+      : page.bringToFront(),
+    FORWARD_BUDGET_MS,
+  );
+}
+
 /** What a Bot's browser looks like from outside. */
 export type BotBrowser = {
   botId: string;
@@ -330,16 +359,11 @@ export function createProfiles(
 ) {
   type LiveBrowser = {
     context: BrowserContext;
-    page: Page;
+    /** The page the Bot is on: the newest opened or switched to, brought forward as it changes. */
+    live: LivePage<Page>;
     startedAt: string;
     /** When this Bot last asked for its page. Decides what the cap and the sweep close. */
     usedAt: number;
-    /** Point `page` at whatever is open now. Called on every page opening and closing. */
-    retarget: () => void;
-    /** When each page was opened or switched to, so the newest of those is the live one. */
-    rank: WeakMap<Page, number>;
-    /** The clock `rank` counts on. */
-    ranked: number;
     /** Keeps this browser's session cookies on the profile volume. Absent for a native Chrome. */
     sessionCookies?: SessionCookieKeeper;
   };
@@ -426,14 +450,14 @@ export function createProfiles(
       );
     let tabs: string[];
     try {
-      running.retarget();
+      running.live.retarget();
       const open = running.context
         .pages()
         .filter((page) => !page.isClosed())
         .map((page) => page.url());
       tabs = tabsToSave(
         open,
-        running.page.isClosed() ? undefined : running.page.url(),
+        running.live.page.isClosed() ? undefined : running.live.page.url(),
       );
     } catch (error) {
       notSaved(error);
@@ -579,7 +603,7 @@ export function createProfiles(
       const existing = live.get(botId);
       // Asked before the page is judged, so a close that has not been delivered yet does not read as
       // a browser that has gone.
-      existing?.retarget();
+      existing?.live.retarget();
       /*
        * And the process asked directly, because Playwright does not always notice: on the live
        * instance a browser exited, Playwright went on calling it connected, and every request after
@@ -602,12 +626,12 @@ export function createProfiles(
       }
       if (
         existing?.context.browser()?.isConnected() &&
-        !existing.page.isClosed() &&
+        !existing.live.page.isClosed() &&
         !processGone
       ) {
         // Touched on every use, which is what makes "least recently used" mean anything.
         existing.usedAt = Date.now();
-        return existing.page;
+        return existing.live.page;
       }
       if (existing) {
         console.info(
@@ -615,7 +639,7 @@ export function createProfiles(
             type: "computer-browser-replacing",
             botId,
             connected: Boolean(existing.context.browser()?.isConnected()),
-            pageClosed: existing.page.isClosed(),
+            pageClosed: existing.live.page.isClosed(),
           }),
         );
         // Half-dead: the browser went away, or its page did. Dropped rather than repaired, because a
@@ -746,46 +770,24 @@ export function createProfiles(
         }
         const record: LiveBrowser = {
           context,
-          page,
+          // Follows a window the site opens, falls back when one closes, and brings each page that
+          // becomes the live one forward (live-page.ts). Reopened tabs are already open: the newest
+          // of them, the page the Bot was on, is the live one from the start.
+          live: followLivePage(context, page, {
+            bringForward,
+            changed: (next) =>
+              console.info(
+                JSON.stringify({
+                  type: "computer-page-changed",
+                  botId,
+                  url: next.url(),
+                }),
+              ),
+          }),
           startedAt: new Date().toISOString(),
           usedAt: Date.now(),
-          retarget: () => {},
-          rank: new WeakMap(),
-          ranked: 0,
           ...(sessionCookies ? { sessionCookies } : {}),
         };
-        record.retarget = () => {
-          const next = chooseLivePage(
-            context.pages(),
-            (candidate) => record.rank.get(candidate) ?? 0,
-          );
-          if (!next || next === record.page) return;
-          record.page = next;
-          console.info(
-            JSON.stringify({
-              type: "computer-page-changed",
-              botId,
-              url: next.url(),
-            }),
-          );
-        };
-        // Without this the Bot stays pinned to the page it launched with, so a sign-in the site opens
-        // in a new window is neither shown to the person taking the wheel nor reachable by input.
-        context.on("page", (opened) => {
-          record.ranked += 1;
-          record.rank.set(opened, record.ranked);
-          record.retarget();
-          // A popup closes itself when it succeeds, and the record must move back to the opener
-          // rather than leave a closed page to be read as a dead browser.
-          opened.on("close", () => record.retarget());
-        });
-        page.on("close", () => record.retarget());
-        // Reopened tabs came before these listeners: each falls back the same way when it closes,
-        // and the newest of them, the page the Bot was on, is the live one from the start.
-        for (const reopened of context.pages()) {
-          if (reopened !== page) reopened.on("close", () => record.retarget());
-        }
-        record.retarget();
         // Said, because nothing else is: a person closing the window ends the browser without any
         // call here, and the next request finds it half-dead.
         context.once("close", () => {
@@ -806,7 +808,7 @@ export function createProfiles(
         // just asked is the most recently used and therefore never the one closed.
         await enforceCap();
         // Not `page`: a window opened while the browser was starting is already the live one.
-        return record.page;
+        return record.live.page;
       })();
 
       starting.set(botId, launch);
@@ -872,10 +874,10 @@ export function createProfiles(
     tabs(botId: string): { pages: Page[]; live: Page | undefined } {
       const running = live.get(botId);
       if (!running) return { pages: [], live: undefined };
-      running.retarget();
+      running.live.retarget();
       return {
         pages: running.context.pages().filter((page) => !page.isClosed()),
-        live: running.page.isClosed() ? undefined : running.page,
+        live: running.live.page.isClosed() ? undefined : running.live.page,
       };
     },
 
@@ -887,11 +889,17 @@ export function createProfiles(
       const running = live.get(botId);
       if (!running || page.isClosed() || page.context() !== running.context)
         throw new Error("That tab is not open in this browser any more.");
-      running.ranked += 1;
-      running.rank.set(page, running.ranked);
-      running.retarget();
-      await page.bringToFront().catch(() => undefined);
+      await running.live.choose(page);
+      // A person's own Chrome is not raised when its page changes on its own (see `bringForward`),
+      // but a switch to a tab is asked for by name.
+      if (LOCAL_CHROME) await page.bringToFront().catch(() => undefined);
     },
+
+    /**
+     * Bring the page the Bot is about to act on forward (`computer_navigate`, back), so the person
+     * watching sees it happen even if another window was put in front of it. See `bringForward`.
+     */
+    bringForward,
 
     /** Every Bot that has a computer, whether or not one is running. See `known` above. */
     known,

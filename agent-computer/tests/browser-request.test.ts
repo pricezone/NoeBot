@@ -7,6 +7,7 @@ import {
   DEFAULT_HOMEPAGE,
   homepageFromEnv,
   openStartPage,
+  raiseBrowserWindow,
   type StartPageFailure,
   wantsHomepage,
   watchBrowserRequests,
@@ -273,4 +274,68 @@ test("a call into a browser that never answers fails after its budget", async ()
   ).rejects.toThrow("Raising the window took longer than 50 ms");
   expect(Date.now() - started).toBeLessThan(1_000);
   expect(await within(Promise.resolve(7), 50, "Quick")).toBe(7);
+});
+
+describe("raising the browser window", () => {
+  /** A page whose DevTools session answers with a window in `state` and records what it was told. */
+  function windowIn(state: string) {
+    const calls: string[] = [];
+    const page = {
+      bringToFront: async () => {
+        calls.push("bringToFront");
+      },
+      context: () => ({
+        newCDPSession: async () => ({
+          send: async (method: string, params?: { bounds?: object }) => {
+            calls.push(
+              params?.bounds
+                ? `${method} ${JSON.stringify(params.bounds)}`
+                : method,
+            );
+            return method === "Browser.getWindowForTarget"
+              ? { windowId: 7, bounds: { windowState: state } }
+              : {};
+          },
+          detach: async () => undefined,
+        }),
+      }),
+    } as unknown as Page;
+    return { page, calls };
+  }
+
+  test("maximizes a window a site opened at its own size, then brings it to the front", async () => {
+    const { page, calls } = windowIn("normal");
+    await raiseBrowserWindow(page, { maximize: true });
+    expect(calls).toEqual([
+      "Browser.getWindowForTarget",
+      'Browser.setWindowBounds {"windowState":"maximized"}',
+      "bringToFront",
+    ]);
+  });
+
+  test("restores a minimized window before maximizing it", async () => {
+    const { page, calls } = windowIn("minimized");
+    await raiseBrowserWindow(page, { maximize: true });
+    expect(calls).toEqual([
+      "Browser.getWindowForTarget",
+      'Browser.setWindowBounds {"windowState":"normal"}',
+      'Browser.setWindowBounds {"windowState":"maximized"}',
+      "bringToFront",
+    ]);
+  });
+
+  test("leaves a maximized window as it is, and a normal one when not asked to maximize", async () => {
+    const maximized = windowIn("maximized");
+    await raiseBrowserWindow(maximized.page, { maximize: true });
+    expect(maximized.calls).toEqual([
+      "Browser.getWindowForTarget",
+      "bringToFront",
+    ]);
+    const normal = windowIn("normal");
+    await raiseBrowserWindow(normal.page);
+    expect(normal.calls).toEqual([
+      "Browser.getWindowForTarget",
+      "bringToFront",
+    ]);
+  });
 });

@@ -1462,6 +1462,9 @@ serve<StreamData>({
           session.control.assertBotMayAct(true);
           const frozen = dialogs.pending(botId);
           if (frozen) return dialogOpen(frozen);
+          // In front of the person watching before it moves: behind another window, or in a tab
+          // that is not the shown one, the whole visit happens where nobody can see it.
+          await profiles.bringForward(target);
           /*
            * A sign-in pop-up the site opened is the live page until it closes. Navigating inside it
            * strands the sign-in, so the Bot is told where it is rather than stopped: it may mean it.
@@ -2270,6 +2273,8 @@ async function performAction(
           `The page to go back to is no longer ${body.expectedUrl}${previous ? ` but ${previous.url}` : ""}. Ask again to go back.`,
         );
     }
+    // In front of the person watching, as for `computer_navigate`.
+    await profiles.bringForward(target);
     let response: PageResponse | null = null;
     try {
       response = await dialogs.leaving(botId, () =>

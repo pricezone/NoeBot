@@ -184,8 +184,15 @@ const STEP_MS = 5_000;
  * is merely behind another; a minimized window has to be restored first, through the DevTools
  * protocol, since the desktop gives the computer no other handle on it. Every step is bounded: a
  * browser that is dying answers nothing, and the person's click should fail fast rather than wait.
+ *
+ * `maximize` also fills the screen with a window that is not already maximized or full screen: on the
+ * desktop the person watches the whole display, and a window a site opened at its own size (a sign-in
+ * pop-up) would otherwise sit small in the middle of it.
  */
-export async function raiseBrowserWindow(page: Page): Promise<void> {
+export async function raiseBrowserWindow(
+  page: Page,
+  { maximize = false }: { maximize?: boolean } = {},
+): Promise<void> {
   const client = await within(
     page.context().newCDPSession(page),
     STEP_MS,
@@ -197,16 +204,28 @@ export async function raiseBrowserWindow(page: Page): Promise<void> {
       STEP_MS,
       "Finding the browser window",
     );
-    if (bounds.windowState === "minimized") {
-      await within(
+    const setState = (
+      windowState: "normal" | "maximized",
+      what: string,
+    ): Promise<unknown> =>
+      within(
         client.send("Browser.setWindowBounds", {
           windowId,
-          bounds: { windowState: "normal" },
+          bounds: { windowState },
         }),
         STEP_MS,
-        "Restoring the browser window",
+        what,
       );
-    }
+    // Restored to normal first even when it is to be maximized: Chromium will not change a minimized
+    // window straight to another state.
+    if (bounds.windowState === "minimized")
+      await setState("normal", "Restoring the browser window");
+    if (
+      maximize &&
+      bounds.windowState !== "maximized" &&
+      bounds.windowState !== "fullscreen"
+    )
+      await setState("maximized", "Maximizing the browser window");
   } finally {
     void client.detach().catch(() => undefined);
   }
