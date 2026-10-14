@@ -86,6 +86,7 @@ import { createTranscriptionProvider } from "./dictation/provider";
 import { createDictationRoutes } from "./dictation/routes";
 import type { HostAccessBroker } from "./host-access/broker";
 import { createHostAccessRoutes } from "./host-access/routes";
+import { deploymentLocales } from "./i18n/deployment-locale";
 import { createIntelligenceClient } from "./intelligence-client";
 import {
   createLearningRoutes,
@@ -536,6 +537,11 @@ export function createApp(
        */
       ssoRequired:
         enterpriseControls()?.snapshot()?.settings.ssoRequired === true,
+      /*
+       * The interface languages this deployment offers, and the one a person who chose none starts
+       * in. Needed before sign-in, so the sign-in screen can already speak it.
+       */
+      ...deploymentLocales(),
     }),
   );
   /*
@@ -693,6 +699,14 @@ export function createApp(
          */
         onboarding: onboardingStore
           ? await onboardingStore.status(context.var.actor.id)
+          : null,
+        /*
+         * The interface language this person chose, so the app can settle on it before it draws
+         * anything. Null when they chose none, and when preferences are unavailable: a language is
+         * never a reason for the person not to load.
+         */
+        locale: userPreferences
+          ? await userPreferences.locale(context.var.actor.id).catch(() => null)
           : null,
       },
     }),

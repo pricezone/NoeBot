@@ -11,6 +11,7 @@ import { useSettingsNav } from "@/components/settings/settings-nav";
 import { Button } from "@/components/ui/button";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { ensureNamespaces } from "@/lib/i18n/set-locale";
 
 /**
  * Admin, drawn inside the Settings modal: the Admin row of its nav opens the deployment's
@@ -35,6 +36,8 @@ export const Route = createFileRoute("/_authed/_app/admin")({
     if (user?.role !== "admin") {
       throw redirect({ to: "/" });
     }
+    // Admin's own words arrive with it, before it draws; English has none to wait for.
+    await ensureNamespaces(["admin"]);
   },
   component: RouteComponent,
 });

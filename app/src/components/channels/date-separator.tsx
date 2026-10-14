@@ -1,4 +1,5 @@
 import type { Message } from "@ag-ui/core";
+import { fixedIntlLocale } from "@/lib/i18n/format";
 
 /**
  * The line a transcript draws between two days: "Sat, Sep 19 1:04 AM", centred and muted, the way
@@ -80,7 +81,8 @@ export function formatSeparator(
   date: Date,
   options: { locale?: string; timeZone?: string } = {},
 ): string {
-  const { locale = "en-US", timeZone } = options;
+  // The interface's language unless a caller names one; English keeps the US order it always had.
+  const { locale = fixedIntlLocale(), timeZone } = options;
   const day = new Intl.DateTimeFormat(locale, {
     weekday: "short",
     month: "short",

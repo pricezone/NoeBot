@@ -1,5 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { cacheDeployment } from "@/lib/i18n/detect";
+import {
+  isLocale,
+  type Locale,
+  parseLocales,
+} from "../../../../shared/i18n/locales";
 
 /**
  * What this deployment can do, as the server is willing to say it.
@@ -43,6 +49,14 @@ export type DeploymentCapabilities = {
    * `useFrontendTool` in lib/copilot/approval-tools.tsx.
    */
   computerToolsInRun?: boolean;
+  /**
+   * The interface languages this deployment offers, present only when it offers more than English:
+   * absent reads as English alone, with no language switcher, which is also what an older server
+   * that says nothing means.
+   */
+  locales?: Locale[];
+  /** The language somebody who chose none starts in, when the deployment names one. */
+  defaultLocale?: Locale | null;
 };
 
 export const deploymentKeys = {
@@ -84,9 +98,23 @@ export function deploymentCapabilitiesQueryOptions() {
         usage?: boolean;
         billingUrl?: string | null;
         computerToolsInRun?: boolean;
+        locales?: unknown;
+        defaultLocale?: unknown;
       };
 
+      const locales = parseLocales(
+        Array.isArray(body.locales) ? body.locales.join(",") : undefined,
+      );
+      const defaultLocale =
+        isLocale(body.defaultLocale) && locales.includes(body.defaultLocale)
+          ? body.defaultLocale
+          : null;
+      // Remembered so the next visit's first paint already speaks the deployment's language.
+      cacheDeployment({ locales, defaultLocale });
+
       return {
+        // Only when there is a choice: absent reads as English alone, as for an older server.
+        ...(locales.length > 1 ? { locales, defaultLocale } : {}),
         generativeUi: body.generativeUi === true,
         selfHostBanner: body.selfHostBanner === true,
         transcription: body.transcription === true,

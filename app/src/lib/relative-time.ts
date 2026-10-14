@@ -1,3 +1,5 @@
+import { relativeTimeFormat } from "@/lib/i18n/format";
+
 const RELATIVE_UNITS = [
   { limit: 60_000, divisor: 1_000, unit: "second" },
   { limit: 3_600_000, divisor: 60_000, unit: "minute" },
@@ -6,11 +8,12 @@ const RELATIVE_UNITS = [
   { limit: Number.POSITIVE_INFINITY, divisor: 604_800_000, unit: "week" },
 ] as const;
 
-const relativeFormat = new Intl.RelativeTimeFormat(undefined, {
-  numeric: "auto",
-});
-
-/** Locale-aware relative timestamp, e.g. "2 minutes ago". */
+/**
+ * Locale-aware relative timestamp, e.g. "2 minutes ago", in the interface's language. The formatter
+ * is looked up per call, not built once when this module loads, so a switch of language reaches
+ * every timestamp drawn after it; before languages existed this followed the browser instead, and a
+ * Greek browser drew Greek times inside an English interface.
+ */
 export function relativeTime(iso: string): string {
   const time = new Date(iso).getTime();
   // An invalid date used to flow into `Math.abs(NaN)` comparisons and `format(-NaN)`, which
@@ -20,7 +23,7 @@ export function relativeTime(iso: string): string {
   const scale =
     RELATIVE_UNITS.find(({ limit }) => Math.abs(elapsed) < limit) ??
     RELATIVE_UNITS[RELATIVE_UNITS.length - 1];
-  return relativeFormat.format(
+  return relativeTimeFormat().format(
     -Math.round(elapsed / scale.divisor),
     scale.unit,
   );

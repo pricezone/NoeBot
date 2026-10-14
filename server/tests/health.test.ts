@@ -64,6 +64,9 @@ describe("runtime capabilities", () => {
       // sign-in page which companies use this deployment.
       ssoConfigured: false,
       ssoRequired: false,
+      // English alone until a deployment turns another language on, so no switcher is drawn.
+      locales: ["en"],
+      defaultLocale: null,
     });
   });
 
@@ -91,6 +94,8 @@ describe("runtime capabilities", () => {
       "signInHandoff",
       "ssoConfigured",
       "ssoRequired",
+      "locales",
+      "defaultLocale",
     ]);
     // The provider list is names, never the clients and secrets behind them.
     expect(body).not.toContain("google-client-secret");

@@ -72,6 +72,8 @@ describe("server authorization", () => {
         role: "user",
         // No store was passed, so this deployment tracks no onboarding and the app gates nobody.
         onboarding: null,
+        // Nor any preferences, so no interface language was chosen.
+        locale: null,
       },
     });
   });

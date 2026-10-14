@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { LOCALES } from "../../shared/i18n/locales";
 import type { AppVariables } from "./auth/guards";
 import type { UserPreferencesStore } from "./user-preferences";
 
@@ -12,6 +13,8 @@ const preferencesPatch = z
   .strictObject({
     messageListEmphasis: z.enum(["agent", "thread"]).optional(),
     selfHostBannerDismissed: z.boolean().optional(),
+    // Null forgets the choice, so the deployment default or the browser decides again.
+    locale: z.enum(LOCALES).nullable().optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0);
 
@@ -44,7 +47,7 @@ export function userPreferencesRoutes(
       return context.json(
         {
           error:
-            "Choose agent or thread for message list emphasis, or true or false for the self-host banner.",
+            "Choose agent or thread for message list emphasis, true or false for the self-host banner, or en, el or null for the interface language.",
         },
         400,
       );

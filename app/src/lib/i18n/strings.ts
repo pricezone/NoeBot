@@ -6,6 +6,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { languageOf } from "@/components/noe-bot/anim/intent";
+import { useInterfaceLocale } from "./index";
 
 /**
  * The fixed words the chat's own cards say, in English and in Greek.
@@ -365,11 +366,16 @@ export function stringsFor(language: UiLanguage | undefined): UiStrings {
   return TABLES[language ?? "en"] ?? EN;
 }
 
-/** The person's language, from their last message: the avatar's rule, so the two agree. */
+/**
+ * The person's language, from their last message: the avatar's rule, so the two agree. Before the
+ * person has said anything, the interface's language (`fallback`), so an empty conversation's cards
+ * speak the language the person chose rather than English.
+ */
 export function conversationLanguage(
   lastPersonText: string | null | undefined,
+  fallback: UiLanguage = "en",
 ): UiLanguage {
-  return languageOf(lastPersonText);
+  return lastPersonText?.trim() ? languageOf(lastPersonText) : fallback;
 }
 
 /** The last thing the person said, among AG-UI messages, as text. */
@@ -398,11 +404,11 @@ export function lastPersonText(
   return null;
 }
 
-const UiLanguageContext = createContext<UiLanguage>("en");
+const UiLanguageContext = createContext<UiLanguage | null>(null);
 
 /**
  * Says which language the cards under it speak. The transcript provides it from the person's last
- * message; anything drawn outside a conversation speaks English.
+ * message; anything drawn outside a conversation speaks the interface's language.
  */
 export function UiLanguageProvider({
   language,
@@ -419,12 +425,13 @@ export function UiLanguageProvider({
 }
 
 export function useUiLanguage(): UiLanguage {
-  return useContext(UiLanguageContext);
+  const interfaceLocale = useInterfaceLocale();
+  return useContext(UiLanguageContext) ?? interfaceLocale;
 }
 
 /** The words for the conversation this component is drawn in. */
 export function useUiStrings(): UiStrings {
-  return stringsFor(useContext(UiLanguageContext));
+  return stringsFor(useUiLanguage());
 }
 
 /**
@@ -462,11 +469,13 @@ function subscribeToLanguages(listener: () => void): () => void {
   };
 }
 
-/** The language noted under `key`, or `fallback` until one is. */
+/** The language noted under `key`, or `fallback` (the interface's language) until one is. */
 export function useNotedLanguage(
   key: string | undefined,
-  fallback: UiLanguage = "en",
+  fallbackLanguage?: UiLanguage,
 ): UiLanguage {
+  const interfaceLocale = useInterfaceLocale();
+  const fallback = fallbackLanguage ?? interfaceLocale;
   return useSyncExternalStore(
     subscribeToLanguages,
     () => (key === undefined ? undefined : notedLanguages.get(key)) ?? fallback,

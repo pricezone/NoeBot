@@ -22,6 +22,7 @@ import {
   channelListQueryOptions,
   channelQueryOptions,
 } from "@/lib/channels/queries";
+import { useInterfaceLocale } from "@/lib/i18n";
 import {
   conversationLanguage,
   languageKeys,
@@ -66,9 +67,10 @@ function RouteComponent() {
   const summary = roster.data?.find((row) => row.id === channelId);
   // The conversation's language for this screen's own words, noted by it; before it has been open
   // in this tab, read off the last thing said in it.
+  const interfaceLocale = useInterfaceLocale();
   const language = useNotedLanguage(
     languageKeys.channel(channelId),
-    conversationLanguage(summary?.lastMessage),
+    conversationLanguage(summary?.lastMessage, interfaceLocale),
   );
 
   /*

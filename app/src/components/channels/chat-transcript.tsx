@@ -61,13 +61,14 @@ import {
 } from "@/components/ui/message-scroller";
 import { Skeleton } from "@/components/ui/skeleton";
 import { attachmentUrl } from "@/lib/channels/attachments";
+import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
+import { readFiring } from "@/lib/channels/routine-firing";
+import { useInterfaceLocale } from "@/lib/i18n";
 import {
   conversationLanguage,
   UiLanguageProvider,
   useUiStrings,
 } from "@/lib/i18n/strings";
-import { readResponsibilityTurn } from "@/lib/channels/responsibility-turn";
-import { readFiring } from "@/lib/channels/routine-firing";
 import { markdownComponents } from "@/lib/markdown";
 import { EASE_OUT, ENTRANCE_SECONDS } from "@/lib/motion";
 import { readToolName } from "@/lib/plugins/tool-name";
@@ -1657,8 +1658,10 @@ export function ChatTranscript({
     pendingText: lastUserText,
     stopped: stopped ?? null,
   });
-  // The cards speak the person's language: the same rule the character's label follows.
-  const language = conversationLanguage(lastUserText);
+  // The cards speak the person's language: the same rule the character's label follows. Before they
+  // have said anything, the interface's language.
+  const interfaceLocale = useInterfaceLocale();
+  const language = conversationLanguage(lastUserText, interfaceLocale);
   const runningTool =
     busy && lastItem?.kind === "tool" && lastItem.result === undefined
       ? lastItem.toolCall.function.name

@@ -1,3 +1,4 @@
+import { LanguagePreference } from "@/components/settings/language-preference";
 import { MessageListPreference } from "@/components/settings/message-list-preference";
 import { useTheme } from "@/components/theme-provider";
 import {
@@ -27,7 +28,7 @@ function isThemePreference(value: unknown): value is ThemePreference {
 }
 
 /**
- * How the app looks on this browser, and how the roster reads.
+ * How the app looks on this browser, how the roster reads, and which language it speaks.
  *
  * Theme is a browser preference: it is stored in `localStorage` (`lib/theme.ts`) and never
  * synced, because the same person may well want dark on a laptop and light on a phone. The
@@ -39,6 +40,7 @@ export function AppearanceSection() {
   return (
     <SettingsSection label="Appearance">
       <SettingsCard>
+        <LanguagePreference />
         <SettingsRow
           label="Theme"
           description="Saved in this browser."

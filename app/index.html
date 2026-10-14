@@ -21,6 +21,25 @@
         document.documentElement.style.colorScheme = dark ? "dark" : "light";
       } catch {}
     </script>
+    <!-- Sets the page language before the first paint. Second on purpose: the theme test runs the first inline script. -->
+    <script>
+      // Mirrors `bootLocale` in src/lib/i18n/detect.ts, and app/tests/i18n-detect.test.ts holds the
+      // two to the same answers: a choice made in this browser, then the deployment's default, then
+      // the browser's languages, each counting only when the deployment offers it (or this browser
+      // previews every language).
+      try {
+        const offered = (window.localStorage.getItem("openbot-locales") || "").split(",");
+        const preview = window.localStorage.getItem("openbot-i18n-preview") === "1";
+        const enabled = (tag) =>
+          tag === "en" || (tag === "el" && (preview || offered.includes("el")));
+        const primary = (tag) => String(tag || "").trim().toLowerCase().split(/[-_]/)[0];
+        const candidates = [
+          window.localStorage.getItem("openbot-locale"),
+          window.localStorage.getItem("openbot-locale-default"),
+        ].concat(window.navigator.languages || [window.navigator.language]);
+        document.documentElement.lang = candidates.map(primary).find(enabled) || "en";
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

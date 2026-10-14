@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { fixedIntlLocale, numberFormat } from "@/lib/i18n/format";
 
 /** Credits and requests over one window of time. */
 export type UsageWindow = {
@@ -68,8 +69,6 @@ export function parseUsage(body: unknown): Usage | null {
   };
 }
 
-const credits = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-
 /**
  * A credit figure as a person reads it: `12,480`, never `12480.000000001`.
  *
@@ -79,7 +78,12 @@ const credits = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
  */
 export function formatCredits(value: number): string {
   if (!Number.isFinite(value)) return "0";
-  return credits.format(Math.round(value));
+  // In the interface's language: 12,480 in English, 12.480 in Greek.
+  return numberFormat(
+    { maximumFractionDigits: 0 },
+    undefined,
+    fixedIntlLocale,
+  ).format(Math.round(value));
 }
 
 /**

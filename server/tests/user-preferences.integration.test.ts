@@ -69,3 +69,18 @@ test("missing users do not appear successfully saved", async () => {
     store.patch(id, { messageListEmphasis: "agent" }),
   ).rejects.toThrow("could not be saved");
 });
+
+test("a suggested language is recorded only while the person has chosen none", async () => {
+  const id = await person();
+  expect(await store.locale(id)).toBeNull();
+  await store.seedLocale(id, "el");
+  expect(await store.locale(id)).toBe("el");
+  // A choice made in the app is never overwritten by the next suggestion.
+  await store.patch(id, { locale: "en" });
+  await store.seedLocale(id, "el");
+  expect(await store.locale(id)).toBe("en");
+  // Forgetting the choice lets a suggestion count again.
+  await store.patch(id, { locale: null });
+  await store.seedLocale(id, "el");
+  expect(await store.locale(id)).toBe("el");
+});

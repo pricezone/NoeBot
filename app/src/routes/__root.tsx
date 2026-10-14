@@ -7,10 +7,17 @@ import { useEffect } from "react";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { brand } from "@/lib/brand";
+import { startI18nBoot } from "@/lib/i18n/set-locale";
 import type { RouterContext } from "../router-context";
 import "@fontsource-variable/inter/wght.css";
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+  /*
+   * Nothing is drawn until the language this browser remembers is ready, so a Greek interface never
+   * flashes English first. Started in `main.tsx` before the router existed; for English it is
+   * already done, and for Greek it waits only for the shell's catalog. Once per page load.
+   */
+  beforeLoad: () => startI18nBoot(),
   component: RootComponent,
   /*
    * An address this build does not know goes home rather than to a dead end. Home sits behind the

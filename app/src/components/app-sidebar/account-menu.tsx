@@ -17,9 +17,12 @@ import { Separator } from "@/components/ui/separator";
 import { signOutMutationOptions } from "@/lib/auth/mutations";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
+import { i18n, msg, useTranslation } from "@/lib/i18n";
 import { clearReturnTo } from "@/lib/return-to";
 import { formatCredits, usageQueryOptions } from "@/lib/usage/queries";
 import { cn } from "@/lib/utils";
+import { rowClassName } from "./account-menu-row";
+import { LanguageRow } from "./language-row";
 
 /*
  * Typed as plain strings on purpose. The Settings sections and the Marketplace are routes another
@@ -29,9 +32,6 @@ import { cn } from "@/lib/utils";
  */
 const USAGE_PATH: string = "/settings/usage";
 const SETTINGS_PATH: string = "/settings";
-
-const rowClassName =
-  "flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-[15px] text-foreground outline-none hover:bg-muted focus-visible:bg-muted data-popup-open:bg-muted [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
 
 /** Initials from a name, or from the start of the address when there is no name to take them from. */
 export function initialsOf(person: {
@@ -50,12 +50,13 @@ export function initialsOf(person: {
 
 /** The signed-in person's initials in a round card-coloured button: the account menu's trigger. */
 function UserAvatar(props: React.ComponentPropsWithoutRef<"button">) {
+  const { t } = useTranslation();
   const { data: currentUser } = useQuery(currentUserQueryOptions());
   const initials = currentUser ? initialsOf(currentUser) : "";
   return (
     <button
       type="button"
-      aria-label="Account menu"
+      aria-label={t("Account menu")}
       {...props}
       className={cn(
         "flex size-9 shrink-0 items-center justify-center rounded-full bg-card text-sm font-medium text-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 aria-expanded:bg-muted",
@@ -100,21 +101,25 @@ function MenuLink({
  * tab either way, and a number that is not known is better left unsaid than drawn as zero.
  * Exported so the wording is pinned where it is decided.
  */
-export const USAGE_ROW_LABEL = "Usage & Billing";
+export const USAGE_ROW_LABEL = msg("Usage & Billing");
 
 export function usageRowValue(weekCredits: number | undefined): string | null {
-  return weekCredits === undefined
-    ? null
-    : `${formatCredits(weekCredits)} credits`;
+  if (weekCredits === undefined) return null;
+  return i18n.t("{{credits}} credits", {
+    credits: formatCredits(weekCredits),
+    count: Number.isFinite(weekCredits) ? Math.round(weekCredits) : 0,
+    defaultValue_one: "{{credits}} credit",
+  });
 }
 
 /** The usage row, mounted only on a metered deployment so an own-key one never asks the server. */
 function UsageRow({ onNavigate }: { onNavigate: () => void }) {
+  const { t } = useTranslation();
   const usage = useQuery(usageQueryOptions());
   return (
     <MenuLink to={USAGE_PATH} onNavigate={onNavigate}>
       <IconCreditCard />
-      <span className="min-w-0 flex-1 truncate">{USAGE_ROW_LABEL}</span>
+      <span className="min-w-0 flex-1 truncate">{t(USAGE_ROW_LABEL)}</span>
       {usageRowValue(usage.data?.week.credits) ? (
         <span className="shrink-0 text-muted-foreground tabular-nums">
           {usageRowValue(usage.data?.week.credits)}
@@ -128,7 +133,8 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
 /**
  * The account menu behind the sidebar's avatar.
  *
- * Grok Bot's: usage, then Settings, then the way out. Approvals and Admin are not rows here any
+ * Grok Bot's: usage, then Settings, then the interface language (only where the deployment offers
+ * more than one; see `language-row.tsx`), then the way out. Approvals and Admin are not rows here any
  * more: both are sections of Settings, where the nav names them, and a menu that repeated them
  * was two ways to the same place. The usage row is gated where the server gates it — only on a
  * deployment the platform meters — so a row that is here is a row that works.
@@ -140,6 +146,7 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
  * session that just ended, and the next sign-in must not close its first modal back into it.
  */
 export function AccountMenu() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const capabilities = useQuery(deploymentCapabilitiesQueryOptions());
@@ -162,15 +169,16 @@ export function AccountMenu() {
         align="start"
         sideOffset={8}
         className="w-72"
-        aria-label="Account"
+        aria-label={t("Account")}
       >
         {capabilities.data?.usage === true ? (
           <UsageRow onNavigate={close} />
         ) : null}
         <MenuLink to={SETTINGS_PATH} onNavigate={close}>
           <IconSettings />
-          <span className="min-w-0 flex-1 truncate">Settings</span>
+          <span className="min-w-0 flex-1 truncate">{t("Settings")}</span>
         </MenuLink>
+        <LanguageRow />
         <Separator className="my-1.5" />
         <button
           type="button"
@@ -181,7 +189,7 @@ export function AccountMenu() {
           }}
         >
           <IconLogout />
-          <span className="min-w-0 flex-1 truncate">Log out</span>
+          <span className="min-w-0 flex-1 truncate">{t("Log out")}</span>
         </button>
       </PopoverContent>
     </Popover>

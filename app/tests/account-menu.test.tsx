@@ -19,6 +19,9 @@ import {
 } from "@/components/app-sidebar/account-menu";
 import { type AuthenticatedUser, authKeys } from "@/lib/auth/queries";
 import { deploymentKeys } from "@/lib/deployment/queries";
+import { getLocale } from "@/lib/i18n";
+import { LOCALE_STORAGE_KEY } from "@/lib/i18n/detect";
+import { resetI18nForTests } from "@/lib/i18n/set-locale";
 import { readReturnTo, rememberReturnTo } from "@/lib/return-to";
 import { usageKeys } from "@/lib/usage/queries";
 
@@ -29,7 +32,7 @@ import { usageKeys } from "@/lib/usage/queries";
  */
 
 let originalFetch: typeof fetch;
-let requests: { path: string; method: string }[] = [];
+let requests: { path: string; method: string; body?: string }[] = [];
 let respond: (path: string) => Promise<Response>;
 const clients: QueryClient[] = [];
 
@@ -39,14 +42,20 @@ beforeAll(() => {
   globalThis.fetch = Object.assign(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
-      requests.push({ path, method: init?.method ?? "GET" });
+      requests.push({
+        path,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
       return respond(path);
     },
     { preconnect: originalFetch.preconnect },
   );
 });
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await resetI18nForTests();
+  window.localStorage.clear();
   for (const client of clients) client.clear();
   clients.length = 0;
   requests = [];
@@ -71,6 +80,7 @@ function draw(input: {
   usage?: boolean;
   pending?: number;
   weekCredits?: number;
+  locales?: string[];
 }) {
   respond = async (path) => {
     if (path === "/api/approvals") {
@@ -91,6 +101,15 @@ function draw(input: {
     if (path === "/api/auth/sign-out" || path.includes("sign-out")) {
       return Response.json({ ok: true });
     }
+    if (path === "/api/settings/preferences") {
+      return Response.json({
+        preferences: {
+          messageListEmphasis: "agent",
+          selfHostBannerDismissed: false,
+          locale: "el",
+        },
+      });
+    }
     throw new Error(`Unexpected request ${path}`);
   };
   const client = new QueryClient({
@@ -102,6 +121,7 @@ function draw(input: {
     generativeUi: false,
     selfHostBanner: false,
     usage: input.usage ?? false,
+    ...(input.locales ? { locales: input.locales, defaultLocale: null } : {}),
   });
   if (input.weekCredits !== undefined) {
     client.setQueryData(usageKeys.summary(), {
@@ -222,4 +242,67 @@ test("logging out forgets the remembered return location and goes to sign-in", a
   await user.click(view.getByRole("button", { name: "Log out" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/sign"));
   expect(readReturnTo("/fallback")).toBe("/fallback");
+});
+
+test("there is no Language row where the deployment offers one language", async () => {
+  const { view } = draw({});
+  await open(view);
+  expect(view.queryByRole("button", { name: /^Language/ })).toBeNull();
+});
+
+test("the Language row opens a menu of languages, each named in itself, and switching redraws the menu and saves the choice", async () => {
+  const { view } = draw({ locales: ["en", "el"] });
+  const user = await open(view);
+  const row = view.getByRole("button", { name: /^Language/ });
+  expect(row.textContent).toContain("English");
+  await user.click(row);
+
+  const choices = await view.findByRole("radiogroup", { name: "Language" });
+  const english = view.getByRole("radio", { name: "English" });
+  const greek = view.getByRole("radio", { name: "Ελληνικά" });
+  expect(choices).toBeTruthy();
+  expect(english.getAttribute("aria-checked")).toBe("true");
+  expect(english.getAttribute("lang")).toBe("en");
+  expect(greek.getAttribute("lang")).toBe("el");
+
+  await user.click(greek);
+  // The account menu stays open and speaks Greek.
+  await view.findByRole("link", { name: "Ρυθμίσεις" });
+  expect(view.getByRole("button", { name: "Αποσύνδεση" })).toBeTruthy();
+  expect(view.getByRole("button", { name: /^Γλώσσα/ }).textContent).toContain(
+    "Ελληνικά",
+  );
+  expect(getLocale()).toBe("el");
+  expect(document.documentElement.lang).toBe("el");
+  expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("el");
+  await waitFor(() =>
+    expect(
+      requests.find(
+        (request) =>
+          request.path === "/api/settings/preferences" &&
+          request.method === "PATCH",
+      )?.body,
+    ).toBe(JSON.stringify({ locale: "el" })),
+  );
+});
+
+test("the keyboard opens the languages with →, moves with ↑ ↓ without choosing, and goes back with ←", async () => {
+  const { view } = draw({ locales: ["en", "el"] });
+  const user = await open(view);
+  const row = view.getByRole("button", { name: /^Language/ });
+  row.focus();
+  await user.keyboard("{ArrowRight}");
+  const english = await view.findByRole("radio", { name: "English" });
+  await waitFor(() => expect(document.activeElement).toBe(english));
+  await user.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(
+    view.getByRole("radio", { name: "Ελληνικά" }),
+  );
+  // Moving is not choosing.
+  expect(getLocale()).toBe("en");
+  await user.keyboard("{ArrowLeft}");
+  await waitFor(() =>
+    expect(view.queryByRole("radiogroup", { name: "Language" })).toBeNull(),
+  );
+  expect(getLocale()).toBe("en");
 });

@@ -28,6 +28,7 @@ import type {
   AvatarScheme,
 } from "@/components/noe-bot/pixel-art";
 import { attachmentUrl } from "@/lib/channels/attachments";
+import { useInterfaceLocale } from "@/lib/i18n";
 import {
   conversationLanguage,
   lastPersonText,
@@ -528,7 +529,11 @@ export function ConversationView({
             },
           }
         : null;
-  const language = conversationLanguage(lastPersonText(messages));
+  const interfaceLocale = useInterfaceLocale();
+  const language = conversationLanguage(
+    lastPersonText(messages),
+    interfaceLocale,
+  );
 
   return (
     <div className="flex flex-col flex-1 min-h-0">

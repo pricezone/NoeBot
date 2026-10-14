@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useSettingsNav } from "@/components/settings/settings-nav";
 import { ModalShell } from "@/components/ui/modal-shell";
+import { ensureNamespaces } from "@/lib/i18n/set-locale";
 
 /**
  * Settings, drawn as a modal over the app shell.
@@ -14,6 +15,8 @@ import { ModalShell } from "@/components/ui/modal-shell";
  * The sections are `components/settings/settings-nav.ts`, which the sidebar's search shares.
  */
 export const Route = createFileRoute("/_authed/_app/settings")({
+  // Settings' own words arrive with it, before it draws; English has none to wait for.
+  beforeLoad: () => ensureNamespaces(["settings"]),
   component: RouteComponent,
 });
 

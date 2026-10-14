@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client, tryClient } from "@/lib/client";
+import type { Locale } from "../../../../shared/i18n/locales";
 
 /**
  * Where this person is in first-run onboarding.
@@ -20,6 +21,11 @@ export type AuthenticatedUser = {
   role: "admin" | "user";
   /** Null means this deployment does not track onboarding, which reads as nothing to finish. */
   onboarding: OnboardingStatus | null;
+  /**
+   * The interface language this person chose, as the server stores it. Null when they chose none;
+   * absent from an older server, which reads the same way.
+   */
+  locale?: Locale | null;
 };
 
 /** Whether the gate holds: there is an onboarding to do and this person has not finished it. */
