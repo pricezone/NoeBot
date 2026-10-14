@@ -3,6 +3,7 @@ import type {
   ClickyProposal,
   ClickyTriggerKind,
 } from "../../../shared/clicky";
+import { CLICKY_HELP_REASON } from "../../../shared/clicky";
 import type { ClickyActionPolicy } from "../../../shared/user-preferences";
 import { type AuditStore, PERSON_INITIATOR, recordAuditEvent } from "../audit";
 import {
@@ -39,7 +40,7 @@ import { toScreenPixels } from "./screen";
  */
 
 /** The words Clicky's own request for control carries, so its own handover does not reopen it. */
-export const CLICKY_HELP_REASON = "Clicky is doing this for you";
+export { CLICKY_HELP_REASON };
 
 export type ActionOutcome =
   /** `audit`: what was done, as found just before, for the performed row. Never the text typed. */

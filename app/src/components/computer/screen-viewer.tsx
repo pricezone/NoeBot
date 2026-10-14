@@ -9,8 +9,8 @@ import { avatarLook } from "@/components/noe-bot/pixel-art";
 import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
-import { stopClickyNow } from "@/lib/clicky/stop";
 import { useClickyCapability } from "@/lib/clicky/queries";
+import { stopClickyNow } from "@/lib/clicky/stop";
 import {
   selectClickyPresence,
   useClickySession,
@@ -18,6 +18,7 @@ import {
 import type { ControlState } from "@/lib/computers/control";
 import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
+import { CLICKY_HELP_REASON } from "../../../../shared/clicky";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
 import { LiveScreen } from "./live-screen";
@@ -305,14 +306,17 @@ export function ScreenViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onMinimize, stopClicky]);
 
+  // Every reason is the Bot's own words, except Clicky's, which is a fixed English line drawn here.
+  const handoverReason = (reason: string) =>
+    reason === CLICKY_HELP_REASON ? t("Clicky is doing this for you.") : reason;
   const status = settled
     ? null
     : control?.transitioning
       ? t("Finishing the current action…")
       : driving
-        ? `${t("You have control — click and type on the page.")}${control?.reason ? ` ${control.reason}` : ""}`
+        ? `${t("You have control — click and type on the page.")}${control?.reason ? ` ${handoverReason(control.reason)}` : ""}`
         : control?.requested
-          ? `${t("The assistant needs you.")} ${control.reason ?? ""}`.trim()
+          ? `${t("The assistant needs you.")} ${control.reason ? handoverReason(control.reason) : ""}`.trim()
           : null;
 
   return (

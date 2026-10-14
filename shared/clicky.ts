@@ -357,6 +357,13 @@ export type ClickyServerEvent =
   /** Something may have been missed: fetch the snapshot again. */
   | { type: "resync" };
 
+/**
+ * The reason Clicky's own request for control carries ("Do it for me" with nobody holding the
+ * computer). The server compares it so its own handover never reopens Clicky, and screens that show a
+ * handover's reason draw their own words for it, since every other reason is the Bot's.
+ */
+export const CLICKY_HELP_REASON = "Clicky is doing this for you";
+
 export const CLICKY_TRANSCRIPT_LIMIT = 20;
 export const CLICKY_TEXT_LIMIT = 2000;
 export const CLICKY_OVERLAY_LIMIT = 12;
