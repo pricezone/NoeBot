@@ -260,6 +260,56 @@ function insideVerbatim(node: ts.Node, source: ts.SourceFile): boolean {
 /** Text with at least one word: two letters in a row, in any script. */
 const WORDY = /\p{L}{2,}/u;
 
+/** This app's own text props, named for what they say: `openLabel`, `connectedDescription`… */
+const TEXT_PROP_SUFFIX =
+  /(?:Label|Description|Title|Text|Heading|Placeholder|Caption|Reassurance|Message|Hint|Tooltip|Summary)$/;
+
+export function isTextProp(name: string): boolean {
+  return (
+    TEXT_PROPS.has(name) ||
+    (TEXT_PROP_SUFFIX.test(name) && !name.startsWith("data-"))
+  );
+}
+
+/**
+ * The words an expression can put on the screen without a translation: a literal or a template, or
+ * one in a branch of a choice (`busy ? "Checking…" : t("Open")`, `name ?? "another Bot"`,
+ * `failed && "Not saved"`).
+ */
+function textsOf(
+  expression: ts.Expression | undefined,
+  source: ts.SourceFile,
+): string[] {
+  if (!expression) return [];
+  if (ts.isParenthesizedExpression(expression))
+    return textsOf(expression.expression, source);
+  if (ts.isConditionalExpression(expression))
+    return [
+      ...textsOf(expression.whenTrue, source),
+      ...textsOf(expression.whenFalse, source),
+    ];
+  if (ts.isBinaryExpression(expression)) {
+    const operator = expression.operatorToken.kind;
+    if (
+      operator === ts.SyntaxKind.QuestionQuestionToken ||
+      operator === ts.SyntaxKind.BarBarToken
+    )
+      return [
+        ...textsOf(expression.left, source),
+        ...textsOf(expression.right, source),
+      ];
+    if (operator === ts.SyntaxKind.AmpersandAmpersandToken)
+      return textsOf(expression.right, source);
+    return [];
+  }
+  const literal = literalText(expression);
+  if (literal !== undefined) return [literal];
+  // `{`${count} connected`}`: a sentence built in place is still words on the screen.
+  if (ts.isTemplateExpression(expression))
+    return [expression.getText(source).slice(1, -1)];
+  return [];
+}
+
 export function untranslatedIn(
   file: string,
   source: ts.SourceFile,
@@ -276,17 +326,16 @@ export function untranslatedIn(
     if (ts.isJsxText(node)) add(node, node.text, "text");
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText(source);
-      if (TEXT_PROPS.has(name)) {
+      if (isTextProp(name)) {
         const value = node.initializer;
-        const text =
-          literalText(value) ??
-          (value && ts.isJsxExpression(value)
-            ? (literalText(value.expression) ??
-              (value.expression && ts.isTemplateExpression(value.expression)
-                ? value.expression.getText(source).slice(1, -1)
-                : undefined))
-            : undefined);
-        if (text !== undefined) add(node, text, name);
+        const literal = literalText(value);
+        const texts =
+          literal !== undefined
+            ? [literal]
+            : value && ts.isJsxExpression(value)
+              ? textsOf(value.expression, source)
+              : [];
+        for (const text of texts) add(node, text, name);
       }
     }
     if (
@@ -294,13 +343,8 @@ export function untranslatedIn(
       node.parent &&
       (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))
     ) {
-      const text =
-        literalText(node.expression) ??
-        // `{`${count} connected`}`: a sentence built in place is still words on the screen.
-        (node.expression && ts.isTemplateExpression(node.expression)
-          ? node.expression.getText(source).slice(1, -1)
-          : undefined);
-      if (text !== undefined) add(node, text, "text");
+      for (const text of textsOf(node.expression, source))
+        add(node, text, "text");
     }
     ts.forEachChild(node, visit);
   };

@@ -178,7 +178,7 @@ function RouteComponent() {
                         )}
                       </RowMark>
                       <ItemContent>
-                        <ItemTitle>{row.title}</ItemTitle>
+                        <ItemTitle>{content(row.title)}</ItemTitle>
                         <ItemDescription>
                           {connected.has(row.key)
                             ? t(
@@ -236,7 +236,7 @@ function RouteComponent() {
                         ) : (
                           <Button
                             aria-label={t("Add key for {{title}}", {
-                              title: row.title,
+                              title: content(row.title),
                             })}
                             onClick={() => {
                               setNotice(null);
@@ -292,7 +292,7 @@ function RouteComponent() {
                               params={{ key: app.key }}
                               to="/settings/connected-accounts/$key"
                             >
-                              {app.title}
+                              {content(app.title)}
                             </Link>
                           </ItemTitle>
                           <ItemDescription>
@@ -333,7 +333,7 @@ function RouteComponent() {
                                   variant="destructive"
                                 >
                                   {t("Disconnect your {{title}} account", {
-                                    title: app.title,
+                                    title: content(app.title),
                                   })}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
@@ -341,7 +341,7 @@ function RouteComponent() {
                           ) : (
                             <Button
                               aria-label={t("Connect {{title}}", {
-                                title: app.title,
+                                title: content(app.title),
                               })}
                               disabled={connect.isPending}
                               onClick={() => {
@@ -376,7 +376,7 @@ function RouteComponent() {
           onConnected={() => setKeyFor(null)}
           open
           serverId={keyRow.key}
-          title={keyRow.title}
+          title={content(keyRow.title)}
           variables={keyRow.variables}
         />
       ) : null}

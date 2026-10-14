@@ -159,7 +159,7 @@ function RouteComponent() {
                           <Mark className="size-4" />
                         </RowMark>
                         <ItemContent>
-                          <ItemTitle>{server.title}</ItemTitle>
+                          <ItemTitle>{content(server.title)}</ItemTitle>
                           {/*
                            * The vendor's last failure takes the description's place when there is
                            * one. A server with no tools and no explanation reads as a server that
@@ -224,7 +224,7 @@ function RouteComponent() {
                           <Mark className="size-4" />
                         </RowMark>
                         <ItemContent>
-                          <ItemTitle>{entry.title}</ItemTitle>
+                          <ItemTitle>{content(entry.title)}</ItemTitle>
                           <ItemDescription>
                             {content(entry.summary)}
                           </ItemDescription>

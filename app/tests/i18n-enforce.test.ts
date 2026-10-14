@@ -69,13 +69,16 @@ describe("formatting follows the interface's language", () => {
 });
 
 /**
- * A label kept in a module-level map, `{ label: "Details" }`, is drawn later by `{TABS[id].label}`,
- * where neither the guard nor the type checker sees English. Such a constant says it is a key with
- * `msg("…")` and is drawn with `t(…)`; a name kept as it is (`glossary.json`'s `keep`) needs
- * neither. The gallery's components are left out: their titles and descriptions are what the model
- * reads, and their samples are data.
+ * A label kept in a map, `{ label: "Details" }`, is drawn later by `{TABS[id].label}`, where neither
+ * the guard nor the type checker sees English. That holds for a module-level constant and for a
+ * list a component builds (`sections = [{ title: "Connected", … }]`) alike. Such a label says it is
+ * a key with `msg("…")` and is drawn with `t(…)`, or is translated where it is built; a name kept as
+ * it is (`glossary.json`'s `keep`) needs neither. Calls are left out, the model-facing tool
+ * definitions among them, except the ones that only wrap a component or a value. The gallery's
+ * components are left out too: their titles and descriptions are what the model reads, and their
+ * samples are data.
  */
-test("a label kept in a module-level constant is marked as a key", () => {
+test("a label kept in a map is marked as a key", () => {
   const keep = new Set(
     (
       JSON.parse(
@@ -94,32 +97,41 @@ test("a label kept in a module-level constant is marked as a key", () => {
     "text",
   ]);
   const PROSE = /^[A-Z][a-z’']+(?:[ -][A-Za-z’'.,&()—]+)*[.…?!]?$/;
+  const WRAPPERS = new Set([
+    "memo",
+    "forwardRef",
+    "useMemo",
+    "useCallback",
+    "useState",
+  ]);
   const found: string[] = [];
   for (const file of appSourceFiles()) {
     if (file.startsWith("app/src/components/gallery/")) continue;
     const source = parse(file, readFileSync(path.join(ROOT, file), "utf8"));
-    for (const statement of source.statements) {
-      if (!ts.isVariableStatement(statement)) continue;
-      const visit = (node: ts.Node) => {
-        if (ts.isCallExpression(node)) return;
-        if (
-          ts.isPropertyAssignment(node) &&
-          ts.isIdentifier(node.name) &&
-          NAMES.has(node.name.text) &&
-          (ts.isStringLiteral(node.initializer) ||
-            ts.isNoSubstitutionTemplateLiteral(node.initializer)) &&
-          PROSE.test(node.initializer.text) &&
-          !keep.has(node.initializer.text)
-        ) {
-          const line =
-            source.getLineAndCharacterOfPosition(node.getStart(source)).line +
-            1;
-          found.push(`${file}:${line} ${node.initializer.text}`);
-        }
-        ts.forEachChild(node, visit);
-      };
-      visit(statement);
-    }
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isCallExpression(node) &&
+        !(
+          ts.isIdentifier(node.expression) && WRAPPERS.has(node.expression.text)
+        )
+      )
+        return;
+      if (
+        ts.isPropertyAssignment(node) &&
+        ts.isIdentifier(node.name) &&
+        NAMES.has(node.name.text) &&
+        (ts.isStringLiteral(node.initializer) ||
+          ts.isNoSubstitutionTemplateLiteral(node.initializer)) &&
+        PROSE.test(node.initializer.text) &&
+        !keep.has(node.initializer.text)
+      ) {
+        const line =
+          source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+        found.push(`${file}:${line} ${node.initializer.text}`);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
   }
   expect(found).toEqual([]);
 });

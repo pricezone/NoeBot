@@ -344,9 +344,9 @@ function SignInCard({
         openLabel={
           waiting
             ? continueApproval.isPending
-              ? "Checking…"
-              : "Continue"
-            : "Open"
+              ? t("Checking…")
+              : t("Continue")
+            : t("Open")
         }
         state={state}
         title={heading}

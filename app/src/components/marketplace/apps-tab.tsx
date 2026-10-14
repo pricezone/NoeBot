@@ -68,11 +68,11 @@ function markFor(app: ConnectableApp): React.ReactNode {
 }
 
 /** The row's title, with the small tag beside it for the apps that carry one. */
-function titleFor(app: ConnectableApp): React.ReactNode {
-  if (!BETA_KEYS.has(app.key)) return app.title;
+function titleFor(app: ConnectableApp, title: string): React.ReactNode {
+  if (!BETA_KEYS.has(app.key)) return title;
   return (
     <>
-      {app.title}
+      {title}
       <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         {i18n.t("Beta")}
       </span>
@@ -190,7 +190,7 @@ export function AppsTab({
       key={plugin.id}
       mark={<PluginLogo logo={plugin.logoUrl} />}
       onOpen={() => openPlugin(plugin)}
-      openLabel={`About ${plugin.name}`}
+      openLabel={t("About {{name}}", { name: plugin.name })}
       summary={plugin.description}
       title={plugin.name}
     />
@@ -212,7 +212,7 @@ export function AppsTab({
           key={app.key}
           mark={markFor(app)}
           summary={content(app.summary)}
-          title={titleFor(app)}
+          title={titleFor(app, content(app.title))}
         />
       )),
     ...installed.map(pluginRow),
@@ -227,7 +227,9 @@ export function AppsTab({
             <ConnectLink app={app} isConnected={false} />
           ) : (
             <Button
-              aria-label={t("Enable {{title}}", { title: app.title })}
+              aria-label={t("Enable {{title}}", {
+                title: content(app.title),
+              })}
               className={ACTION_CLASS}
               disabled={enable.isPending && enable.variables === app.key}
               onClick={() => {
@@ -248,7 +250,7 @@ export function AppsTab({
         key={app.key}
         mark={markFor(app)}
         summary={content(app.summary)}
-        title={titleFor(app)}
+        title={titleFor(app, content(app.title))}
       />
     ));
 
@@ -413,12 +415,14 @@ function ConnectLink({
   isConnected: boolean;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
+  const title = content(app.title);
   return (
     <Link
       aria-label={
         isConnected
-          ? t("{{title}} connected, manage", { title: app.title })
-          : t("Connect {{title}}", { title: app.title })
+          ? t("{{title}} connected, manage", { title })
+          : t("Connect {{title}}", { title })
       }
       className={cn(
         buttonVariants({
@@ -439,7 +443,7 @@ function ConnectLink({
           {t("Connected")}
         </>
       ) : (
-        "Connect"
+        t("Connect")
       )}
     </Link>
   );
@@ -451,9 +455,10 @@ function ConnectLink({
  */
 function EnabledMark({ app }: { app: ConnectableApp }) {
   const { t } = useTranslation();
+  const content = useContentText();
   return (
     <span
-      aria-label={t("{{title}} enabled", { title: app.title })}
+      aria-label={t("{{title}} enabled", { title: content(app.title) })}
       className="flex h-8 items-center gap-1 px-3 text-xs text-muted-foreground"
       role="status"
     >

@@ -1406,6 +1406,12 @@ function SetupProgressRow({ step }: { step: Progress }) {
   const { t } = useTranslation();
   const [elapsed, setElapsed] = useState(0);
   const running = step.running ?? false;
+  const downloaded =
+    step.downloadBytes == null
+      ? null
+      : t("{{size}} downloaded.", {
+          size: formatDownloadBytes(step.downloadBytes),
+        });
   useEffect(() => {
     if (!running) return;
     const started = Date.now();
@@ -1441,8 +1447,7 @@ function SetupProgressRow({ step }: { step: Progress }) {
       </span>
       <span className="detail">
         {step.detail && localizeNative(step.detail)}
-        {step.downloadBytes != null &&
-          ` ${formatDownloadBytes(step.downloadBytes)} downloaded.`}
+        {downloaded && ` ${downloaded}`}
       </span>
     </li>
   );

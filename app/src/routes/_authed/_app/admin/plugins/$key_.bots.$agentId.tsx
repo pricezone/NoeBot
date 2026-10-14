@@ -361,7 +361,12 @@ function RouteComponent() {
       {server.tools.length === 0 ? (
         <PageEmpty>
           {server.lastError ??
-            `${appTitle} lists no actions. Refresh its tools to ask again.`}
+            t(
+              "{{appTitle}} lists no actions. Refresh its tools to ask again.",
+              {
+                appTitle,
+              },
+            )}
         </PageEmpty>
       ) : (
         <>

@@ -77,8 +77,9 @@ function RouteComponent() {
     const Mark = catalogueMarkFor(account.key);
     return {
       key: account.key,
-      title: account.title,
+      title: content(account.title),
       summary: content(account.summary),
+      english: `${account.title} ${account.summary}`,
       mark: account.logo ? (
         <PluginLogo logo={account.logo} />
       ) : (
@@ -88,14 +89,17 @@ function RouteComponent() {
   });
   const query = search.trim().toLocaleLowerCase();
   const matching = accounts.filter((account) =>
-    `${account.title} ${account.summary}`.toLocaleLowerCase().includes(query),
+    `${account.title} ${account.summary} ${account.english}`
+      .toLocaleLowerCase()
+      .includes(query),
   );
   const connectedCount = accounts.filter((account) =>
     connected.has(account.key),
   ).length;
   const sections = [
     {
-      title: "Connected",
+      // i18n: a heading over the apps you have connected
+      title: t("Connected", { context: "heading" }),
       accounts: matching.filter((account) => connected.has(account.key)),
     },
     {

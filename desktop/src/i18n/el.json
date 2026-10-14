@@ -180,5 +180,6 @@
   "the key from your own Intelligence": "το κλειδί από το δικό σου Intelligence",
   "the name the endpoint knows it by": "το όνομα με το οποίο το ξέρει το endpoint",
   "{{name}} API key": "Κλειδί API για το {{name}}",
+  "{{size}} downloaded.": "Λήφθηκαν {{size}}.",
   "{{time}} elapsed": "πέρασαν {{time}}"
 }

@@ -58,9 +58,12 @@ test("the content scan reads templates, skills, Bots, the catalogue, categories 
     "Light gray",
     "In love",
     "Affection",
+    "Routines",
+    "Parallel Search (API key)",
   ])
     expect(keys.has(expected)).toBe(true);
-  // A template's name is a proper name, and a catalogue title a product's.
+  // A template's name is a proper name, and a catalogue title that is a product's name reads the
+  // same in Greek.
   expect(keys.has("Research Desk")).toBe(false);
   expect(keys.has("Google Drive")).toBe(false);
 });

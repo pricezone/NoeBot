@@ -16,7 +16,9 @@ import { type FoundKey, parse } from "./scan";
  * - the skills' titles and summaries (`examples/noebot/skills.yaml`);
  * - the stock Bots' titles (`examples/noebot/agents.yaml`, `examples/noebot/agents/*.yaml`), and the
  *   title a Bot made in one click starts with (`NEW_BOT` in `server/src/agents/first-turn.ts`);
- * - the catalogue's summaries (`server/src/plugins/catalogue.ts`); its titles are product names;
+ * - the catalogue's titles and summaries (`server/src/plugins/catalogue.ts`); a title that is a
+ *   product's name ("Google Drive", a `keep` term of `docs/i18n/glossary.json`) reads the same in
+ *   Greek and is left out;
  * - the template categories (`shared/templates.ts`), the avatar colours and faces (`shared/avatar.ts`,
  *   each face named as `faceLabel` names it) and the face picker's groups (`anim/catalog.ts`).
  *
@@ -152,12 +154,15 @@ export function scanContent(root: string): FoundKey[] {
     ...tsStrings(newBot, parse(newBot, read(newBot)), property("title")),
   );
   const catalogue = "server/src/plugins/catalogue.ts";
+  const catalogueSource = parse(catalogue, read(catalogue));
+  const productNames = new Set(
+    (JSON.parse(read("docs/i18n/glossary.json")) as { keep: string[] }).keep,
+  );
   found.push(
-    ...tsStrings(
-      catalogue,
-      parse(catalogue, read(catalogue)),
-      property("summary"),
+    ...tsStrings(catalogue, catalogueSource, property("title")).filter(
+      (title) => !productNames.has(title.key),
     ),
+    ...tsStrings(catalogue, catalogueSource, property("summary")),
   );
   const templates = "shared/templates.ts";
   found.push(

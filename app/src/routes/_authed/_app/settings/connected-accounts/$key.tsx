@@ -201,7 +201,10 @@ function RouteComponent() {
    */
   if (connections.error) {
     return (
-      <SettingsPage backButton={back} title={server?.title ?? key}>
+      <SettingsPage
+        backButton={back}
+        title={server ? content(server.title) : key}
+      >
         <p className="mt-12 text-destructive text-sm" role="alert">
           {t(
             "Whether you have connected this account could not be loaded, so nothing about it is shown here rather than something that may be wrong. Reload the page, and tell an administrator if it persists.",
@@ -247,7 +250,7 @@ function RouteComponent() {
         description={t(
           "Reached through Composio, which holds the account, so a Bot sees only what you can see.",
         )}
-        title={server.title}
+        title={content(server.title)}
       >
         {notice ? (
           <p className="text-destructive text-sm" role="alert">
@@ -265,14 +268,14 @@ function RouteComponent() {
                  and connecting again is a fresh consent. */
               connectedDescription={t(
                 "A Bot granted its tools reads your {{title}} as you. Disconnecting ends the account at Composio, not just here.",
-                { title: server.title },
+                { title: content(server.title) },
               )}
               disconnectedDescription={`${reassurance} ${t("Connecting takes you to Composio and then to the vendor to consent.")}`}
               /* What is true either way. The trip to Composio is not — an app whose key somebody
                  types never leaves this page — but which Bots can read this person's mail is the
                  whole point of the screen and holds for both kinds. */
               disconnectedReassurance={reassurance}
-              title={server.title}
+              title={content(server.title)}
             />
           </PageRows>
         </PageSection>
@@ -336,7 +339,7 @@ function RouteComponent() {
         <SettingsPage
           backButton={back}
           description={t("This is not a service you connect for yourself.")}
-          title={server.title}
+          title={content(server.title)}
         >
           <PageEmpty>
             {t(
@@ -360,7 +363,7 @@ function RouteComponent() {
               })
             : t("Reached as you, from a plugin."))
         }
-        title={server.title}
+        title={content(server.title)}
       >
         {notice ? (
           <p className="text-destructive text-sm" role="alert">
@@ -386,7 +389,7 @@ function RouteComponent() {
                     : header
                       ? t(
                           "No Bot can reach {{title}} as you until you add your key.",
-                          { title: server.title },
+                          { title: content(server.title) },
                         )
                       : t(
                           "No Bot can read this as you. Connecting takes you to the vendor to consent.",
@@ -428,7 +431,7 @@ function RouteComponent() {
                         {header
                           ? t("Remove your key")
                           : t("Disconnect your {{title}} account", {
-                              title: server.title,
+                              title: content(server.title),
                             })}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -471,7 +474,7 @@ function RouteComponent() {
             onConnected={() => setAddingKey(false)}
             open={addingKey}
             serverId={key}
-            title={server.title}
+            title={content(server.title)}
             variables={server.connectVariables ?? []}
           />
         ) : null}
@@ -490,7 +493,7 @@ function RouteComponent() {
       <SettingsPage
         backButton={back}
         description={t("This is not a service you connect for yourself.")}
-        title={entry?.title ?? key}
+        title={entry ? content(entry.title) : key}
       >
         <PageEmpty>
           {entry?.auth === "none" || entry?.auth === "builtin"
@@ -511,7 +514,7 @@ function RouteComponent() {
     <SettingsPage
       backButton={back}
       description={content(entry.summary)}
-      title={entry.title}
+      title={content(entry.title)}
     >
       {notice ? (
         <p className="text-destructive text-sm" role="alert">
@@ -587,7 +590,7 @@ function RouteComponent() {
                       variant="destructive"
                     >
                       {t("Disconnect your {{title}} account", {
-                        title: entry.title,
+                        title: content(entry.title),
                       })}
                     </DropdownMenuItem>
                   </DropdownMenuContent>

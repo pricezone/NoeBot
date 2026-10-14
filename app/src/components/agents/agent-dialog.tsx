@@ -579,12 +579,47 @@ function VisibilityItem({
 }
 
 /** "google-drive" as "Google Drive": the connector key, said the way a person would. */
+/**
+ * Our own connectors, named as the catalogue names them rather than by their ids (English keys,
+ * said with `t`). Any other server keeps its id, re-cased.
+ */
+const CONNECTOR_TITLES: Record<string, string> = {
+  routines: msg("Routines"),
+  parallel: msg("Parallel Search"),
+  "parallel-authenticated": msg("Parallel Search (API key)"),
+  "parallel-oauth": msg("Parallel Search (your account)"),
+  "google-drive": msg("Google Drive"),
+  notion: msg("Notion"),
+};
+
+/**
+ * The tools of our own connectors (the built-in Routines and the Parallel Search we ship), by the
+ * names `readToolName` gives them, so they can be said in the reader's language. A vendor's other
+ * tools keep the names the vendor gave them.
+ */
+const OWN_TOOL_LABELS: ReadonlySet<string> = new Set([
+  msg("Create routine"),
+  msg("Create trigger"),
+  msg("Delete routine"),
+  msg("Delete trigger"),
+  msg("List routines"),
+  msg("List triggers"),
+  msg("Pause trigger"),
+  msg("Resume trigger"),
+  msg("Update routine"),
+  msg("Web search"),
+  msg("Web fetch"),
+]);
+
 function connectorName(key: string): string {
-  return key
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((word) => word[0]?.toUpperCase() + word.slice(1))
-    .join(" ");
+  return (
+    CONNECTOR_TITLES[key] ??
+    key
+      .split(/[-_]/)
+      .filter(Boolean)
+      .map((word) => word[0]?.toUpperCase() + word.slice(1))
+      .join(" ")
+  );
 }
 
 /**
@@ -627,7 +662,7 @@ export function AccessSection({ agentId }: { agentId: string }) {
       label = rest ? rest[0]?.toUpperCase() + rest.slice(1) : label;
     }
     const labels = connectors.get(key) ?? [];
-    labels.push(label);
+    labels.push(OWN_TOOL_LABELS.has(label) ? t(label) : label);
     connectors.set(key, labels);
   }
   const skills = plugins.data.skills;
@@ -660,7 +695,7 @@ export function AccessSection({ agentId }: { agentId: string }) {
         {[...connectors.entries()].map(([key, labels]) => (
           <Item key={key} variant="muted">
             <ItemContent>
-              <ItemTitle>{connectorName(key)}</ItemTitle>
+              <ItemTitle>{t(connectorName(key))}</ItemTitle>
               <ItemDescription>
                 {labels.slice(0, 4).join(", ")}
                 {labels.length > 4

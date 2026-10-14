@@ -44,6 +44,7 @@ import { agentListQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
 import { storeMcpToken } from "@/lib/credentials/mutations";
 import { i18n, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import {
   addCuratedServerMutationOptions,
   connectAccountMutationOptions,
@@ -186,6 +187,7 @@ function ConnectionStateUnreadable() {
 
 function RouteComponent() {
   const { t } = useTranslation("admin");
+  const content = useContentText();
   const { key } = useParams({ from: "/_authed/_app/admin/plugins/$key" });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -325,7 +327,8 @@ function RouteComponent() {
   }));
 
   const auth = connectionKindFor(server, entry?.auth);
-  const title = entry?.title ?? server?.title ?? key;
+  const catalogueTitle = entry?.title ?? server?.title;
+  const title = catalogueTitle ? content(catalogueTitle) : key;
 
   /* Bound once because the brokered row below is told it twice — once inside the whole
      disconnected sentence and once on its own — and two copies of it would drift. */
@@ -830,8 +833,11 @@ function RouteComponent() {
                     /* Said beside the button rather than after it: disconnecting ends the account
                        at Composio, so what it undoes is not the row here but the grant on this
                        person's mailbox, and connecting again is a fresh consent. */
-                    connectedDescription={`Connected, so a Bot granted these tools uses your ${title} as you. Disconnecting ends the account at Composio, not just here.`}
-                    disconnectedDescription={`Connect your own account to try this connector. ${reassurance}`}
+                    connectedDescription={t(
+                      "Connected, so a Bot granted these tools uses your {{title}} as you. Disconnecting ends the account at Composio, not just here.",
+                      { title },
+                    )}
+                    disconnectedDescription={`${t("Connect your own account to try this connector.")} ${reassurance}`}
                     /* The half of the line above that is true whichever way this app connects.
                        An app whose key somebody types gets a different first sentence from the
                        row — pressing Connect opens a form rather than leaving for a consent

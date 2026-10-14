@@ -92,7 +92,7 @@ export function GroupChat({ channelId }: { channelId: string }) {
               }
               answeredBy={
                 message.answeredBy
-                  ? (names.get(message.answeredBy) ?? "another Bot")
+                  ? (names.get(message.answeredBy) ?? t("another Bot"))
                   : undefined
               }
               mine={message.ownerUserId === me?.id}

@@ -73,6 +73,44 @@ test("untranslated English is text and text props, never code, spaces or ignored
   ]);
 });
 
+test("English in a branch of a choice, or in the app's own text props, is found too", () => {
+  const choices = `
+export function Row({ busy, name, plugin, title, failed, kind }: Props) {
+  const { t } = useTranslation();
+  return (
+    <Card
+      openLabel={busy ? "Checking…" : t("Open")}
+      answeredBy={name ?? "another Bot"}
+      aboutLabel={\`About \${plugin.name}\`}
+      connectedDescription={\`Connected as \${title}.\`}
+      variant={busy ? "secondary" : "ghost"}
+      data-state={busy ? "busy" : "idle"}
+    >
+      {busy ? <Spinner /> : "Connect"}
+      {failed && "Not saved"}
+      {name ?? "Nobody yet"}
+      {kind === "a" ? t("Ready") : \`\${title}\`}
+    </Card>
+  );
+}
+`;
+  const parsedChoices = parse(file, choices);
+  expect(
+    untranslatedIn(file, parsedChoices).map(
+      ({ where, text }) => `${where}: ${text}`,
+    ),
+  ).toEqual([
+    "openLabel: Checking…",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a template is reported as it is written
+    "aboutLabel: About ${plugin.name}",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a template is reported as it is written
+    "connectedDescription: Connected as ${title}.",
+    "text: Connect",
+    "text: Not saved",
+    "text: Nobody yet",
+  ]);
+});
+
 test("the server's sentences: route bodies and refusals, as keys or patterns", () => {
   const server = `
     function route(c, name, kind) {

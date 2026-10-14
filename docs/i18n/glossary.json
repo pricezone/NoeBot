@@ -65,7 +65,9 @@
     "SCIM",
     "Webhook",
     "Email",
-    "Google Drive"
+    "Google Drive",
+    "Parallel Search",
+    "Drive"
   ],
   "exact": {
     "Account": "Λογαριασμός",

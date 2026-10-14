@@ -69,6 +69,7 @@ import {
   type NetworkPolicy,
 } from "@/lib/enterprise/queries";
 import { i18n, msg, useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
@@ -184,6 +185,7 @@ function EnterpriseSections({
   const { t } = useTranslation("admin");
   // A capability's words come from the server, which keeps them in English (server namespace).
   const { t: said } = useTranslation("server");
+  const content = useContentText();
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [networkScope, setNetworkScope] = useState<
     { scopeKind: "organization" | "group"; scopeId: string } | undefined
@@ -449,13 +451,13 @@ function EnterpriseSections({
                     <IconKey />
                   </ItemMedia>
                   <ItemContent>
-                    <ItemTitle>{server.title}</ItemTitle>
+                    <ItemTitle>{content(server.title)}</ItemTitle>
                     <ItemDescription>{server.url}</ItemDescription>
                   </ItemContent>
                   <ItemActions>
                     <Switch
                       aria-label={t("Approve {{title}}", {
-                        title: server.title,
+                        title: content(server.title),
                       })}
                       checked={approved}
                       disabled={saving}

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
 import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
 import { undeclaredElsewhere } from "@/lib/skills/form";
 
@@ -33,6 +34,7 @@ export function SkillTools({
   onChange: (refs: string[]) => void;
 }) {
   const { t } = useTranslation();
+  const content = useContentText();
   const plugins = useQuery(pluginsPageQueryOptions());
   const held = new Set(selected);
 
@@ -95,7 +97,9 @@ export function SkillTools({
         <div className="flex flex-col gap-3">
           {servers.map((server) => (
             <div className="flex flex-col gap-1.5" key={server.id}>
-              <p className="text-muted-foreground text-xs">{server.title}</p>
+              <p className="text-muted-foreground text-xs">
+                {content(server.title)}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {server.tools.map((tool) => {
                   const on = held.has(tool.ref);
