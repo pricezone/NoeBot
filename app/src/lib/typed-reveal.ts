@@ -60,7 +60,11 @@ export function useTypedReveal(summary: string | undefined): TypedReveal {
       setTyped(null);
     };
     frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      // A name that changes mid-reveal is drawn whole; the slice left behind would cut it short.
+      setTyped(null);
+    };
   }, [summary, reduce]);
 
   if (typed === null || !summary) return { text: summary, typing: false };

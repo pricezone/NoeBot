@@ -51,6 +51,7 @@ import {
 } from "@/lib/channels/steps";
 import {
   holdsToolCall,
+  isForwardedPlaceholder,
   liveCalls,
   screenQuestionOnce,
   unfinishedTurn,
@@ -72,6 +73,12 @@ import {
   readThreadMessages,
   type StoredThread,
 } from "@/lib/copilot/thread-messages";
+import {
+  conversationLanguage,
+  languageKeys,
+  lastPersonText,
+  noteLanguage,
+} from "@/lib/i18n/strings";
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import {
   askChannelAgent,
@@ -227,20 +234,107 @@ export function channelHistoryNotice({
   return null;
 }
 
+/** A tool call's arguments that do not parse yet: still being written. */
+const UNWRITTEN = Symbol("unwritten");
+
+function parsedArguments(args: string): unknown {
+  try {
+    return JSON.parse(args);
+  } catch {
+    return UNWRITTEN;
+  }
+}
+
+/** Whether `ahead` holds everything `behind` does, each string written at least as far. */
+function extendsJson(ahead: unknown, behind: unknown): boolean {
+  if (typeof behind === "string")
+    return typeof ahead === "string" && ahead.startsWith(behind);
+  if (Array.isArray(behind))
+    return (
+      Array.isArray(ahead) &&
+      ahead.length >= behind.length &&
+      behind.every((item, index) => extendsJson(ahead[index], item))
+    );
+  if (typeof behind === "object" && behind !== null) {
+    if (typeof ahead !== "object" || ahead === null || Array.isArray(ahead))
+      return false;
+    const fields = ahead as Record<string, unknown>;
+    return Object.entries(behind).every(
+      ([key, value]) => key in fields && extendsJson(fields[key], value),
+    );
+  }
+  return ahead === behind;
+}
+
+/** A stored call's arguments against the local ones: written further (1), the same (0), or not (-1). */
+function argumentsProgress(stored: string, local: string): -1 | 0 | 1 {
+  if (stored === local) return 0;
+  const behind = parsedArguments(local);
+  const ahead = parsedArguments(stored);
+  if (behind === UNWRITTEN)
+    return ahead !== UNWRITTEN || stored.startsWith(local) ? 1 : -1;
+  return ahead !== UNWRITTEN && extendsJson(ahead, behind) ? 1 : -1;
+}
+
 /**
- * Insert missing durable messages before their next shared ID, keeping local content and order.
+ * Whether the stored copy of a message is the local one written further, and never behind it or
+ * different from it anywhere: its text continues the local text, it has every local tool call, and
+ * each call's arguments are the local ones written further (they parse where the local ones did not,
+ * or hold everything they do). A stored result that replaces the runtime's "forwarded to client"
+ * placeholder counts too. Anything else (an older read, a copy that says something else) is not taken.
+ */
+function storedIsAhead(stored: Message, local: Message): boolean {
+  if (stored.role === "tool" && local.role === "tool")
+    return (
+      isForwardedPlaceholder(local.content) &&
+      !isForwardedPlaceholder(stored.content)
+    );
+  if (stored.role !== "assistant" || local.role !== "assistant") return false;
+  const storedText = stored.content ?? "";
+  const localText = local.content ?? "";
+  if (!storedText.startsWith(localText)) return false;
+  const storedCalls = new Map(
+    (stored.toolCalls ?? []).map((call) => [call.id, call.function.arguments]),
+  );
+  const localCalls = local.toolCalls ?? [];
+  let grew =
+    storedText.length > localText.length ||
+    storedCalls.size > localCalls.length;
+  for (const call of localCalls) {
+    const args = storedCalls.get(call.id);
+    if (args === undefined) return false;
+    const progress = argumentsProgress(args, call.function.arguments);
+    if (progress < 0) return false;
+    if (progress > 0) grew = true;
+  }
+  return grew;
+}
+
+/**
+ * Insert missing durable messages before their next shared ID, keeping local order.
  * A shorter read can still contain missing turns after unreadable rows are filtered out. Without a
  * following shared anchor, append the missing tail: the store cannot place it among local-only rows.
- * Return the original array when nothing was added so refreshes can wait for the store to catch up.
+ * Return the original array when nothing changed so refreshes can wait for the store to catch up.
+ *
+ * A message both sides hold keeps its local copy, unless `refresh` is set and the stored copy is
+ * further along (`storedIsAhead`). A read made while the Bot was still writing returns the message
+ * half written — "ΔΕΔΔ" for "ΔΕΔΔΗΕ", a question whose options were not saved yet — and keeping the
+ * local copy for an id it already had left that half on screen through every later read, until a
+ * reload. `refresh` is off while this tab runs a turn itself: its stream owns those messages, and a
+ * stored copy swapped in under it would have the next chunk appended to a different text.
  */
-function mergeStoredMessages(local: Message[], stored: Message[]): Message[] {
+function mergeStoredMessages(
+  local: Message[],
+  stored: Message[],
+  refresh: boolean,
+): Message[] {
   const localIds = new Set(local.map((message) => message.id));
-  const seenStored = new Set<string>();
+  const storedById = new Map<string, Message>();
   const before = new Map<string, Message[]>();
   let pending: Message[] = [];
   for (const message of stored) {
-    if (seenStored.has(message.id)) continue;
-    seenStored.add(message.id);
+    if (storedById.has(message.id)) continue;
+    storedById.set(message.id, message);
     if (localIds.has(message.id)) {
       if (pending.length > 0) before.set(message.id, pending);
       pending = [];
@@ -248,9 +342,21 @@ function mergeStoredMessages(local: Message[], stored: Message[]): Message[] {
       pending.push(message);
     }
   }
-  if (before.size === 0 && pending.length === 0) return local;
+  let replaced = false;
+  const current = refresh
+    ? local.map((message) => {
+        const copy = storedById.get(message.id);
+        if (!copy || !storedIsAhead(copy, message)) return message;
+        replaced = true;
+        return copy;
+      })
+    : local;
+  if (before.size === 0 && pending.length === 0 && !replaced) return local;
   return [
-    ...local.flatMap((message) => [...(before.get(message.id) ?? []), message]),
+    ...current.flatMap((message) => [
+      ...(before.get(message.id) ?? []),
+      message,
+    ]),
     ...pending,
   ];
 }
@@ -490,7 +596,11 @@ export function ChannelChat({
         if (isCurrent) {
           // The gateway snapshot can lag the store. Keep its valid local rows even when the
           // corresponding stored row is unreadable, while restoring other readable additions.
-          const messages = mergeStoredMessages(agent.messages, stored.messages);
+          const messages = mergeStoredMessages(
+            agent.messages,
+            stored.messages,
+            !agent.isRunning && turnsRef.current === 0,
+          );
           if (messages !== agent.messages) agent.setMessages(messages);
         }
         /*
@@ -534,9 +644,10 @@ export function ChannelChat({
    * Read the durable history again and merge in what this tab does not have.
    *
    * The same merge as mount places a recovered durable prefix before its shared local anchors,
-   * preserving current content and local-only messages in both the transcript and the next run. Every
-   * read shares one ordering with the mount restore: only the newest read owns the notice, and an
-   * older one still in flight stops when a newer one starts.
+   * preserving local-only messages in both the transcript and the next run, and takes the stored copy
+   * of a message an earlier read caught half written (never while this tab runs a turn). Every read
+   * shares one ordering with the mount restore: only the newest read owns the notice, and an older
+   * one still in flight stops when a newer one starts.
    *
    * A READ, NEVER A RE-JOIN. Joining the live run again would run any frontend tool still pending —
    * a Secure Form, a question — in this tab as well as the one running the turn.
@@ -582,6 +693,7 @@ export function ChannelChat({
           const messages = mergeStoredMessages(
             current.messages,
             stored.messages,
+            !current.isRunning && turnsRef.current === 0,
           );
           const changed = messages !== current.messages;
           if (changed) current.setMessages(messages);
@@ -666,6 +778,18 @@ export function ChannelChat({
   useActiveBot(runtimeAgentId);
 
   const rosterBusy = useRosterBusy(channel.id);
+  /*
+   * The person's language, noted for what is drawn beside this conversation rather than in it: the
+   * Bot panel's screen card, and this screen while it reconnects. The transcript's cards read the
+   * same rule from the same messages, so the two never disagree.
+   */
+  const language = conversationLanguage(lastPersonText(agent.messages));
+  useEffect(() => {
+    noteLanguage(
+      [languageKeys.bot(runtimeAgentId), languageKeys.channel(channel.id)],
+      language,
+    );
+  }, [runtimeAgentId, channel.id, language]);
   /*
    * What the person answered to each question the Bot asked, for the choice cards drawn from them.
    * Recomputed every render, kept as one map for as long as its contents hold: the conversation

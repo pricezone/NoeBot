@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { client } from "@/lib/client";
+import { client, httpStatusOf } from "@/lib/client";
 
 /**
  * A channel as the browser sees it.
@@ -98,6 +98,26 @@ export function channelListQueryOptions() {
   });
 }
 
+/**
+ * The wait before each retry of a channel read the server did not answer: about two minutes in all,
+ * which outlasts the server restarting for an update.
+ */
+export const CHANNEL_RECONNECT_DELAYS_MS: readonly number[] = [
+  1000, 2000, 4000, 8000, 15000, 15000, 15000, 15000, 15000, 15000, 15000,
+];
+
+/**
+ * A read that got no answer, or the gateway in front of the server saying it is not there (502, 503,
+ * 504): the server is restarting or out of reach, and the same read is worth asking again. A refusal
+ * (403, 404) or a server error is an answer, said at once.
+ */
+export function serverUnreachable(error: unknown): boolean {
+  const status = httpStatusOf(error);
+  return (
+    status === undefined || status === 502 || status === 503 || status === 504
+  );
+}
+
 export function channelQueryOptions(channelId: string) {
   return queryOptions({
     queryKey: channelKeys.detail(channelId),
@@ -106,5 +126,16 @@ export function channelQueryOptions(channelId: string) {
         fallback: "Could not load this channel",
       });
     },
+    /*
+     * Through a server restart (an automatic update) the screen used to say "Could not load this
+     * channel." for good, after one quick retry. Now an unreachable server is asked again, backing
+     * off, for about two minutes, while the screen says it is reconnecting (`ChannelLoading`).
+     */
+    retry: (failures, error) =>
+      serverUnreachable(error) && failures < CHANNEL_RECONNECT_DELAYS_MS.length,
+    retryDelay: (failures) =>
+      CHANNEL_RECONNECT_DELAYS_MS[failures] ??
+      CHANNEL_RECONNECT_DELAYS_MS.at(-1) ??
+      1000,
   });
 }

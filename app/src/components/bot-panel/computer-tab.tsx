@@ -1,6 +1,11 @@
 import { ActivityLog } from "@/components/computer/activity-log";
 import { ComputerView } from "@/components/computer/computer-view";
 import { noteComputerActivity } from "@/lib/computers/use-computer-sleep";
+import {
+  languageKeys,
+  UiLanguageProvider,
+  useNotedLanguage,
+} from "@/lib/i18n/strings";
 
 /**
  * The Bot's screen, live, with what it has been doing underneath.
@@ -20,6 +25,9 @@ import { noteComputerActivity } from "@/lib/computers/use-computer-sleep";
  * stops asking for frames and shows the Bot dozing with a Wake button. A click or a key anywhere in
  * this tab is somebody using it, and so is the viewer it opens, which is inside this tree for React
  * events even though it is portalled to the body.
+ *
+ * The card speaks the language of the conversation beside it ("Ο Bot σου χρειάζεται…" in a Greek
+ * one): the panel is drawn outside the transcript, so the conversation notes its language for it.
  */
 export function ComputerTab({
   agentId,
@@ -35,6 +43,7 @@ export function ComputerTab({
   onOpened?: () => void;
 }) {
   const used = () => noteComputerActivity(agentId);
+  const language = useNotedLanguage(languageKeys.bot(agentId));
   return (
     <section
       aria-label="Computer sidebar"
@@ -42,19 +51,21 @@ export function ComputerTab({
       onClickCapture={used}
       onKeyDownCapture={used}
     >
-      <ComputerView
-        active
-        caption={`${name}'s screen`}
-        computerId={agentId}
-        controls={false}
-        minHeight={0}
-        minWidth={0}
-        name={name}
-        onExpandedOnce={onOpened}
-        openExpanded={openExpanded}
-        paused={paused}
-        sleeps
-      />
+      <UiLanguageProvider language={language}>
+        <ComputerView
+          active
+          caption={`${name}'s screen`}
+          computerId={agentId}
+          controls={false}
+          minHeight={0}
+          minWidth={0}
+          name={name}
+          onExpandedOnce={onOpened}
+          openExpanded={openExpanded}
+          paused={paused}
+          sleeps
+        />
+      </UiLanguageProvider>
       <div>
         <h3 className="mb-2 font-medium text-sm">Activity</h3>
         <ActivityLog computerId={agentId} />
