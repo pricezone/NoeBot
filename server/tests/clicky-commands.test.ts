@@ -10,6 +10,7 @@ import {
   createClickyService,
 } from "../src/clicky/service";
 import { createInMemoryClickyStore } from "../src/clicky/store";
+import type { AuditEventInput } from "../src/audit";
 import type { AppVariables } from "../src/auth/guards";
 import type { ScreenElements } from "../src/computer/schema";
 
@@ -43,7 +44,11 @@ const preferences = async (): Promise<ClickyPreferences> => ({
 });
 
 function harness(
-  options: { actions?: ClickyActions; brain?: ClickyBrain } = {},
+  options: {
+    actions?: ClickyActions;
+    brain?: ClickyBrain;
+    audit?: (row: AuditEventInput) => Promise<void>;
+  } = {},
 ) {
   const store = createInMemoryClickyStore();
   const written: { path: string; contents: string }[] = [];
@@ -88,6 +93,7 @@ function harness(
     },
     brain,
     ...(options.actions ? { actions: options.actions } : {}),
+    ...(options.audit ? { auditStore: { insert: options.audit } } : {}),
   });
   const asActor: MiddlewareHandler<{ Variables: AppVariables }> = async (
     context,
@@ -395,5 +401,114 @@ describe("POST /:botId/clicky/guide", () => {
       );
       expect(response.status).toBe(400);
     }
+  });
+});
+
+describe("the security round", () => {
+  test("a client opens Clicky for the person only; the Bot's needs come from the server", async () => {
+    const { command } = harness();
+    for (const kind of [
+      "takeover",
+      "sign_in",
+      "secret",
+      "challenge",
+      "approval",
+    ]) {
+      const refused = await command({
+        type: "activate",
+        trigger: { kind, requestId: "r1", reason: "Pay now" },
+      });
+      expect({ kind, status: refused.status }).toEqual({ kind, status: 400 });
+    }
+    const person = await command({
+      type: "activate",
+      trigger: { kind: "person", reason: "Help me here" },
+    });
+    expect(person.status).toBe(200);
+    expect(person.body.session.trigger?.kind).toBe("person");
+  });
+
+  test("looks come five at a time, then a moment's wait", async () => {
+    let looks = 0;
+    const { command } = harness({
+      brain: {
+        think: async (input) => {
+          looks += 1;
+          return { type: "brain.reply", thinkId: input.thinkId, say: "Here." };
+        },
+      },
+    });
+    const answers: (string | undefined)[] = [];
+    for (let index = 0; index < 7; index += 1)
+      answers.push(
+        (await command({ type: "ask", text: `q${index}` })).body.rejected,
+      );
+    expect(answers.slice(0, 5)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(answers.slice(5)).toEqual(["busy", "busy"]);
+    await Bun.sleep(20);
+    expect(looks).toBeLessThanOrEqual(5);
+  });
+
+  test("an action whose approval could not be written to the trail is not done", async () => {
+    let ran = 0;
+    const { command, store } = harness({
+      actions: {
+        run: async () => {
+          ran += 1;
+          return { ok: true, audit: {} };
+        },
+      },
+      audit: async (row) => {
+        if (row.eventType === "clicky.action_approved")
+          throw new Error("the trail is down");
+      },
+    });
+    await command({ type: "set_mode", mode: "act" });
+    await command({ type: "ask", text: "Do it" });
+    await until(
+      async () =>
+        (await store.load("user-1", "bot-1"))?.state === "awaiting_permission",
+    );
+    const proposalId =
+      (await store.load("user-1", "bot-1"))?.proposal?.id ?? "";
+    await command({ type: "approve", proposalId, scope: "once" });
+    await until(
+      async () =>
+        (await store.load("user-1", "bot-1"))?.reply?.notice ===
+        "action_failed",
+    );
+    expect(ran).toBe(0);
+    expect((await store.load("user-1", "bot-1"))?.error?.detail).toContain(
+      "recorded",
+    );
+  });
+
+  test("a walkthrough the Bot installs is on the trail", async () => {
+    const rows: AuditEventInput[] = [];
+    const { app } = harness({
+      audit: async (row) => {
+        rows.push(row);
+      },
+    });
+    await app.request("http://openbot.test/api/computers/bot-1/clicky/guide", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        goal: "Check out",
+        steps: [{ say: "Press Continue.", ref: "e1" }],
+      }),
+    });
+    expect(
+      rows.find((row) => row.eventType === "clicky.guide_installed"),
+    ).toMatchObject({
+      targetId: "bot-1",
+      payload: { steps: 1, pointed: 1, missing: 0 },
+    });
   });
 });

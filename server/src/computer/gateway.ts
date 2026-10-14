@@ -76,6 +76,7 @@ import type {
   DownloadFileInput,
   ElementAtResult,
   FillInput,
+  FocusResult,
   FillResult,
   HoverInput,
   HumanInput,
@@ -233,11 +234,17 @@ export interface ComputerGateway {
    * a screenshot: it changes nothing and the Bot's own snapshot is untouched by it.
    */
   elements(botId: string): Promise<ScreenElements>;
-  /** Clicky Mode: what is under one screen point, asked of the page now. */
+  /**
+   * Clicky Mode: what is under one screen point, asked of the page now. `verifyWindow` moves the
+   * desktop's pointer there and asks which window it is over (only while a person holds control).
+   */
   elementAt(
     botId: string,
     point: { x: number; y: number },
+    options?: { verifyWindow?: boolean },
   ): Promise<ElementAtResult>;
+  /** Clicky Mode: what has the keyboard. */
+  focus(botId: string): Promise<FocusResult>;
   /** Clicky Mode: the masked picture its model is shown, no wider than `width`. */
   clickyFrame(botId: string, width: number): Promise<ClickyFrame>;
   /**
@@ -1379,8 +1386,18 @@ export function createComputerGateway(
     elements(botId: string) {
       return get<ScreenElements>(botId, "/elements");
     },
-    elementAt(botId: string, point: { x: number; y: number }) {
-      return post<ElementAtResult>(botId, "/elements/at", point);
+    elementAt(
+      botId: string,
+      point: { x: number; y: number },
+      options?: { verifyWindow?: boolean },
+    ) {
+      return post<ElementAtResult>(botId, "/elements/at", {
+        ...point,
+        ...(options?.verifyWindow ? { verifyWindow: true } : {}),
+      });
+    },
+    focus(botId: string) {
+      return get<FocusResult>(botId, "/elements/focus");
     },
     clickyFrame(botId: string, width: number) {
       return get<ClickyFrame>(

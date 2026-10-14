@@ -22,7 +22,7 @@ import {
 } from "../audit";
 import type { ComputerGateway } from "../computer/gateway";
 import type { ScreenElements } from "../computer/schema";
-import type { ClickyActions } from "./actions";
+import type { ActionOutcome, ClickyActions } from "./actions";
 import type { ClickyBrain, ClickyPreferenceView } from "./brain";
 import type { ClickyHub } from "./hub";
 import { writeNotes } from "./notes";
@@ -73,6 +73,37 @@ export const CLICKY_AUDIT_EVENT_TYPES: Record<
 };
 
 export const CLICKY_TICK_MS = 5_000;
+
+/** The commands that ask the model to look. */
+const LOOKS = new Set(["ask", "show_me", "retry"]);
+
+/**
+ * A bucket of looks per person and Bot: `burst` at once, refilled at `perMinute`. In memory: each
+ * replica counts its own, which only ever lets a little more through.
+ */
+export function createLookLimiter(
+  options: { burst?: number; perMinute?: number } = {},
+) {
+  const burst = options.burst ?? 5;
+  const perMs = (options.perMinute ?? 20) / 60_000;
+  const buckets = new Map<string, { tokens: number; at: number }>();
+  return {
+    take(key: string, now: number): boolean {
+      const bucket = buckets.get(key) ?? { tokens: burst, at: now };
+      const tokens = Math.min(burst, bucket.tokens + (now - bucket.at) * perMs);
+      if (tokens < 1) {
+        buckets.set(key, { tokens, at: now });
+        return false;
+      }
+      buckets.set(key, { tokens: tokens - 1, at: now });
+      if (buckets.size > 10_000) {
+        const oldest = buckets.keys().next().value;
+        if (oldest !== undefined) buckets.delete(oldest);
+      }
+      return true;
+    },
+  };
+}
 
 export type ClickyPreferences = ClickyPreferenceView & {
   autoActivate: boolean;
@@ -141,9 +172,12 @@ export function createClickyService(deps: {
   now?: () => number;
   newId?: () => string;
   tickMs?: number;
+  /** How many looks a person may ask for in a row, and how fast they come back. */
+  looks?: { burst?: number; perMinute?: number };
 }): ClickyService {
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? randomUUID;
+  const looks = createLookLimiter(deps.looks);
 
   /** Each session's events, one after another. */
   const queues = new Map<Key, Promise<unknown>>();
@@ -235,18 +269,42 @@ export function createClickyService(deps: {
     userId: string,
     botId: string,
     event: ClickyEvent,
-    options: { onlyIfOpen?: boolean } = {},
+    options: { onlyIfOpen?: boolean; unlimited?: boolean } = {},
     hooks: EffectHooks = {},
   ): Promise<DispatchOutcome | null> {
+    /*
+     * Every question, "show me" and retry is a model call with a picture of the screen: a few in a
+     * row are fine, a stream of them (a stuck client, a script) waits its turn with the same notice
+     * as any other "one moment".
+     */
+    if (
+      !options.unlimited &&
+      event.type === "command" &&
+      LOOKS.has(event.command.type) &&
+      !looks.take(keyOf(userId, botId), now())
+    ) {
+      const opened = await deps.store.open(userId, botId, now());
+      return { session: opened.session, changed: false, rejected: "busy" };
+    }
     const settled = await queued(keyOf(userId, botId), () =>
       settle(userId, botId, event, options.onlyIfOpen === true),
     );
     if (!settled) return null;
     const { result, preferences } = settled;
     // After the save and outside the queue. `save_notes` arrives with `changed: false`, so effects
-    // run whether or not anything changed.
+    // run whether or not anything changed. An action waits for this result's audit rows (its
+    // approval among them) to be written: nothing is done that the trail does not hold.
+    const written: Promise<void>[] = [];
     for (const effect of result.effects)
-      runEffect(userId, botId, result.session, effect, preferences, hooks);
+      runEffect(
+        userId,
+        botId,
+        result.session,
+        effect,
+        preferences,
+        hooks,
+        written,
+      );
     return {
       session: result.session,
       changed: result.changed,
@@ -261,6 +319,7 @@ export function createClickyService(deps: {
     effect: ClickyEffect,
     preferences: ClickyPreferences,
     hooks: EffectHooks,
+    written: Promise<void>[],
   ) {
     const key = keyOf(userId, botId);
     switch (effect.type) {
@@ -276,7 +335,15 @@ export function createClickyService(deps: {
         thinking.delete(key);
         return;
       case "act":
-        void act(userId, botId, session, effect.proposal, preferences);
+        void act(
+          userId,
+          botId,
+          session,
+          effect.proposal,
+          preferences,
+          effect.viaGrant === true,
+          Promise.all([...written]),
+        );
         return;
       case "abort_action":
         acting.get(key)?.abort();
@@ -285,25 +352,28 @@ export function createClickyService(deps: {
       case "save_notes":
         void saveNotes(userId, botId, session);
         return;
-      case "audit":
-        if (deps.auditStore)
-          void recordAuditEvent(deps.auditStore, {
-            eventType: CLICKY_AUDIT_EVENT_TYPES[effect.event],
-            targetType: "computer",
-            targetId: botId,
-            actorUserId: userId,
-            initiator: PERSON_INITIATOR,
-            payload: { botId, sessionId: session.id, ...effect.detail },
-          }).catch((error: unknown) =>
-            console.error(
-              JSON.stringify({
-                type: "clicky-audit-failed",
-                event: effect.event,
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            ),
-          );
+      case "audit": {
+        if (!deps.auditStore) return;
+        const row = recordAuditEvent(deps.auditStore, {
+          eventType: CLICKY_AUDIT_EVENT_TYPES[effect.event],
+          targetType: "computer",
+          targetId: botId,
+          actorUserId: userId,
+          initiator: PERSON_INITIATOR,
+          payload: { botId, sessionId: session.id, ...effect.detail },
+        });
+        written.push(row);
+        row.catch((error: unknown) =>
+          console.error(
+            JSON.stringify({
+              type: "clicky-audit-failed",
+              event: effect.event,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        );
         return;
+      }
     }
   }
 
@@ -393,15 +463,26 @@ export function createClickyService(deps: {
     session: ClickySession,
     proposal: ClickyProposal,
     preferences: ClickyPreferences,
+    viaGrant: boolean,
+    recorded: Promise<unknown>,
   ) {
     const key = keyOf(userId, botId);
     acting.get(key)?.abort();
     const controller = new AbortController();
     acting.set(key, controller);
-    let outcome: { ok: true } | { ok: false; detail: string };
+    let outcome: ActionOutcome;
     try {
       if (!deps.actions)
         throw new Error("Clicky cannot act on this deployment.");
+      // The approval's row first. If the trail cannot hold it, the action is not done.
+      const trail = await recorded.then(
+        () => true,
+        () => false,
+      );
+      if (!trail)
+        throw new Error(
+          "The action could not be recorded, so it was not done.",
+        );
       outcome = await deps.actions.run({
         userId,
         botId,
@@ -409,6 +490,7 @@ export function createClickyService(deps: {
         actionPolicy: preferences.actionPolicy,
         trigger: session.trigger?.kind ?? null,
         signal: controller.signal,
+        ...(viaGrant ? { viaGrant: true } : {}),
       });
     } catch (error) {
       outcome = {
@@ -439,7 +521,11 @@ export function createClickyService(deps: {
       userId,
       botId,
       outcome.ok
-        ? { type: "action.done", proposalId: proposal.id }
+        ? {
+            type: "action.done",
+            proposalId: proposal.id,
+            detail: outcome.audit,
+          }
         : {
             type: "action.failed",
             proposalId: proposal.id,
@@ -518,7 +604,8 @@ export function createClickyService(deps: {
         userId,
         botId,
         { type: "command", command: { type: "show_me" } },
-        {},
+        // The Bot's own walkthrough asks no model, so it costs none of the person's looks.
+        { unlimited: true },
         {
           think: (effect) => {
             answered = dispatch(userId, botId, {
@@ -532,6 +619,21 @@ export function createClickyService(deps: {
       );
       const outcome = (answered ? await answered : null) ?? asked;
       if (!outcome) throw new Error("Clicky could not open a session.");
+      if (answered && deps.auditStore)
+        await recordAuditEvent(deps.auditStore, {
+          eventType: "clicky.guide_installed",
+          targetType: "computer",
+          targetId: botId,
+          actorUserId: userId,
+          initiator: PERSON_INITIATOR,
+          payload: {
+            botId,
+            sessionId: outcome.session.id,
+            steps: input.steps.length,
+            pointed,
+            missing: missing.length,
+          },
+        }).catch(() => undefined);
       return {
         session: outcome.session,
         pointed,

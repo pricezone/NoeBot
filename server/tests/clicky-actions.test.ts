@@ -1,47 +1,46 @@
 import { describe, expect, test } from "bun:test";
-import type { ClickyAction, ClickyProposal } from "../../shared/clicky";
+import type {
+  ClickyAction,
+  ClickyProposal,
+  ClickySeen,
+} from "../../shared/clicky";
 import type { ComputerControlState } from "../../shared/computer-control";
 import type { AuditEventInput } from "../src/audit";
 import { CLICKY_HELP_REASON, createClickyActions } from "../src/clicky/actions";
 import type { ActionPolicy } from "../src/computer/policy";
 import type {
   ElementAtResult,
+  FocusResult,
   HumanInput,
   ScreenElements,
 } from "../src/computer/schema";
 import { createExpoPushTransport, mobileLinkBase } from "../src/delivery/push";
 
 /*
- * What Clicky does once the person said yes: it looks again, refuses what has become the person's to
- * do or what a deny rule forbids, takes the computer as the person when nobody holds it, and acts
- * through the person's own input path, in screen pixels on a desktop.
+ * What Clicky does once the person said yes: it takes the computer as the person first (only when
+ * nobody else holds it), then looks again, refuses what changed, what has become the person's to do
+ * or what a deny rule forbids, and acts through the person's own input path, in screen pixels on a
+ * desktop and only into the Bot's own window.
  */
 
 const desktop: ScreenElements = {
   screen: { width: 1440, height: 900 },
   mode: "desktop",
   url: "https://shop.example/cart",
-  elements: [
-    {
-      ref: "e1",
-      role: "button",
-      name: "Continue",
-      rect: { x: 100, y: 100, width: 100, height: 40 },
-      sensitive: false,
-      focused: false,
-    },
-  ],
+  elements: [],
 };
 
 function proposalOf(
   action: ClickyAction,
   risk: ClickyProposal["risk"] = "low",
+  seen?: ClickySeen,
 ): ClickyProposal {
   return {
     id: "p1",
     action,
     why: "to go on",
     risk,
+    ...(seen ? { seen } : {}),
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   };
@@ -73,6 +72,7 @@ const control = (
 function fakeGateway(options: {
   screen?: ScreenElements;
   at?: Partial<ElementAtResult>;
+  focus?: FocusResult;
   holder?: "bot" | "human";
   waiting?: boolean;
   policy?: ActionPolicy;
@@ -83,21 +83,43 @@ function fakeGateway(options: {
     calls,
     inputs,
     gateway: {
-      elements: async () => options.screen ?? desktop,
-      elementAt: async () => ({
-        role: "button",
-        name: "Continue",
-        sensitive: false,
-        inPage: true,
-        url: "https://shop.example/cart",
-        ref: "e1",
-        ...options.at,
-      }),
-      control: async () =>
-        control(
+      elements: async () => {
+        calls.push("elements");
+        return options.screen ?? desktop;
+      },
+      elementAt: async (
+        _botId: string,
+        _point: unknown,
+        probe?: { verifyWindow?: boolean },
+      ) => {
+        calls.push(`elementAt${probe?.verifyWindow ? ":verify" : ""}`);
+        return {
+          role: "button",
+          name: "Continue",
+          sensitive: false,
+          inPage: true,
+          url: "https://shop.example/cart",
+          ref: "e1",
+          ...options.at,
+        };
+      },
+      focus: async () => {
+        calls.push("focus");
+        return (
+          options.focus ?? {
+            window: "browser" as const,
+            element: { role: "textbox", name: "Search", sensitive: false },
+            url: "https://shop.example/cart",
+          }
+        );
+      },
+      control: async () => {
+        calls.push("control");
+        return control(
           options.holder ?? "bot",
           options.waiting ? "waiting" : undefined,
-        ),
+        );
+      },
       requestHelp: async (_botId: string, _actor: unknown, reason: string) => {
         calls.push(`requestHelp:${reason}`);
         return {
@@ -130,12 +152,16 @@ const run = (
   action: ClickyAction,
   extra: {
     risk?: ClickyProposal["risk"];
+    seen?: ClickySeen;
     signal?: AbortSignal;
     audits?: AuditEventInput[];
+    holder?: string | null;
+    viaGrant?: boolean;
   } = {},
 ) =>
   createClickyActions({
     gateway,
+    holderOf: () => ("holder" in extra ? extra.holder : "user-1"),
     ...(extra.audits
       ? {
           auditStore: {
@@ -148,40 +174,70 @@ const run = (
   }).run({
     userId: "user-1",
     botId: "bot-1",
-    proposal: proposalOf(action, extra.risk),
+    proposal: proposalOf(action, extra.risk, extra.seen),
     actionPolicy: "ask_each",
     trigger: null,
     signal: extra.signal ?? new AbortController().signal,
+    ...(extra.viaGrant ? { viaGrant: true } : {}),
   });
 
 const clickContinue: ClickyAction = {
   kind: "click",
   at: { x: 0.1, y: 0.1333 },
   ref: "e1",
-  label: "Continue",
+  label: "Continue (button)",
 };
 
 describe("createClickyActions", () => {
-  test("takes the computer as the person, then clicks in screen pixels on a desktop", async () => {
+  test("takes the computer as the person first, then looks, then clicks only into the Bot's window", async () => {
     const fake = fakeGateway({});
-    expect(await run(fake.gateway, clickContinue)).toEqual({ ok: true });
+    const outcome = await run(fake.gateway, clickContinue);
+    expect(outcome).toEqual({
+      ok: true,
+      audit: {
+        label: "Continue (button)",
+        modelLabel: null,
+        role: "button",
+        name: "Continue",
+        host: "shop.example",
+      },
+    });
     expect(fake.calls).toEqual([
+      "control",
       `requestHelp:${CLICKY_HELP_REASON}`,
       "take:clicky-request",
+      "elements",
+      "elementAt:verify",
     ]);
     expect(fake.inputs).toEqual([
-      { kind: "click", x: 144, y: 120, space: "screen" },
+      {
+        kind: "click",
+        x: 144,
+        y: 120,
+        space: "screen",
+        requireBrowser: true,
+      },
     ]);
   });
 
-  test("takes the Bot's own waiting request rather than opening another, and nothing when the person holds it", async () => {
+  test("takes the Bot's own waiting request rather than opening another, and nothing more when this person holds it", async () => {
     const waiting = fakeGateway({ waiting: true });
     await run(waiting.gateway, clickContinue);
-    expect(waiting.calls).toEqual(["take:bot-request"]);
+    expect(waiting.calls.slice(0, 2)).toEqual(["control", "take:bot-request"]);
     const held = fakeGateway({ holder: "human" });
     await run(held.gateway, clickContinue);
-    expect(held.calls).toEqual([]);
+    expect(held.calls).not.toContain("take:clicky-request");
     expect(held.inputs).toHaveLength(1);
+  });
+
+  test("never acts while somebody else holds the computer, or while it cannot tell who does", async () => {
+    for (const holder of ["user-2", "", undefined]) {
+      const fake = fakeGateway({ holder: "human" });
+      const outcome = await run(fake.gateway, clickContinue, { holder });
+      expect(outcome.ok).toBe(false);
+      expect(fake.inputs).toEqual([]);
+      expect(fake.calls).toEqual(["control"]);
+    }
   });
 
   test("on a page-only computer, types in page pixels after clicking the field", async () => {
@@ -199,10 +255,54 @@ describe("createClickyActions", () => {
       at: { x: 0.5, y: 0.5 },
       label: "Search",
     });
+    expect(fake.calls).toContain("elementAt");
     expect(fake.inputs).toEqual([
       { kind: "click", x: 500, y: 250 },
       { kind: "type", text: "pizza" },
     ]);
+  });
+
+  test("refuses when the page or the element changed since the person was asked", async () => {
+    const seen = {
+      url: "https://shop.example/cart",
+      role: "button",
+      name: "Continue",
+    };
+    const same = fakeGateway({});
+    expect((await run(same.gateway, clickContinue, { seen })).ok).toBe(true);
+    for (const at of [
+      { name: "Delete account" },
+      { url: "https://shop.example/checkout" },
+    ]) {
+      const audits: AuditEventInput[] = [];
+      const changed = fakeGateway({ at });
+      const outcome = await run(changed.gateway, clickContinue, {
+        seen,
+        audits,
+      });
+      expect(outcome.ok).toBe(false);
+      expect(changed.inputs).toEqual([]);
+      expect(audits[0]?.payload).toMatchObject({ reason: "changed" });
+    }
+  });
+
+  test("on a grant, only the step's own element", async () => {
+    const elsewhere = fakeGateway({ at: { ref: "e7" } });
+    expect(
+      (await run(elsewhere.gateway, clickContinue, { viaGrant: true })).ok,
+    ).toBe(false);
+    expect(elsewhere.inputs).toEqual([]);
+    const onIt = fakeGateway({});
+    expect(
+      (await run(onIt.gateway, clickContinue, { viaGrant: true })).ok,
+    ).toBe(true);
+  });
+
+  test("another window over the page makes a yes for the page no yes at all", async () => {
+    const covered = fakeGateway({ at: { window: "other" } });
+    const outcome = await run(covered.gateway, clickContinue);
+    expect(outcome.ok).toBe(false);
+    expect(covered.inputs).toEqual([]);
   });
 
   test("refuses when the field turned out to hold a secret, and records it", async () => {
@@ -216,7 +316,6 @@ describe("createClickyActions", () => {
       { audits },
     );
     expect(outcome.ok).toBe(false);
-    expect(fake.calls).toEqual([]);
     expect(fake.inputs).toEqual([]);
     expect(audits.map((row) => row.eventType)).toEqual([
       "clicky.action_blocked",
@@ -227,16 +326,13 @@ describe("createClickyActions", () => {
   test("refuses when what is there now is riskier than what the person said yes to", async () => {
     const fake = fakeGateway({ at: { name: "Submit order now" } });
     const outcome = await run(fake.gateway, clickContinue, { risk: "low" });
-    expect(outcome).toEqual({
-      ok: false,
-      detail: expect.any(String),
-    });
+    expect(outcome.ok).toBe(false);
     expect(fake.inputs).toEqual([]);
     // Said yes to a confirm: a confirm still runs.
     const confirmed = fakeGateway({ at: { name: "Send" } });
     expect(
-      await run(confirmed.gateway, clickContinue, { risk: "confirm" }),
-    ).toEqual({ ok: true });
+      (await run(confirmed.gateway, clickContinue, { risk: "confirm" })).ok,
+    ).toBe(true);
   });
 
   test("a deny rule refuses the person's action too; a dry run lets it through", async () => {
@@ -252,13 +348,11 @@ describe("createClickyActions", () => {
     const allowNothing = fakeGateway({
       policy: { mode: "enforce", deny: [], allow: [] },
     });
-    expect(await run(allowNothing.gateway, clickContinue)).toEqual({
-      ok: true,
-    });
+    expect((await run(allowNothing.gateway, clickContinue)).ok).toBe(true);
     const dryRun = fakeGateway({
       policy: { mode: "dry-run", deny: [deny], allow: [] },
     });
-    expect(await run(dryRun.gateway, clickContinue)).toEqual({ ok: true });
+    expect((await run(dryRun.gateway, clickContinue)).ok).toBe(true);
   });
 
   test("stopped before acting, nothing is sent", async () => {
@@ -271,9 +365,21 @@ describe("createClickyActions", () => {
     expect(fake.inputs).toEqual([]);
   });
 
-  test("keys and scrolls go in screen space on a desktop", async () => {
+  test("keys go to what has the keyboard, and the trail says which keys and how much was typed", async () => {
     const fake = fakeGateway({ holder: "human" });
-    await run(fake.gateway, { kind: "key", keys: "Tab", label: "Tab" });
+    const keyed = await run(fake.gateway, {
+      kind: "key",
+      keys: "Tab",
+      label: "Tab",
+    });
+    expect(keyed).toMatchObject({ ok: true, audit: { keys: "Tab" } });
+    const typed = await run(fake.gateway, {
+      kind: "type",
+      text: "pizza",
+      label: "Search",
+    });
+    expect(typed).toMatchObject({ ok: true, audit: { characters: 5 } });
+    expect(JSON.stringify(typed)).not.toContain("pizza");
     await run(fake.gateway, {
       kind: "scroll",
       at: { x: 0.5, y: 0.5 },
@@ -281,9 +387,31 @@ describe("createClickyActions", () => {
       label: "down",
     });
     expect(fake.inputs).toEqual([
-      { kind: "key", key: "Tab", space: "screen" },
-      { kind: "scroll", deltaY: 400, x: 720, y: 450, space: "screen" },
+      { kind: "key", key: "Tab", space: "screen", requireBrowser: true },
+      { kind: "type", text: "pizza", space: "screen", requireBrowser: true },
+      {
+        kind: "scroll",
+        deltaY: 400,
+        x: 720,
+        y: 450,
+        space: "screen",
+        requireBrowser: true,
+      },
     ]);
+  });
+
+  test("a key with nothing on the page holding the keyboard is not pressed on a low-risk yes", async () => {
+    const fake = fakeGateway({
+      holder: "human",
+      focus: { window: "other", element: null, url: "" },
+    });
+    const outcome = await run(fake.gateway, {
+      kind: "key",
+      keys: "Tab",
+      label: "Tab",
+    });
+    expect(outcome.ok).toBe(false);
+    expect(fake.inputs).toEqual([]);
   });
 });
 

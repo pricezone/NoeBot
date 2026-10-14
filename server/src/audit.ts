@@ -531,8 +531,9 @@ export const auditEventTypes = [
   "clicky.action_failed",
   "clicky.action_blocked",
   "clicky.stopped",
-  /* "Do it for me" switched on or off. */
+  /* "Do it for me" switched on or off, and a walkthrough a Bot installed on the person's screen. */
   "clicky.mode_changed",
+  "clicky.guide_installed",
   /* A phone linked through the HyperNoesis app, and one signed out from Settings or the phone. */
   "mobile.device_linked",
   "mobile.device_revoked",
