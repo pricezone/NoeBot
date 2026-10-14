@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useClickyAttention } from "@/lib/clicky/use-clicky-attention";
 import { useComputerControl } from "@/lib/computers/use-control";
 import { onComputerActivity } from "@/lib/copilot/computer-activity";
 
@@ -17,6 +18,10 @@ import { onComputerActivity } from "@/lib/copilot/computer-activity";
  * or an explicit close would last exactly until the Bot's next command. So this holds its own
  * "open for this session" flag, and the page ORs it with the preference. `dismiss` is the close X:
  * it drops the flag and marks the current run as dismissed.
+ *
+ * CLICKY GOES FURTHER, for somebody who lets it open by itself (`clickyAutoActivate`): when the Bot
+ * needs them on its screen (a takeover, a challenge, a secret), the screen opens full-window with
+ * Clicky awake on it, pointing at where to act. See `lib/clicky/use-clicky-attention.ts`.
  */
 export function useComputerAttention(agentId: string | undefined): {
   /** Whether attention is asked for right now; the page opens the panel while it is. */
@@ -55,6 +60,7 @@ export function useComputerAttention(agentId: string | undefined): {
     agentId ?? "",
     Boolean(agentId),
   );
+  useClickyAttention(agentId, control);
   /*
    * The store reports a failed read as a null control beside a "Reconnecting" problem. Once this
    * Bot's computer has answered, a later failed read is a reconnect rather than a missing computer,

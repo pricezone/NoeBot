@@ -6,6 +6,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { ClickyPanelRow } from "@/components/clicky/clicky-launcher";
+import { ClickyOverlay } from "@/components/clicky/clicky-overlay";
+import { ClickyStateChip } from "@/components/clicky/clicky-state-chip";
+import { useClickyCapability } from "@/lib/clicky/queries";
+import { useClickySession } from "@/lib/clicky/use-clicky-session";
+import { useClickyViewerRequest } from "@/lib/clicky/viewer-request";
 import {
   type Desktop,
   readComputerStatus,
@@ -526,6 +532,22 @@ export function ComputerView({
     });
   }, [holder, keepControl, changeControl]);
 
+  /*
+   * Clicky on the preview: its pointer and boxes over the picture and a chip saying where it is, for
+   * a screen that is live and awake. The panel's card (the one that sleeps) also carries Clicky's
+   * switch, and opens the viewer when Clicky asks for it (the Bot needing the person).
+   */
+  const clicky = useClickyCapability();
+  const clickyOn = clicky.enabled && !settled && !asleep;
+  const clickySession = useClickySession(computerId, clickyOn, "preview").data;
+  const clickyAwake = clickyOn && clickySession?.awake === true;
+  const openViewer = useCallback(() => setExpanded(true), []);
+  useClickyViewerRequest(
+    computerId,
+    sleeps && clicky.enabled && !settled,
+    openViewer,
+  );
+
   const polledScreen = showScreen ? (
     <img
       src={frameSource(drawn)}
@@ -565,6 +587,16 @@ export function ComputerView({
               aria-label={t("Open the assistant's screen full size")}
             >
               {polledScreen}
+
+              {clickyAwake && clickySession && showScreen ? (
+                <ClickyOverlay compact session={clickySession} />
+              ) : null}
+              {clickyAwake && clickySession ? (
+                <ClickyStateChip
+                  className="absolute top-2 left-2 z-20 bg-black/60 text-white backdrop-blur-sm"
+                  session={clickySession}
+                />
+              ) : null}
 
               {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
               {name || wheelHere ? (
@@ -637,6 +669,13 @@ export function ComputerView({
                 ) : null}
               </span>
             </div>
+          ) : null}
+          {sleeps && clickyOn ? (
+            <ClickyPanelRow
+              botId={computerId}
+              onOpenScreen={openViewer}
+              session={clickySession}
+            />
           ) : null}
           {!settled && control?.transitioning ? (
             <p className="px-3 py-2 text-sm">{ui.finishingBeforeHandover}</p>

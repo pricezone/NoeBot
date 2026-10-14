@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isClickyStopShortcut } from "@/lib/clicky/keyboard";
 import { readControl } from "@/lib/computers/control";
 import {
   connectScreen,
@@ -85,7 +86,9 @@ function isLocalField(target: EventTarget | null): boolean {
       target.tagName === "INPUT" ||
       target.tagName === "TEXTAREA" ||
       target.tagName === "SELECT" ||
-      target.closest('[data-slot="dialog-content"]') !== null)
+      target.closest('[data-slot="dialog-content"]') !== null ||
+      // Clicky's bar under the screen: its buttons, its box and its microphone are this page's.
+      target.closest("[data-clicky-bar]") !== null)
   );
 }
 
@@ -99,6 +102,12 @@ type Props = {
   /** Called with a human-readable reason when the stream cannot be established. */
   onProblem?: (problem: string | null) => void;
   retryKey?: number;
+  /**
+   * Clicky, while it is awake on this computer. Its Stop shortcut (Control-Option-S) and, while it
+   * is acting, Escape are caught here before anything is forwarded, so they stop Clicky rather than
+   * reaching the Bot's computer as keystrokes.
+   */
+  clicky?: { acting: boolean; onStop: () => void } | undefined;
 };
 
 type FrameMessage = {
@@ -112,8 +121,12 @@ export function LiveScreen({
   driving,
   onProblem,
   retryKey = 0,
+  clicky,
 }: Props) {
   const { t } = useTranslation();
+  /** Read at keydown time, so the listener need not be bound again whenever Clicky's state moves. */
+  const clickyRef = useRef(clicky);
+  clickyRef.current = clicky;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   /** Keydowns handled locally whose matching keyup must not leak to the remote browser. */
@@ -411,6 +424,24 @@ export function LiveScreen({
   useEffect(() => {
     if (!driving || !connected) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      /*
+       * CLICKY'S STOP COMES FIRST, before anything is forwarded: its shortcut, and Escape while it
+       * is acting. Stopped here as well as prevented, so the viewer does not also minimize and the
+       * app's own Stop shortcut does not send a second stop.
+       */
+      const companion = clickyRef.current;
+      if (
+        companion &&
+        (isClickyStopShortcut(event) ||
+          (event.key === "Escape" && companion.acting))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        // Its release must not reach the computer either (Escape's never does).
+        if (event.key !== "Escape") localKeyUps.current.add(event.code);
+        companion.onStop();
+        return;
+      }
       if (event.key === "Escape") return; // Escape still closes the view.
       if (isPasteShortcut(event) || isLocalField(event.target)) {
         localKeyUps.current.add(event.code);

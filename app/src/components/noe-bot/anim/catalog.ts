@@ -253,6 +253,7 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "step:back": "Going back…",
     "step:continue": "Continuing…",
     "step:server": "Working on the server…",
+    "step:guide": "Showing you where…",
   },
   el: {
     "action:search": "Αναζήτηση…",
@@ -312,6 +313,7 @@ export const LABELS: Record<Lang, Record<string, string>> = {
     "step:back": "Πάω πίσω…",
     "step:continue": "Συνεχίζω…",
     "step:server": "Δουλεύω στον server…",
+    "step:guide": "Σου δείχνω πού…",
   },
 };
 

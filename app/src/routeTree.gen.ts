@@ -47,6 +47,7 @@ import { Route as AuthedAppMarketplaceIndexRouteImport } from './routes/_authed/
 import { Route as AuthedAppSettingsIndexRouteImport } from './routes/_authed/_app/settings/index'
 import { Route as AuthedAppSettingsApprovalsRouteImport } from './routes/_authed/_app/settings/approvals'
 import { Route as AuthedAppSettingsBotsRouteImport } from './routes/_authed/_app/settings/bots'
+import { Route as AuthedAppSettingsClickyRouteImport } from './routes/_authed/_app/settings/clicky'
 import { Route as AuthedAppSettingsKeysRouteImport } from './routes/_authed/_app/settings/keys'
 import { Route as AuthedAppSettingsMemoryRouteImport } from './routes/_authed/_app/settings/memory'
 import { Route as AuthedAppSettingsNotificationsRouteImport } from './routes/_authed/_app/settings/notifications'
@@ -261,6 +262,11 @@ const AuthedAppSettingsBotsRoute = AuthedAppSettingsBotsRouteImport.update({
   path: '/bots',
   getParentRoute: () => AuthedAppSettingsRouteRoute,
 } as any)
+const AuthedAppSettingsClickyRoute = AuthedAppSettingsClickyRouteImport.update({
+  id: '/clicky',
+  path: '/clicky',
+  getParentRoute: () => AuthedAppSettingsRouteRoute,
+} as any)
 const AuthedAppSettingsKeysRoute = AuthedAppSettingsKeysRouteImport.update({
   id: '/keys',
   path: '/keys',
@@ -387,6 +393,7 @@ export interface FileRoutesByFullPath {
   '/group/new': typeof AuthedAppGroupNewRoute
   '/settings/approvals': typeof AuthedAppSettingsApprovalsRoute
   '/settings/bots': typeof AuthedAppSettingsBotsRoute
+  '/settings/clicky': typeof AuthedAppSettingsClickyRoute
   '/settings/keys': typeof AuthedAppSettingsKeysRoute
   '/settings/memory': typeof AuthedAppSettingsMemoryRoute
   '/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
@@ -439,6 +446,7 @@ export interface FileRoutesByTo {
   '/group/new': typeof AuthedAppGroupNewRoute
   '/settings/approvals': typeof AuthedAppSettingsApprovalsRoute
   '/settings/bots': typeof AuthedAppSettingsBotsRoute
+  '/settings/clicky': typeof AuthedAppSettingsClickyRoute
   '/settings/keys': typeof AuthedAppSettingsKeysRoute
   '/settings/memory': typeof AuthedAppSettingsMemoryRoute
   '/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
@@ -496,6 +504,7 @@ export interface FileRoutesById {
   '/_authed/_app/group/new': typeof AuthedAppGroupNewRoute
   '/_authed/_app/settings/approvals': typeof AuthedAppSettingsApprovalsRoute
   '/_authed/_app/settings/bots': typeof AuthedAppSettingsBotsRoute
+  '/_authed/_app/settings/clicky': typeof AuthedAppSettingsClickyRoute
   '/_authed/_app/settings/keys': typeof AuthedAppSettingsKeysRoute
   '/_authed/_app/settings/memory': typeof AuthedAppSettingsMemoryRoute
   '/_authed/_app/settings/notifications': typeof AuthedAppSettingsNotificationsRoute
@@ -552,6 +561,7 @@ export interface FileRouteTypes {
     | '/group/new'
     | '/settings/approvals'
     | '/settings/bots'
+    | '/settings/clicky'
     | '/settings/keys'
     | '/settings/memory'
     | '/settings/notifications'
@@ -604,6 +614,7 @@ export interface FileRouteTypes {
     | '/group/new'
     | '/settings/approvals'
     | '/settings/bots'
+    | '/settings/clicky'
     | '/settings/keys'
     | '/settings/memory'
     | '/settings/notifications'
@@ -660,6 +671,7 @@ export interface FileRouteTypes {
     | '/_authed/_app/group/new'
     | '/_authed/_app/settings/approvals'
     | '/_authed/_app/settings/bots'
+    | '/_authed/_app/settings/clicky'
     | '/_authed/_app/settings/keys'
     | '/_authed/_app/settings/memory'
     | '/_authed/_app/settings/notifications'
@@ -956,6 +968,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedAppSettingsBotsRouteImport
       parentRoute: typeof AuthedAppSettingsRouteRoute
     }
+    '/_authed/_app/settings/clicky': {
+      id: '/_authed/_app/settings/clicky'
+      path: '/clicky'
+      fullPath: '/settings/clicky'
+      preLoaderRoute: typeof AuthedAppSettingsClickyRouteImport
+      parentRoute: typeof AuthedAppSettingsRouteRoute
+    }
     '/_authed/_app/settings/keys': {
       id: '/_authed/_app/settings/keys'
       path: '/keys'
@@ -1121,6 +1140,7 @@ const AuthedAppAdminRouteRouteWithChildren =
 interface AuthedAppSettingsRouteRouteChildren {
   AuthedAppSettingsApprovalsRoute: typeof AuthedAppSettingsApprovalsRoute
   AuthedAppSettingsBotsRoute: typeof AuthedAppSettingsBotsRoute
+  AuthedAppSettingsClickyRoute: typeof AuthedAppSettingsClickyRoute
   AuthedAppSettingsKeysRoute: typeof AuthedAppSettingsKeysRoute
   AuthedAppSettingsMemoryRoute: typeof AuthedAppSettingsMemoryRoute
   AuthedAppSettingsNotificationsRoute: typeof AuthedAppSettingsNotificationsRoute
@@ -1137,6 +1157,7 @@ const AuthedAppSettingsRouteRouteChildren: AuthedAppSettingsRouteRouteChildren =
   {
     AuthedAppSettingsApprovalsRoute: AuthedAppSettingsApprovalsRoute,
     AuthedAppSettingsBotsRoute: AuthedAppSettingsBotsRoute,
+    AuthedAppSettingsClickyRoute: AuthedAppSettingsClickyRoute,
     AuthedAppSettingsKeysRoute: AuthedAppSettingsKeysRoute,
     AuthedAppSettingsMemoryRoute: AuthedAppSettingsMemoryRoute,
     AuthedAppSettingsNotificationsRoute: AuthedAppSettingsNotificationsRoute,

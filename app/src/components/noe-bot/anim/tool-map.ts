@@ -81,6 +81,14 @@ const BROWSER_STEPS: readonly { test: RegExp; look: BrowserLook }[] = [
     test: /^computer_show_screen$/,
     look: { animation: "action:present", label: "step:show-screen" },
   },
+  /*
+   * Clicky Mode: the Bot points the person at its screen. It touches nothing and waits for nobody,
+   * so it is a presentation, not a wait on the person.
+   */
+  {
+    test: /^computer_guide_person$/,
+    look: { animation: "action:present", label: "step:guide" },
+  },
   {
     test: /^computer_dialog$/,
     look: { animation: "face:curious", label: "step:dialog" },
