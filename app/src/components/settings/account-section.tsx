@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/settings-rows";
 import { signOutMutationOptions } from "@/lib/auth/mutations";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { useTranslation } from "@/lib/i18n";
 import { clearReturnTo } from "@/lib/return-to";
 
 /** The first letters of up to two names, or of the email when there is no name. */
@@ -35,6 +36,7 @@ export function initialsOf(user: {
  * into a support message — and selecting text inside a modal row is fiddly.
  */
 export function AccountSection() {
+  const { t } = useTranslation("settings");
   const { data: user } = useQuery(currentUserQueryOptions());
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -60,7 +62,7 @@ export function AccountSection() {
   };
 
   return (
-    <SettingsSection label="Account">
+    <SettingsSection label={t("Account")}>
       <SettingsCard>
         <SettingsRow
           label={
@@ -83,7 +85,7 @@ export function AccountSection() {
           }
           control={
             <Button
-              aria-label={copied ? "Email copied" : "Copy email"}
+              aria-label={copied ? t("Email copied") : t("Copy email")}
               disabled={!user}
               onClick={copyEmail}
               size="icon"
@@ -94,8 +96,8 @@ export function AccountSection() {
           }
         />
         <SettingsRow
-          label="Sign out"
-          description="Ends this session on this browser."
+          label={t("Sign out")}
+          description={t("Ends this session on this browser.")}
           control={
             <Button
               disabled={signOut.isPending}
@@ -103,7 +105,7 @@ export function AccountSection() {
               size="sm"
               variant="outline"
             >
-              Sign out
+              {t("Sign out")}
             </Button>
           }
         />

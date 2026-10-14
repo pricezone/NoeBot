@@ -16,6 +16,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
+import { useTranslation } from "@/lib/i18n";
 import {
   enableComposioAppMutationOptions,
   invalidatePlugins,
@@ -69,6 +70,7 @@ export function ComposioAppList({
   search: string;
   appearance?: ComposioAppListAppearance;
 }) {
+  const { t } = useTranslation();
   /*
    * Debounced, as on People, and for a stronger reason: every distinct term is a cache key of its
    * own and a request to the vendor, so typing a name un-debounced is a round trip per keystroke
@@ -147,7 +149,7 @@ export function ComposioAppList({
      * row to suggest that would be harmless.
      */
     const action = entry.enabled ? (
-      <span className="text-muted-foreground text-xs">Added</span>
+      <span className="text-muted-foreground text-xs">{t("Added")}</span>
     ) : (
       <Button
         className={
@@ -160,7 +162,7 @@ export function ComposioAppList({
         size="sm"
         variant={appearance === "marketplace" ? "secondary" : "outline"}
       >
-        {isAdding ? "Adding…" : "Add"}
+        {isAdding ? t("Adding…") : t("Add")}
       </Button>
     );
 
@@ -191,7 +193,7 @@ export function ComposioAppList({
             {/* The size of the decision, stated before it is made: an app is not one
                 tool, and "167 actions" is what says so. */}
             <span className="text-muted-foreground text-xs">
-              {entry.actionCount} actions
+              {t("{{actionCount}} actions", { actionCount: entry.actionCount })}
             </span>
             {action}
           </ItemActions>
@@ -218,13 +220,16 @@ export function ComposioAppList({
            * thing an operator who reached this URL needs to read; the hardcoded line stays as
            * the fallback for a failure that arrived carrying no message of its own.
            */}
-          {apps.error.message || "Composio's app directory could not be read."}
+          {apps.error.message ||
+            t("Composio's app directory could not be read.")}
         </p>
       ) : listed.length === 0 ? (
         <PageEmpty>
           {query
-            ? `Nothing in Composio's directory matches "${query}".`
-            : "Composio returned no apps."}
+            ? t('Nothing in Composio\'s directory matches "{{query}}".', {
+                query,
+              })
+            : t("Composio returned no apps.")}
         </PageEmpty>
       ) : appearance === "marketplace" ? (
         <MarketplaceGrid>{rows}</MarketplaceGrid>

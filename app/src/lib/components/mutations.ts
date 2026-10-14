@@ -1,5 +1,6 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 import { componentKeys } from "./queries";
 
 /**
@@ -11,7 +12,7 @@ import { componentKeys } from "./queries";
  */
 
 /** The sentence for every write here, for the rare case the server sends none of its own. */
-const FALLBACK = "Component operation failed";
+const FALLBACK = msg("Component operation failed");
 
 /** Server-derived fields are invalidated instead of patched by hand. */
 function invalidateComponents(queryClient: QueryClient) {

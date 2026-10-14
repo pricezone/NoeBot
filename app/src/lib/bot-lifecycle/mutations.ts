@@ -1,6 +1,7 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { channelKeys } from "@/lib/channels/queries";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 import {
   type BotLifecycle,
   type BotNotify,
@@ -11,7 +12,7 @@ import {
   type UpdateTransport,
 } from "./queries";
 
-const FALLBACK = "Bot operation failed";
+const FALLBACK = msg("Bot operation failed");
 
 /** Everything here moves badges, Activity and state together, so all of it is refetched. */
 function invalidateLifecycle(queryClient: QueryClient) {

@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { i18n, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   addMemorySource,
   availableMemorySourcesQueryOptions,
@@ -21,6 +23,7 @@ import {
   updateMemory,
 } from "@/lib/memory";
 import { queryClient } from "@/query-client";
+
 // min-w-0 and w-full, or a select as wide as its longest option pushes its grid column off the card.
 const field = "grid min-w-0 gap-1 text-sm";
 const select =
@@ -35,6 +38,7 @@ async function refresh() {
  * the `/memory` page.
  */
 export function MemorySection() {
+  const { t } = useTranslation("settings");
   const memories = useQuery(memoriesQueryOptions());
   const [content, setContent] = useState("");
   const formId = useId();
@@ -55,9 +59,9 @@ export function MemorySection() {
           remember.mutate(content);
         }}
       >
-        <h2 className="font-semibold">Remember a fact</h2>
+        <h2 className="font-semibold">{t("Remember a fact")}</h2>
         <label className={field} htmlFor={formId}>
-          Something you want your Bots to know
+          {t("Something you want your Bots to know")}
         </label>
         <Textarea
           id={formId}
@@ -65,14 +69,14 @@ export function MemorySection() {
           maxLength={6000}
           value={content}
           onChange={(event) => setContent(event.target.value)}
-          placeholder="I prefer meetings in the morning."
+          placeholder={t("I prefer meetings in the morning.")}
         />
         <Button
           type="submit"
           disabled={remember.isPending || !content.trim()}
           className="justify-self-start"
         >
-          Remember
+          {t("Remember")}
         </Button>
         {remember.error && (
           <p role="alert" className="text-destructive">
@@ -83,9 +87,9 @@ export function MemorySection() {
       <ProactiveResearchSettings />
       <Sources />
       <section className="grid gap-3">
-        <h2 className="font-semibold">Your memories</h2>
+        <h2 className="font-semibold">{t("Your memories")}</h2>
         {memories.isPending ? (
-          <p>Loading memories…</p>
+          <p>{t("Loading memories…")}</p>
         ) : memories.error ? (
           <p role="alert" className="text-destructive">
             {memories.error.message}
@@ -95,13 +99,16 @@ export function MemorySection() {
             <MemoryCard key={memory.id} memory={memory} />
           ))
         ) : (
-          <p className="text-muted-foreground">You have no memories yet.</p>
+          <p className="text-muted-foreground">
+            {t("You have no memories yet.")}
+          </p>
         )}
       </section>
     </div>
   );
 }
 function MemoryCard({ memory }: { memory: MemoryRecord }) {
+  const { t } = useTranslation("settings");
   const [content, setContent] = useState(memory.content);
   const id = useId();
   const save = useMutation({
@@ -124,19 +131,21 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
         </label>
         <span className="text-xs text-muted-foreground">
           {!memory.enabled
-            ? "Disabled"
+            ? t("Disabled")
             : memory.reviewState === "unreviewed"
               ? memory.formedBy === "bot"
-                ? "Formed by your Bot · awaiting review"
-                : "Imported · awaiting review"
-              : "Reviewed"}
+                ? t("Formed by your Bot · awaiting review")
+                : t("Imported · awaiting review")
+              : t("Reviewed")}
         </span>
       </div>
       {memory.formedBy === "bot" && (
         <p className="text-xs text-muted-foreground">
-          From {memory.sourceApp ?? "a conversation"}
+          {t("From")} {memory.sourceApp ?? t("a conversation")}
           {memory.observedAt
-            ? `, read ${new Date(memory.observedAt).toLocaleString()}`
+            ? t(", read {{value}}", {
+                value: new Date(memory.observedAt).toLocaleString(intlLocale()),
+              })
             : ""}
           {memory.sourceLink && (
             <>
@@ -147,7 +156,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
                 target="_blank"
                 rel="noreferrer"
               >
-                Open record
+                {t("Open record")}
               </a>
             </>
           )}
@@ -165,7 +174,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
           disabled={save.isPending || !content.trim()}
           onClick={() => save.mutate({ content })}
         >
-          Save
+          {t("Save")}
         </Button>
         {memory.reviewState === "unreviewed" && (
           <Button
@@ -173,7 +182,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
             variant="outline"
             onClick={() => save.mutate({ reviewState: "confirmed" })}
           >
-            Confirm
+            {t("Confirm")}
           </Button>
         )}
         <Button
@@ -181,7 +190,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
           variant="outline"
           onClick={() => save.mutate({ enabled: !memory.enabled })}
         >
-          {memory.enabled ? "Disable" : "Enable"}
+          {memory.enabled ? t("Disable") : t("Enable")}
         </Button>
         <Button
           size="sm"
@@ -189,7 +198,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
           disabled={forget.isPending}
           onClick={() => forget.mutate()}
         >
-          Forget
+          {t("Forget")}
         </Button>
       </div>
       {(save.error || forget.error) && (
@@ -201,6 +210,7 @@ function MemoryCard({ memory }: { memory: MemoryRecord }) {
   );
 }
 function Sources() {
+  const { t } = useTranslation("settings");
   const sources = useQuery(memorySourcesQueryOptions());
   const bots = useQuery(agentListQueryOptions());
   const [agentId, setAgentId] = useState("");
@@ -252,11 +262,11 @@ function Sources() {
   });
   return (
     <section className="grid gap-3">
-      <h2 className="font-semibold">Connected app sources</h2>
+      <h2 className="font-semibold">{t("Connected app sources")}</h2>
       <p className="text-sm text-muted-foreground">
-        Opt in to a read from an app your Bot can already access. Enabled
-        sources refresh every 15 minutes. Their facts are available to the
-        selected Bot.
+        {t(
+          "Opt in to a read from an app your Bot can already access. Enabled sources refresh every 15 minutes. Their facts are available to the selected Bot.",
+        )}
       </p>
       <form
         className="grid gap-3 rounded-lg border p-4"
@@ -273,7 +283,11 @@ function Sources() {
               ) {
                 const number = Number(value);
                 if (!Number.isFinite(number))
-                  throw new Error(`Enter a number for ${setting.name}.`);
+                  throw new Error(
+                    i18n.t("Enter a number for {{name}}.", {
+                      name: setting.name,
+                    }),
+                  );
                 values[setting.name] = number;
               } else if (setting.schema.type === "boolean")
                 values[setting.name] = value === "true";
@@ -284,7 +298,7 @@ function Sources() {
                   .filter(Boolean);
               else if (setting.schema.type === "object")
                 throw new Error(
-                  "Choose an action with simple search settings.",
+                  i18n.t("Choose an action with simple search settings."),
                 );
               else values[setting.name] = value;
             }
@@ -299,14 +313,14 @@ function Sources() {
             setError(
               cause instanceof Error
                 ? cause.message
-                : "Check the source settings.",
+                : t("Check the source settings."),
             );
           }
         }}
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={field}>
-            Bot
+            {t("Bot")}
             <select
               required
               className={select}
@@ -316,7 +330,7 @@ function Sources() {
                 setToolRef("");
               }}
             >
-              <option value="">Choose a Bot</option>
+              <option value="">{t("Choose a Bot")}</option>
               {bots.data?.map((bot) => (
                 <option key={bot.id} value={bot.id}>
                   {bot.name}
@@ -325,7 +339,7 @@ function Sources() {
             </select>
           </label>
           <label className={field}>
-            Connected app action
+            {t("Connected app action")}
             <select
               required
               className={select}
@@ -335,7 +349,7 @@ function Sources() {
                 setArgs({});
               }}
             >
-              <option value="">Choose a read action</option>
+              <option value="">{t("Choose a read action")}</option>
               {tools.data?.map((tool) => (
                 <option key={tool.ref} value={tool.ref}>
                   {tool.title}
@@ -348,14 +362,14 @@ function Sources() {
           <p className="text-sm text-muted-foreground">{chosen.description}</p>
         )}
         <label className={field} htmlFor={`${id}-name`}>
-          Source name
+          {t("Source name")}
           <Input
             id={`${id}-name`}
             required
             maxLength={160}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="My project documents"
+            placeholder={t("My project documents")}
           />
         </label>
         {settings.map(({ name, schema }) => (
@@ -372,7 +386,7 @@ function Sources() {
                   setArgs({ ...args, [name]: event.target.value })
                 }
               >
-                <option value="">Choose a value</option>
+                <option value="">{t("Choose a value")}</option>
                 {(schema.enum ?? ["true", "false"]).map((value) => (
                   <option key={String(value)} value={String(value)}>
                     {String(value)}
@@ -406,7 +420,7 @@ function Sources() {
           className="justify-self-start"
           disabled={add.isPending || !toolRef}
         >
-          {add.isPending ? "Reading source…" : "Add and sync source"}
+          {add.isPending ? t("Reading source…") : t("Add and sync source")}
         </Button>
         {(error || add.error || tools.error) && (
           <p role="alert" className="text-destructive">
@@ -426,14 +440,16 @@ function Sources() {
             <span className="text-sm text-muted-foreground">
               {source.enabled
                 ? source.syncStatus === "succeeded"
-                  ? "Up to date"
+                  ? t("Up to date")
                   : source.syncStatus
-                : "Disabled"}
+                : t("Disabled")}
             </span>
           </div>
           {source.lastSyncAt && (
             <p className="text-xs text-muted-foreground">
-              Last read {new Date(source.lastSyncAt).toLocaleString()}
+              {t("Last read {{value}}", {
+                value: new Date(source.lastSyncAt).toLocaleString(intlLocale()),
+              })}
             </p>
           )}
           {source.syncError && (
@@ -450,7 +466,7 @@ function Sources() {
                 action.mutate({ sourceId: source.id, name: "sync" })
               }
             >
-              Sync now
+              {t("Sync now")}
             </Button>
             <Button
               size="sm"
@@ -462,7 +478,7 @@ function Sources() {
                 })
               }
             >
-              {source.enabled ? "Disable" : "Enable"}
+              {source.enabled ? t("Disable") : t("Enable")}
             </Button>
             <Button
               size="sm"
@@ -471,7 +487,7 @@ function Sources() {
                 action.mutate({ sourceId: source.id, name: "remove" })
               }
             >
-              Remove
+              {t("Remove")}
             </Button>
           </div>
         </article>

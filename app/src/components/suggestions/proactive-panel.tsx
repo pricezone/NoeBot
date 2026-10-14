@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { conversationLabel } from "@/lib/channels/label";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { msg, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   createProactiveSetting,
   type ProactiveSetting,
@@ -21,10 +23,10 @@ import { queryClient } from "@/query-client";
 const field = "grid gap-1 text-sm";
 const select = "h-9 rounded-md border bg-background px-3 text-sm";
 const intervals = [
-  { minutes: 60, label: "Every hour" },
-  { minutes: 240, label: "Every 4 hours" },
-  { minutes: 720, label: "Twice a day" },
-  { minutes: 1440, label: "Once a day" },
+  { minutes: 60, label: msg("Every hour") },
+  { minutes: 240, label: msg("Every 4 hours") },
+  { minutes: 720, label: msg("Twice a day") },
+  { minutes: 1440, label: msg("Once a day") },
 ];
 async function refresh() {
   await Promise.all([
@@ -35,6 +37,7 @@ async function refresh() {
 
 /** Next steps a Bot proposed from background research: start one as a task, or dismiss it. */
 export function SuggestionsInbox() {
+  const { t } = useTranslation();
   const suggestions = useQuery(proactiveSuggestionsQueryOptions());
   const bots = useQuery(agentListQueryOptions());
   const act = useMutation({
@@ -43,12 +46,12 @@ export function SuggestionsInbox() {
     onSuccess: refresh,
   });
   const botName = (id: string) =>
-    bots.data?.find((bot) => bot.id === id)?.name ?? "Your Bot";
+    bots.data?.find((bot) => bot.id === id)?.name ?? t("Your Bot");
   return (
     <section className="grid gap-3">
-      <h2 className="font-semibold">Suggested next steps</h2>
+      <h2 className="font-semibold">{t("Suggested next steps")}</h2>
       {suggestions.isPending ? (
-        <p>Loading suggestions…</p>
+        <p>{t("Loading suggestions…")}</p>
       ) : suggestions.error ? (
         <p role="alert" className="text-destructive">
           {suggestions.error.message}
@@ -63,13 +66,13 @@ export function SuggestionsInbox() {
               <strong>{suggestion.title}</strong>
               <span className="text-xs text-muted-foreground">
                 {botName(suggestion.agentId)} ·{" "}
-                {new Date(suggestion.createdAt).toLocaleString()}
+                {new Date(suggestion.createdAt).toLocaleString(intlLocale())}
               </span>
             </div>
             <p className="text-sm whitespace-pre-wrap">{suggestion.detail}</p>
             {(suggestion.sourceApp || suggestion.sourceLink) && (
               <p className="text-xs text-muted-foreground">
-                From {suggestion.sourceApp ?? "a connected app"}
+                {t("From")} {suggestion.sourceApp ?? t("a connected app")}
                 {suggestion.sourceLink && (
                   <>
                     {" · "}
@@ -79,7 +82,7 @@ export function SuggestionsInbox() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Open record
+                      {t("Open record")}
                     </a>
                   </>
                 )}
@@ -93,7 +96,7 @@ export function SuggestionsInbox() {
                   act.mutate({ id: suggestion.id, action: "start" })
                 }
               >
-                Start as task
+                {t("Start as task")}
               </Button>
               <Button
                 size="sm"
@@ -103,15 +106,16 @@ export function SuggestionsInbox() {
                   act.mutate({ id: suggestion.id, action: "dismiss" })
                 }
               >
-                Dismiss
+                {t("Dismiss")}
               </Button>
             </div>
           </article>
         ))
       ) : (
         <p className="text-muted-foreground">
-          No suggestions right now. Bots with background research on will
-          suggest next steps here.
+          {t(
+            "No suggestions right now. Bots with background research on will suggest next steps here.",
+          )}
         </p>
       )}
       {act.error && (
@@ -125,6 +129,7 @@ export function SuggestionsInbox() {
 
 /** Opt a Bot in to read-only background research of the apps it can already read. */
 export function ProactiveResearchSettings() {
+  const { t } = useTranslation();
   const settings = useQuery(proactiveSettingsQueryOptions());
   const bots = useQuery(agentListQueryOptions());
   const channels = useInfiniteQuery(channelListQueryOptions());
@@ -145,12 +150,11 @@ export function ProactiveResearchSettings() {
   });
   return (
     <section className="grid gap-3">
-      <h2 className="font-semibold">Background research</h2>
+      <h2 className="font-semibold">{t("Background research")}</h2>
       <p className="text-sm text-muted-foreground">
-        A Bot you opt in looks through the apps it can already read, forms
-        memories for you to review and suggests next steps. It can only read: it
-        cannot send messages, change anything in an app, or use a browser or
-        computer.
+        {t(
+          "A Bot you opt in looks through the apps it can already read, forms memories for you to review and suggests next steps. It can only read: it cannot send messages, change anything in an app, or use a browser or computer.",
+        )}
       </p>
       <form
         className="grid gap-3 rounded-lg border p-4"
@@ -161,7 +165,7 @@ export function ProactiveResearchSettings() {
       >
         <div className="grid gap-3 sm:grid-cols-3">
           <label className={field}>
-            Bot
+            {t("Bot")}
             <select
               required
               className={select}
@@ -171,7 +175,7 @@ export function ProactiveResearchSettings() {
                 setChannelId("");
               }}
             >
-              <option value="">Choose a Bot</option>
+              <option value="">{t("Choose a Bot")}</option>
               {bots.data?.map((bot) => (
                 <option key={bot.id} value={bot.id}>
                   {bot.name}
@@ -180,14 +184,14 @@ export function ProactiveResearchSettings() {
             </select>
           </label>
           <label className={field}>
-            Deliver suggestions to
+            {t("Deliver suggestions to")}
             <select
               required
               className={select}
               value={channelId}
               onChange={(event) => setChannelId(event.target.value)}
             >
-              <option value="">Choose a channel</option>
+              <option value="">{t("Choose a channel")}</option>
               {eligibleChannels.map((channel) => (
                 <option key={channel.id} value={channel.id}>
                   {conversationLabel(channel)}
@@ -196,7 +200,7 @@ export function ProactiveResearchSettings() {
             </select>
           </label>
           <label className={field}>
-            How often
+            {t("How often")}
             <select
               className={select}
               value={intervalMinutes}
@@ -206,20 +210,22 @@ export function ProactiveResearchSettings() {
             >
               {intervals.map((interval) => (
                 <option key={interval.minutes} value={interval.minutes}>
-                  {interval.label}
+                  {t(interval.label)}
                 </option>
               ))}
             </select>
           </label>
         </div>
         <label className={field} htmlFor={`${id}-focus`}>
-          What to look for (optional)
+          {t("What to look for (optional)")}
           <Input
             id={`${id}-focus`}
             maxLength={1000}
             value={focus}
             onChange={(event) => setFocus(event.target.value)}
-            placeholder="Open issues assigned to me and questions waiting on me"
+            placeholder={t(
+              "Open issues assigned to me and questions waiting on me",
+            )}
           />
         </label>
         <Button
@@ -227,7 +233,7 @@ export function ProactiveResearchSettings() {
           className="justify-self-start"
           disabled={add.isPending || !agentId || !channelId}
         >
-          Turn on background research
+          {t("Turn on background research")}
         </Button>
         {add.error && (
           <p role="alert" className="text-destructive">
@@ -261,6 +267,7 @@ function SettingRow({
   setting: ProactiveSetting;
   botName: string;
 }) {
+  const { t } = useTranslation();
   const change = useMutation({
     mutationFn: (
       action:
@@ -287,16 +294,22 @@ function SettingRow({
         <strong>{botName}</strong>
         <span className="text-sm text-muted-foreground">
           {!setting.enabled
-            ? "Off"
+            ? t("Off")
             : setting.lastStatus === "running"
-              ? "Researching now"
-              : `Next ${new Date(setting.nextRunAt).toLocaleString()}`}
+              ? t("Researching now")
+              : t("Next {{value}}", {
+                  value: new Date(setting.nextRunAt).toLocaleString(
+                    intlLocale(),
+                  ),
+                })}
         </span>
       </div>
       {setting.focus && <p className="text-sm">{setting.focus}</p>}
       {setting.lastRunAt && (
         <p className="text-xs text-muted-foreground">
-          Last ran {new Date(setting.lastRunAt).toLocaleString()}
+          {t("Last ran {{value}}", {
+            value: new Date(setting.lastRunAt).toLocaleString(intlLocale()),
+          })}
           {setting.lastStatus === "succeeded" ? "" : ` (${setting.lastStatus})`}
         </p>
       )}
@@ -307,7 +320,7 @@ function SettingRow({
       )}
       <div className="flex flex-wrap items-center gap-2">
         <select
-          aria-label="How often"
+          aria-label={t("How often")}
           className={select}
           value={setting.intervalMinutes}
           onChange={(event) =>
@@ -319,7 +332,7 @@ function SettingRow({
         >
           {intervals.map((interval) => (
             <option key={interval.minutes} value={interval.minutes}>
-              {interval.label}
+              {t(interval.label)}
             </option>
           ))}
         </select>
@@ -329,7 +342,7 @@ function SettingRow({
           disabled={!setting.enabled || change.isPending}
           onClick={() => change.mutate({ kind: "run" })}
         >
-          Run now
+          {t("Run now")}
         </Button>
         <Button
           size="sm"
@@ -337,7 +350,7 @@ function SettingRow({
           disabled={change.isPending}
           onClick={() => change.mutate({ kind: "toggle" })}
         >
-          {setting.enabled ? "Turn off" : "Turn on"}
+          {setting.enabled ? t("Turn off") : t("Turn on")}
         </Button>
         <Button
           size="sm"
@@ -345,7 +358,7 @@ function SettingRow({
           disabled={change.isPending}
           onClick={() => change.mutate({ kind: "remove" })}
         >
-          Remove
+          {t("Remove")}
         </Button>
       </div>
       {change.error && (

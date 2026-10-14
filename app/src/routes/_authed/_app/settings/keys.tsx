@@ -50,6 +50,7 @@ import {
   revokeCredentialMutationOptions,
 } from "@/lib/credentials/mutations";
 import { credentialListQueryOptions } from "@/lib/credentials/queries";
+import { useTranslation } from "@/lib/i18n";
 import { modelKeyKeys, modelKeyQueryOptions } from "@/lib/model-key/queries";
 import {
   connectAccountMutationOptions,
@@ -80,6 +81,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 };
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const me = useQuery(currentUserQueryOptions());
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -98,7 +100,9 @@ function RouteComponent() {
     onSuccess: (authorizationUrl) => {
       if (authorizationUrl === null) {
         setNotice(
-          "This deployment answered without a consent link, so there was nowhere to send you and nothing was connected. Try again, and tell an administrator if it persists.",
+          t(
+            "This deployment answered without a consent link, so there was nowhere to send you and nothing was connected. Try again, and tell an administrator if it persists.",
+          ),
         );
         return;
       }
@@ -117,8 +121,10 @@ function RouteComponent() {
   return (
     <SettingsPage
       className="max-w-4xl"
-      description="The model your Bots run on, the keys you have added, and the accounts you have connected."
-      title="Keys"
+      description={t(
+        "The model your Bots run on, the keys you have added, and the accounts you have connected.",
+      )}
+      title={t("Keys")}
     >
       {notice ? (
         <p className="text-destructive text-sm" role="alert">
@@ -136,20 +142,23 @@ function RouteComponent() {
       {plugins.isPending || connections.isPending ? null : plugins.error ||
         connections.error ? (
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Your keys and accounts could not be loaded, so nothing is listed here
-          rather than a list that may be wrong. Reload the page, and tell an
-          administrator if it persists.
+          {t(
+            "Your keys and accounts could not be loaded, so nothing is listed here rather than a list that may be wrong. Reload the page, and tell an administrator if it persists.",
+          )}
         </p>
       ) : (
         <>
           <PageSection
-            description="Keys you paste for a connector. Every Bot uses a connector with your key; nobody else's calls carry it."
-            title="Your API keys"
+            description={t(
+              "Keys you paste for a connector. Every Bot uses a connector with your key; nobody else's calls carry it.",
+            )}
+            title={t("Your API keys")}
           >
             {keys.length === 0 ? (
               <PageEmpty>
-                No connector takes a key yet. Add one from the Marketplace — a
-                plugin whose connector wants a token lists it here.
+                {t(
+                  "No connector takes a key yet. Add one from the Marketplace — a plugin whose connector wants a token lists it here.",
+                )}
               </PageEmpty>
             ) : (
               <PageRows>
@@ -170,7 +179,9 @@ function RouteComponent() {
                         <ItemTitle>{row.title}</ItemTitle>
                         <ItemDescription>
                           {connected.has(row.key)
-                            ? "Key added. Every Bot can use this with your key."
+                            ? t(
+                                "Key added. Every Bot can use this with your key.",
+                              )
                             : row.summary}
                         </ItemDescription>
                       </ItemContent>
@@ -181,7 +192,7 @@ function RouteComponent() {
                             params={{ key: row.key }}
                             to="/settings/connected-accounts/$key"
                           >
-                            Manage
+                            {t("Manage")}
                           </Link>
                         ) : connected.has(row.key) ? (
                           <DropdownMenu>
@@ -196,7 +207,7 @@ function RouteComponent() {
                                     aria-hidden="true"
                                     className="size-1.5 rounded-full bg-emerald-500"
                                   />
-                                  Key added
+                                  {t("Key added")}
                                   <IconChevronDown />
                                 </Button>
                               }
@@ -206,7 +217,7 @@ function RouteComponent() {
                                 className="whitespace-nowrap"
                                 onClick={() => setKeyFor(row.key)}
                               >
-                                Replace your key
+                                {t("Replace your key")}
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="whitespace-nowrap"
@@ -216,13 +227,15 @@ function RouteComponent() {
                                 }}
                                 variant="destructive"
                               >
-                                Remove your key
+                                {t("Remove your key")}
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
                         ) : (
                           <Button
-                            aria-label={`Add key for ${row.title}`}
+                            aria-label={t("Add key for {{title}}", {
+                              title: row.title,
+                            })}
                             onClick={() => {
                               setNotice(null);
                               setKeyFor(row.key);
@@ -231,7 +244,7 @@ function RouteComponent() {
                             type="button"
                             variant="outline"
                           >
-                            Add key
+                            {t("Add key")}
                           </Button>
                         )}
                       </ItemActions>
@@ -244,14 +257,16 @@ function RouteComponent() {
           </PageSection>
 
           <PageSection
-            description="Accounts you sign in to at the vendor. A Bot using one sees only what you can see."
-            title="Connected accounts"
+            description={t(
+              "Accounts you sign in to at the vendor. A Bot using one sees only what you can see.",
+            )}
+            title={t("Connected accounts")}
           >
             {accounts.length === 0 ? (
               <PageEmpty>
-                Nothing to connect yet. These appear as soon as this
-                deployment's catalogue lists a service that reads as the person
-                asking.
+                {t(
+                  "Nothing to connect yet. These appear as soon as this deployment's catalogue lists a service that reads as the person asking.",
+                )}
               </PageEmpty>
             ) : (
               <PageRows>
@@ -280,7 +295,7 @@ function RouteComponent() {
                           </ItemTitle>
                           <ItemDescription>
                             {isConnected
-                              ? "Connected. Every Bot can use this as you."
+                              ? t("Connected. Every Bot can use this as you.")
                               : app.summary}
                           </ItemDescription>
                         </ItemContent>
@@ -298,7 +313,7 @@ function RouteComponent() {
                                       aria-hidden="true"
                                       className="size-1.5 rounded-full bg-emerald-500"
                                     />
-                                    Connected
+                                    {t("Connected")}
                                     <IconChevronDown />
                                   </Button>
                                 }
@@ -321,7 +336,9 @@ function RouteComponent() {
                             </DropdownMenu>
                           ) : (
                             <Button
-                              aria-label={`Connect ${app.title}`}
+                              aria-label={t("Connect {{title}}", {
+                                title: app.title,
+                              })}
                               disabled={connect.isPending}
                               onClick={() => {
                                 setNotice(null);
@@ -331,7 +348,7 @@ function RouteComponent() {
                               type="button"
                               variant="outline"
                             >
-                              Connect
+                              {t("Connect")}
                               <IconArrowUpRight />
                             </Button>
                           )}
@@ -376,6 +393,7 @@ function ModelSection({
   isAdmin: boolean;
   onNotice: (message: string | null) => void;
 }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const modelKey = useQuery(modelKeyQueryOptions());
   const [isReplacing, setIsReplacing] = useState(false);
@@ -409,12 +427,12 @@ function ModelSection({
   return (
     <PageSection
       className="mt-0"
-      description="The provider and model every Bot answers with."
-      title="Model"
+      description={t("The provider and model every Bot answers with.")}
+      title={t("Model")}
     >
       {modelKey.isPending ? null : !data ? (
         <p className="mt-4 text-destructive text-sm" role="alert">
-          The model key could not be loaded.
+          {t("The model key could not be loaded.")}
         </p>
       ) : (
         <PageRows>
@@ -425,14 +443,16 @@ function ModelSection({
               </ItemTitle>
               <ItemDescription>
                 {data.metered
-                  ? "Runs on the HyperNoesis API. Usage is metered on your plan."
+                  ? t(
+                      "Runs on the HyperNoesis API. Usage is metered on your plan.",
+                    )
                   : data.source === "vault"
-                    ? "Runs on a key stored here, replaced from this page."
+                    ? t("Runs on a key stored here, replaced from this page.")
                     : data.source === "environment"
-                      ? "Runs on the key this deployment was set up with."
+                      ? t("Runs on the key this deployment was set up with.")
                       : data.source === "none"
-                        ? "No key is set. Bots cannot answer until one is."
-                        : "Runs on this deployment's own key."}
+                        ? t("No key is set. Bots cannot answer until one is.")
+                        : t("Runs on this deployment's own key.")}
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -449,7 +469,7 @@ function ModelSection({
                     size="sm"
                     variant="outline"
                   >
-                    Plan and usage
+                    {t("Plan and usage")}
                     <IconExternalLink />
                   </Button>
                 ) : null
@@ -463,7 +483,7 @@ function ModelSection({
                       type="button"
                       variant="ghost"
                     >
-                      Use the deployment's key again
+                      {t("Use the deployment's key again")}
                     </Button>
                   ) : null}
                   <Button
@@ -472,7 +492,7 @@ function ModelSection({
                     type="button"
                     variant="outline"
                   >
-                    {data.source === "none" ? "Add key" : "Replace key"}
+                    {data.source === "none" ? t("Add key") : t("Replace key")}
                   </Button>
                 </div>
               ) : null}
@@ -485,18 +505,20 @@ function ModelSection({
         <Dialog onOpenChange={setIsReplacing} open={isReplacing}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Replace the {providerLabel} key</DialogTitle>
+              <DialogTitle>
+                {t("Replace the {{providerLabel}} key", { providerLabel })}
+              </DialogTitle>
               <DialogDescription>
-                Stored encrypted here and used from the next call on. The key it
-                replaces is retired in the same step; the deployment's own key
-                stays as the fallback.
+                {t(
+                  "Stored encrypted here and used from the next call on. The key it replaces is retired in the same step; the deployment's own key stays as the fallback.",
+                )}
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="mt-4">
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="model-key-plaintext">
-                    {providerLabel} API key
+                    {t("{{providerLabel}} API key", { providerLabel })}
                   </FieldLabel>
                   <Input
                     autoComplete="off"
@@ -515,7 +537,7 @@ function ModelSection({
                 type="button"
                 variant="ghost"
               >
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button
                 disabled={plaintext.trim() === "" || replace.isPending}
@@ -531,7 +553,7 @@ function ModelSection({
                 size="sm"
                 type="button"
               >
-                {replace.isPending ? "Saving…" : "Save key"}
+                {replace.isPending ? t("Saving…") : t("Save key")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -543,25 +565,33 @@ function ModelSection({
 
 /** For an administrator: how many deployment credentials are live, and where they are managed. */
 function DeploymentCredentials() {
+  const { t } = useTranslation("settings");
   const credentials = useQuery(credentialListQueryOptions());
   const live = (credentials.data ?? []).filter(
     (credential) => credential.revokedAt === null,
   ).length;
   return (
     <PageSection
-      description="Keys the deployment itself holds for vendors, kept by an administrator."
-      title="Deployment credentials"
+      description={t(
+        "Keys the deployment itself holds for vendors, kept by an administrator.",
+      )}
+      title={t("Deployment credentials")}
     >
       <PageRows>
         <Item size="sm">
           <ItemContent>
             <ItemTitle>
               {credentials.isPending
-                ? "Loading…"
-                : `${live} live credential${live === 1 ? "" : "s"}`}
+                ? t("Loading…")
+                : t("{{count}} live credentials", {
+                    count: live,
+                    defaultValue_one: "{{count}} live credential",
+                  })}
             </ItemTitle>
             <ItemDescription>
-              Added, rotated and revoked on the Credentials screen in Admin.
+              {t(
+                "Added, rotated and revoked on the Credentials screen in Admin.",
+              )}
             </ItemDescription>
           </ItemContent>
           <ItemActions>
@@ -569,7 +599,7 @@ function DeploymentCredentials() {
               className="text-sm underline-offset-4 hover:underline"
               to="/admin/credentials"
             >
-              Open Credentials
+              {t("Open Credentials")}
             </Link>
           </ItemActions>
         </Item>

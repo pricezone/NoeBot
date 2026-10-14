@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { setBotPausedMutationOptions } from "@/lib/bot-lifecycle/mutations";
 import { botLifecycleQueryOptions } from "@/lib/bot-lifecycle/queries";
+import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
 /**
@@ -12,6 +13,7 @@ import { queryClient } from "@/query-client";
  * above a conversation or a profile without deciding anything itself.
  */
 export function BotPausedBanner({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   const lifecycle = useQuery(botLifecycleQueryOptions(agentId));
   const resume = useMutation(setBotPausedMutationOptions(queryClient));
   if (!lifecycle.data?.paused) return null;
@@ -23,7 +25,7 @@ export function BotPausedBanner({ agentId }: { agentId: string }) {
       variant="secondary"
     >
       <IconPlayerPause />
-      {resume.isPending ? "Resuming…" : "Paused, tap to resume"}
+      {resume.isPending ? t("Resuming…") : t("Paused, tap to resume")}
     </Button>
   );
 }

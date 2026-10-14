@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { SettingsCard, SettingsSection } from "@/components/ui/settings-rows";
 import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "@/lib/i18n";
 import { saveInstructionsMutationOptions } from "@/lib/settings/mutations";
 import {
   INSTRUCTIONS_LIMIT,
@@ -20,6 +21,7 @@ import { queryClient } from "@/query-client";
  * to write a job description here and get it applied to every coworker at once.
  */
 export function StandingInstructions() {
+  const { t } = useTranslation("settings");
   const stored = useQuery(instructionsQueryOptions());
   const save = useMutation(saveInstructionsMutationOptions(queryClient));
 
@@ -56,15 +58,17 @@ export function StandingInstructions() {
   };
 
   return (
-    <SettingsSection label="Bot">
+    <SettingsSection label={t("Bot")}>
       <SettingsCard>
         <div className="flex flex-col gap-3 px-4 py-3">
           <div className="flex flex-col gap-0.5">
-            <p className="text-[15px] leading-5">Standing instructions</p>
+            <p className="text-[15px] leading-5">
+              {t("Standing instructions")}
+            </p>
             <p className="max-w-prose text-pretty text-[13px] leading-[18px] text-muted-foreground">
-              Applies to every coworker in every channel. Your role text on a
-              coworker says what it does; this says how you want things done,
-              for example writing style or how to describe your company.
+              {t(
+                "Applies to every coworker in every channel. Your role text on a coworker says what it does; this says how you want things done, for example writing style or how to describe your company.",
+              )}
             </p>
           </div>
           {stored.isPending ? null : stored.error ? (
@@ -74,14 +78,16 @@ export function StandingInstructions() {
           ) : (
             <div className="flex flex-col gap-2">
               <Textarea
-                aria-label="Standing instructions"
+                aria-label={t("Standing instructions")}
                 className="min-h-40"
                 disabled={save.isPending}
                 onChange={(event) => {
                   setDraft(event.target.value);
                   setSaved(false);
                 }}
-                placeholder="We are two people, not a team. Write in British English, and never call our product a platform."
+                placeholder={t(
+                  "We are two people, not a team. Write in British English, and never call our product a platform.",
+                )}
                 value={text}
               />
               <div className="flex flex-row items-center justify-between gap-4">
@@ -92,7 +98,10 @@ export function StandingInstructions() {
                       : "text-muted-foreground text-xs"
                   }
                 >
-                  {text.trim().length} of {INSTRUCTIONS_LIMIT} characters
+                  {t("{{length}} of {{INSTRUCTIONS_LIMIT}} characters", {
+                    length: text.trim().length,
+                    INSTRUCTIONS_LIMIT,
+                  })}
                 </p>
                 <div className="flex flex-row items-center gap-3">
                   {/*
@@ -104,14 +113,16 @@ export function StandingInstructions() {
                       {problem}
                     </span>
                   ) : saved ? (
-                    <span className="text-muted-foreground text-xs">Saved</span>
+                    <span className="text-muted-foreground text-xs">
+                      {t("Saved")}
+                    </span>
                   ) : null}
                   <Button
                     disabled={save.isPending || over || unchanged}
                     onClick={submit}
                     size="sm"
                   >
-                    Save
+                    {t("Save")}
                   </Button>
                 </div>
               </div>

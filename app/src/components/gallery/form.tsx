@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
 import { GalleryFrame } from "./frame";
 
 const Field = z
@@ -81,12 +82,13 @@ function readAnswer(result: unknown): FormAnswer | null {
 
 /** Decision render props remain wrapped, just like askApproval and askChoice. */
 export function FormCard(props: Record<string, unknown>) {
+  const { t } = useTranslation();
   const parsed = FormCardArgs.safeParse(props.args);
   if (props.status === "inProgress") {
     return (
-      <GalleryFrame title="Preparing your form…">
+      <GalleryFrame title={t("Preparing your form…")}>
         <p className="text-sm text-muted-foreground">
-          The assistant is putting the questions together.
+          {t("The assistant is putting the questions together.")}
         </p>
       </GalleryFrame>
     );
@@ -117,6 +119,7 @@ function InvalidForm({
   complete: boolean;
   respond?: Respond;
 }) {
+  const { t } = useTranslation();
   const attempted = useRef(false);
   const [failed, setFailed] = useState(false);
   const [returned, setReturned] = useState(complete);
@@ -140,15 +143,17 @@ function InvalidForm({
     void returnToBot();
   }, [returnToBot]);
   return (
-    <GalleryFrame title="Form unavailable">
+    <GalleryFrame title={t("Form unavailable")}>
       <p role="alert" className="text-sm text-muted-foreground">
         {returned
-          ? "The form had invalid questions. The Bot can send a corrected form."
-          : "The form has invalid questions and could not be displayed."}
+          ? t(
+              "The form had invalid questions. The Bot can send a corrected form.",
+            )
+          : t("The form has invalid questions and could not be displayed.")}
       </p>
       {failed && (
         <Button className="mt-3" size="sm" onClick={() => void returnToBot()}>
-          Return to the Bot
+          {t("Return to the Bot")}
         </Button>
       )}
     </GalleryFrame>
@@ -166,6 +171,7 @@ function FormEntry({
   result: FormAnswer | null;
   respond?: Respond;
 }) {
+  const { t } = useTranslation();
   const prefix = useId();
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState(new Map<string, string>());
@@ -241,7 +247,7 @@ function FormEntry({
         fallbackIcon={<IconForms className="size-5" />}
         onOpen={() => setOpen(true)}
         state={finished ? "submitted" : "open"}
-        subtitle={args.description ?? "Form"}
+        subtitle={args.description ?? t("Form")}
         title={args.title}
       >
         {finished ? (
@@ -257,14 +263,16 @@ function FormEntry({
                     <dd className="whitespace-pre-wrap break-words font-medium">
                       {Object.hasOwn(answer.values, field.id)
                         ? answer.values[field.id]
-                        : "Not provided"}
+                        : t("Not provided")}
                     </dd>
                   </div>
                 ))}
               </dl>
             ) : (
               <p className="text-sm text-muted-foreground">
-                This form has been completed. Its saved answers are unavailable.
+                {t(
+                  "This form has been completed. Its saved answers are unavailable.",
+                )}
               </p>
             )}
           </div>
@@ -274,7 +282,7 @@ function FormEntry({
         fallbackIcon={<IconForms className="size-5" />}
         onOpenChange={setOpen}
         open={open && !finished}
-        subtitle={args.description ?? "Form"}
+        subtitle={args.description ?? t("Form")}
         title={args.title}
       >
         <form
@@ -287,8 +295,9 @@ function FormEntry({
           className="space-y-4"
         >
           <p className="text-xs text-muted-foreground">
-            Fields marked * are required. Your answers will be shared with the
-            Bot.
+            {t(
+              "Fields marked * are required. Your answers will be shared with the Bot.",
+            )}
           </p>
           {args.fields.map((field) => {
             const id = `${prefix}-${field.id}`;
@@ -339,7 +348,7 @@ function FormEntry({
                     className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
                     onChange={(event) => change(event.target.value)}
                   >
-                    <option value="">Choose an option</option>
+                    <option value="">{t("Choose an option")}</option>
                     {field.options?.map((option) => (
                       <option key={option} value={option}>
                         {option}
@@ -379,7 +388,7 @@ function FormEntry({
           })}
           {failure && (
             <p role="alert" className="text-sm text-destructive">
-              Your answers could not be sent. Try again.
+              {t("Your answers could not be sent. Try again.")}
             </p>
           )}
           <div className="flex justify-end pt-1">
@@ -389,7 +398,7 @@ function FormEntry({
               type="submit"
               variant="secondary"
             >
-              {sending ? "Sending…" : (args.submitLabel ?? "Continue")}
+              {sending ? t("Sending…") : (args.submitLabel ?? t("Continue"))}
             </Button>
           </div>
         </form>

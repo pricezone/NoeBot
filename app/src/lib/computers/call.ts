@@ -1,5 +1,6 @@
 import { tryClient } from "@/lib/client";
 import { reportComputerActivity } from "@/lib/copilot/computer-activity";
+import { i18n } from "@/lib/i18n";
 
 export type ToolOutcome = Record<string, unknown> & { ok: boolean };
 
@@ -37,7 +38,7 @@ export async function callComputer(
     }
     return {
       ok: false,
-      reason: "The assistant's computer could not be reached.",
+      reason: i18n.t("The assistant's computer could not be reached."),
     };
   }
 
@@ -49,7 +50,7 @@ export async function callComputer(
   if (!response.ok) {
     return {
       ok: false,
-      reason: (body?.error as string) ?? "That did not work.",
+      reason: (body?.error as string) ?? i18n.t("That did not work."),
       // Preserve refusal/stale-ref/control distinctions for the model's next step.
       ...(response.status === 403
         ? { refused: true, rule: body?.rule ?? null }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
 import { Badge, GalleryFrame, type Tone } from "./frame";
 
 const tone = z
@@ -131,6 +132,7 @@ export function ChecklistCard({
   caption,
   items: given,
 }: Partial<z.infer<typeof ChecklistCardProps>>) {
+  const { t } = useTranslation();
   const items = given ?? [];
   const done = items.filter((item) => item.done).length;
   return (
@@ -141,7 +143,7 @@ export function ChecklistCard({
             done === items.length && items.length > 0 ? "positive" : "neutral"
           }
         >
-          {done} of {items.length}
+          {t("{{done}} of {{length}}", { done, length: items.length })}
         </Badge>
       }
       caption={caption}

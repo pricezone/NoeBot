@@ -72,7 +72,7 @@ export function WelcomeStep() {
           compact
           className="scale-90"
           editorClassName="text-base"
-          initialValue="Hand off tasks to your team of agents"
+          initialValue={t("Hand off tasks to your team of agents")}
         />
       </div>
     </div>

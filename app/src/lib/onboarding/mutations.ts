@@ -2,9 +2,10 @@ import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { authKeys, type OnboardingStatus } from "@/lib/auth/queries";
 import { channelKeys } from "@/lib/channels/queries";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 
 /** The sentence for every write here, since they all fail the same way to a reader. */
-const FALLBACK = "Onboarding could not be saved";
+const FALLBACK = msg("Onboarding could not be saved");
 
 /**
  * The status lives on the current user, so that is what a write refreshes.

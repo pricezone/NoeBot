@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
 import type { ControlState } from "@/lib/computers/control";
+import { useTranslation } from "@/lib/i18n";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
 import { LiveScreen } from "./live-screen";
@@ -49,6 +50,7 @@ export function NothingToSee({
   /** The page that turn opened, named when there is no picture of it. */
   page?: { url?: string; title?: string } | undefined;
 }) {
+  const { t } = useTranslation();
   return (
     <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 p-4 text-center text-muted-foreground text-sm">
       {settled ? (
@@ -68,10 +70,10 @@ export function NothingToSee({
           */}
           {page?.url ? (
             <>
-              <span className="font-medium">{page.title || "A page"}</span>
+              <span className="font-medium">{page.title || t("A page")}</span>
               <span className="break-all">{hostOf(page.url)}</span>
               <span>
-                Opened during this turn. The screen has moved on since.
+                {t("Opened during this turn. The screen has moved on since.")}
               </span>
             </>
           ) : (
@@ -79,7 +81,7 @@ export function NothingToSee({
              * A turn that ended without getting anywhere: refused by a boundary, stopped, or failed.
              * Saying "opened during this turn" here would describe something that did not happen.
              */
-            <span>This turn did not open a page.</span>
+            <span>{t("This turn did not open a page.")}</span>
           )}
         </>
       ) : problem ? (
@@ -93,18 +95,19 @@ export function NothingToSee({
             size={48}
           />
           <span className="font-medium">
-            You cannot see the screen right now
+            {t("You cannot see the screen right now")}
           </span>
           <span>{problem}</span>
           <span>
-            The assistant may still be working. An administrator can check
-            whether its computer is running.
+            {t(
+              "The assistant may still be working. An administrator can check whether its computer is running.",
+            )}
           </span>
         </>
       ) : blankBrowser ? (
-        <span>The assistant has not opened a page yet.</span>
+        <span>{t("The assistant has not opened a page yet.")}</span>
       ) : (
-        <span>Waiting for the assistant's screen…</span>
+        <span>{t("Waiting for the assistant's screen…")}</span>
       )}
     </span>
   );
@@ -196,6 +199,7 @@ export function ScreenViewer({
   onWake,
   onActivity,
 }: Props) {
+  const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const agent = useQuery(agentQueryOptions(computerId));
   const shownName = name ?? agent.data?.name;
@@ -236,11 +240,11 @@ export function ScreenViewer({
   const status = settled
     ? null
     : control?.transitioning
-      ? "Finishing the current action…"
+      ? t("Finishing the current action…")
       : driving
-        ? `You have control — click and type on the page.${control?.reason ? ` ${control.reason}` : ""}`
+        ? `${t("You have control — click and type on the page.")}${control?.reason ? ` ${control.reason}` : ""}`
         : control?.requested
-          ? `The assistant needs you. ${control.reason ?? ""}`.trim()
+          ? `${t("The assistant needs you.")} ${control.reason ?? ""}`.trim()
           : null;
 
   return (
@@ -248,7 +252,7 @@ export function ScreenViewer({
       ref={rootRef}
       role="dialog"
       aria-modal="true"
-      aria-label="The assistant's screen"
+      aria-label={t("The assistant's screen")}
       tabIndex={-1}
       className="fixed inset-0 z-50 flex flex-col bg-black/85 text-white outline-none backdrop-blur-sm"
       // In the capture phase, so a live screen that keeps its events to itself still counts.
@@ -292,7 +296,7 @@ export function ScreenViewer({
             </>
           )}
           <Button
-            aria-label="Minimize screen"
+            aria-label={t("Minimize screen")}
             className="text-white hover:bg-white/10 hover:text-white dark:hover:bg-white/10"
             onClick={onMinimize}
             size="icon"
@@ -331,7 +335,7 @@ export function ScreenViewer({
              * whatever the Bot has open now. The kept frame exists to stop exactly that.
              */
             <img
-              alt="What this turn had open"
+              alt={t("What this turn had open")}
               className="absolute inset-0 h-full w-full object-contain"
               src={frameSource(drawn)}
             />
@@ -362,7 +366,7 @@ export function ScreenViewer({
                       reconnect();
                     }}
                   >
-                    Retry
+                    {t("Retry")}
                   </button>
                 </div>
               ) : null}

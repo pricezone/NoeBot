@@ -226,7 +226,15 @@ export function keysIn(file: string, source: ts.SourceFile): FoundKey[] {
 }
 
 /** Elements whose text is code or data, never prose to translate. */
-const VERBATIM_ELEMENTS = new Set(["code", "kbd", "pre", "samp", "var"]);
+const VERBATIM_ELEMENTS = new Set([
+  "code",
+  "kbd",
+  "pre",
+  "samp",
+  "var",
+  "style",
+  "script",
+]);
 
 function ignored(source: ts.SourceFile, node: ts.Node): boolean {
   // `// i18n-ignore` (or `{/* i18n-ignore */}`) on the line before, or at the end of the same line.
@@ -257,7 +265,8 @@ export function untranslatedIn(
   const found: Untranslated[] = [];
   const add = (node: ts.Node, text: string, where: string) => {
     const trimmed = text.replace(/\s+/g, " ").trim();
-    if (!WORDY.test(trimmed)) return;
+    // Words, not the names of values: `${bot.name}: ${status}` has none of its own.
+    if (!WORDY.test(trimmed.replace(/\$\{[^}]*\}|\{\{[^}]*\}\}/g, ""))) return;
     if (ignored(source, node) || insideVerbatim(node, source)) return;
     found.push({ file, line: lineOf(source, node), text: trimmed, where });
   };

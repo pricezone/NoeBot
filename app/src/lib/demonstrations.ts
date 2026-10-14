@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 import type { SkillFormValues } from "@/lib/skills/form";
 export type DemonstrationDraft = SkillFormValues & {
   requiredTools: string[];
@@ -57,7 +58,7 @@ export const demonstrationsQueryOptions = (botId: string) =>
  * The title a recording starts under. The start route requires one, and the person names the
  * workflow after recording it, once they have seen what they did.
  */
-export const UNTITLED_WORKFLOW = "Untitled workflow";
+export const UNTITLED_WORKFLOW = i18n.t("Untitled workflow");
 export const startDemonstration = (
   botId: string,
   title: string,

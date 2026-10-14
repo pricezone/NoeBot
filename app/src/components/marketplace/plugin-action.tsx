@@ -3,6 +3,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { PluginRowState } from "@/components/plugins/marketplace-catalogue";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import type { MarketplacePlugin } from "@/lib/plugins/queries";
 import { cn } from "@/lib/utils";
 
@@ -39,6 +40,7 @@ export function PluginAction({
   onError: (message: string | null) => void;
   appearance?: "row" | "page";
 }) {
+  const { t } = useTranslation();
   const className = appearance === "page" ? PAGE_CLASS : ACTION_CLASS;
   const size = appearance === "page" ? "default" : "sm";
   const adding = install.isPending && install.variables === plugin.id;
@@ -46,7 +48,7 @@ export function PluginAction({
   if (state.kind === "add") {
     return (
       <Button
-        aria-label={`Add ${plugin.name}`}
+        aria-label={t("Add {{name}}", { name: plugin.name })}
         className={className}
         disabled={adding}
         onClick={() => {
@@ -57,14 +59,14 @@ export function PluginAction({
         type="button"
         variant={appearance === "page" ? "default" : "secondary"}
       >
-        {adding ? "Adding…" : "Add"}
+        {adding ? t("Adding…") : t("Add")}
       </Button>
     );
   }
   if (state.kind === "connect") {
     return (
       <Link
-        aria-label={`Connect ${plugin.name}`}
+        aria-label={t("Connect {{name}}", { name: plugin.name })}
         className={cn(
           buttonVariants({ size, variant: "secondary" }),
           className,
@@ -72,14 +74,14 @@ export function PluginAction({
         params={{ key: state.serverId }}
         to="/settings/connected-accounts/$key"
       >
-        Connect
+        {t("Connect")}
       </Link>
     );
   }
   if (state.kind === "add-key") {
     return (
       <Button
-        aria-label={`Add key for ${plugin.name}`}
+        aria-label={t("Add key for {{name}}", { name: plugin.name })}
         className={className}
         onClick={() => {
           onError(null);
@@ -89,7 +91,7 @@ export function PluginAction({
         type="button"
         variant="secondary"
       >
-        Add key
+        {t("Add key")}
       </Button>
     );
   }
@@ -104,9 +106,10 @@ export function AddedMark({
   title: string;
   appearance?: "row" | "page";
 }) {
+  const { t } = useTranslation();
   return (
     <span
-      aria-label={`${title} added`}
+      aria-label={t("{{title}} added", { title })}
       className={cn(
         "flex items-center gap-1 text-muted-foreground",
         appearance === "page" ? "h-10 px-4 text-sm" : "h-8 px-3 text-xs",
@@ -117,7 +120,7 @@ export function AddedMark({
         aria-hidden="true"
         className="size-3.5 text-emerald-600 dark:text-emerald-400"
       />
-      Added
+      {t("Added")}
     </span>
   );
 }

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { Trans, useTranslation } from "@/lib/i18n";
 import { saveSkillMutationOptions } from "@/lib/plugins/mutations";
 import { emptySkillForm } from "@/lib/skills/form";
 
@@ -25,6 +26,7 @@ import { emptySkillForm } from "@/lib/skills/form";
  * by default, because a skill is personal unless somebody decides otherwise.
  */
 export function NewSkill({ onClose }: { onClose?: () => void }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const me = useQuery(currentUserQueryOptions());
@@ -36,27 +38,32 @@ export function NewSkill({ onClose }: { onClose?: () => void }) {
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold">New skill</h1>
+        <h1 className="text-2xl font-semibold">{t("New skill")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          A named instruction you invoke with <code>/</code>.{" "}
+          <Trans
+            t={t}
+            i18nKey="A named instruction you invoke with <code>/</code>."
+            components={{ code: <code /> }}
+          />{" "}
           {isForEveryone
-            ? "Offered to every Bot; members see it under Workspace skills."
-            : "It goes on the Bots you own, and nobody else sees it."}
+            ? t("Offered to every Bot; members see it under Workspace skills.")
+            : t("It goes on the Bots you own, and nobody else sees it.")}
         </p>
       </header>
 
       {isAdmin ? (
         <Item size="sm" variant="muted">
           <ItemContent>
-            <ItemTitle>For everyone on this deployment</ItemTitle>
+            <ItemTitle>{t("For everyone on this deployment")}</ItemTitle>
             <ItemDescription>
-              A workspace skill: offered to every Bot, listed for every member,
-              and yours to look after from here.
+              {t(
+                "A workspace skill: offered to every Bot, listed for every member, and yours to look after from here.",
+              )}
             </ItemDescription>
           </ItemContent>
           <ItemActions>
             <Switch
-              aria-label="For everyone on this deployment"
+              aria-label={t("For everyone on this deployment")}
               checked={isForEveryone}
               onCheckedChange={setIsForEveryone}
             />
@@ -78,7 +85,7 @@ export function NewSkill({ onClose }: { onClose?: () => void }) {
           else
             await navigate({ search: { tab: "skills" }, to: "/marketplace" });
         }}
-        submitLabel="Save skill"
+        submitLabel={t("Save skill")}
       />
     </div>
   );

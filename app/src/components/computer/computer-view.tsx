@@ -18,6 +18,7 @@ import {
   useComputerSleep,
 } from "@/lib/computers/use-computer-sleep";
 import { useComputerControl } from "@/lib/computers/use-control";
+import { useTranslation } from "@/lib/i18n";
 import { useUiStrings } from "@/lib/i18n/strings";
 import { ChannelAvatar } from "../channels/avatar";
 import { ComputerAsleep } from "./computer-asleep";
@@ -211,6 +212,7 @@ export function ComputerView({
   onExpandedOnce,
   sleeps = false,
 }: Props) {
+  const { t } = useTranslation();
   const [shot, setShot] = useState<Screenshot | null>(null);
   /**
    * Whether this computer shows a desktop, and its shape. `undefined` until asked.
@@ -390,7 +392,7 @@ export function ComputerView({
         if (generation.current !== mine) return;
 
         if (!frame) {
-          setProblem(error ?? "The screen is not available right now.");
+          setProblem(error ?? t("The screen is not available right now."));
         } else {
           // Exact byte comparison is the settling signal.
           unchanged = frame.base64 === lastFrame ? unchanged + 1 : 0;
@@ -527,7 +529,7 @@ export function ComputerView({
   const polledScreen = showScreen ? (
     <img
       src={frameSource(drawn)}
-      alt="What the assistant is looking at"
+      alt={t("What the assistant is looking at")}
       // Keep unexpected screenshot dimensions inside the reserved frame.
       className="absolute inset-0 h-full w-full object-contain opacity-100 transition-opacity duration-300 starting:opacity-0"
     />
@@ -560,7 +562,7 @@ export function ComputerView({
                */
               className="relative block w-full cursor-pointer bg-muted"
               style={frameStyle}
-              aria-label="Open the assistant's screen full size"
+              aria-label={t("Open the assistant's screen full size")}
             >
               {polledScreen}
 
@@ -575,7 +577,7 @@ export function ComputerView({
                   ) : null}
                   {wheelHere ? (
                     <span className="rounded-full bg-white px-2.5 py-1 font-medium text-black text-xs shadow-sm">
-                      You have control
+                      {t("You have control")}
                     </span>
                   ) : null}
                 </span>

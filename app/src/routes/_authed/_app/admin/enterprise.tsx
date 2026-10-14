@@ -68,6 +68,7 @@ import {
   type NetworkMode,
   type NetworkPolicy,
 } from "@/lib/enterprise/queries";
+import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
 export const Route = createFileRoute("/_authed/_app/admin/enterprise")({
@@ -641,7 +642,7 @@ function ModelUsage() {
             </ItemContent>
             <ItemActions>
               <span className="text-muted-foreground text-sm">
-                {new Date(row.lastUsedAt).toLocaleDateString()}
+                {new Date(row.lastUsedAt).toLocaleDateString(intlLocale())}
               </span>
             </ItemActions>
           </Item>
@@ -677,7 +678,7 @@ function RecordedActions() {
                   ? "Member's machine"
                   : `Bot ${action.botId ?? "?"}`}{" "}
                 · {action.outcome} ·{" "}
-                {new Date(action.createdAt).toLocaleString()}
+                {new Date(action.createdAt).toLocaleString(intlLocale())}
               </ItemDescription>
             </ItemContent>
           </Item>

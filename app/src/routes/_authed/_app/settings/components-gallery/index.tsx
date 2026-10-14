@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ComponentPreview } from "@/components/component-preview";
-import { SettingsPage } from "@/components/settings/settings-page";
 import { SettingsItemBackground } from "@/components/settings/background";
+import { SettingsPage } from "@/components/settings/settings-page";
 import {
   Empty,
   EmptyDescription,
@@ -10,6 +10,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { componentListQueryOptions } from "@/lib/components/queries";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * What a Bot can draw, for the person it draws for.
@@ -26,24 +27,29 @@ export const Route = createFileRoute(
 });
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const components = useQuery(componentListQueryOptions());
   const published = components.data?.filter((component) => component.published);
 
   return (
     <SettingsPage
-      description="The pieces a Bot can draw in a conversation instead of describing something in prose. Which of them any one Bot may use is an administrator's decision."
-      title="Components gallery"
+      description={t(
+        "The pieces a Bot can draw in a conversation instead of describing something in prose. Which of them any one Bot may use is an administrator's decision.",
+      )}
+      title={t("Components gallery")}
     >
       {components.isPending ? null : components.error ? (
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Could not load components.
+          {t("Could not load components.")}
         </p>
       ) : published?.length === 0 ? (
         <Empty className="mt-12 min-h-[30dvh] border border-dashed">
           <EmptyHeader>
-            <EmptyTitle>Nothing published yet</EmptyTitle>
+            <EmptyTitle>{t("Nothing published yet")}</EmptyTitle>
             <EmptyDescription className="text-pretty">
-              When an administrator publishes a component, it will show up here.
+              {t(
+                "When an administrator publishes a component, it will show up here.",
+              )}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

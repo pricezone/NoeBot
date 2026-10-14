@@ -1,4 +1,5 @@
 import type { SecureFormState } from "@/components/chat-cards/secure-form";
+import { i18n } from "@/lib/i18n";
 import type { SignInOutcome } from "../../../../shared/sign-in-guidance";
 
 /**
@@ -28,38 +29,50 @@ export type SignInSituation = {
 /** The site refused what was typed, in the person's words, with the site's own when it gave some. */
 export function wrongWords(pageMessage?: string) {
   return pageMessage
-    ? `Wrong password or code. The site says: “${pageMessage}”`
-    : "Wrong password or code.";
+    ? i18n.t("Wrong password or code. The site says: “{{pageMessage}}”", {
+        pageMessage,
+      })
+    : i18n.t("Wrong password or code.");
 }
 
 /** The line under the row, or nothing when the row's own word says it all. */
 export function signInNote(situation: SignInSituation): string | undefined {
   const { status, outcome, host } = situation;
   if (situation.waitingForApproval)
-    return "Waiting for approval on your phone. Approve the sign-in there, then press Continue.";
+    return i18n.t(
+      "Waiting for approval on your phone. Approve the sign-in there, then press Continue.",
+    );
   if (status === "signed_in") return undefined;
   if (outcome === "code-requested")
-    return `Your login went in. ${host} now asks for a code; your Bot will ask you for it.`;
+    return i18n.t(
+      "Your login went in. {{host}} now asks for a code; your Bot will ask you for it.",
+      { host },
+    );
   const wrong = outcome === "error" ? wrongWords(situation.pageMessage) : "";
   if (status === "pending" || status === "filling" || status === "taken_over")
     return situation.movedFrom && !wrong
-      ? `The sign-in went on to ${host}. Open the form to check it and sign in there.`
+      ? i18n.t(
+          "The sign-in went on to {{host}}. Open the form to check it and sign in there.",
+          { host },
+        )
       : wrong || undefined;
   if (outcome === "push-approval")
-    return "No approval arrived on your phone in time.";
+    return i18n.t("No approval arrived on your phone in time.");
   if (status === "expired")
     return wrong
       ? `${wrong} The request then expired.`
-      : "This sign-in request expired before anyone signed in.";
+      : i18n.t("This sign-in request expired before anyone signed in.");
   if (status === "cancelled")
     return situation.stopped
-      ? "The sign-in was stopped."
+      ? i18n.t("The sign-in was stopped.")
       : wrong
         ? `${wrong} The sign-in was then declined.`
-        : "You declined this sign-in.";
+        : i18n.t("You declined this sign-in.");
   if (situation.notOpened)
-    return `The sign-in form for ${host} could not be opened.`;
-  return wrong || "The sign-in did not complete.";
+    return i18n.t("The sign-in form for {{host}} could not be opened.", {
+      host,
+    });
+  return wrong || i18n.t("The sign-in did not complete.");
 }
 
 /** How a finished sign-in reads on its row. */
@@ -78,5 +91,5 @@ export function canAskAgain(situation: SignInSituation) {
 
 /** What "Ask again" says in the conversation, as the person. */
 export function askAgainText(host: string) {
-  return `Ask me again for the sign-in to ${host}`;
+  return i18n.t("Ask me again for the sign-in to {{host}}", { host });
 }

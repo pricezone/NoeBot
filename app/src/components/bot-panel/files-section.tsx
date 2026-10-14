@@ -22,6 +22,7 @@ import {
   groupFilesByAge,
 } from "@/lib/agents/files";
 import { useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import { cn } from "@/lib/utils";
 
 /** Rows a group shows before "Show more", and how many more each press shows. */
@@ -214,7 +215,9 @@ function FileAge({ at }: { at: string }) {
       className="shrink-0 text-[13px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/file:opacity-100 group-focus-visible/file:opacity-100 [@media(hover:none)]:opacity-100"
       dateTime={at}
       title={
-        Number.isNaN(moment.getTime()) ? undefined : moment.toLocaleString()
+        Number.isNaN(moment.getTime())
+          ? undefined
+          : moment.toLocaleString(intlLocale())
       }
     >
       {compactAge(at)}

@@ -29,6 +29,7 @@ import {
   type ComputerActivity,
   subscribeToActivity,
 } from "@/lib/computers/activity";
+import { msg, useTranslation } from "@/lib/i18n";
 import { CommandOutput } from "./command-output";
 
 const ICONS = {
@@ -45,15 +46,15 @@ const ICONS = {
 
 /** What the line says was done. The subject beside it says what it was done to. */
 const LABELS = {
-  command: "Ran",
-  read_file: "Read",
-  write_file: "Saved",
-  list_files: "Listed",
-  page: "Opened",
-  click: "Clicked",
-  type: "Typed in",
-  sign_in: "Filled sign-in",
-  issue: "Issue",
+  command: msg("Ran"),
+  read_file: msg("Read"),
+  write_file: msg("Saved"),
+  list_files: msg("Listed"),
+  page: msg("Opened"),
+  click: msg("Clicked"),
+  type: msg("Typed in"),
+  sign_in: msg("Filled sign-in"),
+  issue: msg("Issue"),
 } as const satisfies Record<ComputerActivity["kind"], string>;
 
 /** A browsing step is one line, not a command with output under it. */
@@ -75,6 +76,7 @@ function timeOf(at: number): string {
 
 /** A page opened, a click, a field, a sign-in, an issue: the step, what it was on, and why. */
 function BrowsingEntry({ entry }: { entry: ComputerActivity }) {
+  const { t } = useTranslation();
   const Icon = ICONS[entry.kind];
   const trouble = entry.kind === "issue";
   return (
@@ -89,7 +91,7 @@ function BrowsingEntry({ entry }: { entry: ComputerActivity }) {
           }`}
         />
         <span className="shrink-0 text-muted-foreground text-xs">
-          {LABELS[entry.kind]}
+          {t(LABELS[entry.kind])}
         </span>
         <span className="min-w-0 break-words text-xs">{entry.subject}</span>
         <span className="ml-auto shrink-0 text-[10px] text-muted-foreground tabular-nums">
@@ -113,6 +115,7 @@ function BrowsingEntry({ entry }: { entry: ComputerActivity }) {
 }
 
 function Entry({ entry }: { entry: ComputerActivity }) {
+  const { t } = useTranslation();
   if (BROWSING.has(entry.kind)) return <BrowsingEntry entry={entry} />;
   const Icon = ICONS[entry.kind];
   const failed =
@@ -129,7 +132,7 @@ function Entry({ entry }: { entry: ComputerActivity }) {
           }`}
         />
         <span className="shrink-0 text-muted-foreground text-xs">
-          {LABELS[entry.kind]}
+          {t(LABELS[entry.kind])}
         </span>
         {/*
           The command wraps rather than truncating. In the transcript one line per call is what keeps
@@ -146,7 +149,7 @@ function Entry({ entry }: { entry: ComputerActivity }) {
 
       {entry.refused === true ? (
         <p className="mt-1 pl-5 text-destructive text-xs">
-          {entry.output || "A boundary refused it."}
+          {entry.output || t("A boundary refused it.")}
         </p>
       ) : (
         <div className="mt-1 max-h-64 overflow-auto pl-5">
@@ -165,6 +168,7 @@ function Entry({ entry }: { entry: ComputerActivity }) {
 }
 
 export function ActivityLog({ computerId }: { computerId: string }) {
+  const { t } = useTranslation();
   const entries = useSyncExternalStore(
     subscribeToActivity,
     () => activityFor(computerId),
@@ -176,8 +180,9 @@ export function ActivityLog({ computerId }: { computerId: string }) {
       <Empty className="h-[180px] border border-dashed">
         <EmptyHeader>
           <EmptyTitle className="text-muted-foreground">
-            Nothing yet. Pages the Bot opens, commands it runs and files it
-            reads appear here as they happen.
+            {t(
+              "Nothing yet. Pages the Bot opens, commands it runs and files it reads appear here as they happen.",
+            )}
           </EmptyTitle>
         </EmptyHeader>
       </Empty>

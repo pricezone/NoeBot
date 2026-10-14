@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 import type { SaveVoiceSessionInput } from "../../../../shared/voice-session";
 import { closingOf, openingOf } from "./cut";
 import { VOICE_CONTEXT_ITEM_ID, VoiceTranscript } from "./transcript";
@@ -118,7 +119,9 @@ export class VoiceSession {
     this.deadline = setTimeout(() => {
       if (current())
         this.fail(
-          "The call took too long to connect. Check microphone permission and try again.",
+          i18n.t(
+            "The call took too long to connect. Check microphone permission and try again.",
+          ),
         );
     }, 30_000);
     try {
@@ -175,7 +178,9 @@ export class VoiceSession {
         const seconds = Math.floor((Date.now() - started) / 1000);
         if (seconds >= 15 * 60) {
           this.fail(
-            "This call reached its 15-minute limit. You can start a new call.",
+            i18n.t(
+              "This call reached its 15-minute limit. You can start a new call.",
+            ),
           );
           return;
         }
@@ -186,7 +191,7 @@ export class VoiceSession {
         this.fail(
           error instanceof Error
             ? error.message
-            : "Could not start the voice call.",
+            : i18n.t("Could not start the voice call."),
         );
     }
   };
@@ -198,7 +203,9 @@ export class VoiceSession {
       this.connection.mute(muted);
       this.update({ muted, listening: muted ? false : this.state.listening });
     } catch {
-      this.fail("The microphone could not be changed. Please call again.");
+      this.fail(
+        i18n.t("The microphone could not be changed. Please call again."),
+      );
     }
   };
 
@@ -211,7 +218,7 @@ export class VoiceSession {
       this.fail(
         error instanceof Error
           ? error.message
-          : "The voice connection was lost.",
+          : i18n.t("The voice connection was lost."),
       );
       return false;
     }
@@ -233,7 +240,9 @@ export class VoiceSession {
     this.transcript.receive(event);
     if (this.transcript.full) {
       this.fail(
-        "This call reached its transcript limit. Start a new call to continue.",
+        i18n.t(
+          "This call reached its transcript limit. Start a new call to continue.",
+        ),
       );
       return;
     }
@@ -277,7 +286,9 @@ export class VoiceSession {
         const response = object(event.response);
         if (response?.status === "failed") {
           this.fail(
-            "The voice service could not complete its response. Please call again.",
+            i18n.t(
+              "The voice service could not complete its response. Please call again.",
+            ),
           );
           return;
         }
@@ -300,7 +311,9 @@ export class VoiceSession {
           return;
         }
         this.fail(
-          "The voice service reported an error. Please end the call and try again.",
+          i18n.t(
+            "The voice service reported an error. Please end the call and try again.",
+          ),
         );
         break;
       }

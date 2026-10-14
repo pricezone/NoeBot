@@ -6,17 +6,17 @@ import {
   useParams,
 } from "@tanstack/react-router";
 import { useState } from "react";
-import { VariablesDialog } from "@/components/marketplace/variables-dialog";
 import {
   PageEmpty,
   PageRows,
   PageSection,
 } from "@/components/layout/page-shell";
-import { SettingsPage } from "@/components/settings/settings-page";
+import { VariablesDialog } from "@/components/marketplace/variables-dialog";
 import {
   BrokeredAccountRow,
   useBrokeredAccount,
 } from "@/components/plugins/brokered-account-row";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,6 +33,8 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { msg, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   connectAccountMutationOptions,
   disconnectBrokeredMutationOptions,
@@ -63,6 +65,7 @@ export const Route = createFileRoute(
 )({ component: RouteComponent });
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const { key } = useParams({
     from: "/_authed/_app/settings/connected-accounts/$key",
   });
@@ -105,7 +108,9 @@ function RouteComponent() {
        */
       if (authorizationUrl === null) {
         setNotice(
-          "This deployment answered without a consent link, so there was nowhere to send you and nothing was connected. Try again, and tell an administrator if it persists.",
+          t(
+            "This deployment answered without a consent link, so there was nowhere to send you and nothing was connected. Try again, and tell an administrator if it persists.",
+          ),
         );
         return;
       }
@@ -168,11 +173,11 @@ function RouteComponent() {
    * whole of its state defaulted to "you have never connected this".
    */
   if (plugins.isPending || connections.isPending) {
-    return <SettingsPage title="Account">{null}</SettingsPage>;
+    return <SettingsPage title={t("Account")}>{null}</SettingsPage>;
   }
 
   const back = {
-    label: "Connected accounts",
+    label: msg("Connected accounts"),
     linkProps: { to: "/settings/connected-accounts" as const },
   };
 
@@ -196,9 +201,9 @@ function RouteComponent() {
     return (
       <SettingsPage backButton={back} title={server?.title ?? key}>
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Whether you have connected this account could not be loaded, so
-          nothing about it is shown here rather than something that may be
-          wrong. Reload the page, and tell an administrator if it persists.
+          {t(
+            "Whether you have connected this account could not be loaded, so nothing about it is shown here rather than something that may be wrong. Reload the page, and tell an administrator if it persists.",
+          )}
         </p>
       </SettingsPage>
     );
@@ -213,9 +218,9 @@ function RouteComponent() {
     return (
       <SettingsPage backButton={back} title={key}>
         <p className="mt-12 text-destructive text-sm" role="alert">
-          This connector could not be loaded, so nothing about it is shown here
-          rather than something that may be wrong. Reload the page, and tell an
-          administrator if it persists.
+          {t(
+            "This connector could not be loaded, so nothing about it is shown here rather than something that may be wrong. Reload the page, and tell an administrator if it persists.",
+          )}
         </p>
       </SettingsPage>
     );
@@ -232,12 +237,14 @@ function RouteComponent() {
   if (brokered && server) {
     /* Bound once because the row below is told it twice — once inside the whole disconnected
        sentence and once on its own — and two copies of it would drift. */
-    const reassurance = "No Bot can read this as you.";
+    const reassurance = t("No Bot can read this as you.");
 
     return (
       <SettingsPage
         backButton={back}
-        description="Reached through Composio, which holds the account, so a Bot sees only what you can see."
+        description={t(
+          "Reached through Composio, which holds the account, so a Bot sees only what you can see.",
+        )}
         title={server.title}
       >
         {notice ? (
@@ -254,8 +261,11 @@ function RouteComponent() {
               /* Said beside the button rather than after it: disconnecting ends the account at
                  Composio, so what it undoes is not the row here but the grant on your own mailbox,
                  and connecting again is a fresh consent. */
-              connectedDescription={`A Bot granted its tools reads your ${server.title} as you. Disconnecting ends the account at Composio, not just here.`}
-              disconnectedDescription={`${reassurance} Connecting takes you to Composio and then to the vendor to consent.`}
+              connectedDescription={t(
+                "A Bot granted its tools reads your {{title}} as you. Disconnecting ends the account at Composio, not just here.",
+                { title: server.title },
+              )}
+              disconnectedDescription={`${reassurance} ${t("Connecting takes you to Composio and then to the vendor to consent.")}`}
               /* What is true either way. The trip to Composio is not — an app whose key somebody
                  types never leaves this page — but which Bots can read this person's mail is the
                  whole point of the screen and holds for both kinds. */
@@ -281,16 +291,21 @@ function RouteComponent() {
       plugin !== undefined && (plugin.mine || me.data?.role === "admin");
     const removal = plugin ? (
       <PageSection
-        description={`Removing ${plugin.name} takes every server and skill it installed away from every Bot, and ends every account connected to them.`}
-        title="Plugin"
+        description={t(
+          "Removing {{name}} takes every server and skill it installed away from every Bot, and ends every account connected to them.",
+          { name: plugin.name },
+        )}
+        title={t("Plugin")}
       >
         <PageRows>
           <Item size="sm">
             <ItemContent>
-              <ItemTitle>Part of {plugin.name}</ItemTitle>
+              <ItemTitle>
+                {t("Part of {{name}}", { name: plugin.name })}
+              </ItemTitle>
               <ItemDescription>
-                Added by {plugin.installedBy ?? "somebody"}
-                {plugin.mine ? " (you)" : ""}.
+                {t("Added by")} {plugin.installedBy ?? t("somebody")}
+                {plugin.mine ? t(" (you)") : ""}.
               </ItemDescription>
             </ItemContent>
             {mayRemove ? (
@@ -305,7 +320,7 @@ function RouteComponent() {
                   type="button"
                   variant="outline"
                 >
-                  {uninstall.isPending ? "Removing…" : "Remove plugin"}
+                  {uninstall.isPending ? t("Removing…") : t("Remove plugin")}
                 </Button>
               </ItemActions>
             ) : null}
@@ -318,12 +333,13 @@ function RouteComponent() {
       return (
         <SettingsPage
           backButton={back}
-          description="This is not a service you connect for yourself."
+          description={t("This is not a service you connect for yourself.")}
           title={server.title}
         >
           <PageEmpty>
-            There is no account to connect. It is available to every Bot
-            already.
+            {t(
+              "There is no account to connect. It is available to every Bot already.",
+            )}
           </PageEmpty>
           {removal}
         </SettingsPage>
@@ -336,7 +352,11 @@ function RouteComponent() {
         backButton={back}
         description={
           server.summary ||
-          `Reached as you, from the ${plugin?.name ?? "plugin"} plugin.`
+          (plugin?.name
+            ? t("Reached as you, from the {{plugin}} plugin.", {
+                plugin: plugin.name,
+              })
+            : t("Reached as you, from a plugin."))
         }
         title={server.title}
       >
@@ -349,15 +369,26 @@ function RouteComponent() {
           <PageRows className="mt-0">
             <Item size="sm">
               <ItemContent>
-                <ItemTitle>{header ? "Your key" : "Your account"}</ItemTitle>
+                <ItemTitle>
+                  {header ? t("Your key") : t("Your account")}
+                </ItemTitle>
                 <ItemDescription>
                   {connection
                     ? header
-                      ? "Every Bot can use this with your key. Nobody else's calls carry it."
-                      : "Every Bot can use this as you. It sees only what you can see."
+                      ? t(
+                          "Every Bot can use this with your key. Nobody else's calls carry it.",
+                        )
+                      : t(
+                          "Every Bot can use this as you. It sees only what you can see.",
+                        )
                     : header
-                      ? `No Bot can reach ${server.title} as you until you add your key.`
-                      : "No Bot can read this as you. Connecting takes you to the vendor to consent."}
+                      ? t(
+                          "No Bot can reach {{title}} as you until you add your key.",
+                          { title: server.title },
+                        )
+                      : t(
+                          "No Bot can read this as you. Connecting takes you to the vendor to consent.",
+                        )}
                 </ItemDescription>
               </ItemContent>
               <ItemActions>
@@ -370,7 +401,7 @@ function RouteComponent() {
                             aria-hidden="true"
                             className="size-1.5 rounded-full bg-emerald-500"
                           />
-                          {header ? "Key added" : "Connected"}
+                          {header ? t("Key added") : t("Connected")}
                           <IconChevronDown />
                         </Button>
                       }
@@ -381,7 +412,7 @@ function RouteComponent() {
                           className="whitespace-nowrap"
                           onClick={() => setAddingKey(true)}
                         >
-                          Replace your key
+                          {t("Replace your key")}
                         </DropdownMenuItem>
                       ) : null}
                       <DropdownMenuItem
@@ -393,8 +424,10 @@ function RouteComponent() {
                         variant="destructive"
                       >
                         {header
-                          ? "Remove your key"
-                          : `Disconnect your ${server.title} account`}
+                          ? t("Remove your key")
+                          : t("Disconnect your {{title}} account", {
+                              title: server.title,
+                            })}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -408,7 +441,7 @@ function RouteComponent() {
                     type="button"
                     variant="outline"
                   >
-                    Add key
+                    {t("Add key")}
                   </Button>
                 ) : (
                   <Button
@@ -421,7 +454,7 @@ function RouteComponent() {
                     type="button"
                     variant="outline"
                   >
-                    Connect
+                    {t("Connect")}
                     <IconArrowUpRight />
                   </Button>
                 )}
@@ -454,15 +487,19 @@ function RouteComponent() {
     return (
       <SettingsPage
         backButton={back}
-        description="This is not a service you connect for yourself."
+        description={t("This is not a service you connect for yourself.")}
         title={entry?.title ?? key}
       >
         <PageEmpty>
           {entry?.auth === "none" || entry?.auth === "builtin"
-            ? "There is no account to connect. Enable it from the Marketplace and every Bot can use it."
+            ? t(
+                "There is no account to connect. Enable it from the Marketplace and every Bot can use it.",
+              )
             : entry
-              ? "A Bot reaches this one with a credential the deployment holds, the same for everybody."
-              : "This deployment has no connector by that name."}
+              ? t(
+                  "A Bot reaches this one with a credential the deployment holds, the same for everybody.",
+                )
+              : t("This deployment has no connector by that name.")}
         </PageEmpty>
       </SettingsPage>
     );
@@ -487,11 +524,15 @@ function RouteComponent() {
             <ItemContent>
               {/* Not "Connect your account": the row is also the connected state, and a title has to
                   read for both. */}
-              <ItemTitle>Your account</ItemTitle>
+              <ItemTitle>{t("Your account")}</ItemTitle>
               <ItemDescription>
                 {connection
-                  ? "Every Bot can use this as you. It sees only what you can see."
-                  : "No Bot can read this as you. Connecting takes you to the vendor to consent."}
+                  ? t(
+                      "Every Bot can use this as you. It sees only what you can see.",
+                    )
+                  : t(
+                      "No Bot can read this as you. Connecting takes you to the vendor to consent.",
+                    )}
               </ItemDescription>
             </ItemContent>
             <ItemActions>
@@ -510,7 +551,7 @@ function RouteComponent() {
                           aria-hidden="true"
                           className="size-1.5 rounded-full bg-emerald-500"
                         />
-                        Connected
+                        {t("Connected")}
                         <IconChevronDown />
                       </Button>
                     }
@@ -533,14 +574,19 @@ function RouteComponent() {
                         disconnect.mutate(key, {
                           onSuccess: () =>
                             setNotice(
-                              `Disconnected here. ${entry.vendor} still lists this deployment under your account's third-party access until you revoke it there.`,
+                              t(
+                                "Disconnected here. {{vendor}} still lists this deployment under your account's third-party access until you revoke it there.",
+                                { vendor: entry.vendor },
+                              ),
                             ),
                         });
                       }}
                       className="whitespace-nowrap"
                       variant="destructive"
                     >
-                      Disconnect your {entry.title} account
+                      {t("Disconnect your {{title}} account", {
+                        title: entry.title,
+                      })}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -564,7 +610,7 @@ function RouteComponent() {
                   type="button"
                   variant="outline"
                 >
-                  Connect
+                  {t("Connect")}
                   <IconArrowUpRight />
                 </Button>
               )}
@@ -575,26 +621,30 @@ function RouteComponent() {
 
       {connection ? (
         <PageSection
-          description="What you agreed to, as the vendor recorded it — not what was asked for. The two differ when a consent screen is only partly accepted."
-          title="Access"
+          description={t(
+            "What you agreed to, as the vendor recorded it — not what was asked for. The two differ when a consent screen is only partly accepted.",
+          )}
+          title={t("Access")}
         >
           <PageRows>
             <Item size="sm">
               <ItemContent>
-                <ItemTitle>Granted</ItemTitle>
+                <ItemTitle>{t("Granted")}</ItemTitle>
                 <ItemDescription className="line-clamp-none">
-                  {connection.scope || "The vendor named no scope."}
+                  {connection.scope || t("The vendor named no scope.")}
                 </ItemDescription>
               </ItemContent>
             </Item>
             <Separator />
             <Item size="sm">
               <ItemContent>
-                <ItemTitle>Connected</ItemTitle>
+                <ItemTitle>{t("Connected")}</ItemTitle>
               </ItemContent>
               <ItemActions>
                 <span className="text-muted-foreground text-xs">
-                  {new Date(connection.connectedAt).toLocaleString()}
+                  {new Date(connection.connectedAt).toLocaleString(
+                    intlLocale(),
+                  )}
                 </span>
               </ItemActions>
             </Item>

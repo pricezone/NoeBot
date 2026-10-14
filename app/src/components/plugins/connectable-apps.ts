@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 import type {
   CatalogueItem,
   PluginConnection,
@@ -114,7 +115,9 @@ export function connectableApps(
     ...brokeredAccountsListedOn(page.servers).map((server) => ({
       key: server.id,
       title: server.title,
-      summary: server.summary || `Connect your ${server.title} account.`,
+      summary:
+        server.summary ||
+        i18n.t("Connect your {{title}} account.", { title: server.title }),
       logo: server.logo ?? null,
       kind: "account" as const,
       enabled: server.offeredToAllBots,
@@ -144,8 +147,8 @@ export function pluginAccountsOn(servers: PluginServer[]): ConnectableApp[] {
       summary:
         server.summary ||
         (server.authKind === "header"
-          ? `Add your ${server.title} key.`
-          : `Connect your ${server.title} account.`),
+          ? i18n.t("Add your {{title}} key.", { title: server.title })
+          : i18n.t("Connect your {{title}} account.", { title: server.title })),
       logo: server.logo ?? null,
       kind: "account" as const,
       enabled: server.offeredToAllBots,

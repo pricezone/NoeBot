@@ -34,6 +34,7 @@ import {
 import { PluginLogo } from "@/components/plugins/plugin-logo";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { i18n, useTranslation } from "@/lib/i18n";
 import {
   enablePluginMutationOptions,
   installPluginMutationOptions,
@@ -72,7 +73,7 @@ function titleFor(app: ConnectableApp): React.ReactNode {
     <>
       {app.title}
       <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        Beta
+        {i18n.t("Beta")}
       </span>
     </>
   );
@@ -105,6 +106,7 @@ export function AppsTab({
   category?: string;
   onSearchChange: SetMarketplaceSearch;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
   const connections = useQuery(connectionsQueryOptions());
@@ -223,7 +225,7 @@ export function AppsTab({
             <ConnectLink app={app} isConnected={false} />
           ) : (
             <Button
-              aria-label={`Enable ${app.title}`}
+              aria-label={t("Enable {{title}}", { title: app.title })}
               className={ACTION_CLASS}
               disabled={enable.isPending && enable.variables === app.key}
               onClick={() => {
@@ -235,8 +237,8 @@ export function AppsTab({
               variant="secondary"
             >
               {enable.isPending && enable.variables === app.key
-                ? "Enabling…"
-                : "Enable"}
+                ? t("Enabling…")
+                : t("Enable")}
             </Button>
           )
         }
@@ -281,32 +283,33 @@ export function AppsTab({
       {plugins.isPending || connections.isPending ? null : plugins.error ||
         connections.error ? (
         <p className="text-destructive text-sm" role="alert">
-          Your apps could not be loaded, so nothing is listed here rather than a
-          list that may be wrong. Reload the page, and tell an administrator if
-          it persists.
+          {t(
+            "Your apps could not be loaded, so nothing is listed here rather than a list that may be wrong. Reload the page, and tell an administrator if it persists.",
+          )}
         </p>
       ) : apps.length === 0 &&
         indexed.length === 0 &&
         !marketplace.isPending ? (
         <p className="text-muted-foreground text-sm">
-          Nothing to connect yet. Apps appear here as soon as this deployment's
-          catalogue lists one.
+          {t(
+            "Nothing to connect yet. Apps appear here as soon as this deployment's catalogue lists one.",
+          )}
         </p>
       ) : nothingMatches && !marketplace.isPending ? (
         <p className="text-muted-foreground text-sm" role="status">
-          No apps match “{query.trim()}”.
+          {t("No apps match “{{query}}”.", { query: query.trim() })}
         </p>
       ) : (
         <>
           {category === undefined ? (
             <>
               {connectedRows.length > 0 ? (
-                <MarketplaceSection title="Connected">
+                <MarketplaceSection title={t("Connected")}>
                   <MarketplaceGrid>{connectedRows}</MarketplaceGrid>
                 </MarketplaceSection>
               ) : null}
               {availableRows.length > 0 ? (
-                <MarketplaceSection title="Available">
+                <MarketplaceSection title={t("Available")}>
                   <MarketplaceGrid>{availableRows}</MarketplaceGrid>
                 </MarketplaceSection>
               ) : null}
@@ -321,7 +324,7 @@ export function AppsTab({
                     onClick={() => showCategory(section.key)}
                     type="button"
                   >
-                    View all
+                    {t("View all")}
                   </button>
                 ) : undefined
               }
@@ -335,13 +338,16 @@ export function AppsTab({
           ))}
           {category !== undefined && sections.length === 0 ? (
             <p className="text-muted-foreground text-sm" role="status">
-              Nothing in {categoryLabel(category)} yet.
+              {t("Nothing in {{value}} yet.", {
+                value: categoryLabel(category),
+              })}
             </p>
           ) : null}
           {marketplace.error ? (
             <p className="mt-6 text-destructive text-sm" role="alert">
-              The Marketplace's plugins could not be loaded. Reload the page,
-              and tell an administrator if it persists.
+              {t(
+                "The Marketplace's plugins could not be loaded. Reload the page, and tell an administrator if it persists.",
+              )}
             </p>
           ) : null}
         </>
@@ -354,10 +360,10 @@ export function AppsTab({
               className="text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
               to="/admin/plugins/composio"
             >
-              View all
+              {t("View all")}
             </Link>
           }
-          title="Featured plugins"
+          title={t("Featured plugins")}
         >
           <ComposioAppList appearance="marketplace" search={query} />
         </MarketplaceSection>
@@ -404,10 +410,13 @@ function ConnectLink({
   app: ConnectableApp;
   isConnected: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <Link
       aria-label={
-        isConnected ? `${app.title} connected, manage` : `Connect ${app.title}`
+        isConnected
+          ? t("{{title}} connected, manage", { title: app.title })
+          : t("Connect {{title}}", { title: app.title })
       }
       className={cn(
         buttonVariants({
@@ -425,7 +434,7 @@ function ConnectLink({
             aria-hidden="true"
             className="size-3.5 text-emerald-600 dark:text-emerald-400"
           />
-          Connected
+          {t("Connected")}
         </>
       ) : (
         "Connect"
@@ -439,9 +448,10 @@ function ConnectLink({
  * yours to withdraw. Switching it off again is an administrator's, on the Plugins screens.
  */
 function EnabledMark({ app }: { app: ConnectableApp }) {
+  const { t } = useTranslation();
   return (
     <span
-      aria-label={`${app.title} enabled`}
+      aria-label={t("{{title}} enabled", { title: app.title })}
       className="flex h-8 items-center gap-1 px-3 text-xs text-muted-foreground"
       role="status"
     >
@@ -449,7 +459,7 @@ function EnabledMark({ app }: { app: ConnectableApp }) {
         aria-hidden="true"
         className="size-3.5 text-emerald-600 dark:text-emerald-400"
       />
-      Enabled
+      {t("Enabled")}
     </span>
   );
 }

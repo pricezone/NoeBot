@@ -2,6 +2,7 @@ import { IconChevronLeft } from "@tabler/icons-react";
 import { Link, type LinkProps } from "@tanstack/react-router";
 import type * as React from "react";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,6 +36,7 @@ export function SettingsPage({
   className?: string;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -52,7 +54,8 @@ export function SettingsPage({
             variant="ghost"
           >
             <IconChevronLeft />
-            {backButton.label}
+            {/* Callers pass English keys or words already translated; either reads right. */}
+            {t(backButton.label)}
           </Button>
         ) : null}
         <div className="flex flex-row items-center justify-between gap-4">

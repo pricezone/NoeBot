@@ -3,11 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
 import { PageEmpty, PageSection } from "@/components/layout/page-shell";
-import { SettingsPage } from "@/components/settings/settings-page";
 import { RowMark } from "@/components/layout/row-mark";
 import { catalogueMarkFor } from "@/components/plugins/catalogue-marks";
 import { connectableAccounts } from "@/components/plugins/connectable-apps";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
+import { SettingsPage } from "@/components/settings/settings-page";
 import {
   InputGroup,
   InputGroupAddon,
@@ -20,6 +20,7 @@ import {
   ItemDescription,
   ItemTitle,
 } from "@/components/ui/item";
+import { useTranslation } from "@/lib/i18n";
 import {
   connectionsQueryOptions,
   pluginsPageQueryOptions,
@@ -51,6 +52,7 @@ export const Route = createFileRoute(
 });
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const { connected: outcome } = Route.useSearch();
   const [search, setSearch] = React.useState("");
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -95,7 +97,7 @@ function RouteComponent() {
       accounts: matching.filter((account) => connected.has(account.key)),
     },
     {
-      title: "Not connected",
+      title: t("Not connected"),
       accounts: matching.filter((account) => !connected.has(account.key)),
     },
   ];
@@ -103,8 +105,8 @@ function RouteComponent() {
   return (
     <SettingsPage
       className="max-w-4xl @container"
-      description="Connect your apps so your Bots can work with them."
-      title="Connected accounts"
+      description={t("Connect your apps so your Bots can work with them.")}
+      title={t("Connected accounts")}
     >
       {/*
        * Only the failure is worth saying. A success needs no sentence: the row it came back to now
@@ -112,7 +114,9 @@ function RouteComponent() {
        */}
       {outcome === "failed" ? (
         <p className="text-destructive text-sm" role="alert">
-          That account could not be connected. Nothing was saved — try again.
+          {t(
+            "That account could not be connected. Nothing was saved — try again.",
+          )}
         </p>
       ) : null}
       {/*
@@ -131,36 +135,40 @@ function RouteComponent() {
       {plugins.isPending || connections.isPending ? null : plugins.error ||
         connections.error ? (
         <p className="mt-12 text-destructive text-sm" role="alert">
-          Your connected accounts could not be loaded, so nothing is listed here
-          rather than a list that may be wrong. Reload the page, and tell an
-          administrator if it persists.
+          {t(
+            "Your connected accounts could not be loaded, so nothing is listed here rather than a list that may be wrong. Reload the page, and tell an administrator if it persists.",
+          )}
         </p>
       ) : accounts.length === 0 ? (
         <PageSection>
           <PageEmpty>
-            Nothing to connect yet. These appear as soon as this deployment's
-            catalogue lists a service that reads as the person asking.
+            {t(
+              "Nothing to connect yet. These appear as soon as this deployment's catalogue lists a service that reads as the person asking.",
+            )}
           </PageEmpty>
         </PageSection>
       ) : (
         <>
           <p className="mt-5 text-xs text-muted-foreground">
-            {connectedCount} connected · {accounts.length} available
+            {t("{{connectedCount}} connected · {{length}} available", {
+              connectedCount,
+              length: accounts.length,
+            })}
           </p>
           <InputGroup className="mt-3 h-9 border-transparent bg-muted/60 shadow-none dark:bg-muted/60">
             <InputGroupAddon>
               <IconSearch aria-hidden="true" className="size-4" />
             </InputGroupAddon>
             <InputGroupInput
-              aria-label="Search apps"
-              placeholder="Search apps"
+              aria-label={t("Search apps")}
+              placeholder={t("Search apps")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </InputGroup>
           {matching.length === 0 ? (
             <p className="mt-8 text-sm text-muted-foreground" role="status">
-              No apps match “{search.trim()}”.
+              {t("No apps match “{{search}}”.", { search: search.trim() })}
             </p>
           ) : (
             sections
@@ -207,11 +215,11 @@ function RouteComponent() {
                                 aria-hidden="true"
                                 className="size-3.5 text-emerald-600 dark:text-emerald-400"
                               />
-                              Connected
+                              {t("Connected")}
                             </span>
                           ) : (
                             <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium">
-                              Connect
+                              {t("Connect")}
                             </span>
                           )}
                         </ItemActions>

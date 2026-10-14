@@ -1,8 +1,9 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { client, tryClient } from "@/lib/client";
+import { i18n, msg } from "@/lib/i18n";
 import { passwordKeys, type SignInRequest } from "./queries";
 
-const FALLBACK = "The sign-in could not be completed";
+const FALLBACK = msg("The sign-in could not be completed");
 
 const invalidate = (queryClient: QueryClient) =>
   queryClient.invalidateQueries({ queryKey: passwordKeys.all });
@@ -118,7 +119,7 @@ export async function requestSignIn(
   if (!response.ok || !body)
     return {
       ok: false,
-      reason: body?.error ?? "The sign-in request could not be made.",
+      reason: body?.error ?? i18n.t("The sign-in request could not be made."),
     };
   return { ok: true, request: body };
 }

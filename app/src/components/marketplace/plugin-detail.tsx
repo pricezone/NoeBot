@@ -26,6 +26,8 @@ import { PluginLogo } from "@/components/plugins/plugin-logo";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { i18n, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   installPluginMutationOptions,
   uninstallPluginMutationOptions,
@@ -57,6 +59,7 @@ export function PluginDetail({
   id: string;
   onBack: () => void;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const detail = useQuery(pluginDetailQueryOptions(id));
   const connections = useQuery(connectionsQueryOptions());
@@ -83,7 +86,7 @@ export function PluginDetail({
 
   const back = (
     <Button
-      aria-label="Back to apps"
+      aria-label={t("Back to apps")}
       className="-ml-2 mb-4 self-start rounded-full"
       onClick={onBack}
       size="icon"
@@ -109,7 +112,7 @@ export function PluginDetail({
       <div className="flex flex-col">
         {back}
         <p className="text-destructive text-sm" role="alert">
-          This app couldn't be loaded.
+          {t("This app couldn't be loaded.")}
           {detail.error?.message ? ` ${detail.error.message}` : ""}
         </p>
       </div>
@@ -132,7 +135,7 @@ export function PluginDetail({
       await navigator.clipboard.writeText(address);
       setIsCopied(true);
     } catch {
-      setError("The link couldn't be copied.");
+      setError(t("The link couldn't be copied."));
     }
   };
 
@@ -158,7 +161,7 @@ export function PluginDetail({
             rel="noreferrer"
             target="_blank"
           >
-            View Source
+            {t("View Source")}
             <IconArrowUpRight aria-hidden="true" className="size-4" />
           </a>
         </div>
@@ -170,7 +173,7 @@ export function PluginDetail({
             variant="secondary"
           >
             <IconLink aria-hidden="true" className="size-4" />
-            {isCopied ? "Copied" : "Share"}
+            {isCopied ? t("Copied") : t("Share")}
           </Button>
           <PluginAction
             appearance="page"
@@ -189,7 +192,7 @@ export function PluginDetail({
         </p>
       ) : null}
 
-      <Group count={plugin.servers.length} title="Apps">
+      <Group count={plugin.servers.length} title={t("Apps")}>
         {plugin.servers.map((server) => (
           <Row
             key={server.serverId}
@@ -200,7 +203,7 @@ export function PluginDetail({
         ))}
       </Group>
 
-      <Group count={plugin.skills.length} title="Skills">
+      <Group count={plugin.skills.length} title={t("Skills")}>
         {plugin.skills.map((skill) => (
           <Row
             key={skill.slug}
@@ -211,28 +214,30 @@ export function PluginDetail({
         ))}
       </Group>
 
-      <section aria-label="Information" className="mt-8">
+      <section aria-label={t("Information")} className="mt-8">
         <h2 className="mb-3 text-[15px] font-medium text-muted-foreground">
-          Information
+          {t("Information")}
         </h2>
         <dl className="rounded-2xl bg-muted/40 px-5">
-          <Fact label="Capabilities">
+          <Fact label={t("Capabilities")}>
             {countOf(plugin.servers.length, "app")},{" "}
             {countOf(plugin.skills.length, "skill")}
           </Fact>
-          <Fact label="Developer">
+          <Fact label={t("Developer")}>
             <span className="inline-flex items-center gap-1">
               {plugin.publisher}
               {plugin.verified ? (
                 <IconRosetteDiscountCheck
-                  aria-label="Verified"
+                  aria-label={t("Verified")}
                   className="size-4 text-sky-500"
                 />
               ) : null}
             </span>
           </Fact>
-          <Fact label="Category">{categoryLabel(primaryCategory(plugin))}</Fact>
-          <Fact label="Source">
+          <Fact label={t("Category")}>
+            {categoryLabel(primaryCategory(plugin))}
+          </Fact>
+          <Fact label={t("Source")}>
             <a
               className="underline-offset-4 hover:underline"
               href={source.url}
@@ -242,12 +247,14 @@ export function PluginDetail({
               {source.label}
             </a>
           </Fact>
-          <Fact label="Access">{accessSummary(plugin)}</Fact>
+          <Fact label={t("Access")}>{accessSummary(plugin)}</Fact>
           {installed ? (
-            <Fact label="Added by">
-              {installed.mine ? "You" : (installed.installedBy ?? "Somebody")}
+            <Fact label={t("Added by")}>
+              {installed.mine
+                ? t("You")
+                : (installed.installedBy ?? t("Somebody"))}
               {" · "}
-              {new Date(installed.installedAt).toLocaleDateString()}
+              {new Date(installed.installedAt).toLocaleDateString(intlLocale())}
             </Fact>
           ) : null}
         </dl>
@@ -257,7 +264,7 @@ export function PluginDetail({
             className={buttonVariants({ size: "sm", variant: "ghost" })}
             to="/settings/keys"
           >
-            Manage keys
+            {t("Manage keys")}
           </Link>
           {mayRemove ? (
             <Button
@@ -271,7 +278,7 @@ export function PluginDetail({
               type="button"
               variant="ghost"
             >
-              {uninstall.isPending ? "Removing…" : "Remove plugin"}
+              {uninstall.isPending ? t("Removing…") : t("Remove plugin")}
             </Button>
           ) : null}
         </div>
@@ -320,11 +327,11 @@ function accessSentence(
 function accessSummary(plugin: MarketplacePluginDetail): string {
   const kinds = new Set(plugin.servers.map((server) => server.authKind));
   if (kinds.has("oauth-discover") || kinds.has("static-client")) {
-    return "Connect your account";
+    return i18n.t("Connect your account");
   }
-  if (kinds.has("header")) return "Your API key";
-  if (kinds.has("none")) return "No account needed";
-  return "Skills only";
+  if (kinds.has("header")) return i18n.t("Your API key");
+  if (kinds.has("none")) return i18n.t("No account needed");
+  return i18n.t("Skills only");
 }
 
 /** The repository at the pinned commit: a link, and "owner/repo" to show for it. */

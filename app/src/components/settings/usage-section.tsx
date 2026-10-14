@@ -7,6 +7,7 @@ import {
   SettingsSection,
 } from "@/components/ui/settings-rows";
 import { deploymentCapabilitiesQueryOptions } from "@/lib/deployment/queries";
+import { useTranslation } from "@/lib/i18n";
 import {
   formatCredits,
   type UsageWindow,
@@ -35,6 +36,7 @@ import {
  * it failed to say.
  */
 export function UsageSection() {
+  const { t } = useTranslation("settings");
   const capabilities = useQuery(deploymentCapabilitiesQueryOptions());
   const metered = capabilities.data?.usage === true;
   const billingUrl = capabilities.data?.billingUrl;
@@ -43,10 +45,10 @@ export function UsageSection() {
   return (
     <>
       {capabilities.isPending ? null : capabilities.isError ? (
-        <SettingsSection label="Usage">
+        <SettingsSection label={t("Usage")}>
           <SettingsCard>
             <SettingsRow
-              label="Billing could not be determined"
+              label={t("Billing could not be determined")}
               description={capabilities.error.message}
               control={
                 <Button
@@ -54,53 +56,59 @@ export function UsageSection() {
                   size="sm"
                   variant="outline"
                 >
-                  Retry
+                  {t("Retry")}
                 </Button>
               }
             />
           </SettingsCard>
         </SettingsSection>
       ) : metered ? (
-        <SettingsSection label="Usage">
+        <SettingsSection label={t("Usage")}>
           {usage.isPending ? null : usage.error ? (
             <p className="text-destructive text-sm" role="alert">
               {usage.error.message}
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-3">
-              <WindowCard label="This week" window={usage.data.week} />
-              <WindowCard label="This month" window={usage.data.month} />
+              <WindowCard label={t("This week")} window={usage.data.week} />
+              <WindowCard label={t("This month")} window={usage.data.month} />
               <SettingsCard className="divide-y-0 px-4 py-3">
-                <p className="text-[13px] text-muted-foreground">Balance</p>
+                <p className="text-[13px] text-muted-foreground">
+                  {t("Balance")}
+                </p>
                 <p className="text-[22px] font-semibold tabular-nums">
                   {formatCredits(usage.data.balance)}
                 </p>
                 <p className="text-[13px] text-muted-foreground">
-                  credits left
+                  {t("credits left")}
                 </p>
               </SettingsCard>
             </div>
           )}
         </SettingsSection>
       ) : (
-        <SettingsSection label="Usage">
+        <SettingsSection label={t("Usage")}>
           <SettingsCard>
             <SettingsRow
-              label="Billed by your own provider"
-              description="This deployment runs on a model key of its own, so what the model costs is on that provider's bill and there is no meter to show here."
+              label={t("Billed by your own provider")}
+              description={t(
+                "This deployment runs on a model key of its own, so what the model costs is on that provider's bill and there is no meter to show here.",
+              )}
             />
           </SettingsCard>
         </SettingsSection>
       )}
       {capabilities.isSuccess ? (
-        <SettingsSection label="Billing">
+        <SettingsSection label={t("Billing")}>
           <SettingsCard>
             <SettingsRow
-              label="Manage billing"
+              label={t("Manage billing")}
               description={
                 billingUrl
-                  ? "Your plan, payment method and invoices, on the platform that runs this deployment."
-                  : "This deployment has no billing page to send you to."
+                  ? t(
+                      "Your plan, payment method and invoices, on the platform that runs this deployment.",
+                    )
+                  : t("This deployment has no billing page to send you to.")
               }
               control={
                 billingUrl ? (
@@ -111,7 +119,7 @@ export function UsageSection() {
                     size="sm"
                     variant="outline"
                   >
-                    Manage billing
+                    {t("Manage billing")}
                     <IconArrowUpRight />
                   </Button>
                 ) : undefined
@@ -125,6 +133,7 @@ export function UsageSection() {
 }
 
 function WindowCard({ label, window }: { label: string; window: UsageWindow }) {
+  const { t } = useTranslation("settings");
   return (
     <SettingsCard className="divide-y-0 px-4 py-3">
       <p className="text-[13px] text-muted-foreground">{label}</p>
@@ -132,8 +141,10 @@ function WindowCard({ label, window }: { label: string; window: UsageWindow }) {
         {formatCredits(window.credits)}
       </p>
       <p className="text-[13px] text-muted-foreground">
-        credits ·{" "}
-        {window.requests === 1 ? "1 request" : `${window.requests} requests`}
+        {t("credits ·")}{" "}
+        {window.requests === 1
+          ? t("1 request")
+          : t("{{requests}} requests", { requests: window.requests })}
       </p>
     </SettingsCard>
   );

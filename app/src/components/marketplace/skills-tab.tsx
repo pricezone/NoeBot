@@ -7,6 +7,7 @@ import { EditSkill } from "@/components/skills/edit-skill";
 import { NewSkill } from "@/components/skills/new-skill";
 import { SkillsSections } from "@/components/skills/skills-sections";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The skills list, with the form for writing or editing one beside it.
@@ -23,6 +24,7 @@ export function SkillsTab({
   search: MarketplaceSearch;
   onSearchChange: SetMarketplaceSearch;
 }) {
+  const { t } = useTranslation();
   // Creating wins if both are somehow set: it is the more recent intent, the same rule the agents
   // tab uses when `new` and `agent` arrive together.
   const showCreate = search.new === true;
@@ -36,11 +38,11 @@ export function SkillsTab({
       </div>
       {showCreate || showEdit ? (
         <aside
-          aria-label={showCreate ? "New skill" : "Edit skill"}
+          aria-label={showCreate ? t("New skill") : t("Edit skill")}
           className="relative shrink-0 border-t border-border pt-4 md:w-[360px] md:border-t-0 md:border-l md:pt-0"
         >
           <Button
-            aria-label="Close"
+            aria-label={t("Close")}
             className="absolute top-2 right-2 z-10 rounded-full"
             onClick={close}
             size="icon-sm"

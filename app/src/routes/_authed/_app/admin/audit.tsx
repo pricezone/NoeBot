@@ -17,6 +17,7 @@ import {
 } from "@/lib/audit/outcome";
 import { auditEventsQueryOptions } from "@/lib/audit/queries";
 import { silenceOf } from "@/lib/audit/silence";
+import { intlLocale } from "@/lib/i18n/format";
 
 /**
  * Read surface for policy, computer, component, MCP, and credential audit events.
@@ -229,7 +230,7 @@ function Row({
   return (
     <tr className="border-border border-t align-top">
       <td className="whitespace-nowrap px-4 py-2 text-muted-foreground">
-        {new Date(event.createdAt).toLocaleTimeString()}
+        {new Date(event.createdAt).toLocaleTimeString(intlLocale())}
       </td>
       <td className="px-4 py-2 font-medium">
         {/* Strip the internal computer tool namespace for display. */}

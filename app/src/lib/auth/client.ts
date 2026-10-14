@@ -1,5 +1,6 @@
 import { ssoClient } from "@better-auth/sso/client";
 import { createAuthClient } from "better-auth/react";
+import { i18n } from "@/lib/i18n";
 import type { AuthProviderId } from "./queries";
 
 export const authClient = createAuthClient({ plugins: [ssoClient()] });
@@ -47,7 +48,9 @@ export async function signInWith(
     // sign-in" leaves somebody looking at three of them with no idea which one refused.
     throw new Error(
       result.error.message ||
-        `Could not start ${providerName(provider)} sign-in.`,
+        i18n.t("Could not start {{provider}} sign-in.", {
+          provider: providerName(provider),
+        }),
     );
   }
 }
@@ -78,7 +81,7 @@ export async function signInWithEmailDomain(
   if (result.error) {
     throw new Error(
       result.error.message ||
-        "No identity provider is registered for that address.",
+        i18n.t("No identity provider is registered for that address."),
     );
   }
 }

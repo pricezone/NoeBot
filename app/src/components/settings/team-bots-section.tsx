@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SettingsSection } from "@/components/ui/settings-rows";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { useTranslation } from "@/lib/i18n";
 import {
   assignTeamBotMutationOptions,
   clearTeamBotConsentsMutationOptions,
@@ -32,6 +33,7 @@ const list = (value: string) =>
  * the body that used to be the `/team-bots` page.
  */
 export function TeamBotsSection() {
+  const { t } = useTranslation("settings");
   const data = useQuery(teamBotsQueryOptions());
   const me = useQuery(currentUserQueryOptions()).data;
   const clear = useMutation(clearTeamBotConsentsMutationOptions());
@@ -46,16 +48,16 @@ export function TeamBotsSection() {
           {data.error.message}
         </p>
       ) : null}
-      <Group title="Available to you">
+      <Group title={t("Available to you")}>
         {shared.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nobody has published a Bot to you yet.
+            {t("Nobody has published a Bot to you yet.")}
           </p>
         ) : (
           shared.map((bot) => <TeamBotRow bot={bot} key={bot.id} />)
         )}
       </Group>
-      <Group title="Yours">
+      <Group title={t("Yours")}>
         {mine.map((bot) => (
           <div className="flex flex-col gap-2" key={bot.id}>
             <TeamBotRow bot={bot} />
@@ -66,25 +68,27 @@ export function TeamBotsSection() {
           <PublishNew publishable={data.data?.publishable ?? []} />
         ) : mine.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            You have no Bots of your own to publish.
+            {t("You have no Bots of your own to publish.")}
           </p>
         ) : null}
       </Group>
       {me?.role === "admin" ? (
-        <Group title="Assign to groups">
+        <Group title={t("Assign to groups")}>
           <p className="text-sm text-muted-foreground">
-            An assigned Bot appears in every member's sidebar, and they cannot
-            hide it. Use * for the whole team.
+            {t(
+              "An assigned Bot appears in every member's sidebar, and they cannot hide it. Use * for the whole team.",
+            )}
           </p>
           {bots.map((bot) => (
             <Assignments bot={bot} key={bot.id} />
           ))}
         </Group>
       ) : null}
-      <Group title="Your accounts">
+      <Group title={t("Your accounts")}>
         <p className="text-sm text-muted-foreground">
-          A Team Bot uses its owner's connected apps. It uses your own account
-          only when you allow it on the card it shows you.
+          {t(
+            "A Team Bot uses its owner's connected apps. It uses your own account only when you allow it on the card it shows you.",
+          )}
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -93,11 +97,11 @@ export function TeamBotsSection() {
             size="sm"
             variant="outline"
           >
-            Clear connector preferences
+            {t("Clear connector preferences")}
           </Button>
           {clear.isSuccess ? (
             <span className="text-sm text-muted-foreground" role="status">
-              Cleared. Team Bots will ask again.
+              {t("Cleared. Team Bots will ask again.")}
             </span>
           ) : null}
         </div>
@@ -122,6 +126,7 @@ function Group({
 }
 
 function TeamBotRow({ bot }: { bot: TeamBot }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const unpublish = useMutation(unpublishTeamBotMutationOptions(queryClient));
   const [copied, setCopied] = useState(false);
@@ -135,14 +140,21 @@ function TeamBotRow({ bot }: { bot: TeamBot }) {
         <span className="text-sm font-medium">{bot.name}</span>
         <span className="truncate text-sm text-muted-foreground">
           {bot.title}
-          {bot.assigned ? " · assigned to you" : ""}
+          {bot.assigned ? t(" · assigned to you") : ""}
           {bot.mine && !bot.visibleToTeam
-            ? " · hidden from teammates until it has a real name and a description"
+            ? t(
+                " · hidden from teammates until it has a real name and a description",
+              )
             : ""}
           {bot.mine
             ? bot.audience === "team"
-              ? " · published to the whole team"
-              : ` · published to ${[...(bot.people ?? []), ...(bot.groups ?? []).map((group) => `group ${group}`)].join(", ")}`
+              ? t(" · published to the whole team")
+              : t(" · published to {{value}}", {
+                  value: [
+                    ...(bot.people ?? []),
+                    ...(bot.groups ?? []).map((group) => `group ${group}`),
+                  ].join(", "),
+                })
             : ""}
         </span>
       </div>
@@ -152,7 +164,7 @@ function TeamBotRow({ bot }: { bot: TeamBot }) {
         )}
         size="sm"
       >
-        Start a private chat
+        {t("Start a private chat")}
       </Button>
       <Button
         onClick={() =>
@@ -163,7 +175,7 @@ function TeamBotRow({ bot }: { bot: TeamBot }) {
         size="sm"
         variant="outline"
       >
-        {copied ? "Copied" : "Copy link"}
+        {copied ? t("Copied") : t("Copy link")}
       </Button>
       {bot.mine ? (
         <Button
@@ -172,7 +184,7 @@ function TeamBotRow({ bot }: { bot: TeamBot }) {
           size="sm"
           variant="ghost"
         >
-          Unpublish
+          {t("Unpublish")}
         </Button>
       ) : null}
     </div>
@@ -184,11 +196,12 @@ function PublishNew({
 }: {
   publishable: { id: string; name: string }[];
 }) {
+  const { t } = useTranslation("settings");
   const [botId, setBotId] = useState(publishable[0]?.id ?? "");
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-3">
       <label className="grid gap-1 text-sm">
-        Publish one of your Bots
+        {t("Publish one of your Bots")}
         <select
           className="h-9 rounded-md border bg-background px-3 text-sm"
           onChange={(event) => setBotId(event.target.value)}
@@ -208,6 +221,7 @@ function PublishNew({
 
 /** Who a Bot is published to: the whole team, or named people and groups. */
 function PublishForm({ botId, current }: { botId: string; current?: TeamBot }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const publish = useMutation(publishTeamBotMutationOptions(queryClient));
   const [audience, setAudience] = useState<"team" | "people">(
@@ -236,7 +250,7 @@ function PublishForm({ botId, current }: { botId: string; current?: TeamBot }) {
             onChange={() => setAudience("team")}
             type="radio"
           />
-          The whole team
+          {t("The whole team")}
         </label>
         <label className="flex items-center gap-1.5">
           <input
@@ -245,28 +259,28 @@ function PublishForm({ botId, current }: { botId: string; current?: TeamBot }) {
             onChange={() => setAudience("people")}
             type="radio"
           />
-          Specific people or groups
+          {t("Specific people or groups")}
         </label>
       </div>
       {audience === "people" ? (
         <div className="grid gap-2 sm:grid-cols-2">
           <Input
-            aria-label="People, by email"
+            aria-label={t("People, by email")}
             onChange={(event) => setEmails(event.target.value)}
-            placeholder="People, by email, comma separated"
+            placeholder={t("People, by email, comma separated")}
             value={emails}
           />
           <Input
-            aria-label="Groups"
+            aria-label={t("Groups")}
             onChange={(event) => setGroups(event.target.value)}
-            placeholder="Groups, comma separated"
+            placeholder={t("Groups, comma separated")}
             value={groups}
           />
         </div>
       ) : null}
       <div className="flex items-center gap-2">
         <Button disabled={publish.isPending} size="sm" type="submit">
-          {current ? "Update" : "Publish to team"}
+          {current ? t("Update") : t("Publish to team")}
         </Button>
         {publish.error ? (
           <span className="text-sm text-destructive" role="alert">
@@ -279,6 +293,7 @@ function PublishForm({ botId, current }: { botId: string; current?: TeamBot }) {
 }
 
 function Assignments({ bot }: { bot: TeamBot }) {
+  const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const assign = useMutation(assignTeamBotMutationOptions(queryClient));
   const [group, setGroup] = useState("");
@@ -287,7 +302,7 @@ function Assignments({ bot }: { bot: TeamBot }) {
       <span className="font-medium">{bot.name}</span>
       {(bot.assignments ?? []).map((name) => (
         <Button
-          aria-label={`Remove ${name}`}
+          aria-label={t("Remove {{name}}", { name })}
           key={name}
           onClick={() =>
             assign.mutate({ botId: bot.id, group: name, remove: true })
@@ -295,7 +310,7 @@ function Assignments({ bot }: { bot: TeamBot }) {
           size="sm"
           variant="outline"
         >
-          {name === "*" ? "Whole team" : name} ×
+          {name === "*" ? t("Whole team") : name} ×
         </Button>
       ))}
       <form
@@ -309,10 +324,10 @@ function Assignments({ bot }: { bot: TeamBot }) {
         }}
       >
         <Input
-          aria-label={`Assign ${bot.name} to a group`}
+          aria-label={t("Assign {{name}} to a group", { name: bot.name })}
           className="w-40"
           onChange={(event) => setGroup(event.target.value)}
-          placeholder="Group, or *"
+          placeholder={t("Group, or *")}
           value={group}
         />
         <Button
@@ -320,7 +335,7 @@ function Assignments({ bot }: { bot: TeamBot }) {
           size="sm"
           type="submit"
         >
-          Assign
+          {t("Assign")}
         </Button>
       </form>
       {assign.error ? (

@@ -2,6 +2,11 @@
  * Puts the English a person sees through a translation, file by file.
  *
  *     bun scripts/i18n/codemod.ts [--dry-run] [--report <file.json>] <files or folders…>
+ *     bun scripts/i18n/codemod.ts --errors <files or folders…>
+ *
+ * `--errors` instead translates the message of every `new Error("…")` (and `Error("…")`) with
+ * `i18n.t`, in `.ts` files too: a message thrown by a query or a mutation is what the screen shows.
+ * Only for files whose errors a person reads; never for one whose errors are a tool's result.
  *
  * What it rewrites, each only where the text has a word in it:
  * - JSX text, merged with neighbouring `{value}`s into one sentence when every value is a string or a
@@ -37,6 +42,7 @@ type Note = { file: string; line: number; reason: string; text: string };
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const errorsMode = args.includes("--errors");
 const reportPath = args.includes("--report")
   ? args[args.indexOf("--report") + 1]
   : undefined;
@@ -66,9 +72,15 @@ function expandTargets(): string[] {
   for (const target of targets) {
     const absolute = path.resolve(ROOT, target);
     if (statSync(absolute).isDirectory()) {
-      for (const file of new Glob("**/*.tsx").scanSync(absolute))
-        files.add(path.relative(ROOT, path.join(absolute, file)));
-    } else if (absolute.endsWith(".tsx")) {
+      for (const file of new Glob(
+        errorsMode ? "**/*.{ts,tsx}" : "**/*.tsx",
+      ).scanSync(absolute))
+        if (!/\.test\.tsx?$/.test(file))
+          files.add(path.relative(ROOT, path.join(absolute, file)));
+    } else if (
+      absolute.endsWith(".tsx") ||
+      (errorsMode && absolute.endsWith(".ts"))
+    ) {
       files.add(path.relative(ROOT, absolute));
     }
   }
@@ -94,7 +106,15 @@ const program = ts.createProgram({
 });
 const checker = program.getTypeChecker();
 
-const VERBATIM = new Set(["code", "kbd", "pre", "samp", "var"]);
+const VERBATIM = new Set([
+  "code",
+  "kbd",
+  "pre",
+  "samp",
+  "var",
+  "style",
+  "script",
+]);
 const WORDY = /\p{L}{2,}/u;
 const HOOKS_WITH_DEPS = new Set([
   "useMemo",
@@ -429,7 +449,7 @@ for (const file of files) {
       }
     }
     const key = rendered.trim();
-    if (!WORDY.test(key)) return;
+    if (!WORDY.test(key.replace(/\{\{[^}]*\}\}/g, ""))) return;
     const component = hostFor(first, rendered);
     if (!component) return;
     const lead = rendered.startsWith(" ") ? '{" "}' : "";
@@ -530,7 +550,8 @@ for (const file of files) {
         values.push([name, span.expression.getText(source)]);
       key += `{{${name}}}${span.literal.text}`;
     }
-    if (!WORDY.test(key) || ignored(template)) return;
+    if (!WORDY.test(key.replace(/\{\{[^}]*\}\}/g, "")) || ignored(template))
+      return;
     const component = hostFor(template, key);
     if (!component) return;
     edits.push({
@@ -563,6 +584,103 @@ for (const file of files) {
         rewriteLiteral(expression.right, false);
     }
   };
+
+  if (errorsMode) {
+    const visitErrors = (node: ts.Node) => {
+      if (
+        (ts.isNewExpression(node) || ts.isCallExpression(node)) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "Error"
+      ) {
+        const message = node.arguments?.[0];
+        const literal = literalText(message);
+        if (
+          message &&
+          literal !== undefined &&
+          WORDY.test(literal) &&
+          !ignored(message)
+        ) {
+          edits.push({
+            start: message.getStart(source),
+            end: message.getEnd(),
+            text: `i18n.t(${JSON.stringify(literal)})`,
+          });
+          rewrites += 1;
+        } else if (
+          message &&
+          ts.isTemplateExpression(message) &&
+          !ignored(message)
+        ) {
+          let key = message.head.text;
+          const values: [string, string][] = [];
+          let plain = true;
+          for (const span of message.templateSpans) {
+            if (!sentenceValue(span.expression)) {
+              plain = false;
+              break;
+            }
+            const name = placeholderName(span.expression);
+            if (!values.some(([existing]) => existing === name))
+              values.push([name, span.expression.getText(source)]);
+            key += `{{${name}}}${span.literal.text}`;
+          }
+          if (!plain)
+            note(
+              message,
+              "an error message with a value that is not plain text",
+            );
+          else if (WORDY.test(key)) {
+            edits.push({
+              start: message.getStart(source),
+              end: message.getEnd(),
+              text: `i18n.t(${JSON.stringify(key)}, { ${values
+                .map(([name, value]) =>
+                  name === value ? name : `${name}: ${value}`,
+                )
+                .join(", ")} })`,
+            });
+            rewrites += 1;
+          }
+        }
+      }
+      ts.forEachChild(node, visitErrors);
+    };
+    visitErrors(source);
+    if (!edits.length) continue;
+    const fromI18nModule = source.statements.find(
+      (statement): statement is ts.ImportDeclaration =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text === "@/lib/i18n",
+    );
+    const namedImports = fromI18nModule?.importClause?.namedBindings;
+    if (fromI18nModule && namedImports && ts.isNamedImports(namedImports)) {
+      if (
+        !namedImports.elements.some((element) => element.name.text === "i18n")
+      ) {
+        const at =
+          namedImports.elements[0]?.getStart(source) ??
+          namedImports.getStart(source) + 1;
+        edits.push({ start: at, end: at, text: "i18n, " });
+      }
+    } else {
+      const imports = source.statements.filter(ts.isImportDeclaration);
+      const at = imports.length
+        ? (imports[imports.length - 1] as ts.Node).getEnd()
+        : 0;
+      edits.push({
+        start: at,
+        end: at,
+        text: `${at ? "\n" : ""}import { i18n } from "@/lib/i18n";${at ? "" : "\n"}`,
+      });
+    }
+    let output = text;
+    for (const edit of edits.sort((a, b) => b.start - a.start || b.end - a.end))
+      output = output.slice(0, edit.start) + edit.text + output.slice(edit.end);
+    changedFiles += 1;
+    if (!dryRun) writeFileSync(absolute, output);
+    continue;
+  }
 
   const visit = (node: ts.Node) => {
     if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
@@ -648,7 +766,10 @@ for (const file of files) {
     edits.push({
       start: at,
       end: at,
-      text: `\nimport { useTranslation } from "@/lib/i18n";`,
+      // After the last import, or first thing in a file that had none, ahead of its doc comment.
+      text: at
+        ? `\nimport { useTranslation } from "@/lib/i18n";`
+        : `import { useTranslation } from "@/lib/i18n";\n\n`,
     });
   }
 

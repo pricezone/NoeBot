@@ -1,8 +1,9 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 import { type Person, peopleKeys } from "./queries";
 
-const FALLBACK = "Could not update that person";
+const FALLBACK = msg("Could not update that person");
 
 function invalidatePeople(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: peopleKeys.all });

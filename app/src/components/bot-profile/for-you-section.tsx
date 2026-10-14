@@ -40,12 +40,13 @@ import {
   botResetPlanQueryOptions,
   type ResetPlan,
 } from "@/lib/bot-lifecycle/queries";
+import { msg, useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
 const NOTIFY_LABEL: Record<BotNotify, string> = {
-  all: "Everything",
-  needs_input: "Only when it needs me",
-  none: "Nothing (badges only)",
+  all: msg("Everything"),
+  needs_input: msg("Only when it needs me"),
+  none: msg("Nothing (badges only)"),
 };
 
 const selectClass = "h-8 rounded-md border bg-background px-2 text-sm";
@@ -77,6 +78,7 @@ function ResetDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
 }) {
+  const { t } = useTranslation();
   const plan = useQuery({
     ...botResetPlanQueryOptions(agent.id),
     enabled: open,
@@ -87,27 +89,32 @@ function ResetDialog({
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Reset {agent.name}?</DialogTitle>
+          <DialogTitle>
+            {t("Reset {{name}}?", { name: agent.name })}
+          </DialogTitle>
           <DialogDescription>
-            This deletes what {agent.name} has with you, and only with you.
-            Nobody else's conversations or data are touched. It cannot be
-            undone.
+            {t(
+              "This deletes what {{name}} has with you, and only with you. Nobody else's conversations or data are touched. It cannot be undone.",
+              { name: agent.name },
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="mt-4 overflow-y-auto">
           {plan.isPending ? null : plan.error ? (
             <p className="text-destructive text-sm" role="alert">
-              Could not count what a reset would delete.
+              {t("Could not count what a reset would delete.")}
             </p>
           ) : reset.isSuccess ? (
-            <p className="text-sm">Done. {agent.name} starts fresh with you.</p>
+            <p className="text-sm">
+              {t("Done. {{name}} starts fresh with you.", { name: agent.name })}
+            </p>
           ) : (
             <div className="grid gap-2 text-sm">
               {lines.length === 0 ? (
-                <p>There is nothing of yours to delete.</p>
+                <p>{t("There is nothing of yours to delete.")}</p>
               ) : (
                 <>
-                  <p>This will delete:</p>
+                  <p>{t("This will delete:")}</p>
                   <ul className="list-disc pl-5">
                     {lines.map((line) => (
                       <li key={line}>{line}</li>
@@ -117,13 +124,20 @@ function ResetDialog({
               )}
               {plan.data.sharedConversationsKept > 0 ? (
                 <p className="text-muted-foreground">
-                  {plan.data.sharedConversationsKept} conversation
-                  {plan.data.sharedConversationsKept === 1 ? " is" : "s are"}{" "}
-                  shared with other people or Bots and will be kept.
+                  {t(
+                    "{{count}} conversations are shared with other people or Bots and will be kept.",
+                    {
+                      count: plan.data.sharedConversationsKept,
+                      defaultValue_one:
+                        "{{count}} conversation is shared with other people or Bots and will be kept.",
+                    },
+                  )}
                 </p>
               ) : null}
               <p className="text-muted-foreground">
-                Your own memories, the ones you told a Bot directly, are kept.
+                {t(
+                  "Your own memories, the ones you told a Bot directly, are kept.",
+                )}
               </p>
             </div>
           )}
@@ -139,7 +153,7 @@ function ResetDialog({
             size="sm"
             variant="outline"
           >
-            {reset.isSuccess ? "Close" : "Cancel"}
+            {reset.isSuccess ? t("Close") : t("Cancel")}
           </Button>
           {reset.isSuccess ? null : (
             <Button
@@ -148,7 +162,7 @@ function ResetDialog({
               size="sm"
               variant="destructive"
             >
-              {reset.isPending ? "Resetting…" : "Delete and reset"}
+              {reset.isPending ? t("Resetting…") : t("Delete and reset")}
             </Button>
           )}
         </DialogFooter>
@@ -172,6 +186,7 @@ export function ForYouSection({
   agent: AgentProfile;
   includeMessage?: boolean;
 }) {
+  const { t } = useTranslation();
   const lifecycle = useQuery(botLifecycleQueryOptions(agent.id));
   const pause = useMutation(setBotPausedMutationOptions(queryClient));
   const notify = useMutation(setBotNotifyMutationOptions(queryClient));
@@ -190,7 +205,7 @@ export function ForYouSection({
   if (lifecycle.error) {
     return (
       <p className="mt-4 text-destructive text-sm" role="alert">
-        Could not load this Bot's state.
+        {t("Could not load this Bot's state.")}
       </p>
     );
   }
@@ -203,16 +218,20 @@ export function ForYouSection({
             <IconPlayerPause />
           </ItemMedia>
           <ItemContent>
-            <ItemTitle>Paused</ItemTitle>
+            <ItemTitle>{t("Paused")}</ItemTitle>
             <ItemDescription>
               {lifecycle.data.paused
-                ? "No routine, responsibility, hand-off or follow-up starts for you, and what was running has stopped."
-                : "Runs its routines, responsibilities, hand-offs and follow-ups for you."}
+                ? t(
+                    "No routine, responsibility, hand-off or follow-up starts for you, and what was running has stopped.",
+                  )
+                : t(
+                    "Runs its routines, responsibilities, hand-offs and follow-ups for you.",
+                  )}
             </ItemDescription>
           </ItemContent>
           <ItemActions>
             <Switch
-              aria-label="Paused"
+              aria-label={t("Paused")}
               checked={lifecycle.data.paused}
               disabled={pause.isPending}
               onCheckedChange={(paused) =>
@@ -227,14 +246,16 @@ export function ForYouSection({
             <IconBell />
           </ItemMedia>
           <ItemContent>
-            <ItemTitle>Notifications</ItemTitle>
+            <ItemTitle>{t("Notifications")}</ItemTitle>
             <ItemDescription>
-              {NOTIFY_LABEL[lifecycle.data.notify]}. Sidebar badges always show.
+              {t("{{value}}. Sidebar badges always show.", {
+                value: t(NOTIFY_LABEL[lifecycle.data.notify]),
+              })}
             </ItemDescription>
           </ItemContent>
           <ItemActions>
             <select
-              aria-label="Notifications"
+              aria-label={t("Notifications")}
               className={selectClass}
               disabled={notify.isPending}
               onChange={(event) =>
@@ -247,7 +268,7 @@ export function ForYouSection({
             >
               {(Object.keys(NOTIFY_LABEL) as BotNotify[]).map((value) => (
                 <option key={value} value={value}>
-                  {NOTIFY_LABEL[value]}
+                  {t(NOTIFY_LABEL[value])}
                 </option>
               ))}
             </select>
@@ -261,10 +282,11 @@ export function ForYouSection({
                 <IconBell />
               </ItemMedia>
               <ItemContent>
-                <ItemTitle>Browser notifications</ItemTitle>
+                <ItemTitle>{t("Browser notifications")}</ItemTitle>
                 <ItemDescription>
-                  Off in this browser. Turn them on to hear when a Bot needs
-                  you.
+                  {t(
+                    "Off in this browser. Turn them on to hear when a Bot needs you.",
+                  )}
                 </ItemDescription>
               </ItemContent>
               <ItemActions>
@@ -279,7 +301,7 @@ export function ForYouSection({
                   size="sm"
                   variant="outline"
                 >
-                  Turn on
+                  {t("Turn on")}
                 </Button>
               </ItemActions>
             </Item>
@@ -296,8 +318,10 @@ export function ForYouSection({
                 <IconMessage />
               </ItemMedia>
               <ItemContent>
-                <ItemTitle>Message {agent.name}</ItemTitle>
-                <ItemDescription>Start a conversation.</ItemDescription>
+                <ItemTitle>
+                  {t("Message {{name}}", { name: agent.name })}
+                </ItemTitle>
+                <ItemDescription>{t("Start a conversation.")}</ItemDescription>
               </ItemContent>
             </Item>
           </>
@@ -311,10 +335,11 @@ export function ForYouSection({
             <IconRefresh />
           </ItemMedia>
           <ItemContent>
-            <ItemTitle>Reset</ItemTitle>
+            <ItemTitle>{t("Reset")}</ItemTitle>
             <ItemDescription>
-              Delete your conversations with it, what it remembers for you, and
-              its scheduled work. You see what will go first.
+              {t(
+                "Delete your conversations with it, what it remembers for you, and its scheduled work. You see what will go first.",
+              )}
             </ItemDescription>
           </ItemContent>
         </Item>

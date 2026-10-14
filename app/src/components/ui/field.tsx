@@ -1,9 +1,9 @@
-import { useMemo } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
-
-import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { useTranslation } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -179,6 +179,9 @@ function FieldError({
 }: React.ComponentProps<"div"> & {
   errors?: Array<{ message?: string } | undefined>;
 }) {
+  // Validation messages are English keys (`msg` in the form schemas), said in the interface's
+  // language here; a message nobody translated reads as written.
+  const { t } = useTranslation();
   const content = useMemo(() => {
     if (children) {
       return children;
@@ -193,18 +196,19 @@ function FieldError({
     ];
 
     if (uniqueErrors?.length === 1) {
-      return uniqueErrors[0]?.message;
+      const only = uniqueErrors[0]?.message;
+      return only ? t(only) : only;
     }
 
     return (
       <ul className="ml-4 flex list-disc flex-col gap-1">
         {uniqueErrors.map(
           (error) =>
-            error?.message && <li key={error.message}>{error.message}</li>,
+            error?.message && <li key={error.message}>{t(error.message)}</li>,
         )}
       </ul>
     );
-  }, [children, errors]);
+  }, [children, errors, t]);
 
   if (!content) {
     return null;
@@ -224,13 +228,13 @@ function FieldError({
 
 export {
   Field,
-  FieldLabel,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
+  FieldLabel,
   FieldLegend,
   FieldSeparator,
   FieldSet,
-  FieldContent,
   FieldTitle,
 };

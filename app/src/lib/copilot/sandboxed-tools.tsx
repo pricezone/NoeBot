@@ -13,7 +13,7 @@ import {
   type GrantedComponent,
 } from "@/lib/components/queries";
 import { useActiveBotId, useDeclaredBotId } from "@/lib/copilot/active-bot";
-import { useTranslation } from "@/lib/i18n";
+import { i18n, useTranslation } from "@/lib/i18n";
 import {
   type PublishedSandboxed,
   publishedSandboxedQueryOptions,
@@ -98,7 +98,10 @@ function SandboxedTool({
       if (!isHeld) {
         return (
           <RefusedCard
-            reason={`${component.name} is not available to this Bot at the moment. An administrator grants components per Bot.`}
+            reason={i18n.t(
+              "{{name}} is not available to this Bot at the moment. An administrator grants components per Bot.",
+              { name: component.name },
+            )}
             title={component.name}
           />
         );

@@ -4,8 +4,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { ComponentPreview } from "@/components/component-preview";
 import { PageRows, PageSection } from "@/components/layout/page-shell";
-import { SettingsPage } from "@/components/settings/settings-page";
 import { SettingsItemBackground } from "@/components/settings/background";
+import { SettingsPage } from "@/components/settings/settings-page";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -22,10 +22,11 @@ import {
 } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
 import { componentListQueryOptions } from "@/lib/components/queries";
+import { msg, useTranslation } from "@/lib/i18n";
 
 /** The same way back from every state this route can be in. */
 const BACK = {
-  label: "Components gallery",
+  label: msg("Components gallery"),
   linkProps: { to: "/settings/components-gallery" },
 } as const;
 
@@ -66,6 +67,7 @@ function FactRow({
 }
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const { name } = Route.useParams();
   const components = useQuery(componentListQueryOptions());
 
@@ -73,9 +75,9 @@ function RouteComponent() {
 
   if (components.error) {
     return (
-      <SettingsPage backButton={BACK} title="Components gallery">
+      <SettingsPage backButton={BACK} title={t("Components gallery")}>
         <p className="mt-8 text-destructive text-sm" role="alert">
-          Could not load components.
+          {t("Could not load components.")}
         </p>
       </SettingsPage>
     );
@@ -93,15 +95,16 @@ function RouteComponent() {
     return (
       <SettingsPage
         backButton={BACK}
-        description="Nothing here answers to that name."
-        title="No such component"
+        description={t("Nothing here answers to that name.")}
+        title={t("No such component")}
       >
         <Empty className="mt-12 min-h-[30dvh] border border-dashed">
           <EmptyHeader>
             <EmptyTitle>{name}</EmptyTitle>
             <EmptyDescription className="text-pretty">
-              It may have been withdrawn, or this deployment may no longer ship
-              it.
+              {t(
+                "It may have been withdrawn, or this deployment may no longer ship it.",
+              )}
             </EmptyDescription>
           </EmptyHeader>
           <Button
@@ -109,7 +112,7 @@ function RouteComponent() {
             size="sm"
             variant="outline"
           >
-            Back to the gallery
+            {t("Back to the gallery")}
           </Button>
         </Empty>
       </SettingsPage>
@@ -131,13 +134,13 @@ function RouteComponent() {
         </div>
       </div>
 
-      <PageSection title="Details">
+      <PageSection title={t("Details")}>
         <PageRows>
-          <FactRow icon={<IconTag />} label="Kind">
+          <FactRow icon={<IconTag />} label={t("Kind")}>
             {component.kind}
           </FactRow>
           <Separator />
-          <FactRow icon={<IconCode />} label="Called as">
+          <FactRow icon={<IconCode />} label={t("Called as")}>
             <code className="rounded bg-foreground/5 px-1.5 py-0.5 text-xs">
               {component.name}
             </code>

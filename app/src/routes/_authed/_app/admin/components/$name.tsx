@@ -60,6 +60,7 @@ import {
   dataFunctionsQueryOptions,
 } from "@/lib/components/queries";
 import { RENDERABLE_NAMES } from "@/lib/copilot/gallery-registry";
+import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
 /**
@@ -406,7 +407,7 @@ function ComponentDetail({
           </FactRow>
           <Separator />
           <FactRow icon={<IconClock />} label="Last changed">
-            {new Date(component.updatedAt).toLocaleString()}
+            {new Date(component.updatedAt).toLocaleString(intlLocale())}
             {component.updatedBy ? ` by ${component.updatedBy}` : null}
           </FactRow>
         </PageRows>

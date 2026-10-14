@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 /** Small transport lifecycle shared by the live viewer and deterministic reconnect tests. */
 export type ScreenSocket = {
   onopen: (() => void | Promise<void>) | null;
@@ -41,11 +42,11 @@ export function connectScreen(options: Options) {
       const delay = BACKOFF[attempts++];
       if (delay === undefined) {
         options.onProblem(
-          "The live screen is disconnected. Retry to reconnect.",
+          i18n.t("The live screen is disconnected. Retry to reconnect."),
         );
         return;
       }
-      options.onProblem("Reconnecting to the live screen…");
+      options.onProblem(i18n.t("Reconnecting to the live screen…"));
       cancelTimer = schedule(connect, delay);
     };
     current.onopen = async () => {
@@ -77,7 +78,9 @@ export function connectScreen(options: Options) {
           options.onReady(false);
           options.onProblem(
             message.error ??
-              "This screen is open in another tab. Retry to take it here.",
+              i18n.t(
+                "This screen is open in another tab. Retry to take it here.",
+              ),
           );
           current.close();
           return;

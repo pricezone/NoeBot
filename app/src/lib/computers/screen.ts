@@ -1,4 +1,5 @@
 import { tryClient } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 
 /**
  * One frame of a Bot's screen.
@@ -85,7 +86,7 @@ export async function readScreenshot(
   computerId: string,
   { desktop = false }: { desktop?: boolean } = {},
 ): Promise<{ frame?: Screenshot; error?: string }> {
-  const unavailable = "The screen is not available right now.";
+  const unavailable = i18n.t("The screen is not available right now.");
   try {
     const response = await tryClient(
       `/api/computers/${computerId}/${desktop ? "desktop/screenshot" : "screenshot"}`,
@@ -106,7 +107,7 @@ function parseScreenshot(body: unknown): {
   frame?: Screenshot;
   error?: string;
 } {
-  const unavailable = "The screen is not available right now.";
+  const unavailable = i18n.t("The screen is not available right now.");
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { error: unavailable };
   }
@@ -205,12 +206,14 @@ export async function showScreen(
         ? body.reason
         : typeof body?.error === "string"
           ? body.error
-          : "The screen could not be shown.";
+          : i18n.t("The screen could not be shown.");
     return { ok: false, reason };
   } catch {
     return {
       ok: false,
-      reason: "The screen could not be shown: the server did not answer.",
+      reason: i18n.t(
+        "The screen could not be shown: the server did not answer.",
+      ),
     };
   }
 }

@@ -5,6 +5,7 @@ import { SkillSettings } from "@/components/skills/skill-bots";
 import { SkillFields } from "@/components/skills/skill-fields";
 import { Button } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
+import { i18n, Trans, useTranslation } from "@/lib/i18n";
 import {
   removeSkillMutationOptions,
   saveSkillMutationOptions,
@@ -40,6 +41,7 @@ export function EditSkill({
   slug: string;
   onClose?: () => void;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { data, isPending } = useQuery(pluginsPageQueryOptions());
@@ -70,7 +72,7 @@ export function EditSkill({
     return (
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
         <p className="text-destructive text-sm" role="alert">
-          This skill could not be loaded.
+          {t("This skill could not be loaded.")}
         </p>
       </div>
     );
@@ -86,7 +88,7 @@ export function EditSkill({
          * not own.
          */}
         <p className="text-muted-foreground text-sm">
-          That skill no longer exists, or it is not yours to edit.
+          {t("That skill no longer exists, or it is not yours to edit.")}
         </p>
       </div>
     );
@@ -127,10 +129,14 @@ export function EditSkill({
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-6 p-6">
       <header>
-        <h1 className="text-2xl font-semibold">Edit skill</h1>
+        <h1 className="text-2xl font-semibold">{t("Edit skill")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Changes apply the next time <code>/{skill.slug}</code> is used. Agents
-          already carrying it keep it.
+          <Trans
+            t={t}
+            i18nKey="Changes apply the next time <code>/{{slug}}</code> is used. Agents already carrying it keep it."
+            values={{ slug: skill.slug }}
+            components={{ code: <code /> }}
+          />
         </p>
       </header>
 
@@ -161,7 +167,7 @@ export function EditSkill({
           await close();
         }}
         slugLocked
-        submitLabel="Save changes"
+        submitLabel={t("Save changes")}
       />
 
       {/*
@@ -171,7 +177,7 @@ export function EditSkill({
        */}
       <div className="flex items-center justify-between gap-4 border-t border-border pt-4">
         <p className="text-xs text-muted-foreground">
-          Bots carrying it lose it at once. There is no undo.
+          {t("Bots carrying it lose it at once. There is no undo.")}
         </p>
         <Button
           className="shrink-0 text-destructive hover:text-destructive"
@@ -183,7 +189,9 @@ export function EditSkill({
           type="button"
           variant="ghost"
         >
-          {removeSkill.isPending ? "Deleting…" : `Delete /${skill.slug}`}
+          {removeSkill.isPending
+            ? t("Deleting…")
+            : t("Delete /{{slug}}", { slug: skill.slug })}
         </Button>
       </div>
       {removeSkill.error ? (
@@ -198,10 +206,16 @@ export function EditSkill({
 /** Why the panel is read-only, in the words of what shipped the skill. */
 function readOnlySentence(skill: PluginSkill): string {
   if (skill.pluginId) {
-    return "Installed from a Marketplace plugin. It is replaced or removed with the plugin, from the plugin's page.";
+    return i18n.t(
+      "Installed from a Marketplace plugin. It is replaced or removed with the plugin, from the plugin's page.",
+    );
   }
   if (skill.origin === "catalogue") {
-    return "Ships with Noë Bot. It is updated with the package and cannot be edited here; write your own skill to change how a Bot works.";
+    return i18n.t(
+      "Ships with Noë Bot. It is updated with the package and cannot be edited here; write your own skill to change how a Bot works.",
+    );
   }
-  return "A workspace skill, written for everyone by an administrator. Which Bots carry it is decided by an administrator.";
+  return i18n.t(
+    "A workspace skill, written for everyone by an administrator. Which Bots carry it is decided by an administrator.",
+  );
 }

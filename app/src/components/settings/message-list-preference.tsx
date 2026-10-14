@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SettingsRow } from "@/components/ui/settings-rows";
+import { useTranslation } from "@/lib/i18n";
 import {
   saveUserPreferencesMutationOptions,
   useUserPreferences,
@@ -22,6 +23,7 @@ import {
  * shows is what the sidebar will do, not a drawing of it.
  */
 export function MessageListPreference() {
+  const { t } = useTranslation("settings");
   const preferences = useUserPreferences();
   const queryClient = useQueryClient();
   const save = useMutation(
@@ -34,8 +36,8 @@ export function MessageListPreference() {
   return (
     <>
       <SettingsRow
-        label="Message list emphasis"
-        description="Choose which name appears larger in the sidebar."
+        label={t("Message list emphasis")}
+        description={t("Choose which name appears larger in the sidebar.")}
         control={
           <Select
             value={emphasis ?? null}
@@ -46,18 +48,18 @@ export function MessageListPreference() {
               }
             }}
           >
-            <SelectTrigger aria-label="Message list emphasis">
+            <SelectTrigger aria-label={t("Message list emphasis")}>
               <SelectValue>
                 {emphasis
                   ? emphasis === "agent"
-                    ? "Agent name"
-                    : "Thread title"
-                  : "Loading…"}
+                    ? t("Agent name")
+                    : t("Thread title")
+                  : t("Loading…")}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="thread">Thread title</SelectItem>
-              <SelectItem value="agent">Agent name</SelectItem>
+              <SelectItem value="thread">{t("Thread title")}</SelectItem>
+              <SelectItem value="agent">{t("Agent name")}</SelectItem>
             </SelectContent>
           </Select>
         }
@@ -72,7 +74,7 @@ export function MessageListPreference() {
             size="sm"
             onClick={() => void preferences.refetch()}
           >
-            Retry
+            {t("Retry")}
           </Button>
         </div>
       ) : null}
@@ -83,19 +85,19 @@ export function MessageListPreference() {
       ) : null}
       {save.isPending ? (
         <p role="status" className="px-4 py-3 text-sm text-muted-foreground">
-          Saving…
+          {t("Saving…")}
         </p>
       ) : null}
       {emphasis ? (
         <div className="flex justify-center px-6 py-4">
           <figure
-            aria-label="Message list preview"
+            aria-label={t("Message list preview")}
             className="flex h-16 w-full max-w-xs items-center rounded-xl bg-sidebar px-3"
           >
             <ChannelItemContent
               participantIds={["message-list-preview"]}
               name="General Assistant"
-              title="Plan next week"
+              title={t("Plan next week")}
               lastMessageAt="2h"
               emphasis={emphasis}
             />

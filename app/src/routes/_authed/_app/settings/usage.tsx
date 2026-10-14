@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SettingsPage } from "@/components/settings/settings-page";
 import { UsageSection } from "@/components/settings/usage-section";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * Reachable by URL on every deployment; the nav row for it shows only where there is a meter or a
@@ -12,10 +13,13 @@ export const Route = createFileRoute("/_authed/_app/settings/usage")({
 });
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   return (
     <SettingsPage
-      description="What this deployment has spent, and where its subscription is managed."
-      title="Usage & Billing"
+      description={t(
+        "What this deployment has spent, and where its subscription is managed.",
+      )}
+      title={t("Usage & Billing")}
     >
       <UsageSection />
     </SettingsPage>

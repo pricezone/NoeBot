@@ -1,5 +1,6 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 import { sandboxedKeys } from "./queries";
 
 /**
@@ -20,7 +21,7 @@ export type SandboxedDraftInput = {
   sampleArguments: Record<string, unknown>;
 };
 
-const FALLBACK = "That did not work.";
+const FALLBACK = msg("That did not work.");
 
 function invalidateSandboxed(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: sandboxedKeys.all });

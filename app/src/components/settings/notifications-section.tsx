@@ -15,6 +15,8 @@ import {
   startChatLink,
   startSms,
 } from "@/lib/delivery";
+import { useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
 /**
@@ -49,6 +51,7 @@ function writePending(id: string) {
  * before the move can still be confirmed after it.
  */
 export function NotificationsSection() {
+  const { t } = useTranslation("settings");
   const reach = useQuery(deliveryQueryOptions());
   const channels = useInfiniteQuery(channelListQueryOptions());
   const bots = useQuery(agentListQueryOptions());
@@ -106,9 +109,9 @@ export function NotificationsSection() {
         </p>
       )}
       <div className="grid gap-3 rounded-lg border p-4">
-        <h2 className="font-semibold">Connect a conversation</h2>
+        <h2 className="font-semibold">{t("Connect a conversation")}</h2>
         <label className="grid gap-1 text-sm">
-          Conversation
+          {t("Conversation")}
           <select
             className="h-9 rounded border bg-background px-3"
             value={channelId}
@@ -117,7 +120,7 @@ export function NotificationsSection() {
               setAgentId("");
             }}
           >
-            <option value="">Choose a conversation</option>
+            <option value="">{t("Choose a conversation")}</option>
             {channels.data
               ?.filter((channel) => channel.active)
               .map((channel) => (
@@ -128,13 +131,13 @@ export function NotificationsSection() {
           </select>
         </label>
         <label className="grid gap-1 text-sm">
-          Bot
+          {t("Bot")}
           <select
             className="h-9 rounded border bg-background px-3"
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
           >
-            <option value="">Choose a Bot</option>
+            <option value="">{t("Choose a Bot")}</option>
             {selected?.agentIds.map((id) => (
               <option key={id} value={id}>
                 {botName(id)}
@@ -144,7 +147,7 @@ export function NotificationsSection() {
         </label>
         {channels.hasNextPage && (
           <Button variant="outline" onClick={() => channels.fetchNextPage()}>
-            Load more conversations
+            {t("Load more conversations")}
           </Button>
         )}
         <div className="flex flex-wrap gap-2">
@@ -154,7 +157,7 @@ export function NotificationsSection() {
             }
             onClick={() => link.mutate("slack")}
           >
-            Link Slack
+            {t("Link Slack")}
           </Button>
           <Button
             variant="outline"
@@ -163,16 +166,22 @@ export function NotificationsSection() {
             }
             onClick={() => link.mutate("teams")}
           >
-            Link Microsoft Teams
+            {t("Link Microsoft Teams")}
           </Button>
         </div>
         {link.data && (
           <div className="grid gap-2 rounded border bg-muted/40 p-3 text-sm">
             <p>
-              Send this message to the {brand.productName} app in{" "}
-              {link.data.platform === "teams" ? "Microsoft Teams" : "Slack"}{" "}
-              within {link.data.expiresInMinutes} minutes. It links that account
-              to this conversation and Bot.
+              {t("Send this message to the {{productName}} app in", {
+                productName: brand.productName,
+              })}{" "}
+              {link.data.platform === "teams"
+                ? t("Microsoft Teams")
+                : t("Slack")}{" "}
+              {t(
+                "within {{expiresInMinutes}} minutes. It links that account to this conversation and Bot.",
+                { expiresInMinutes: link.data.expiresInMinutes },
+              )}
             </p>
             <div className="flex items-center gap-2">
               <code className="min-w-0 flex-1 break-all rounded bg-background px-2 py-1">
@@ -186,19 +195,22 @@ export function NotificationsSection() {
                   setCopied(true);
                 }}
               >
-                {copied ? "Copied" : "Copy"}
+                {copied ? t("Copied") : t("Copy")}
               </Button>
             </div>
           </div>
         )}
         <p className="text-sm text-muted-foreground">
-          In a channel other people can read, the Bot answers you in a direct
-          message instead.
+          {t(
+            "In a channel other people can read, the Bot answers you in a direct message instead.",
+          )}
         </p>
         {reach.data && !reach.data.available.slack && (
           <p className="text-sm text-muted-foreground">
-            An administrator needs to pair {brand.productName} with OpenTag
-            before Slack or Teams can be linked.
+            {t(
+              "An administrator needs to pair {{productName}} with OpenTag before Slack or Teams can be linked.",
+              { productName: brand.productName },
+            )}
           </p>
         )}
         <form
@@ -209,7 +221,7 @@ export function NotificationsSection() {
           }}
         >
           <label htmlFor="delivery-phone" className="grid gap-1 text-sm">
-            Phone number
+            {t("Phone number")}
             <Input
               id="delivery-phone"
               type="tel"
@@ -224,7 +236,7 @@ export function NotificationsSection() {
             type="submit"
             disabled={!agentId || !reach.data?.available.sms || sms.isPending}
           >
-            Send verification code
+            {t("Send verification code")}
           </Button>
         </form>
         {challengeId && (
@@ -236,22 +248,22 @@ export function NotificationsSection() {
             }}
           >
             <Input
-              aria-label="Verification code"
+              aria-label={t("Verification code")}
               autoComplete="one-time-code"
               value={code}
               onChange={(event) => setCode(event.target.value)}
               required
             />
             <Button type="submit" disabled={confirm.isPending}>
-              Confirm phone
+              {t("Confirm phone")}
             </Button>
           </form>
         )}
       </div>
       <section className="grid gap-3 rounded-lg border p-4">
-        <h2 className="font-semibold">Connected destinations</h2>
+        <h2 className="font-semibold">{t("Connected destinations")}</h2>
         {reach.isPending ? (
-          <p>Loading connections…</p>
+          <p>{t("Loading connections…")}</p>
         ) : (
           reach.data?.bindings
             .filter((binding) => binding.enabled)
@@ -262,11 +274,14 @@ export function NotificationsSection() {
               >
                 <p className="text-sm">
                   {binding.transport === "slack"
-                    ? "Slack"
+                    ? t("Slack")
                     : binding.transport === "teams"
-                      ? "Microsoft Teams"
+                      ? t("Microsoft Teams")
                       : binding.optedOutAt
-                        ? `${binding.address} (replied STOP; text START to resume)`
+                        ? t(
+                            "{{address}} (replied STOP; text START to resume)",
+                            { address: binding.address },
+                          )
                         : binding.address}{" "}
                   · {botName(binding.agentId)}
                 </p>
@@ -276,22 +291,24 @@ export function NotificationsSection() {
                   disabled={remove.isPending}
                   onClick={() => remove.mutate(binding.id)}
                 >
-                  Disconnect
+                  {t("Disconnect")}
                 </Button>
               </div>
             ))
         )}
         {reach.data?.bindings.every((binding) => !binding.enabled) && (
           <p className="text-sm text-muted-foreground">
-            No destinations connected.
+            {t("No destinations connected.")}
           </p>
         )}
       </section>
       <section className="grid gap-3 rounded-lg border p-4">
-        <h2 className="font-semibold">Native devices</h2>
+        <h2 className="font-semibold">{t("Native devices")}</h2>
         <p className="text-sm text-muted-foreground">
-          Sign in to the {brand.productName} native app and enable notifications
-          to register your device.
+          {t(
+            "Sign in to the {{productName}} native app and enable notifications to register your device.",
+            { productName: brand.productName },
+          )}
         </p>
         {reach.data?.devices.map((device) => (
           <div key={device.id} className="flex items-center justify-between">
@@ -302,18 +319,18 @@ export function NotificationsSection() {
               disabled={deviceRemove.isPending}
               onClick={() => deviceRemove.mutate(device.id)}
             >
-              Remove device
+              {t("Remove device")}
             </Button>
           </div>
         ))}
       </section>
       <section className="grid gap-2 rounded-lg border p-4">
-        <h2 className="font-semibold">Recent deliveries</h2>
+        <h2 className="font-semibold">{t("Recent deliveries")}</h2>
         {reach.data?.deliveries.map((delivery) => (
           <div key={delivery.id} className="border-t pt-2 text-sm">
             <p>
               {delivery.transport} · {delivery.kind} · {delivery.state} ·{" "}
-              {new Date(delivery.createdAt).toLocaleString()}
+              {new Date(delivery.createdAt).toLocaleString(intlLocale())}
             </p>
             {delivery.error && (
               <p className="text-destructive">{delivery.error}</p>
@@ -321,7 +338,9 @@ export function NotificationsSection() {
           </div>
         ))}
         {reach.data?.deliveries.length === 0 && (
-          <p className="text-sm text-muted-foreground">No deliveries yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No deliveries yet.")}
+          </p>
         )}
       </section>
     </div>

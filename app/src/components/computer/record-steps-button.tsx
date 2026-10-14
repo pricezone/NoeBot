@@ -9,6 +9,7 @@ import {
   stopDemonstration,
   UNTITLED_WORKFLOW,
 } from "@/lib/demonstrations";
+import { useTranslation } from "@/lib/i18n";
 import {
   clock,
   refreshDemonstrations,
@@ -40,6 +41,7 @@ export function RecordStepsButton({
   /** Told while "Name this workflow" is open, so Escape there does not also close the viewer. */
   onDialogOpenChange?: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const recordings = useQuery(demonstrationsQueryOptions(botId));
   const active = recordings.data?.find(
     (recording) => recording.status === "recording",
@@ -105,19 +107,22 @@ export function RecordStepsButton({
               aria-hidden="true"
               className="size-2 animate-pulse rounded-full bg-red-500"
             />
-            <span className="sr-only">Recording.</span>
+            <span className="sr-only">{t("Recording.")}</span>
             {secondsLeft !== null ? (
               <span
                 aria-live={secondsLeft <= 60 ? "polite" : "off"}
                 className={secondsLeft <= 60 ? "font-medium text-red-400" : ""}
               >
                 {secondsLeft > 0
-                  ? `${clock(secondsLeft)} left`
-                  : "Time limit reached. Stopping…"}
+                  ? t("{{value}} left", { value: clock(secondsLeft) })
+                  : t("Time limit reached. Stopping…")}
               </span>
             ) : null}
             <span className="opacity-70">
-              {steps} {steps === 1 ? "step" : "steps"}
+              {t("{{count}} steps", {
+                count: steps,
+                defaultValue_one: "{{count}} step",
+              })}
             </span>
           </span>
           <Button
@@ -126,7 +131,7 @@ export function RecordStepsButton({
             disabled={stop.isPending}
             onClick={() => stop.mutate(active.id)}
           >
-            Stop recording
+            {t("Stop recording")}
           </Button>
         </>
       ) : (
@@ -137,7 +142,7 @@ export function RecordStepsButton({
           onClick={() => start.mutate()}
         >
           <IconPlayerRecordFilled className="text-red-500" />
-          Record your steps
+          {t("Record your steps")}
         </Button>
       )}
       {problem ? (

@@ -8,6 +8,7 @@ import {
   SettingsPage,
 } from "@/components/settings/settings-page";
 import { TeamBotsSection } from "@/components/settings/team-bots-section";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * Everything about the Bots on one page, in four blocks the old sidebar listed as four pages:
@@ -26,6 +27,7 @@ export const Route = createFileRoute("/_authed/_app/settings/bots")({
 const SETTLE_MS = 3000;
 
 function RouteComponent() {
+  const { t } = useTranslation("settings");
   const hash = useLocation({ select: (location) => location.hash });
   /*
    * The entry's key, so following the same hash link again while this page is already open scrolls
@@ -78,30 +80,38 @@ function RouteComponent() {
 
   return (
     <SettingsPage
-      description="What each of your Bots is doing, what it needs from you, and what it does on its own."
-      title="Bots"
+      description={t(
+        "What each of your Bots is doing, what it needs from you, and what it does on its own.",
+      )}
+      title={t("Bots")}
     >
-      <SettingsBlock id="bots" title="Your Bots">
+      <SettingsBlock id="bots" title={t("Your Bots")}>
         <BotsSection />
       </SettingsBlock>
       <SettingsBlock
-        description="Bots your teammates published, and the ones you share. Each chat with a Team Bot is private to the person having it."
+        description={t(
+          "Bots your teammates published, and the ones you share. Each chat with a Team Bot is private to the person having it.",
+        )}
         id="team"
-        title="Team Bots"
+        title={t("Team Bots")}
       >
         <TeamBotsSection />
       </SettingsBlock>
       <SettingsBlock
-        description="Give a Bot a lasting goal, follow its progress, and decide when it should work."
+        description={t(
+          "Give a Bot a lasting goal, follow its progress, and decide when it should work.",
+        )}
         id="responsibilities"
-        title="Responsibilities"
+        title={t("Responsibilities")}
       >
         <ResponsibilitiesSection />
       </SettingsBlock>
       <SettingsBlock
-        description="What a Bot does on a schedule, without being asked each time. Made and changed by talking to a Bot — this only shows what is standing, and lets you stop one."
+        description={t(
+          "What a Bot does on a schedule, without being asked each time. Made and changed by talking to a Bot — this only shows what is standing, and lets you stop one.",
+        )}
         id="routines"
-        title="Routines"
+        title={t("Routines")}
       >
         <RoutinesSection />
       </SettingsBlock>

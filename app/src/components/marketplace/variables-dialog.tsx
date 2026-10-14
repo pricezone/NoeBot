@@ -16,6 +16,7 @@ import {
   ItemDescription,
   ItemTitle,
 } from "@/components/ui/item";
+import { useTranslation } from "@/lib/i18n";
 import { connectWithVariablesMutationOptions } from "@/lib/plugins/mutations";
 import type { ConnectVariable } from "@/lib/plugins/queries";
 
@@ -43,6 +44,7 @@ export function VariablesDialog({
   title: string;
   variables: ConnectVariable[];
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const form = useId();
   const [values, setValues] = useState<Record<string, string>>({});
@@ -69,10 +71,12 @@ export function VariablesDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add your {title} key</DialogTitle>
+          <DialogTitle>{t("Add your {{title}} key", { title })}</DialogTitle>
           <DialogDescription>
-            Held for you alone, and sent with every call a Bot makes to {title}{" "}
-            on your behalf. Nobody else's calls carry it.
+            {t(
+              "Held for you alone, and sent with every call a Bot makes to {{title}} on your behalf. Nobody else's calls carry it.",
+              { title },
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -124,7 +128,7 @@ export function VariablesDialog({
               size="sm"
               type="submit"
             >
-              {connect.isPending ? "Adding…" : "Add key"}
+              {connect.isPending ? t("Adding…") : t("Add key")}
             </Button>
           </form>
         </DialogBody>

@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,6 +42,7 @@ export function Pills({
   moreAfter?: number;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const shown =
     moreAfter !== undefined && items.length > moreAfter
       ? items.slice(0, moreAfter)
@@ -80,7 +82,7 @@ export function Pills({
                 )}
                 type="button"
               >
-                {foldedActive?.label ?? "More"}
+                {foldedActive?.label ?? t("More")}
                 <IconChevronDown aria-hidden="true" className="size-4" />
               </button>
             }

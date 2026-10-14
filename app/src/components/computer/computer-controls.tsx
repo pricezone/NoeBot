@@ -5,6 +5,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useComputerControl } from "@/lib/computers/use-control";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The same ownership action appears in the screen card's footer and in the full-window viewer.
@@ -45,6 +46,7 @@ export function ComputerControlButton({
    */
   onOpenScreen?: () => void;
 }) {
+  const { t } = useTranslation();
   const { control, busy, problem, change } = useComputerControl(computerId);
   const human = control?.holder === "human";
   const disabled = busy || !control || control.transitioning;
@@ -60,11 +62,11 @@ export function ComputerControlButton({
         if (await change?.("take")) onTakeControl?.();
       }}
     >
-      Take control
+      {t("Take control")}
     </Button>
   ) : onOpenScreen ? (
     <Button size="sm" onClick={onOpenScreen}>
-      Open screen
+      {t("Open screen")}
     </Button>
   ) : (
     <Button
@@ -76,7 +78,7 @@ export function ComputerControlButton({
       aria-busy={busy || control?.transitioning}
       onClick={() => onKeepControlChange?.(!keepControl)}
     >
-      Keep control
+      {t("Keep control")}
     </Button>
   );
   if (withTooltip)
@@ -88,11 +90,13 @@ export function ComputerControlButton({
             className="max-w-sm flex-col items-start text-left"
             side="bottom"
           >
-            <span className="font-semibold">Teach a browser workflow</span>
+            <span className="font-semibold">
+              {t("Teach a browser workflow")}
+            </span>
             <span>
-              Take control, record the steps, then review a skill draft. Typed
-              values and images are omitted. Sensitive fields stay in your
-              hands. Recording stops automatically after ten minutes.
+              {t(
+                "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
+              )}
             </span>
           </TooltipContent>
         </Tooltip>
@@ -111,7 +115,7 @@ export function ComputerControlButton({
       {button}
       {control?.transitioning ? (
         <span className="text-xs text-muted-foreground" role="status">
-          Finishing the current action…
+          {t("Finishing the current action…")}
         </span>
       ) : null}
       {problem ? (

@@ -1,3 +1,4 @@
+import { i18n, msg } from "@/lib/i18n";
 import type {
   MarketplacePage,
   MarketplacePlugin,
@@ -19,34 +20,34 @@ import type {
  * its own first section; it is a section only, never a pill (see `categoryPills`).
  */
 export const CATEGORIES: readonly { key: string; label: string }[] = [
-  { key: "FEATURED", label: "Recommended for you" },
-  { key: "INFRASTRUCTURE", label: "Infrastructure" },
-  { key: "DATA_ANALYTICS", label: "Data & Analytics" },
-  { key: "PRODUCTIVITY", label: "Productivity" },
-  { key: "PAYMENTS", label: "Payments" },
-  { key: "AGENT_ORCHESTRATION", label: "Agent Orchestration" },
-  { key: "CANVAS", label: "Canvas" },
-  { key: "INBOX_AND_COLLABORATION", label: "Inbox and Collaboration" },
-  { key: "SCHEDULING", label: "Scheduling" },
-  { key: "DOCUMENTS_AND_FILES", label: "Documents and Files" },
-  { key: "SALES", label: "Sales" },
-  { key: "CUSTOMER_SUPPORT", label: "Support" },
-  { key: "FINANCE_AND_LEGAL", label: "Finance and Legal" },
-  { key: "RESEARCH", label: "Research" },
-  { key: "DESIGN", label: "Design" },
+  { key: "FEATURED", label: msg("Recommended for you") },
+  { key: "INFRASTRUCTURE", label: msg("Infrastructure") },
+  { key: "DATA_ANALYTICS", label: msg("Data & Analytics") },
+  { key: "PRODUCTIVITY", label: msg("Productivity") },
+  { key: "PAYMENTS", label: msg("Payments") },
+  { key: "AGENT_ORCHESTRATION", label: msg("Agent Orchestration") },
+  { key: "CANVAS", label: msg("Canvas") },
+  { key: "INBOX_AND_COLLABORATION", label: msg("Inbox and Collaboration") },
+  { key: "SCHEDULING", label: msg("Scheduling") },
+  { key: "DOCUMENTS_AND_FILES", label: msg("Documents and Files") },
+  { key: "SALES", label: msg("Sales") },
+  { key: "CUSTOMER_SUPPORT", label: msg("Support") },
+  { key: "FINANCE_AND_LEGAL", label: msg("Finance and Legal") },
+  { key: "RESEARCH", label: msg("Research") },
+  { key: "DESIGN", label: msg("Design") },
 ];
 
 /** Where a plugin with no category of its own is listed. */
-export const UNCATEGORISED = { key: "PLUGINS", label: "Plugins" } as const;
+export const UNCATEGORISED = { key: "PLUGINS", label: msg("Plugins") } as const;
 
 /** How many rows a category shows before "View all". */
 export const PREVIEW_ROWS = 4;
 
 /** The label for a category key, for a heading or a pill. */
 export function categoryLabel(key: string): string {
-  return (
+  return i18n.t(
     CATEGORIES.find((category) => category.key === key)?.label ??
-    (key === UNCATEGORISED.key ? UNCATEGORISED.label : key)
+      (key === UNCATEGORISED.key ? UNCATEGORISED.label : key),
   );
 }
 
@@ -209,9 +210,9 @@ export function categoryPills(
   }))
     .filter((pill) => pill.key !== RECOMMENDED && pill.count > 0)
     .sort((left, right) => right.count - left.count || left.order - right.order)
-    .map(({ key, label }) => ({ key, label }));
+    .map(({ key, label }) => ({ key, label: i18n.t(label) }));
   if ((counts.get(UNCATEGORISED.key) ?? 0) > 0) {
-    pills.push({ key: UNCATEGORISED.key, label: UNCATEGORISED.label });
+    pills.push({ key: UNCATEGORISED.key, label: i18n.t(UNCATEGORISED.label) });
   }
   return pills;
 }

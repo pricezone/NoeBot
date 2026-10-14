@@ -5,6 +5,8 @@ import { callComponentFunction } from "@/lib/components/queries";
 import { useActiveBotId } from "@/lib/copilot/active-bot";
 import { useConversation } from "@/lib/copilot/conversation";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import { GalleryFrame } from "./frame";
 import { seriesColour } from "./palette";
 
@@ -57,6 +59,7 @@ export function ActivityReportCard({
   title,
   days,
 }: Partial<ActivityArgs>) {
+  const { t } = useTranslation();
   const botId = useActiveBotId();
   const conversation = useConversation();
   const [state, setState] = useState<State>({ status: "reading" });
@@ -93,8 +96,10 @@ export function ActivityReportCard({
 
   if (!report) {
     return (
-      <GalleryFrame title="Report">
-        <p className="text-sm text-muted-foreground">Choosing a report…</p>
+      <GalleryFrame title={t("Report")}>
+        <p className="text-sm text-muted-foreground">
+          {t("Choosing a report…")}
+        </p>
       </GalleryFrame>
     );
   }
@@ -102,18 +107,18 @@ export function ActivityReportCard({
   if (state.status === "reading") {
     return (
       <GalleryFrame
-        caption="Reading from this deployment"
-        title={title ?? "Report"}
+        caption={t("Reading from this deployment")}
+        title={title ?? t("Report")}
       >
-        <p className="text-sm text-muted-foreground">Reading…</p>
+        <p className="text-sm text-muted-foreground">{t("Reading…")}</p>
       </GalleryFrame>
     );
   }
 
   if (state.status === "refused") {
     return (
-      <GalleryFrame title={title ?? "Report"}>
-        <p className="text-sm text-destructive">Not shown</p>
+      <GalleryFrame title={title ?? t("Report")}>
+        <p className="text-sm text-destructive">{t("Not shown")}</p>
         <p className="mt-1 text-sm text-foreground/80">{state.reason}</p>
       </GalleryFrame>
     );
@@ -143,12 +148,16 @@ function ActivityChart({
   title?: string;
   ask?: (text: string) => void;
 }) {
+  const { t } = useTranslation();
   const rows = data?.rows ?? [];
   if (rows.length === 0) {
     return (
-      <GalleryFrame title={title ?? "Bot activity"}>
+      <GalleryFrame title={title ?? t("Bot activity")}>
         <p className="text-sm text-muted-foreground">
-          No Bot has done anything in the last {data?.days ?? 7} days.
+          {t("No Bot has done anything in the last {{count}} days.", {
+            count: data?.days ?? 7,
+            defaultValue_one: "No Bot has done anything in the last day.",
+          })}
         </p>
       </GalleryFrame>
     );
@@ -170,12 +179,15 @@ function ActivityChart({
             size="sm"
             variant="outline"
           >
-            Ask about the busiest
+            {t("Ask about the busiest")}
           </Button>
         ) : undefined
       }
-      caption={`Counted from this deployment's audit trail, last ${data.days} days`}
-      title={title ?? "Bot activity"}
+      caption={t(
+        "Counted from this deployment's audit trail, last {{days}} days",
+        { days: data.days },
+      )}
+      title={title ?? t("Bot activity")}
     >
       <ul className="flex flex-col gap-2">
         {rows.map((row, index) => (
@@ -212,12 +224,13 @@ function RefusalList({
   title?: string;
   ask?: (text: string) => void;
 }) {
+  const { t } = useTranslation();
   const rows = data?.rows ?? [];
   if (rows.length === 0) {
     return (
-      <GalleryFrame title={title ?? "Recent refusals"}>
+      <GalleryFrame title={title ?? t("Recent refusals")}>
         <p className="text-sm text-muted-foreground">
-          This deployment has refused nothing.
+          {t("This deployment has refused nothing.")}
         </p>
       </GalleryFrame>
     );
@@ -236,12 +249,12 @@ function RefusalList({
             size="sm"
             variant="outline"
           >
-            Explain the latest
+            {t("Explain the latest")}
           </Button>
         ) : undefined
       }
-      caption="Read from this deployment's audit trail"
-      title={title ?? "Recent refusals"}
+      caption={t("Read from this deployment's audit trail")}
+      title={title ?? t("Recent refusals")}
     >
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
@@ -252,7 +265,7 @@ function RefusalList({
                 <span className="text-xs text-muted-foreground">{row.bot}</span>
               ) : null}
               <span className="ml-auto text-xs text-muted-foreground">
-                {new Date(row.at).toLocaleString()}
+                {new Date(row.at).toLocaleString(intlLocale())}
               </span>
             </div>
             {row.reason ? (

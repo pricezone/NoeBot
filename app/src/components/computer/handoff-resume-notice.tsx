@@ -13,6 +13,7 @@ import {
   type HandoffAgent,
   resumeHandoffTask,
 } from "@/lib/copilot/handoff-resume";
+import { i18n } from "@/lib/i18n";
 import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
@@ -140,7 +141,9 @@ export function HandoffResumeNotice({
       await resumeHandoffTask(botId, pending, agent, run, abort.signal);
     } catch (error) {
       setProblem(
-        error instanceof Error ? error.message : "The task could not resume.",
+        error instanceof Error
+          ? error.message
+          : i18n.t("The task could not resume."),
       );
     } finally {
       setBusy(false);

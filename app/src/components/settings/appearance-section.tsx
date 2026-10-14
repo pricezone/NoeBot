@@ -13,12 +13,13 @@ import {
   SettingsRow,
   SettingsSection,
 } from "@/components/ui/settings-rows";
+import { msg, useTranslation } from "@/lib/i18n";
 import type { ThemePreference } from "@/lib/theme";
 
 const THEME_LABEL: Record<ThemePreference, string> = {
-  system: "Follow system",
-  light: "Light",
-  dark: "Dark",
+  system: msg("Follow system"),
+  light: msg("Light"),
+  dark: msg("Dark"),
 };
 
 const THEME_CHOICES: ThemePreference[] = ["system", "light", "dark"];
@@ -36,14 +37,15 @@ function isThemePreference(value: unknown): value is ThemePreference {
  * the two rows sit in one card with different owners.
  */
 export function AppearanceSection() {
+  const { t } = useTranslation("settings");
   const { theme, setTheme } = useTheme();
   return (
-    <SettingsSection label="Appearance">
+    <SettingsSection label={t("Appearance")}>
       <SettingsCard>
         <LanguagePreference />
         <SettingsRow
-          label="Theme"
-          description="Saved in this browser."
+          label={t("Theme")}
+          description={t("Saved in this browser.")}
           control={
             <Select
               value={theme}
@@ -51,13 +53,13 @@ export function AppearanceSection() {
                 if (isThemePreference(value)) setTheme(value);
               }}
             >
-              <SelectTrigger aria-label="Theme">
-                <SelectValue>{THEME_LABEL[theme]}</SelectValue>
+              <SelectTrigger aria-label={t("Theme")}>
+                <SelectValue>{t(THEME_LABEL[theme])}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {THEME_CHOICES.map((choice) => (
                   <SelectItem key={choice} value={choice}>
-                    {THEME_LABEL[choice]}
+                    {t(THEME_LABEL[choice])}
                   </SelectItem>
                 ))}
               </SelectContent>

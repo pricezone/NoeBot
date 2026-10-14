@@ -23,6 +23,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { terminateMemberComputersMutationOptions } from "@/lib/enterprise/mutations";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   setPersonAccessMutationOptions,
   setPersonRoleMutationOptions,
@@ -52,7 +53,7 @@ function describe(person: Person): string {
     .map((provider) => PROVIDER_NAMES[provider] ?? provider)
     .join(", ");
   const when = person.lastSignedInAt
-    ? `last signed in ${new Date(person.lastSignedInAt).toLocaleDateString()}`
+    ? `last signed in ${new Date(person.lastSignedInAt).toLocaleDateString(intlLocale())}`
     : "never signed in";
 
   if (person.revoked)

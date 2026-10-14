@@ -21,6 +21,7 @@ import {
   type ChannelSummary,
   channelListQueryOptions,
 } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import { type LandingTarget, landingTarget } from "@/lib/landing";
 
 /**
@@ -53,6 +54,7 @@ export function conversationWith(
  * facts would be one more screen between a person and the Bot that needs them.
  */
 export function BotsSection() {
+  const { t } = useTranslation("settings");
   const agents = useQuery(agentListQueryOptions());
   const attention = useQuery(botAttentionQueryOptions());
   const channels = useInfiniteQuery(channelListQueryOptions());
@@ -61,13 +63,15 @@ export function BotsSection() {
   if (agents.error) {
     return (
       <p className="text-destructive text-sm" role="alert">
-        Could not load your Bots.
+        {t("Could not load your Bots.")}
       </p>
     );
   }
   if (agents.data.length === 0) {
     return (
-      <p className="text-muted-foreground text-sm">You have no Bots yet.</p>
+      <p className="text-muted-foreground text-sm">
+        {t("You have no Bots yet.")}
+      </p>
     );
   }
   return (

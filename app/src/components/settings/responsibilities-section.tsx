@@ -8,6 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { conversationLabel } from "@/lib/channels/label";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { msg, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import { useStreamdownTranslations } from "@/lib/i18n/streamdown-translations";
 import { markdownComponents } from "@/lib/markdown";
 import {
@@ -46,12 +48,13 @@ async function refresh() {
  * heading; this is the body that used to be the `/responsibilities` page.
  */
 export function ResponsibilitiesSection() {
+  const { t } = useTranslation("settings");
   const goals = useQuery(responsibilitiesQueryOptions());
   return (
     <div className="grid gap-6">
       <NewResponsibility />
       {goals.isPending ? (
-        <p>Loading responsibilities…</p>
+        <p>{t("Loading responsibilities…")}</p>
       ) : goals.error ? (
         <p role="alert" className="text-destructive">
           {goals.error.message}
@@ -60,7 +63,7 @@ export function ResponsibilitiesSection() {
         goals.data.map((goal) => <GoalCard key={goal.id} goal={goal} />)
       ) : (
         <p className="text-muted-foreground">
-          You have no responsibilities yet.
+          {t("You have no responsibilities yet.")}
         </p>
       )}
       <GithubSources />
@@ -69,6 +72,7 @@ export function ResponsibilitiesSection() {
 }
 
 function NewResponsibility() {
+  const { t } = useTranslation("settings");
   const formId = useId();
   const bots = useQuery(agentListQueryOptions());
   const channels = useInfiniteQuery(channelListQueryOptions());
@@ -111,10 +115,10 @@ function NewResponsibility() {
         });
       }}
     >
-      <h2 className="font-semibold">New responsibility</h2>
+      <h2 className="font-semibold">{t("New responsibility")}</h2>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={fieldClass}>
-          Conversation
+          {t("Conversation")}
           <select
             className={selectClass}
             required
@@ -124,7 +128,7 @@ function NewResponsibility() {
               setAgentId("");
             }}
           >
-            <option value="">Choose a conversation</option>
+            <option value="">{t("Choose a conversation")}</option>
             {channels.data
               ?.filter((channel) => channel.active)
               .map((channel) => (
@@ -135,14 +139,14 @@ function NewResponsibility() {
           </select>
         </label>
         <label className={fieldClass}>
-          Bot
+          {t("Bot")}
           <select
             className={selectClass}
             required
             value={agentId}
             onChange={(event) => setAgentId(event.target.value)}
           >
-            <option value="">Choose a Bot</option>
+            <option value="">{t("Choose a Bot")}</option>
             {availableBots.map((bot) => (
               <option key={bot.id} value={bot.id}>
                 {bot.name}
@@ -157,7 +161,7 @@ function NewResponsibility() {
           variant="outline"
           onClick={() => channels.fetchNextPage()}
         >
-          Load more conversations
+          {t("Load more conversations")}
         </Button>
       )}
       {(channels.error || bots.error) && (
@@ -166,18 +170,18 @@ function NewResponsibility() {
         </p>
       )}
       <label className={fieldClass} htmlFor={`${formId}-title`}>
-        Title
+        {t("Title")}
         <Input
           id={`${formId}-title`}
           required
           maxLength={160}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="Keep the customer report up to date"
+          placeholder={t("Keep the customer report up to date")}
         />
       </label>
       <label className={fieldClass} htmlFor={`${formId}-instruction`}>
-        Instruction
+        {t("Instruction")}
         <Textarea
           id={`${formId}-instruction`}
           required
@@ -187,19 +191,21 @@ function NewResponsibility() {
         />
       </label>
       <label className={fieldClass} htmlFor={`${formId}-criteria`}>
-        Success criteria
+        {t("Success criteria")}
         <Textarea
           id={`${formId}-criteria`}
           required
           maxLength={3000}
           value={successCriteria}
           onChange={(event) => setSuccessCriteria(event.target.value)}
-          placeholder="The report contains the current quarter's graph and a source link."
+          placeholder={t(
+            "The report contains the current quarter's graph and a source link.",
+          )}
         />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={fieldClass}>
-          Event source
+          {t("Event source")}
           <select
             className={selectClass}
             value={source}
@@ -216,23 +222,27 @@ function NewResponsibility() {
                 setSource(value);
             }}
           >
-            <option value="none">Run when asked</option>
-            <option value="github">GitHub</option>
-            <option value="slack">Slack</option>
-            <option value="connector">Connected app</option>
-            <option value="schedule">Schedule</option>
+            <option value="none">{t("Run when asked")}</option>
+            <option value="github">{t("GitHub")}</option>
+            <option value="slack">{t("Slack")}</option>
+            <option value="connector">{t("Connected app")}</option>
+            <option value="schedule">{t("Schedule")}</option>
           </select>
         </label>
         {source !== "none" && (
           <label className={fieldClass} htmlFor={`${formId}-event`}>
-            Event type
+            {t("Event type")}
             <Input
               id={`${formId}-event`}
               required
               maxLength={128}
               value={eventType}
               onChange={(event) => setEventType(event.target.value)}
-              placeholder={source === "github" ? "issues.opened" : "Event type"}
+              placeholder={
+                source === "github"
+                  ? "issues.opened" /* i18n-ignore */
+                  : t("Event type")
+              }
             />
           </label>
         )}
@@ -243,13 +253,14 @@ function NewResponsibility() {
         </p>
       )}
       <Button disabled={create.isPending} type="submit">
-        {create.isPending ? "Creating…" : "Create responsibility"}
+        {create.isPending ? t("Creating…") : t("Create responsibility")}
       </Button>
     </form>
   );
 }
 
 function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
+  const { t } = useTranslation("settings");
   const [editing, setEditing] = useState(false);
   const [showRuns, setShowRuns] = useState(false);
   const [title, setTitle] = useState(goal.title);
@@ -289,7 +300,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
           }}
         >
           <label className={fieldClass} htmlFor={`${goal.id}-title`}>
-            Title
+            {t("Title")}
             <Input
               id={`${goal.id}-title`}
               value={title}
@@ -299,7 +310,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
             />
           </label>
           <label className={fieldClass} htmlFor={`${goal.id}-instruction`}>
-            Instruction
+            {t("Instruction")}
             <Textarea
               id={`${goal.id}-instruction`}
               value={instruction}
@@ -309,7 +320,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
             />
           </label>
           <label className={fieldClass} htmlFor={`${goal.id}-criteria`}>
-            Success criteria
+            {t("Success criteria")}
             <Textarea
               id={`${goal.id}-criteria`}
               value={successCriteria}
@@ -320,14 +331,14 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
           </label>
           <div className="flex gap-2">
             <Button type="submit" disabled={edit.isPending}>
-              Save
+              {t("Save")}
             </Button>
             <Button
               variant="outline"
               type="button"
               onClick={() => setEditing(false)}
             >
-              Cancel
+              {t("Cancel")}
             </Button>
           </div>
         </form>
@@ -335,13 +346,15 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
         <>
           <p className="whitespace-pre-wrap text-sm">{goal.instruction}</p>
           <p className="text-sm text-muted-foreground">
-            Success: {goal.successCriteria}
+            {t("Success: {{successCriteria}}", {
+              successCriteria: goal.successCriteria,
+            })}
           </p>
         </>
       )}
       {goal.progress && (
         <div className="text-sm">
-          <span className="font-medium">Progress:</span>
+          <span className="font-medium">{t("Progress:")}</span>
           <RunMarkdown>{goal.progress}</RunMarkdown>
         </div>
       )}
@@ -352,13 +365,14 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
       )}
       {goal.subscriptions.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Events:{" "}
-          {goal.subscriptions
-            .map(
-              (subscription) =>
-                `${subscription.source} · ${subscription.eventType}`,
-            )
-            .join(", ")}
+          {t("Events: {{subscriptions}}", {
+            subscriptions: goal.subscriptions
+              .map(
+                (subscription) =>
+                  `${subscription.source} · ${subscription.eventType}`,
+              )
+              .join(", "),
+          })}
         </p>
       )}
       <div className="flex flex-wrap gap-2">
@@ -367,7 +381,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
           size="sm"
           onClick={() => setEditing(!editing)}
         >
-          Edit
+          {t("Edit")}
         </Button>
         {goal.status === "active" && (
           <>
@@ -378,9 +392,11 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
                 setShowRuns(true);
                 action.mutate("run");
               }}
-              title="Runs it for real, now: the Bot does the work and can post and act."
+              title={t(
+                "Runs it for real, now: the Bot does the work and can post and act.",
+              )}
             >
-              Run now (real run)
+              {t("Run now (real run)")}
             </Button>
             <Button
               variant="outline"
@@ -388,7 +404,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
               disabled={action.isPending}
               onClick={() => action.mutate("pause")}
             >
-              Pause
+              {t("Pause")}
             </Button>
           </>
         )}
@@ -398,7 +414,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
             disabled={action.isPending}
             onClick={() => action.mutate("resume")}
           >
-            Resume
+            {t("Resume")}
           </Button>
         )}
         {goal.status !== "completed" && (
@@ -408,7 +424,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
             disabled={action.isPending}
             onClick={() => action.mutate("complete")}
           >
-            Complete
+            {t("Complete")}
           </Button>
         )}
         <Button
@@ -416,14 +432,14 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
           size="sm"
           onClick={() => setShowRuns(!showRuns)}
         >
-          {showRuns ? "Hide runs" : "View runs"}
+          {showRuns ? t("Hide runs") : t("View runs")}
         </Button>
         <Link
           to="/channel/$channelId"
           params={{ channelId: goal.channelId }}
           className="self-center text-sm underline"
         >
-          Open conversation
+          {t("Open conversation")}
         </Link>
       </div>
       {(action.error || edit.error) && (
@@ -435,7 +451,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
       {showRuns && (
         <div className="grid gap-2 border-t pt-3">
           {runs.isPending ? (
-            <p>Loading runs…</p>
+            <p>{t("Loading runs…")}</p>
           ) : runs.error ? (
             <p role="alert">{runs.error.message}</p>
           ) : runs.data?.length ? (
@@ -443,21 +459,23 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
               <div key={run.id} className="text-sm">
                 <p>
                   <span className={runStatusClass(run.status)}>
-                    {RUN_LABEL[run.status]}
+                    {t(RUN_LABEL[run.status] ?? run.status)}
                   </span>{" "}
-                  · {new Date(run.createdAt).toLocaleString()} ·{" "}
+                  · {new Date(run.createdAt).toLocaleString(intlLocale())} ·{" "}
                   <Link
                     to="/channel/$channelId"
                     params={{ channelId: goal.channelId }}
                     className="underline"
                   >
-                    Open thread
+                    {t("Open thread")}
                   </Link>
                 </p>
                 {run.waiting && (
                   <p>
-                    Waiting for {run.waiting.kind}. Respond through your
-                    approval inbox or conversation.
+                    {t(
+                      "Waiting for {{kind}}. Respond through your approval inbox or conversation.",
+                      { kind: run.waiting.kind },
+                    )}
                   </p>
                 )}
                 {run.error && (
@@ -467,7 +485,7 @@ function GoalCard({ goal }: { goal: ResponsibilityRecord }) {
               </div>
             ))
           ) : (
-            <p>No runs yet.</p>
+            <p>{t("No runs yet.")}</p>
           )}
         </div>
       )}
@@ -497,6 +515,7 @@ function RunMarkdown({ children }: { children: string }) {
 }
 
 function GithubSources() {
+  const { t } = useTranslation("settings");
   const formId = useId();
   const bindings = useQuery(githubBindingsQueryOptions());
   const [repository, setRepository] = useState("");
@@ -515,11 +534,11 @@ function GithubSources() {
   });
   return (
     <section className="grid gap-3 rounded-lg border p-4">
-      <h2 className="font-semibold">GitHub event sources</h2>
+      <h2 className="font-semibold">{t("GitHub event sources")}</h2>
       <p className="text-sm text-muted-foreground">
-        Register a repository, then add its webhook in GitHub using the endpoint
-        below and the same secret. Subscribe a responsibility to an event such
-        as issues.opened.
+        {t(
+          "Register a repository, then add its webhook in GitHub using the endpoint below and the same secret. Subscribe a responsibility to an event such as issues.opened.",
+        )}
       </p>
       <form
         className="grid gap-3 sm:grid-cols-3"
@@ -529,17 +548,17 @@ function GithubSources() {
         }}
       >
         <label className={fieldClass} htmlFor={`${formId}-repository`}>
-          Repository
+          {t("Repository")}
           <Input
             id={`${formId}-repository`}
             value={repository}
             onChange={(event) => setRepository(event.target.value)}
-            placeholder="owner/repository"
+            placeholder="owner/repository" /* i18n-ignore: an example of the format, not prose */
             required
           />
         </label>
         <label className={fieldClass} htmlFor={`${formId}-secret`}>
-          Webhook secret
+          {t("Webhook secret")}
           <Input
             id={`${formId}-secret`}
             type="password"
@@ -550,7 +569,7 @@ function GithubSources() {
           />
         </label>
         <Button type="submit" className="self-end" disabled={create.isPending}>
-          Connect events
+          {t("Connect events")}
         </Button>
       </form>
       {(bindings.error || create.error || remove.error) && (
@@ -577,7 +596,7 @@ function GithubSources() {
             disabled={remove.isPending}
             onClick={() => remove.mutate(binding.id)}
           >
-            Disconnect
+            {t("Disconnect")}
           </Button>
         </div>
       ))}
@@ -586,12 +605,12 @@ function GithubSources() {
 }
 
 const RUN_LABEL: Record<string, string> = {
-  queued: "Queued",
-  running: "Running",
-  waiting: "Waiting for you",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  skipped: "Skipped",
+  queued: msg("Queued"),
+  running: msg("Running"),
+  waiting: msg("Waiting for you"),
+  succeeded: msg("Succeeded"),
+  failed: msg("Failed"),
+  skipped: msg("Skipped"),
 };
 function runStatusClass(status: string) {
   return status === "failed"
@@ -611,19 +630,25 @@ const KIND_LABEL: Record<TriggerKind, string> = {
   slack: "Slack",
 };
 const KIND_HELP: Record<TriggerKind, string> = {
-  webhook:
+  webhook: msg(
     "POST JSON to the URL with the authorization header (or Standard Webhooks signature headers). 200 means accepted and queued, not finished.",
-  github:
+  ),
+  github: msg(
     "In the repository's Settings → Webhooks, set the payload URL to this URL, content type application/json, and the secret to the key.",
-  linear:
+  ),
+  linear: msg(
     "In Linear, Settings → API → Webhooks: set the URL, then paste the signing secret Linear shows here.",
-  sentry:
+  ),
+  sentry: msg(
     "In a Sentry internal integration, set the webhook URL, then paste the integration's client secret here.",
-  pagerduty:
+  ),
+  pagerduty: msg(
     "In PagerDuty, Integrations → Generic Webhooks (v3): set the URL, then paste the secret shown on creation here.",
-  email: "Send or forward mail to this address to start a run.",
-  slack:
+  ),
+  email: msg("Send or forward mail to this address to start a run."),
+  slack: msg(
     "Fires from Slack events delivered through this Bot's Slack pairing. Messages from before the trigger existed are ignored.",
+  ),
 };
 const VENDOR_SECRET: ReadonlySet<TriggerKind> = new Set([
   "linear",
@@ -637,6 +662,7 @@ const list = (value: string) =>
     .filter(Boolean);
 
 function CopyButton({ value, label }: { value: string; label: string }) {
+  const { t } = useTranslation("settings");
   const [copied, setCopied] = useState(false);
   return (
     <Button
@@ -649,7 +675,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
         setTimeout(() => setCopied(false), 1500);
       }}
     >
-      {copied ? "Copied" : label}
+      {copied ? t("Copied") : label}
     </Button>
   );
 }
@@ -686,6 +712,7 @@ function describeFilter(config: TriggerConfig) {
 }
 
 function Triggers({ goal }: { goal: ResponsibilityRecord }) {
+  const { t } = useTranslation("settings");
   const triggers = useQuery(triggersQueryOptions(goal.id));
   const [adding, setAdding] = useState(false);
   const [freshSecret, setFreshSecret] = useState<{
@@ -699,20 +726,22 @@ function Triggers({ goal }: { goal: ResponsibilityRecord }) {
   return (
     <section className="grid gap-2 border-t pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-medium text-sm">Triggers</h3>
+        <h3 className="font-medium text-sm">{t("Triggers")}</h3>
         <Button
           size="sm"
           variant="outline"
           type="button"
           onClick={() => setAdding(!adding)}
         >
-          {adding ? "Cancel" : "Add trigger"}
+          {adding ? t("Cancel") : t("Add trigger")}
         </Button>
       </div>
       {goal.status !== "active" && (
         <p className="text-muted-foreground text-xs">
-          This responsibility is {goal.status}, so its triggers are acknowledged
-          but never run it.
+          {t(
+            "This responsibility is {{status}}, so its triggers are acknowledged but never run it.",
+            { status: goal.status },
+          )}
         </p>
       )}
       {adding && (
@@ -736,8 +765,9 @@ function Triggers({ goal }: { goal: ResponsibilityRecord }) {
       )}
       {triggers.data?.length === 0 && !adding && (
         <p className="text-muted-foreground text-xs">
-          No triggers. It runs when you press Run now, or on the event
-          subscriptions above.
+          {t(
+            "No triggers. It runs when you press Run now, or on the event subscriptions above.",
+          )}
         </p>
       )}
       {triggers.data?.map((trigger) => (
@@ -766,6 +796,7 @@ function TriggerRow({
   freshSecret: string | null;
   onChanged: (secret: string | null) => Promise<void>;
 }) {
+  const { t } = useTranslation("settings");
   const [secret, setSecret] = useState<string | null>(freshSecret);
   const [pasted, setPasted] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -806,7 +837,7 @@ function TriggerRow({
           </span>
           {!trigger.enabled && (
             <span className="ml-2 rounded bg-background px-1.5 py-0.5 text-xs">
-              Paused
+              {t("Paused")}
             </span>
           )}
         </p>
@@ -816,7 +847,7 @@ function TriggerRow({
           disabled={toggle.isPending}
           onClick={() => toggle.mutate()}
         >
-          {trigger.enabled ? "Pause" : "Resume"}
+          {trigger.enabled ? t("Pause") : t("Resume")}
         </Button>
         {confirmRemove ? (
           <span className="flex gap-2">
@@ -826,14 +857,14 @@ function TriggerRow({
               disabled={remove.isPending}
               onClick={() => remove.mutate()}
             >
-              Remove for good
+              {t("Remove for good")}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setConfirmRemove(false)}
             >
-              Keep
+              {t("Keep")}
             </Button>
           </span>
         ) : (
@@ -842,18 +873,20 @@ function TriggerRow({
             variant="ghost"
             onClick={() => setConfirmRemove(true)}
           >
-            Remove
+            {t("Remove")}
           </Button>
         )}
       </div>
-      <p className="text-muted-foreground text-xs">{KIND_HELP[trigger.kind]}</p>
+      <p className="text-muted-foreground text-xs">
+        {t(KIND_HELP[trigger.kind])}
+      </p>
       {url && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs">POST to</span>
+          <span className="text-xs">{t("POST to")}</span>
           <code className="break-all rounded bg-background px-2 py-1 text-xs">
             {url}
           </code>
-          <CopyButton value={url} label="Copy URL" />
+          <CopyButton value={url} label={t("Copy URL")} />
         </div>
       )}
       {trigger.kind === "email" &&
@@ -862,29 +895,28 @@ function TriggerRow({
             <code className="break-all rounded bg-background px-2 py-1 text-xs">
               {trigger.address}
             </code>
-            <CopyButton value={trigger.address} label="Copy address" />
+            <CopyButton value={trigger.address} label={t("Copy address")} />
           </div>
         ) : (
           <p className="text-amber-600 text-xs dark:text-amber-500">
-            Inbound email is not configured on this deployment
-            (OPENBOT_INBOUND_EMAIL_DOMAIN and
-            OPENBOT_INBOUND_EMAIL_SNS_TOPIC_ARNS), so this address cannot
-            receive mail yet.
+            {t(
+              "Inbound email is not configured on this deployment (OPENBOT_INBOUND_EMAIL_DOMAIN and OPENBOT_INBOUND_EMAIL_SNS_TOPIC_ARNS), so this address cannot receive mail yet.",
+            )}
           </p>
         ))}
       {generated && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs">Key</span>
+          <span className="text-xs">{t("Key")}</span>
           {shown ? (
             <>
               <code className="break-all rounded bg-background px-2 py-1 text-xs">
                 {shown}
               </code>
-              <CopyButton value={shown} label="Copy key" />
+              <CopyButton value={shown} label={t("Copy key")} />
               {trigger.kind === "webhook" && (
                 <CopyButton
                   value={`Authorization: Bearer ${shown}`}
-                  label="Copy header"
+                  label={t("Copy header")}
                 />
               )}
             </>
@@ -895,7 +927,7 @@ function TriggerRow({
               disabled={reveal.isPending}
               onClick={() => reveal.mutate()}
             >
-              Show key
+              {t("Show key")}
             </Button>
           )}
           <Button
@@ -904,7 +936,7 @@ function TriggerRow({
             disabled={rotate.isPending}
             onClick={() => rotate.mutate()}
           >
-            Rotate key
+            {t("Rotate key")}
           </Button>
         </div>
       )}
@@ -929,8 +961,8 @@ function TriggerRow({
             }
           >
             {trigger.hasSecret
-              ? "Signing secret stored"
-              : "Waiting for the signing secret"}
+              ? t("Signing secret stored")
+              : t("Waiting for the signing secret")}
           </span>
           <Input
             className="h-8 max-w-64"
@@ -938,15 +970,15 @@ function TriggerRow({
             autoComplete="new-password"
             placeholder={
               trigger.hasSecret
-                ? "Paste a new secret to rotate"
-                : "Paste the signing secret"
+                ? t("Paste a new secret to rotate")
+                : t("Paste the signing secret")
             }
             value={pasted}
             onChange={(event) => setPasted(event.target.value)}
             required
           />
           <Button size="sm" type="submit" disabled={rotate.isPending}>
-            Save secret
+            {t("Save secret")}
           </Button>
         </form>
       )}
@@ -972,6 +1004,7 @@ function NewTrigger({
     secret: string | null;
   }) => Promise<void>;
 }) {
+  const { t } = useTranslation("settings");
   const id = useId();
   const [kind, setKind] = useState<TriggerKind>("webhook");
   const [eventTypes, setEventTypes] = useState("");
@@ -1041,7 +1074,7 @@ function NewTrigger({
       }}
     >
       <label className={fieldClass}>
-        Trigger
+        {t("Trigger")}
         <select
           className={selectClass}
           value={kind}
@@ -1054,35 +1087,35 @@ function NewTrigger({
           ))}
         </select>
       </label>
-      <p className="text-muted-foreground text-xs">{KIND_HELP[kind]}</p>
+      <p className="text-muted-foreground text-xs">{t(KIND_HELP[kind])}</p>
       {kind === "slack" ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className={fieldClass} htmlFor={`${id}-team`}>
-            Slack team ID
+            {t("Slack team ID")}
             <Input
               id={`${id}-team`}
               required
-              placeholder="T0123ABCD"
+              placeholder="T0123ABCD" /* i18n-ignore: an example of the format, not prose */
               value={teamId}
               onChange={(event) => setTeamId(event.target.value)}
             />
           </label>
           <label className={fieldClass}>
-            Fire on
+            {t("Fire on")}
             <select
               className={selectClass}
               value={mode}
               onChange={(event) => setMode(event.target.value as typeof mode)}
             >
-              <option value="mention">The Bot is mentioned</option>
-              <option value="phrase">A message contains a phrase</option>
-              <option value="reaction">A reaction is added</option>
-              <option value="message">Any message</option>
+              <option value="mention">{t("The Bot is mentioned")}</option>
+              <option value="phrase">{t("A message contains a phrase")}</option>
+              <option value="reaction">{t("A reaction is added")}</option>
+              <option value="message">{t("Any message")}</option>
             </select>
           </label>
           {mode === "phrase" && (
             <label className={fieldClass} htmlFor={`${id}-phrases`}>
-              Phrases (comma separated)
+              {t("Phrases (comma separated)")}
               <Input
                 id={`${id}-phrases`}
                 required
@@ -1093,20 +1126,20 @@ function NewTrigger({
           )}
           {mode === "reaction" && (
             <label className={fieldClass} htmlFor={`${id}-reactions`}>
-              Reactions (blank: any)
+              {t("Reactions (blank: any)")}
               <Input
                 id={`${id}-reactions`}
-                placeholder="eyes, rotating_light"
+                placeholder="eyes, rotating_light" /* i18n-ignore: an example of the format, not prose */
                 value={reactions}
                 onChange={(event) => setReactions(event.target.value)}
               />
             </label>
           )}
           <label className={fieldClass} htmlFor={`${id}-channels`}>
-            Channel IDs (blank: all the Bot is in)
+            {t("Channel IDs (blank: all the Bot is in)")}
             <Input
               id={`${id}-channels`}
-              placeholder="C0123ABCD"
+              placeholder="C0123ABCD" /* i18n-ignore: an example of the format, not prose */
               value={channels}
               onChange={(event) => setChannels(event.target.value)}
             />
@@ -1115,7 +1148,7 @@ function NewTrigger({
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">
           <label className={fieldClass} htmlFor={`${id}-types`}>
-            Event types
+            {t("Event types")}
             <Input
               id={`${id}-types`}
               placeholder={placeholder[kind]}
@@ -1124,29 +1157,29 @@ function NewTrigger({
             />
           </label>
           <label className={fieldClass} htmlFor={`${id}-path`}>
-            Only when field
+            {t("Only when field")}
             <Input
               id={`${id}-path`}
-              placeholder="data.team.key"
+              placeholder="data.team.key" /* i18n-ignore: an example of the format, not prose */
               value={fieldPath}
               onChange={(event) => setFieldPath(event.target.value)}
             />
           </label>
           <label className={fieldClass} htmlFor={`${id}-equals`}>
-            equals
+            {t("equals")}
             <Input
               id={`${id}-equals`}
-              placeholder="ENG"
+              placeholder="ENG" /* i18n-ignore: an example of the format, not prose */
               value={fieldEquals}
               onChange={(event) => setFieldEquals(event.target.value)}
             />
           </label>
           {kind === "github" && (
             <label className={fieldClass} htmlFor={`${id}-repo`}>
-              Repository (optional)
+              {t("Repository (optional)")}
               <Input
                 id={`${id}-repo`}
-                placeholder="owner/name"
+                placeholder="owner/name" /* i18n-ignore: an example of the format, not prose */
                 value={repository}
                 onChange={(event) => setRepository(event.target.value)}
               />
@@ -1154,10 +1187,10 @@ function NewTrigger({
           )}
           {kind === "email" && (
             <label className={fieldClass} htmlFor={`${id}-senders`}>
-              Allowed senders (blank: anyone)
+              {t("Allowed senders (blank: anyone)")}
               <Input
                 id={`${id}-senders`}
-                placeholder="ops@example.com, example.com"
+                placeholder="ops@example.com, example.com" /* i18n-ignore: an example of the format, not prose */
                 value={senders}
                 onChange={(event) => setSenders(event.target.value)}
               />
@@ -1165,7 +1198,7 @@ function NewTrigger({
           )}
           {VENDOR_SECRET.has(kind) && (
             <label className={fieldClass} htmlFor={`${id}-secret`}>
-              Signing secret (can be added later)
+              {t("Signing secret (can be added later)")}
               <Input
                 id={`${id}-secret`}
                 type="password"
@@ -1183,7 +1216,9 @@ function NewTrigger({
         </p>
       )}
       <Button type="submit" disabled={create.isPending}>
-        {create.isPending ? "Adding…" : `Add ${KIND_LABEL[kind]} trigger`}
+        {create.isPending
+          ? t("Adding…")
+          : t("Add {{value}} trigger", { value: KIND_LABEL[kind] })}
       </Button>
     </form>
   );

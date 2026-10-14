@@ -11,6 +11,7 @@ import {
   botAttentionQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 
 /** Questions, approvals and stalled hand-offs: the things only the person can move forward. */
@@ -77,6 +78,7 @@ function useAttentionNotifications(bots: BotAttention[] | undefined) {
  * Renders nothing when no Bot needs anything, so a quiet day costs the roster no space.
  */
 export function BotAttentionList() {
+  const { t } = useTranslation();
   const attention = useQuery(botAttentionQueryOptions());
   // Read off what the sidebar already holds: a row goes to the Bot's newest conversation, and the
   // roster is where that is known. Neither query is fetched here that was not fetched already.
@@ -95,7 +97,7 @@ export function BotAttentionList() {
         return (
           <SidebarMenuItem key={bot.agentId} className="flex flex-row gap-1">
             <SidebarMenuButton
-              aria-label={`${bot.name}: ${bot.paused ? "paused" : attentionSummary(bot)}`}
+              aria-label={`${bot.name}: ${bot.paused ? t("paused") : attentionSummary(bot)}`}
               className="hover:bg-foreground/5 h-9 flex-1"
               render={(props) => (
                 <Link
@@ -129,7 +131,7 @@ export function BotAttentionList() {
                 }
               >
                 <IconPlayerPause className="size-3.5" />
-                Paused, tap to resume
+                {t("Paused, tap to resume")}
               </SidebarMenuButton>
             ) : null}
           </SidebarMenuItem>

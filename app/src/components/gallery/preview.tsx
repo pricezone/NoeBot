@@ -1,4 +1,5 @@
 import { GALLERY_COMPONENTS } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The answers a Bot can give, drawn rather than described.
@@ -46,9 +47,12 @@ export function GalleryPreview({
   available?: readonly { name: string; description: string }[];
   columns?: 1 | 2;
 }) {
+  const { t } = useTranslation();
   if (!available) {
     return (
-      <p className="text-muted-foreground text-sm">Loading what it can draw…</p>
+      <p className="text-muted-foreground text-sm">
+        {t("Loading what it can draw…")}
+      </p>
     );
   }
 
@@ -62,7 +66,9 @@ export function GalleryPreview({
   if (shown.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        This Bot has not been granted any components, so it answers in prose.
+        {t(
+          "This Bot has not been granted any components, so it answers in prose.",
+        )}
       </p>
     );
   }
@@ -107,6 +113,7 @@ export function GalleryPreview({
  * one to fit a tile; this draws at natural size, which is what the per-Bot panel below wants.
  */
 function PreviewOf({ name }: { name: string }) {
+  const { t } = useTranslation();
   const component = GALLERY_COMPONENTS.find((entry) => entry.name === name);
   if (!component) return null;
   if (!component.preview) {
@@ -117,8 +124,9 @@ function PreviewOf({ name }: { name: string }) {
      */
     return (
       <p className="text-muted-foreground text-sm">
-        Draws this deployment's own records, so it has nothing to show until a
-        Bot asks for it.
+        {t(
+          "Draws this deployment's own records, so it has nothing to show until a Bot asks for it.",
+        )}
       </p>
     );
   }

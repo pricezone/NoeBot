@@ -15,6 +15,7 @@ import {
   type GalleryComponent,
   galleryManifest,
 } from "@/lib/copilot/gallery-registry";
+import { i18n } from "@/lib/i18n";
 import {
   NOT_SHOWN,
   NOT_SHOWN_TAIL,
@@ -122,7 +123,10 @@ function GrantedTool({
       if (!isHeld) {
         return (
           <RefusedCard
-            reason={`${spec.title} is not available to this Bot at the moment. An administrator grants components per Bot, and can unpublish one for every Bot at once.`}
+            reason={i18n.t(
+              "{{title}} is not available to this Bot at the moment. An administrator grants components per Bot, and can unpublish one for every Bot at once.",
+              { title: spec.title },
+            )}
             title={spec.title}
           />
         );

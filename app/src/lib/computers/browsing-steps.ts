@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 import { type ComputerActivity, recordActivity } from "./activity";
 import { noteComputerActivity } from "./use-computer-sleep";
 
@@ -85,7 +86,10 @@ function pageSteps(outcome: Fields): Step[] {
   if (outcome.challenge)
     steps.push(
       issue(
-        `Met a check on ${hostOf(text(page.url) ?? text(outcome.url)) ?? "the page"}`,
+        i18n.t("Met a check on {{host}}", {
+          host:
+            hostOf(text(page.url) ?? text(outcome.url)) ?? i18n.t("the page"),
+        }),
         text(fieldsOf(outcome.challenge).reason),
       ),
     );
@@ -100,7 +104,7 @@ function fillSteps(outcome: Fields): Step[] {
     const entry = fieldsOf(field);
     steps.push({
       kind: entry.kind === "checked" ? "click" : "type",
-      subject: text(fieldsOf(entry.element).name) ?? "A field",
+      subject: text(fieldsOf(entry.element).name) ?? i18n.t("A field"),
       output: "",
       // A drop-down's choice is page text, not something the Bot typed.
       ...(text(entry.chosen) ? { detail: text(entry.chosen) } : {}),
@@ -108,13 +112,21 @@ function fillSteps(outcome: Fields): Step[] {
   }
   const refused = fieldsOf(outcome.refused);
   if (text(refused.reason))
-    steps.push(issue("A field was not filled in", text(refused.reason), true));
+    steps.push(
+      issue(i18n.t("A field was not filled in"), text(refused.reason), true),
+    );
   const failed = fieldsOf(outcome.failed);
   if (text(failed.error))
-    steps.push(issue("A field could not be filled in", text(failed.error)));
+    steps.push(
+      issue(i18n.t("A field could not be filled in"), text(failed.error)),
+    );
   const clicked = text(fieldsOf(outcome.afterwards).clicked);
   if (clicked)
-    steps.push({ kind: "click", subject: "The form's button", output: "" });
+    steps.push({
+      kind: "click",
+      subject: i18n.t("The form's button"),
+      output: "",
+    });
   return steps;
 }
 
@@ -141,7 +153,9 @@ export function browsingStepsFor(
       if (failed && !outcome.challenge) {
         return [
           issue(
-            `Could not open ${hostOf(asked) ?? asked ?? "the page"}`,
+            i18n.t("Could not open {{host}}", {
+              host: hostOf(asked) ?? asked ?? i18n.t("the page"),
+            }),
             reason,
             refused,
           ),
@@ -155,7 +169,9 @@ export function browsingStepsFor(
       if (outcome.challenge) {
         steps.push(
           issue(
-            `Met a check on ${host ?? "the page"}`,
+            i18n.t("Met a check on {{host}}", {
+              host: host ?? i18n.t("the page"),
+            }),
             text(challenge.reason) ?? reason,
           ),
         );
@@ -163,7 +179,7 @@ export function browsingStepsFor(
       if (!failed) {
         steps.push({
           kind: "page",
-          subject: title ?? host ?? url ?? "A page",
+          subject: title ?? host ?? url ?? i18n.t("A page"),
           output: "",
           ...(title && host ? { detail: host } : {}),
         });
@@ -172,11 +188,11 @@ export function browsingStepsFor(
     }
     case "computer_click":
       return failed
-        ? [issue("A click did not work", reason, refused)]
+        ? [issue(i18n.t("A click did not work"), reason, refused)]
         : [
             {
               kind: "click",
-              subject: elementOf(outcome) ?? "Something on the page",
+              subject: elementOf(outcome) ?? i18n.t("Something on the page"),
               output: "",
             },
             ...pageSteps(outcome),
@@ -184,22 +200,22 @@ export function browsingStepsFor(
     case "computer_type":
       // The field, by the label the server resolved. `args` carries the text and is not read.
       return failed
-        ? [issue("Could not fill in a field", reason, refused)]
+        ? [issue(i18n.t("Could not fill in a field"), reason, refused)]
         : [
             {
               kind: "type",
-              subject: elementOf(outcome) ?? "A field",
+              subject: elementOf(outcome) ?? i18n.t("A field"),
               output: "",
             },
             ...pageSteps(outcome),
           ];
     case "computer_select":
       return failed
-        ? [issue("Could not choose an option", reason, refused)]
+        ? [issue(i18n.t("Could not choose an option"), reason, refused)]
         : [
             {
               kind: "type",
-              subject: elementOf(outcome) ?? "A drop-down",
+              subject: elementOf(outcome) ?? i18n.t("A drop-down"),
               output: "",
               ...(text(outcome.chosen) ? { detail: text(outcome.chosen) } : {}),
             },
@@ -207,11 +223,11 @@ export function browsingStepsFor(
           ];
     case "computer_check":
       return failed
-        ? [issue("Could not tick a box", reason, refused)]
+        ? [issue(i18n.t("Could not tick a box"), reason, refused)]
         : [
             {
               kind: "click",
-              subject: elementOf(outcome) ?? "A box",
+              subject: elementOf(outcome) ?? i18n.t("A box"),
               output: "",
               detail: outcome.checked === false ? "unticked" : "ticked",
             },
@@ -219,11 +235,11 @@ export function browsingStepsFor(
           ];
     case "computer_upload":
       return failed
-        ? [issue("Could not upload a file", reason, refused)]
+        ? [issue(i18n.t("Could not upload a file"), reason, refused)]
         : [
             {
               kind: "type",
-              subject: elementOf(outcome) ?? "An upload",
+              subject: elementOf(outcome) ?? i18n.t("An upload"),
               output: "",
               ...(text(outcome.path) ? { detail: text(outcome.path) } : {}),
             },
@@ -231,16 +247,16 @@ export function browsingStepsFor(
           ];
     case "computer_fill":
       return failed
-        ? [issue("Could not fill in the form", reason, refused)]
+        ? [issue(i18n.t("Could not fill in the form"), reason, refused)]
         : [...fillSteps(outcome), ...pageSteps(outcome)];
     case "computer_dialog": {
       const dialog = fieldsOf(outcome.dialog);
       return failed
-        ? [issue("Could not answer a dialog", reason, refused)]
+        ? [issue(i18n.t("Could not answer a dialog"), reason, refused)]
         : [
             {
               kind: "click",
-              subject: text(dialog.message) ?? "A dialog",
+              subject: text(dialog.message) ?? i18n.t("A dialog"),
               output: "",
               detail: outcome.accepted === false ? "Cancel" : "OK",
             },
@@ -253,8 +269,8 @@ export function browsingStepsFor(
         return [
           issue(
             toolName === "computer_back"
-              ? "Could not go back"
-              : "Could not switch tab",
+              ? i18n.t("Could not go back")
+              : i18n.t("Could not switch tab"),
             reason,
             refused,
           ),
@@ -271,7 +287,7 @@ export function browsingStepsFor(
         ? [
             {
               kind: "page",
-              subject: title ?? hostOf(url) ?? url ?? "A page",
+              subject: title ?? hostOf(url) ?? url ?? i18n.t("A page"),
               output: "",
               ...(title && hostOf(url) ? { detail: hostOf(url) } : {}),
             },
@@ -283,7 +299,12 @@ export function browsingStepsFor(
       const where = hostOf(site) ?? site ?? "the site";
       return outcome.signedIn === true
         ? [{ kind: "sign_in", subject: where, output: "" }]
-        : [issue(`Not signed in to ${where}`, reason ?? text(outcome.result))];
+        : [
+            issue(
+              i18n.t("Not signed in to {{where}}", { where }),
+              reason ?? text(outcome.result),
+            ),
+          ];
     }
     default:
       // A request for help is a line when it is made (`stepsWhenAsked`), not when it is answered.
@@ -297,7 +318,7 @@ export function browsingStepsFor(
  */
 export function stepsWhenAsked(toolName: string, args: unknown): Step[] {
   return toolName === "computer_request_help"
-    ? [issue("Asked you for help", text(fieldsOf(args).reason))]
+    ? [issue(i18n.t("Asked you for help"), text(fieldsOf(args).reason))]
     : [];
 }
 

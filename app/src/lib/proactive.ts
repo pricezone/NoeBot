@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 
 export type ProactiveSetting = {
   id: string;
@@ -82,6 +83,6 @@ export const resolveSuggestion = (id: string, action: "start" | "dismiss") =>
     method: "POST",
     fallback:
       action === "start"
-        ? "Could not start this suggestion"
-        : "Could not dismiss this suggestion",
+        ? msg("Could not start this suggestion")
+        : msg("Could not dismiss this suggestion"),
   });

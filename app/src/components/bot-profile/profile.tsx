@@ -20,6 +20,7 @@ import {
   type UpdateTransport,
   updateRoutingQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
+import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 import { BotActivitySections } from "./activity";
 import { ForYouSection } from "./for-you-section";
@@ -48,16 +49,19 @@ const TRANSPORTS: { id: UpdateTransport; label: string }[] = [
 ];
 
 function UpdateRoutingSection() {
+  const { t } = useTranslation();
   const routing = useQuery(updateRoutingQueryOptions());
   const save = useMutation(setUpdateRoutingMutationOptions(queryClient));
   return (
     <PageSection
-      description="Where each kind of update goes when you are not looking. The web always shows everything. Applies to all your Bots."
-      title="Where updates go"
+      description={t(
+        "Where each kind of update goes when you are not looking. The web always shows everything. Applies to all your Bots.",
+      )}
+      title={t("Where updates go")}
     >
       {routing.isPending ? null : routing.error ? (
         <p className="mt-4 text-destructive text-sm" role="alert">
-          Could not load where your updates go.
+          {t("Could not load where your updates go.")}
         </p>
       ) : (
         <PageRows>
@@ -85,7 +89,10 @@ function UpdateRoutingSection() {
                         key={transport.id}
                       >
                         <Switch
-                          aria-label={`${KIND_LABEL[kind].title} by ${transport.label}`}
+                          aria-label={t("{{title}} by {{label}}", {
+                            title: KIND_LABEL[kind].title,
+                            label: transport.label,
+                          })}
                           checked={allowed(transport.id)}
                           disabled={save.isPending}
                           onCheckedChange={(checked) => {
@@ -119,6 +126,7 @@ function UpdateRoutingSection() {
 
 /** A Bot's own page: its state for you, what it is doing, and the lifecycle controls. */
 export function BotProfile({ agent }: { agent: AgentProfile }) {
+  const { t } = useTranslation();
   return (
     <>
       <div className="mt-6 flex items-center gap-3">
@@ -139,7 +147,7 @@ export function BotProfile({ agent }: { agent: AgentProfile }) {
         <BotPausedBanner agentId={agent.id} />
       </div>
 
-      <PageSection title="For you">
+      <PageSection title={t("For you")}>
         <ForYouSection agent={agent} />
       </PageSection>
 

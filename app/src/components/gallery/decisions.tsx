@@ -19,6 +19,7 @@ import { useChannelStep } from "@/lib/channels/steps";
 import { isForwardedPlaceholder } from "@/lib/channels/watch";
 import { useConversation } from "@/lib/copilot/conversation";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { i18n } from "@/lib/i18n";
 import { useUiStrings } from "@/lib/i18n/strings";
 
 /**
@@ -91,11 +92,11 @@ export async function answerElsewhere(
     const outcome = await answerWaitingDecision(toolCallId, value);
     if (outcome === "delivered") return;
     if (outcome === "answered")
-      throw new Error("This question was already answered.");
+      throw new Error(i18n.t("This question was already answered."));
   }
   // Not sent at all: the card takes an answer again.
   if ((await conversation?.ask(text)) === false)
-    throw new Error("The answer was not sent.");
+    throw new Error(i18n.t("The answer was not sent."));
   if (toolCallId && conversation?.channelId)
     void closeWaitingDecision(toolCallId, value);
 }

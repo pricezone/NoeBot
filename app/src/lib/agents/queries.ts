@@ -1,7 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
+import { client, tryClient, withTimeout } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import type { TemplateCategory } from "../../../../shared/templates";
-import { client, tryClient, withTimeout } from "@/lib/client";
 
 export type AgentVisibility = "public" | "private";
 
@@ -259,9 +260,9 @@ export async function testAgentConnection(
       ok: false,
       reason:
         (body as { error?: string } | null)?.error ??
-        "The connection could not be tested.",
+        i18n.t("The connection could not be tested."),
     };
   } catch {
-    return { ok: false, reason: "The connection could not be tested." };
+    return { ok: false, reason: i18n.t("The connection could not be tested.") };
   }
 }

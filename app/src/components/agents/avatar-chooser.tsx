@@ -26,6 +26,7 @@ import {
   setAgentAvatarMutationOptions,
 } from "@/lib/agents/mutations";
 import type { AgentProfile } from "@/lib/agents/queries";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/query-client";
 import { AVATAR_COLORS } from "../../../../shared/avatar";
@@ -61,6 +62,7 @@ export function AvatarChooser({
   size?: number;
   align?: "start" | "center" | "end";
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const setAvatar = useMutation(setAgentAvatarMutationOptions(queryClient));
   const pending = setAvatar.isPending ? setAvatar.variables?.choice : undefined;
@@ -95,7 +97,7 @@ export function AvatarChooser({
         <TooltipTrigger
           render={
             <PopoverTrigger
-              aria-label="Edit avatar"
+              aria-label={t("Edit avatar")}
               className="group/avatar relative rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               nativeButton
             />
@@ -111,16 +113,16 @@ export function AvatarChooser({
             <IconPencil className="size-4" />
           </span>
         </TooltipTrigger>
-        <TooltipContent>Edit avatar</TooltipContent>
+        <TooltipContent>{t("Edit avatar")}</TooltipContent>
       </Tooltip>
       <PopoverContent
         align={align}
-        aria-label="Avatar"
+        aria-label={t("Avatar")}
         className="w-[min(22.5rem,calc(100vw-2rem))] p-4"
         sideOffset={10}
       >
         <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-medium">Expression</span>
+          <span className="text-sm font-medium">{t("Expression")}</span>
           <Button
             disabled={!chosen}
             onClick={() =>
@@ -129,11 +131,11 @@ export function AvatarChooser({
             size="sm"
             variant="ghost"
           >
-            Reset
+            {t("Reset")}
           </Button>
         </div>
         <fieldset className="flex max-h-72 flex-col gap-3 overflow-y-auto pr-1">
-          <legend className="sr-only">Expression</legend>
+          <legend className="sr-only">{t("Expression")}</legend>
           {FACE_GROUPS.map((group) => (
             <div key={group.id}>
               <p className="mb-1.5 text-xs text-muted-foreground">
@@ -157,7 +159,7 @@ export function AvatarChooser({
           ))}
         </fieldset>
         <fieldset className="mt-4 flex flex-wrap gap-2.5 border-t border-border pt-4">
-          <legend className="sr-only">Color</legend>
+          <legend className="sr-only">{t("Color")}</legend>
           {AVATAR_COLORS.map((scheme) => (
             <button
               aria-label={scheme.label}

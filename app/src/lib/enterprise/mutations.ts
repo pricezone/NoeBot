@@ -1,5 +1,6 @@
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
 import {
   type CapabilityKey,
   type EgressRule,
@@ -8,7 +9,7 @@ import {
   type NetworkMode,
 } from "./queries";
 
-const FALLBACK = "Could not save that enterprise control";
+const FALLBACK = msg("Could not save that enterprise control");
 
 function invalidateEnterprise(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: enterpriseKeys.all });

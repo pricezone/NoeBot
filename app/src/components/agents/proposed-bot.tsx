@@ -9,6 +9,7 @@ import {
   type ProposedBot,
   wasCreated,
 } from "@/lib/agents/proposal";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The coworker a Bot has written, put in front of the person before it exists.
@@ -20,8 +21,8 @@ import {
  * is created, because a person cannot agree to instructions they were not shown.
  *
  * The whole tool is this card. There is no handler behind it: the run suspends here, and nothing is
- * written until a row is picked. Drawn as the question card everybody's questions share: "Create it"
- * and "Don't create" are its rows, and once answered it collapses to the one picked, with the link
+ * written until a row is picked. Drawn as the question card everybody's questions share: t("Create it")
+ * and t("Don't create") are its rows, and once answered it collapses to the one picked, with the link
  * to the new coworker under it.
  *
  * WHAT IT DELIBERATELY CANNOT DO. No address, no connector, no tool, no boundary and no visibility
@@ -69,6 +70,7 @@ export function ProposedBotCard({
   result,
   create,
 }: ProposedBotCardProps) {
+  const { t } = useTranslation();
   const [sending, setSending] = useState<Choice | null>(null);
   /**
    * Answered, before the recorded result has come back to say so — and for good when it never does,
@@ -85,8 +87,8 @@ export function ProposedBotCard({
   const [refusal, setRefusal] = useState<string | null>(null);
   const title = titleFor(args.name, clashes);
   const rows = [
-    { id: CREATE, label: "Create it" },
-    { id: DECLINE, label: "Don't create" },
+    { id: CREATE, label: t("Create it") },
+    { id: DECLINE, label: t("Don't create") },
   ];
 
   if (result !== undefined || done) {
@@ -123,7 +125,7 @@ export function ProposedBotCard({
   }
 
   if (!respond) {
-    return <QuestionCard subtitle="Writing the coworker…" title={title} />;
+    return <QuestionCard subtitle={t("Writing the coworker…")} title={title} />;
   }
 
   const checked = checkProposal(args);
@@ -144,7 +146,7 @@ export function ProposedBotCard({
       setRefusal(
         cause instanceof Error
           ? cause.message
-          : "The coworker was not created.",
+          : t("The coworker was not created."),
       );
       return;
     }
@@ -176,30 +178,35 @@ export function ProposedBotCard({
       sending={sending ? { optionId: sending } : undefined}
       subtitle={
         clashes
-          ? `There is already a ${clashes.title} here, which is ${clashes.ownership}. Names do not have to be unique, but two with the same name are hard to tell apart in a channel list.`
-          : "Nothing is created until you press the button."
+          ? t(
+              "There is already a {{title}} here, which is {{ownership}}. Names do not have to be unique, but two with the same name are hard to tell apart in a channel list.",
+              { title: clashes.title, ownership: clashes.ownership },
+            )
+          : t("Nothing is created until you press the button.")
       }
       title={titleFor(values.name, clashes)}
     >
       <dl className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-4 gap-y-1.5 text-sm">
-        <dt className="truncate text-muted-foreground">Name</dt>
+        <dt className="truncate text-muted-foreground">{t("Name")}</dt>
         <dd className="min-w-0 break-words font-medium">{values.name}</dd>
-        <dt className="truncate text-muted-foreground">Job</dt>
+        <dt className="truncate text-muted-foreground">{t("Job")}</dt>
         <dd className="min-w-0 break-words">{values.title}</dd>
-        <dt className="truncate text-muted-foreground">Skills</dt>
+        <dt className="truncate text-muted-foreground">{t("Skills")}</dt>
         <dd className="min-w-0 break-words">
           {skills.length > 0 ? (
             <span className="font-mono text-xs">
               {skills.map((slug) => `/${slug}`).join(", ")}
             </span>
           ) : (
-            <span className="text-muted-foreground">None</span>
+            <span className="text-muted-foreground">{t("None")}</span>
           )}
         </dd>
       </dl>
 
       <p className="mt-3 text-muted-foreground text-xs">
-        Its standing instructions. This text is given to a model on every turn.
+        {t(
+          "Its standing instructions. This text is given to a model on every turn.",
+        )}
       </p>
       {/*
        * Scrolled rather than clamped, and the distinction is the whole point of the card. A clamp
@@ -211,8 +218,9 @@ export function ProposedBotCard({
       </p>
 
       <p className="mt-2 text-muted-foreground text-xs">
-        It arrives private, with no address, no connector and no tool. Anything
-        it needs to reach is granted on its profile afterwards.
+        {t(
+          "It arrives private, with no address, no connector and no tool. Anything it needs to reach is granted on its profile afterwards.",
+        )}
       </p>
     </QuestionCard>
   );
@@ -240,13 +248,14 @@ function TalkToIt({
   agentId: string;
   name: string | undefined;
 }) {
+  const { t } = useTranslation();
   return (
     <Link
       className="mt-2 inline-block text-sm underline underline-offset-4"
       search={{ tab: "agents", agent: agentId }}
       to="/marketplace"
     >
-      Open {name?.trim() || "the coworker"}
+      {t("Open")} {name?.trim() || t("the coworker")}
     </Link>
   );
 }
@@ -265,6 +274,7 @@ function Unwritable({
   problems: string[];
   respond: (result: unknown) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   /**
    * Answered once, guarded by a ref rather than by the dependency list.
    *
@@ -281,8 +291,10 @@ function Unwritable({
 
   return (
     <QuestionCard
-      subtitle="The coworker could not be created as written, so nothing was asked of you. It is being redrafted."
-      title="Create a coworker"
+      subtitle={t(
+        "The coworker could not be created as written, so nothing was asked of you. It is being redrafted.",
+      )}
+      title={t("Create a coworker")}
     />
   );
 }

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client, tryClient } from "@/lib/client";
+import { i18n, msg } from "@/lib/i18n";
 export type ApprovalDecision =
   | "allow_once"
   | "allow_always"
@@ -16,10 +17,10 @@ export type ApprovalRuleInput = {
 };
 export type ApprovalRuleRow = ApprovalRuleInput & { id: string };
 export const BEHAVIOUR_LABELS: Record<RuleBehaviour, string> = {
-  allow: "Take action without asking",
-  pre_approved: "Take action if pre-approved",
-  ask: "Ask before taking action",
-  hand_off: "Hand off to you",
+  allow: msg("Take action without asking"),
+  pre_approved: msg("Take action if pre-approved"),
+  ask: msg("Ask before taking action"),
+  hand_off: msg("Hand off to you"),
 };
 export type ApprovalInboxData = {
   enabled: boolean;
@@ -275,5 +276,5 @@ export async function answerWaitingDecision(
   } | null;
   if (response.status === 409)
     return body?.reason === "stale" ? "stale" : "answered";
-  throw new Error(body?.error ?? "Your answer could not be sent.");
+  throw new Error(body?.error ?? i18n.t("Your answer could not be sent."));
 }

@@ -7,6 +7,7 @@ import {
   ItemDescription,
   ItemTitle,
 } from "@/components/ui/item";
+import { useTranslation } from "@/lib/i18n";
 import type { BrokerField } from "@/lib/plugins/mutations";
 
 /**
@@ -70,6 +71,7 @@ export function ConnectionFields({
   /** Whether the submission is already in flight, so the button cannot start a second one. */
   busy: boolean;
 }) {
+  const { t } = useTranslation();
   /* Seeded from the defaults the app published, so a field most people keep is already filled in. */
   const [values, setValues] = useState<Record<string, string>>(() =>
     seed(fields),
@@ -134,7 +136,7 @@ export function ConnectionFields({
         </Item>
       ))}
       <Button className="self-end" disabled={busy} size="sm" type="submit">
-        {busy ? "Connecting…" : "Connect"}
+        {busy ? t("Connecting…") : t("Connect")}
       </Button>
     </form>
   );

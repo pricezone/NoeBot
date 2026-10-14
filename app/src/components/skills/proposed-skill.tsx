@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { QuestionCard } from "@/components/chat-cards/question-card";
+import { useTranslation } from "@/lib/i18n";
 import type { SkillFormValues } from "@/lib/skills/form";
 import {
   checkProposal,
@@ -20,7 +21,7 @@ import {
  *
  * So the whole tool is this card. There is no handler behind it — the run suspends here, and nothing
  * is written until a row is picked. Drawn as the question card everybody's questions share: "Create
- * it" (or "Replace it") and "Don't save" are its rows, and once answered it collapses to the one
+ * it" (or t("Replace it")) and t("Don't save") are its rows, and once answered it collapses to the one
  * picked, with the next step under it.
  */
 
@@ -53,6 +54,7 @@ export function ProposedSkillCard({
   result,
   save,
 }: ProposedSkillCardProps) {
+  const { t } = useTranslation();
   const [sending, setSending] = useState<Choice | null>(null);
   /**
    * Answered, before the recorded result has come back to say so — and for good when it never does,
@@ -69,8 +71,8 @@ export function ProposedSkillCard({
   const [refusal, setRefusal] = useState<string | null>(null);
   const title = titleFor(args.slug, replaces);
   const rows = [
-    { id: SAVE, label: replaces ? "Replace it" : "Create it" },
-    { id: DECLINE, label: "Don't save" },
+    { id: SAVE, label: replaces ? t("Replace it") : t("Create it") },
+    { id: DECLINE, label: t("Don't save") },
   ];
 
   if (result !== undefined || done) {
@@ -102,7 +104,7 @@ export function ProposedSkillCard({
   }
 
   if (!respond) {
-    return <QuestionCard subtitle="Writing the skill…" title={title} />;
+    return <QuestionCard subtitle={t("Writing the skill…")} title={title} />;
   }
 
   const checked = checkProposal(args);
@@ -120,7 +122,7 @@ export function ProposedSkillCard({
       // Left on the card with the rows still live. See `refusal` above.
       setSending(null);
       setRefusal(
-        cause instanceof Error ? cause.message : "The skill was not saved.",
+        cause instanceof Error ? cause.message : t("The skill was not saved."),
       );
       return;
     }
@@ -148,25 +150,28 @@ export function ProposedSkillCard({
       sending={sending ? { optionId: sending } : undefined}
       subtitle={
         replaces
-          ? `This replaces ${replaces.title}, which is ${replaces.ownership}.`
-          : "Nothing is saved until you press the button."
+          ? t("This replaces {{title}}, which is {{ownership}}.", {
+              title: replaces.title,
+              ownership: replaces.ownership,
+            })
+          : t("Nothing is saved until you press the button.")
       }
       title={titleFor(values.slug, replaces)}
     >
       <dl className="grid grid-cols-[minmax(0,7rem)_1fr] gap-x-4 gap-y-1.5 text-sm">
-        <dt className="truncate text-muted-foreground">Command</dt>
+        <dt className="truncate text-muted-foreground">{t("Command")}</dt>
         <dd className="min-w-0 break-words font-mono">/{values.slug}</dd>
-        <dt className="truncate text-muted-foreground">Title</dt>
+        <dt className="truncate text-muted-foreground">{t("Title")}</dt>
         <dd className="min-w-0 break-words">{values.title}</dd>
         {values.summary ? (
           <>
-            <dt className="truncate text-muted-foreground">One-liner</dt>
+            <dt className="truncate text-muted-foreground">{t("One-liner")}</dt>
             <dd className="min-w-0 break-words">{values.summary}</dd>
           </>
         ) : null}
         {values.tools.length > 0 ? (
           <>
-            <dt className="truncate text-muted-foreground">Needs</dt>
+            <dt className="truncate text-muted-foreground">{t("Needs")}</dt>
             <dd className="min-w-0 break-words font-mono text-xs">
               {values.tools.join(", ")}
             </dd>
@@ -174,7 +179,7 @@ export function ProposedSkillCard({
         ) : null}
       </dl>
 
-      <p className="mt-3 text-muted-foreground text-xs">Instructions</p>
+      <p className="mt-3 text-muted-foreground text-xs">{t("Instructions")}</p>
       {/* Scrolled rather than clamped: this is the part worth reading before agreeing to it. */}
       <p className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background/60 px-3 py-2 text-sm dark:bg-muted/40">
         {values.instructions}
@@ -182,8 +187,9 @@ export function ProposedSkillCard({
 
       {values.tools.length > 0 ? (
         <p className="mt-2 text-muted-foreground text-xs">
-          Naming a tool grants nothing. A Bot is offered these only if an
-          administrator has already granted them to it.
+          {t(
+            "Naming a tool grants nothing. A Bot is offered these only if an administrator has already granted them to it.",
+          )}
         </p>
       ) : null}
     </QuestionCard>
@@ -200,13 +206,14 @@ function titleFor(
 
 /** Where the remaining step happens. A skill on no Bot is inert, and saying so beats implying done. */
 function PutItOnABot({ slug }: { slug: string }) {
+  const { t } = useTranslation();
   return (
     <Link
       className="mt-2 inline-block text-sm underline underline-offset-4"
       search={{ tab: "skills", edit: slug }}
       to="/marketplace"
     >
-      Put it on a Bot
+      {t("Put it on a Bot")}
     </Link>
   );
 }
@@ -225,6 +232,7 @@ function Unwritable({
   problems: string[];
   respond: (result: unknown) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   /**
    * Answered once, guarded by a ref rather than by the dependency list.
    *
@@ -241,8 +249,10 @@ function Unwritable({
 
   return (
     <QuestionCard
-      subtitle="The Bot's draft was not a valid skill, so nothing was saved. It has been told what to fix."
-      title="Skill"
+      subtitle={t(
+        "The Bot's draft was not a valid skill, so nothing was saved. It has been told what to fix.",
+      )}
+      title={t("Skill")}
     />
   );
 }

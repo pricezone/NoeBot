@@ -34,6 +34,7 @@ import {
 } from "@/lib/agents/queries";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { channelListQueryOptions } from "@/lib/channels/queries";
+import { useTranslation } from "@/lib/i18n";
 import {
   type PluginSkill,
   pluginsPageQueryOptions,
@@ -48,6 +49,7 @@ import { cn } from "@/lib/utils";
  * Nothing is pressed for the person: taking over the Bot's browser stays their press.
  */
 function RecordSkillButton() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const agents = useQuery(agentListQueryOptions());
   const roster = useInfiniteQuery(channelListQueryOptions());
@@ -79,7 +81,7 @@ function RecordSkillButton() {
   const label = (
     <>
       <IconPlayerRecordFilled aria-hidden="true" className="text-red-500" />
-      Record skill
+      {t("Record skill")}
     </>
   );
   if (bots.length <= 1) {
@@ -89,7 +91,7 @@ function RecordSkillButton() {
         disabled={only === undefined}
         onClick={() => only && record(only)}
         size="sm"
-        title={only === undefined ? "Create a Bot first" : undefined}
+        title={only === undefined ? t("Create a Bot first") : undefined}
         type="button"
         variant="secondary"
       >
@@ -137,6 +139,7 @@ function RecordSkillButton() {
  * is `?new`, so the form is linkable, reloadable, and closed by Back.
  */
 export function SkillsSections({ query = "" }: { query?: string }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data, isPending: skillsPending } = useQuery(
     pluginsPageQueryOptions(),
@@ -176,7 +179,11 @@ export function SkillsSections({ query = "" }: { query?: string }) {
     <PluginRow
       action={
         <Link
-          aria-label={`${action} ${skill.title}`}
+          aria-label={
+            action === "Edit"
+              ? t("Edit {{title}}", { title: skill.title })
+              : t("View {{title}}", { title: skill.title })
+          }
           className={cn(
             buttonVariants({ size: "sm", variant: "secondary" }),
             ACTION_CLASS,
@@ -184,14 +191,14 @@ export function SkillsSections({ query = "" }: { query?: string }) {
           search={{ ...search, edit: skill.slug }}
           to="/marketplace"
         >
-          {action}
+          {action === "Edit" ? t("Edit") : t("View")}
         </Link>
       }
       data-testid={`skill-${skill.slug}`}
       key={skill.id}
       mark={<IconBolt aria-hidden="true" data-mark="skill" />}
       onOpen={() => open(skill)}
-      openLabel={`About ${skill.title}`}
+      openLabel={t("About {{name}}", { name: skill.title })}
       /*
        * The command when there is no summary: `/slug` is what a person actually types, and a row
        * that shows neither leaves them guessing at it.
@@ -218,12 +225,12 @@ export function SkillsSections({ query = "" }: { query?: string }) {
               variant="secondary"
             >
               <IconPlus />
-              New skill
+              {t("New skill")}
             </Button>
             <RecordSkillButton />
           </div>
         }
-        title="Your skills"
+        title={t("Your skills")}
       >
         {/*
          * Nothing while the two queries are still in flight. The alternative is the empty state
@@ -236,19 +243,21 @@ export function SkillsSections({ query = "" }: { query?: string }) {
          */}
         {loading ? null : !data ? (
           <p className="mt-4 text-destructive text-sm" role="alert">
-            Your skills could not be loaded.
+            {t("Your skills could not be loaded.")}
           </p>
         ) : mine.length === 0 ? (
           <Empty className="mt-4 h-[180px] border border-dashed">
             <EmptyHeader>
               <EmptyTitle className="text-muted-foreground">
                 {query.trim()
-                  ? `No skills of yours match “${query.trim()}”.`
-                  : "You don't have any skills yet."}
+                  ? t("No skills of yours match “{{query}}”.", {
+                      query: query.trim(),
+                    })
+                  : t("You don't have any skills yet.")}
               </EmptyTitle>
               {query.trim() ? null : (
                 <EmptyDescription>
-                  Write one, or record your steps on a Bot's computer.
+                  {t("Write one, or record your steps on a Bot's computer.")}
                 </EmptyDescription>
               )}
             </EmptyHeader>
@@ -270,10 +279,11 @@ export function SkillsSections({ query = "" }: { query?: string }) {
        * written nothing yet is the normal case, and a permanently empty section reads as broken.
        */}
       {deployment.length > 0 ? (
-        <MarketplaceSection title="Workspace skills">
+        <MarketplaceSection title={t("Workspace skills")}>
           <p className="-mt-1 mb-3 text-[13px] text-muted-foreground">
-            Written for everyone by an administrator. Which Bots carry them is
-            decided in Admin.
+            {t(
+              "Written for everyone by an administrator. Which Bots carry them is decided in Admin.",
+            )}
           </p>
           <MarketplaceGrid>
             {deployment.map((skill) => row(skill, "View"))}

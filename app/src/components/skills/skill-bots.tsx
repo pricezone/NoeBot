@@ -11,6 +11,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useBotNames } from "@/lib/agents/bot-names";
 import { agentListQueryOptions } from "@/lib/agents/queries";
+import { useTranslation } from "@/lib/i18n";
 import {
   offerSkillToAllBotsMutationOptions,
   setPluginGrantMutationOptions,
@@ -27,6 +28,7 @@ import type { PluginSkill } from "@/lib/plugins/queries";
  * a package skill and a plugin's skill are read-only, and these switches are still theirs to set.
  */
 export function SkillSettings({ skill }: { skill: PluginSkill }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const offer = useMutation({
@@ -36,20 +38,28 @@ export function SkillSettings({ skill }: { skill: PluginSkill }) {
   });
 
   return (
-    <section aria-label="Skill settings" className="flex flex-col gap-4">
-      <h2 className="text-sm font-medium text-muted-foreground">Settings</h2>
+    <section aria-label={t("Skill settings")} className="flex flex-col gap-4">
+      <h2 className="text-sm font-medium text-muted-foreground">
+        {t("Settings")}
+      </h2>
       <Item size="sm" variant="muted">
         <ItemContent>
-          <ItemTitle>Offered to every Bot</ItemTitle>
+          <ItemTitle>{t("Offered to every Bot")}</ItemTitle>
           <ItemDescription>
             {skill.offeredToAllBots
-              ? "Every Bot may run this playbook, without a grant. Switch this off to decide per Bot below."
-              : "Only the Bots granted it below may run it. Switch this on to offer it to every Bot."}
+              ? t(
+                  "Every Bot may run this playbook, without a grant. Switch this off to decide per Bot below.",
+                )
+              : t(
+                  "Only the Bots granted it below may run it. Switch this on to offer it to every Bot.",
+                )}
           </ItemDescription>
         </ItemContent>
         <ItemActions>
           <Switch
-            aria-label={`Offer ${skill.title} to every Bot`}
+            aria-label={t("Offer {{title}} to every Bot", {
+              title: skill.title,
+            })}
             checked={skill.offeredToAllBots}
             disabled={offer.isPending}
             onCheckedChange={(next) =>
@@ -80,6 +90,7 @@ export function SkillBots({
   slug: string;
   grantedTo: readonly string[];
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: agents } = useQuery(agentListQueryOptions());
   const nameFor = useBotNames();
@@ -96,9 +107,9 @@ export function SkillBots({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium">Bots that carry it</p>
+      <p className="text-sm font-medium">{t("Bots that carry it")}</p>
       {bots.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No Bots yet.</p>
+        <p className="text-sm text-muted-foreground">{t("No Bots yet.")}</p>
       ) : (
         <div
           className="flex flex-wrap gap-2"

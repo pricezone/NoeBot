@@ -17,6 +17,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Tabs, TabsList, TabsPanel, TabsTrigger } from "@/components/ui/tabs";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The body of the Marketplace modal: the search, the installed cluster, and the three tabs.
@@ -37,6 +38,7 @@ export default function Marketplace({
   search: MarketplaceSearch;
   onSearchChange: SetMarketplaceSearch;
 }) {
+  const { t } = useTranslation();
   const tab = search.tab ?? "apps";
   const query = search.q ?? "";
 
@@ -125,9 +127,9 @@ export default function Marketplace({
             <IconSearch aria-hidden="true" className="size-4.5" />
           </InputGroupAddon>
           <InputGroupInput
-            aria-label="Search across apps and skills"
+            aria-label={t("Search across apps and skills")}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search across apps and skills"
+            placeholder={t("Search across apps and skills")}
             value={draft}
           />
         </InputGroup>
@@ -143,9 +145,9 @@ export default function Marketplace({
         value={tab}
       >
         <TabsList activateOnFocus variant="underline">
-          <TabsTrigger value="apps">Apps</TabsTrigger>
-          <TabsTrigger value="skills">Skills</TabsTrigger>
-          <TabsTrigger value="agents">Agents</TabsTrigger>
+          <TabsTrigger value="apps">{t("Apps")}</TabsTrigger>
+          <TabsTrigger value="skills">{t("Skills")}</TabsTrigger>
+          <TabsTrigger value="agents">{t("Agents")}</TabsTrigger>
         </TabsList>
         <TabsPanel className="pt-3" value="apps">
           <AppsTab

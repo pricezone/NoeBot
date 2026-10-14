@@ -25,16 +25,18 @@ import {
 } from "@/lib/approvals";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { brand } from "@/lib/brand";
+import { msg, useTranslation } from "@/lib/i18n";
 
 const HOST_LABELS: Record<HostCommandPolicy, string> = {
-  ask: "Ask every time",
-  allow: "Always allow",
-  never: "Never",
+  ask: msg("Ask every time"),
+  allow: msg("Always allow"),
+  never: msg("Never"),
 };
 const selectClass =
   "h-9 rounded-md border bg-background px-2 text-sm disabled:opacity-50";
 
 export function ApprovalInbox() {
+  const { t } = useTranslation();
   const cache = useQueryClient();
   const inbox = useQuery(approvalInboxOptions());
   const refresh = () => cache.invalidateQueries({ queryKey: ["approvals"] });
@@ -119,14 +121,18 @@ export function ApprovalInbox() {
         className="flex items-center justify-between gap-4 rounded-lg border p-4"
       >
         <span>
-          <span className="block font-medium">Ask before making changes</span>
+          <span className="block font-medium">
+            {t("Ask before making changes")}
+          </span>
           <span className="text-sm text-muted-foreground">
-            Review a Bot's changes to websites, connected apps, and files.
+            {t(
+              "Review a Bot's changes to websites, connected apps, and files.",
+            )}
           </span>
         </span>
         <Switch
           id="ask-before-changes"
-          aria-label="Ask before making changes"
+          aria-label={t("Ask before making changes")}
           checked={inbox.data?.enabled ?? false}
           disabled={inbox.isLoading || preference.isPending}
           onCheckedChange={(enabled) => preference.mutate(enabled)}
@@ -140,17 +146,16 @@ export function ApprovalInbox() {
           >
             <span>
               <span id="auto-review-title" className="block font-medium">
-                Auto-review
+                {t("Auto-review")}
               </span>
               <span
                 id="auto-review-description"
                 className="text-sm text-muted-foreground"
               >
-                {enforced ? "Required by your team. " : ""}
-                Before an action that could affect your accounts or share
-                information, a model checks it against what you asked for, your
-                rules and the safety requirements. If it cannot decide, it asks
-                you.
+                {enforced ? t("Required by your team. ") : ""}
+                {t(
+                  "Before an action that could affect your accounts or share information, a model checks it against what you asked for, your rules and the safety requirements. If it cannot decide, it asks you.",
+                )}
               </span>
             </span>
             <Switch
@@ -172,20 +177,24 @@ export function ApprovalInbox() {
           >
             <span>
               <span className="block font-medium">
-                Commands on your computer
+                {t("Commands on your computer")}
               </span>
               <span className="text-sm text-muted-foreground">
                 {inbox.data.hostCommands &&
                 inbox.data.hostCommands !== inbox.data.preferences.hostCommands
-                  ? `Your team limits this to "${HOST_LABELS[inbox.data.hostCommands]}". `
+                  ? t('Your team limits this to "{{value}}". ', {
+                      value: t(HOST_LABELS[inbox.data.hostCommands]),
+                    })
                   : ""}
-                The {brand.productName} desktop app still shows each command
-                before it runs on your computer.
+                {t(
+                  "The {{productName}} desktop app still shows each command before it runs on your computer.",
+                  { productName: brand.productName },
+                )}
               </span>
             </span>
             <select
               id="host-commands"
-              aria-label="Commands on your computer"
+              aria-label={t("Commands on your computer")}
               className={selectClass}
               value={inbox.data.preferences.hostCommands}
               disabled={preferences.isPending}
@@ -197,7 +206,7 @@ export function ApprovalInbox() {
             >
               {(Object.keys(HOST_LABELS) as HostCommandPolicy[]).map((key) => (
                 <option key={key} value={key}>
-                  {HOST_LABELS[key]}
+                  {t(HOST_LABELS[key])}
                 </option>
               ))}
             </select>
@@ -205,21 +214,24 @@ export function ApprovalInbox() {
         </>
       ) : null}
       <div className="space-y-3">
-        <h2 className="font-medium">Waiting for you</h2>
+        <h2 className="font-medium">{t("Waiting for you")}</h2>
         {inbox.data?.questions.map((question) => (
           <article
             key={question.id}
             className="space-y-3 rounded-lg border p-4"
           >
             <h3 className="font-medium">
-              {question.botId} asks: {question.question}
+              {t("{{botId}} asks: {{question}}", {
+                botId: question.botId,
+                question: question.question,
+              })}
             </h3>
             {question.why ? (
               <p className="text-sm text-muted-foreground">{question.why}</p>
             ) : null}
             <Textarea
-              aria-label="Your answer"
-              placeholder="Your answer"
+              aria-label={t("Your answer")}
+              placeholder={t("Your answer")}
               value={answers[question.id] ?? ""}
               onChange={(event) =>
                 setAnswers((prior) => ({
@@ -237,15 +249,17 @@ export function ApprovalInbox() {
                 })
               }
             >
-              Send answer
+              {t("Send answer")}
             </Button>
           </article>
         ))}
         {inbox.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading approvals…</p>
+          <p className="text-sm text-muted-foreground">
+            {t("Loading approvals…")}
+          </p>
         ) : pending.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No actions need your approval.
+            {t("No actions need your approval.")}
           </p>
         ) : (
           pending.map((request) => (
@@ -255,10 +269,12 @@ export function ApprovalInbox() {
             >
               <div>
                 <h3 className="font-medium">
-                  {request.action.botId} wants to{" "}
-                  {request.action.toolRef
-                    .replace(/^computer_|^host\//, "")
-                    .replaceAll("_", " ")}
+                  {t("{{botId}} wants to {{toolRef}}", {
+                    botId: request.action.botId,
+                    toolRef: request.action.toolRef
+                      .replace(/^computer_|^host\//, "")
+                      .replaceAll("_", " "),
+                  })}
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   {request.action.scope}
@@ -266,7 +282,7 @@ export function ApprovalInbox() {
                 {request.action.policy ? (
                   <p className="text-sm">
                     {request.action.policy.behaviour === "hand_off"
-                      ? "Handed to you: "
+                      ? t("Handed to you: ")
                       : ""}
                     {request.action.policy.reason}
                   </p>
@@ -283,7 +299,7 @@ export function ApprovalInbox() {
                       decision.mutate({ id: request.id, choice: "handled" })
                     }
                   >
-                    I did it myself
+                    {t("I did it myself")}
                   </Button>
                   <Button
                     variant="outline"
@@ -292,7 +308,7 @@ export function ApprovalInbox() {
                       decision.mutate({ id: request.id, choice: "deny" })
                     }
                   >
-                    Don't do it
+                    {t("Don't do it")}
                   </Button>
                 </div>
               ) : (
@@ -303,7 +319,7 @@ export function ApprovalInbox() {
                       decision.mutate({ id: request.id, choice: "allow_once" })
                     }
                   >
-                    Allow once
+                    {t("Allow once")}
                   </Button>
                   <Button
                     variant="outline"
@@ -315,7 +331,7 @@ export function ApprovalInbox() {
                       })
                     }
                   >
-                    Always allow here
+                    {t("Always allow here")}
                   </Button>
                   <Button
                     variant="outline"
@@ -324,7 +340,7 @@ export function ApprovalInbox() {
                       decision.mutate({ id: request.id, choice: "deny" })
                     }
                   >
-                    Deny
+                    {t("Deny")}
                   </Button>
                 </div>
               )}
@@ -333,13 +349,15 @@ export function ApprovalInbox() {
         )}
       </div>
       <div className="space-y-3">
-        <h2 className="font-medium">Rules</h2>
+        <h2 className="font-medium">{t("Rules")}</h2>
         <p className="text-sm text-muted-foreground">
-          The strictest matching rule wins, so an "ask" rule beats an "allow"
-          one. Team rules are locked. Changing a password, security settings and
-          payments are always handed to you.
+          {t(
+            'The strictest matching rule wins, so an "ask" rule beats an "allow" one. Team rules are locked. Changing a password, security settings and payments are always handed to you.',
+          )}
           {rulesOff
-            ? " Your team has switched personal rules off, so they are kept but do not apply."
+            ? t(
+                " Your team has switched personal rules off, so they are kept but do not apply.",
+              )
             : ""}
         </p>
         {inbox.data?.teamRules.map((rule) => (
@@ -368,11 +386,13 @@ export function ApprovalInbox() {
           />
         ))}
         {!inbox.data?.rules.length && !inbox.data?.teamRules.length ? (
-          <p className="text-sm text-muted-foreground">No rules saved.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("No rules saved.")}
+          </p>
         ) : null}
         {inbox.data?.preferences && !rulesOff ? (
           <RuleForm
-            label="Add a rule"
+            label={t("Add a rule")}
             pending={addRule.isPending}
             onSave={(input) => addRule.mutate(input)}
           />
@@ -380,13 +400,13 @@ export function ApprovalInbox() {
       </div>
       {isAdmin && inbox.data?.team ? (
         <div className="space-y-3">
-          <h2 className="font-medium">Team settings</h2>
+          <h2 className="font-medium">{t("Team settings")}</h2>
           <label
             htmlFor="enforce-auto-review"
             className="flex items-center justify-between gap-4 rounded-lg border p-4"
           >
             <span id="enforce-auto-review-title" className="font-medium">
-              Require auto-review for everyone
+              {t("Require auto-review for everyone")}
             </span>
             <Switch
               id="enforce-auto-review"
@@ -403,7 +423,7 @@ export function ApprovalInbox() {
             className="flex items-center justify-between gap-4 rounded-lg border p-4"
           >
             <span id="custom-rules-title" className="font-medium">
-              Let members set personal rules
+              {t("Let members set personal rules")}
             </span>
             <Switch
               id="custom-rules"
@@ -421,15 +441,15 @@ export function ApprovalInbox() {
           >
             <span>
               <span className="block font-medium">
-                Commands on members' computers, at most
+                {t("Commands on members' computers, at most")}
               </span>
               <span className="text-sm text-muted-foreground">
-                A member's own stricter setting still applies.
+                {t("A member's own stricter setting still applies.")}
               </span>
             </span>
             <select
               id="host-commands-cap"
-              aria-label="Commands on members' computers, at most"
+              aria-label={t("Commands on members' computers, at most")}
               className={selectClass}
               value={inbox.data.team.hostCommandsCap}
               disabled={team.isPending}
@@ -441,13 +461,13 @@ export function ApprovalInbox() {
             >
               {(Object.keys(HOST_LABELS) as HostCommandPolicy[]).map((key) => (
                 <option key={key} value={key}>
-                  {HOST_LABELS[key]}
+                  {t(HOST_LABELS[key])}
                 </option>
               ))}
             </select>
           </label>
           <RuleForm
-            label="Add a team rule"
+            label={t("Add a team rule")}
             pending={addTeamRule.isPending}
             onSave={(input) => addTeamRule.mutate(input)}
           />
@@ -472,7 +492,8 @@ function RuleRow({
   onRevoke: () => void;
   onChange: (behaviour: RuleBehaviour) => void;
 }) {
-  const label = `${BEHAVIOUR_LABELS[rule.behaviour]}${team ? " (team rule)" : ""}`;
+  const { t } = useTranslation();
+  const label = `${t(BEHAVIOUR_LABELS[rule.behaviour])}${team ? t(" (team rule)") : ""}`;
   return (
     <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
       <div className="space-y-1">
@@ -480,7 +501,9 @@ function RuleRow({
           <p className="text-sm font-medium">{label}</p>
         ) : (
           <select
-            aria-label={`Behaviour for ${rule.toolRef}`}
+            aria-label={t("Behaviour for {{toolRef}}", {
+              toolRef: rule.toolRef,
+            })}
             className={selectClass}
             value={rule.behaviour}
             disabled={disabled}
@@ -491,24 +514,26 @@ function RuleRow({
           >
             {(Object.keys(BEHAVIOUR_LABELS) as RuleBehaviour[]).map((key) => (
               <option key={key} value={key}>
-                {BEHAVIOUR_LABELS[key]}
-                {team ? " (team rule)" : ""}
+                {t(BEHAVIOUR_LABELS[key])}
+                {team ? t(" (team rule)") : ""}
               </option>
             ))}
           </select>
         )}
         <p className="text-sm text-muted-foreground">
           {rule.toolRef}
-          {rule.effect !== "*" ? `, ${rule.effect}` : ""}
-          {rule.scope !== "*" ? ` on ${rule.scope}` : ""}
-          {rule.botId !== "*" ? ` for ${rule.botId}` : ""}
+          {rule.effect !== "*"
+            ? t(", {{effect}}", { effect: rule.effect })
+            : ""}
+          {rule.scope !== "*" ? t(" on {{scope}}", { scope: rule.scope }) : ""}
+          {rule.botId !== "*" ? t(" for {{botId}}", { botId: rule.botId }) : ""}
         </p>
       </div>
       {locked ? (
-        <span className="text-sm text-muted-foreground">Locked</span>
+        <span className="text-sm text-muted-foreground">{t("Locked")}</span>
       ) : (
         <Button variant="outline" disabled={disabled} onClick={onRevoke}>
-          Remove
+          {t("Remove")}
         </Button>
       )}
     </div>
@@ -536,6 +561,7 @@ function RuleForm({
   pending: boolean;
   onSave: (input: ApprovalRuleInput) => void;
 }) {
+  const { t } = useTranslation();
   const [rule, setRule] = useState<ApprovalRuleInput>(EMPTY_RULE);
   const field = (key: keyof ApprovalRuleInput, title: string, hint: string) => (
     <label className="grid gap-1 text-sm">
@@ -563,14 +589,18 @@ function RuleForm({
       }}
     >
       <h3 className="font-medium sm:col-span-2">{label}</h3>
-      {field("toolRef", "Tool or app", "mcp/gmail/*, computer_click, host/*")}
-      {field("effect", "Kind of action", "* , write, read, delegate")}
-      {field("scope", "Target", "*, a site, a folder, a Bot name")}
-      {field("botId", "Bot", "* for every Bot")}
+      {field(
+        "toolRef",
+        t("Tool or app"),
+        "mcp/gmail/*, computer_click, host/*",
+      )}
+      {field("effect", t("Kind of action"), "* , write, read, delegate")}
+      {field("scope", t("Target"), t("*, a site, a folder, a Bot name"))}
+      {field("botId", t("Bot"), t("* for every Bot"))}
       <label className="grid gap-1 text-sm">
-        <span>Behaviour</span>
+        <span>{t("Behaviour")}</span>
         <select
-          aria-label="Behaviour"
+          aria-label={t("Behaviour")}
           className={selectClass}
           value={rule.behaviour}
           onChange={(event) => {
@@ -580,14 +610,14 @@ function RuleForm({
         >
           {(Object.keys(BEHAVIOUR_LABELS) as RuleBehaviour[]).map((key) => (
             <option key={key} value={key}>
-              {BEHAVIOUR_LABELS[key]}
+              {t(BEHAVIOUR_LABELS[key])}
             </option>
           ))}
         </select>
       </label>
       <div className="flex items-end">
         <Button type="submit" disabled={pending || !rule.toolRef.trim()}>
-          Save rule
+          {t("Save rule")}
         </Button>
       </div>
     </form>

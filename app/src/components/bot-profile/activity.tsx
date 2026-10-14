@@ -34,6 +34,7 @@ import {
   type ActivityKind,
   botActivityQueryOptions,
 } from "@/lib/bot-lifecycle/queries";
+import { msg, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { queryClient } from "@/query-client";
 
@@ -47,12 +48,12 @@ const ICONS: Record<ActivityKind, typeof IconBell> = {
 };
 
 const KIND_LABEL: Record<ActivityKind, string> = {
-  routine: "Routine",
-  responsibility: "Responsibility",
-  handoff: "Delegated task",
-  approval: "Approval",
-  question: "Question",
-  follow_up: "Follow-up",
+  routine: msg("Routine"),
+  responsibility: msg("Responsibility"),
+  handoff: msg("Delegated task"),
+  approval: msg("Approval"),
+  question: msg("Question"),
+  follow_up: msg("Follow-up"),
 };
 
 /** Where an item opens: its conversation when it has one, otherwise the screen that owns its kind. */
@@ -81,6 +82,7 @@ function ActivityRow({
   agentId: string;
   item: ActivityItem;
 }) {
+  const { t } = useTranslation();
   const stop = useMutation(stopHandoffMutationOptions(queryClient));
   const cancel = useMutation(cancelFollowUpMutationOptions(queryClient));
   const Icon = ICONS[item.kind];
@@ -93,7 +95,7 @@ function ActivityRow({
       size="sm"
       variant="outline"
     >
-      {stop.isPending ? "Stopping…" : "Stop"}
+      {stop.isPending ? t("Stopping…") : t("Stop")}
     </Button>
   ) : item.cancellable ? (
     <Button
@@ -102,7 +104,7 @@ function ActivityRow({
       size="sm"
       variant="outline"
     >
-      {cancel.isPending ? "Cancelling…" : "Cancel"}
+      {cancel.isPending ? t("Cancelling…") : t("Cancel")}
     </Button>
   ) : null;
   const content = (
@@ -113,9 +115,10 @@ function ActivityRow({
       <ItemContent>
         <ItemTitle>{item.title}</ItemTitle>
         <ItemDescription>
-          {KIND_LABEL[item.kind]} · {item.needsYou ? "needs you" : item.status}
-          {when ? ` · ${when}` : ""}
-          {item.detail ? ` · ${item.detail}` : ""}
+          {t(KIND_LABEL[item.kind])} ·{" "}
+          {item.needsYou ? t("needs you") : item.status}
+          {when ? t(" · {{when}}", { when }) : ""}
+          {item.detail ? t(" · {{detail}}", { detail: item.detail }) : ""}
         </ItemDescription>
       </ItemContent>
     </>
@@ -131,7 +134,7 @@ function ActivityRow({
         <ItemActions>
           {link ? (
             <Button render={link} size="sm" variant="ghost">
-              Open
+              {t("Open")}
             </Button>
           ) : null}
           {control}
@@ -178,13 +181,14 @@ function ActivitySection({
 
 /** In progress, Scheduled and Completed, read from the ledgers the work already lives in. */
 export function BotActivitySections({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
   const activity = useQuery(botActivityQueryOptions(agentId));
   if (activity.isPending) return null;
   if (activity.error)
     return (
-      <PageSection title="Activity">
+      <PageSection title={t("Activity")}>
         <p className="mt-4 text-destructive text-sm" role="alert">
-          Could not load this Bot's activity.
+          {t("Could not load this Bot's activity.")}
         </p>
       </PageSection>
     );
@@ -192,21 +196,21 @@ export function BotActivitySections({ agentId }: { agentId: string }) {
     <>
       <ActivitySection
         agentId={agentId}
-        empty="Nothing is running or waiting on you."
+        empty={t("Nothing is running or waiting on you.")}
         items={activity.data.inProgress}
-        title="In progress"
+        title={t("In progress")}
       />
       <ActivitySection
         agentId={agentId}
-        empty="Nothing is scheduled."
+        empty={t("Nothing is scheduled.")}
         items={activity.data.scheduled}
-        title="Scheduled"
+        title={t("Scheduled")}
       />
       <ActivitySection
         agentId={agentId}
-        empty="Nothing has finished yet."
+        empty={t("Nothing has finished yet.")}
         items={activity.data.completed}
-        title="Completed"
+        title={t("Completed")}
       />
     </>
   );

@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 import { fixedIntlLocale, numberFormat } from "@/lib/i18n/format";
 
 /** Credits and requests over one window of time. */
@@ -104,7 +105,7 @@ export function usageQueryOptions() {
         fallback: "Could not load usage",
       });
       const usage = parseUsage(body);
-      if (!usage) throw new Error("Could not load usage");
+      if (!usage) throw new Error(i18n.t("Could not load usage"));
       return usage;
     },
   });

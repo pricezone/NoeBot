@@ -21,6 +21,7 @@ import {
   matchingAgents,
   templateListQueryOptions,
 } from "@/lib/agents/queries";
+import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { type AvatarColor, avatarSchemeOf } from "../../../../shared/avatar";
 import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
@@ -36,7 +37,7 @@ import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
  * own faces, each template with the colour and expression its author chose.
  *
  * WHICH CATEGORY IS THE ADDRESS (`?category`), so Back works and a category can be linked to. The
- * featured strip shows only on All with no search, as Grok Bot's does; the "Your Bots" pill shows
+ * featured strip shows only on All with no search, as Grok Bot's does; the t("Your Bots") pill shows
  * the person's own and the Bots shared with them, alone.
  *
  * THE ROSTER'S ERROR RULES CARRY OVER from the component this replaced: a stale roster beats an
@@ -63,6 +64,7 @@ export function TemplateMarket({
   search: MarketplaceSearch;
   onSearchChange: SetMarketplaceSearch;
 }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const query = search.q ?? "";
   const category = search.category;
@@ -143,7 +145,7 @@ export function TemplateMarket({
       key={template.id}
     >
       <button
-        aria-label={`About ${template.name}`}
+        aria-label={t("About {{name}}", { name: template.name })}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={() => open(template)}
         type="button"
@@ -159,7 +161,7 @@ export function TemplateMarket({
             {template.name}
             <span className="font-normal text-muted-foreground">
               {" "}
-              by {template.creator}
+              {t("by {{creator}}", { creator: template.creator })}
             </span>
           </span>
           <span className="line-clamp-1 text-sm text-muted-foreground">
@@ -168,7 +170,7 @@ export function TemplateMarket({
         </span>
       </button>
       <Button
-        aria-label={`Add ${template.name}`}
+        aria-label={t("Add {{name}}", { name: template.name })}
         className="h-8 shrink-0 rounded-full px-3.5 text-xs"
         disabled={add.isPending && add.variables === template.id}
         onClick={() => {
@@ -179,7 +181,9 @@ export function TemplateMarket({
         type="button"
         variant="secondary"
       >
-        {add.isPending && add.variables === template.id ? "Adding…" : "Add"}
+        {add.isPending && add.variables === template.id
+          ? t("Adding…")
+          : t("Add")}
       </Button>
     </div>
   );
@@ -209,12 +213,12 @@ export function TemplateMarket({
         </span>
       </span>
       <Link
-        aria-label={`Open ${agent.name}`}
+        aria-label={t("Open {{name}}", { name: agent.name })}
         className="shrink-0 rounded-full bg-secondary px-3.5 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
         search={{ tab: "agents", q: search.q, agent: agent.id }}
         to="/marketplace"
       >
-        Open
+        {t("Open")}
       </Link>
     </div>
   );
@@ -227,7 +231,7 @@ export function TemplateMarket({
         active={category}
         className="mt-1"
         items={[
-          { key: YOUR_BOTS, label: "Your Bots" },
+          { key: YOUR_BOTS, label: t("Your Bots") },
           ...categories.map((name) => ({ key: name, label: name })),
         ]}
         onSelect={show}
@@ -246,7 +250,8 @@ export function TemplateMarket({
           /* In the read's own words, so what went wrong can be read off the screen. */
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <p className="text-destructive text-sm" role="alert">
-              {templates.error?.message || "Bot templates couldn't be loaded."}
+              {templates.error?.message ||
+                t("Bot templates couldn't be loaded.")}
             </p>
             <Button
               disabled={templates.isFetching}
@@ -255,14 +260,14 @@ export function TemplateMarket({
               type="button"
               variant="secondary"
             >
-              Try again
+              {t("Try again")}
             </Button>
           </div>
         ) : (
           <>
             {featured.length > 0 ? (
-              <section aria-label="Featured" className="pt-6">
-                <h2 className="mb-4 text-lg font-medium">Featured</h2>
+              <section aria-label={t("Featured")} className="pt-6">
+                <h2 className="mb-4 text-lg font-medium">{t("Featured")}</h2>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
                   {featured.map((template) => (
                     <button
@@ -286,7 +291,7 @@ export function TemplateMarket({
                         {template.name}
                       </span>
                       <span className="mt-1 text-xs text-muted-foreground">
-                        by {template.creator}
+                        {t("by {{creator}}", { creator: template.creator })}
                       </span>
                     </button>
                   ))}
@@ -307,7 +312,7 @@ export function TemplateMarket({
                       onClick={() => show(section.name)}
                       type="button"
                     >
-                      View all
+                      {t("View all")}
                     </button>
                   ) : null}
                 </div>
@@ -321,8 +326,11 @@ export function TemplateMarket({
                     role="status"
                   >
                     {needle
-                      ? `Nothing for “${query.trim()}”. Try another creator or Bot name.`
-                      : `Nothing in ${section.name} yet.`}
+                      ? t(
+                          "Nothing for “{{query}}”. Try another creator or Bot name.",
+                          { query: query.trim() },
+                        )
+                      : t("Nothing in {{name}} yet.", { name: section.name })}
                   </p>
                 )}
               </section>
@@ -333,9 +341,9 @@ export function TemplateMarket({
 
       {showBots ? (
         <>
-          <section aria-label="Your Bots" className="pt-10">
+          <section aria-label={t("Your Bots")} className="pt-10">
             <div className="mb-3 flex items-center justify-between pr-3">
-              <h2 className="text-lg font-medium">Your Bots</h2>
+              <h2 className="text-lg font-medium">{t("Your Bots")}</h2>
               <Button
                 render={(props) => (
                   <Link
@@ -348,7 +356,7 @@ export function TemplateMarket({
                 variant="secondary"
               >
                 <IconPlus />
-                Create new Bot
+                {t("Create new Bot")}
               </Button>
             </div>
             {agents.isPending ? (
@@ -357,38 +365,44 @@ export function TemplateMarket({
               <div className={grid}>{mine.map(agentRow)}</div>
             ) : rosterFailed ? (
               <p className="px-3 text-destructive text-sm" role="alert">
-                Your Bots couldn't be loaded.
+                {t("Your Bots couldn't be loaded.")}
               </p>
             ) : (
               <p className="px-3 text-sm text-muted-foreground" role="status">
                 {needle
-                  ? `None of your Bots match “${query.trim()}”.`
-                  : "You don't have any Bots yet. Add one above, or create your own."}
+                  ? t("None of your Bots match “{{query}}”.", {
+                      query: query.trim(),
+                    })
+                  : t(
+                      "You don't have any Bots yet. Add one above, or create your own.",
+                    )}
               </p>
             )}
           </section>
-          <section aria-label="Shared with you" className="pt-10">
-            <h2 className="mb-3 text-lg font-medium">Shared with you</h2>
+          <section aria-label={t("Shared with you")} className="pt-10">
+            <h2 className="mb-3 text-lg font-medium">{t("Shared with you")}</h2>
             {agents.isPending ? (
               <Skeleton className="h-[120px]" />
             ) : shared?.length ? (
               <div className={grid}>{shared.map(agentRow)}</div>
             ) : rosterFailed ? (
               <p className="px-3 text-destructive text-sm" role="alert">
-                Shared with you couldn't be loaded.
+                {t("Shared with you couldn't be loaded.")}
               </p>
             ) : (
               <p className="px-3 text-sm text-muted-foreground" role="status">
                 {needle
-                  ? `No shared Bots match “${query.trim()}”.`
-                  : "Nobody has shared a Bot with you yet."}
+                  ? t("No shared Bots match “{{query}}”.", {
+                      query: query.trim(),
+                    })
+                  : t("Nobody has shared a Bot with you yet.")}
               </p>
             )}
           </section>
           {hiddenAgents.length > 0 ? (
             <details className="group mt-8 w-full">
               <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-                <h2 className="text-lg font-medium">Hidden</h2>
+                <h2 className="text-lg font-medium">{t("Hidden")}</h2>
                 <span className="text-sm text-muted-foreground">
                   {hiddenAgents.length}
                 </span>

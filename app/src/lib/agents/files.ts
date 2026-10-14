@@ -1,6 +1,7 @@
 import { infiniteQueryOptions } from "@tanstack/react-query";
 import { agentApiPath, agentKeys } from "@/lib/agents/queries";
 import { client } from "@/lib/client";
+import { i18n, msg } from "@/lib/i18n";
 
 /**
  * A Bot's files as the Library lists them: what was attached in its conversations and what it saved
@@ -65,9 +66,9 @@ export type FileGroupId = "today" | "week" | "older";
 export type FileGroup = { id: FileGroupId; label: string; files: AgentFile[] };
 
 const GROUP_LABEL: Record<FileGroupId, string> = {
-  today: "Today",
-  week: "Last 7 days",
-  older: "Older",
+  today: msg("Today"),
+  week: msg("Last 7 days"),
+  older: msg("Older"),
 };
 
 /**
@@ -105,7 +106,7 @@ export function groupFilesByAge(
   }
   return (["today", "week", "older"] as const)
     .filter((id) => groups[id].length > 0)
-    .map((id) => ({ id, label: GROUP_LABEL[id], files: groups[id] }));
+    .map((id) => ({ id, label: i18n.t(GROUP_LABEL[id]), files: groups[id] }));
 }
 
 /**

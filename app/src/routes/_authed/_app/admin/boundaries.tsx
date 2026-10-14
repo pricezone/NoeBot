@@ -13,6 +13,7 @@ import {
   dryRunActionPolicy,
   type PolicyMode,
 } from "@/lib/computers/queries";
+import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
 /**
@@ -363,7 +364,7 @@ function DryRunResult({ report }: { report: DryRunReport }) {
               <p className="mt-0.5 text-muted-foreground text-xs">
                 {change.bot}
                 {change.page ? <> · {change.page}</> : null} ·{" "}
-                {new Date(change.createdAt).toLocaleString()}
+                {new Date(change.createdAt).toLocaleString(intlLocale())}
               </p>
             </li>
           ))}

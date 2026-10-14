@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { GalleryComponent } from "@/lib/copilot/gallery-registry";
+import { useTranslation } from "@/lib/i18n";
 import { GalleryFrame } from "./frame";
 import { seriesColour } from "./palette";
 
@@ -32,9 +33,10 @@ function formatNumber(value: number): string {
 
 /** Nothing to draw is a sentence. An empty axis reads as a component that failed. */
 function Empty() {
+  const { t } = useTranslation();
   return (
     <p className="py-10 text-center text-sm text-muted-foreground">
-      There is no data to chart.
+      {t("There is no data to chart.")}
     </p>
   );
 }

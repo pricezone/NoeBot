@@ -14,7 +14,8 @@ import {
  *
  * Keys are read from the source (`scripts/i18n/scan.ts`); `bun scripts/i18n/extract.ts --missing`
  * lists what is left to translate, and `bun scripts/i18n/guard.ts` what is not yet going through a
- * translation at all.
+ * translation at all. Every check lists all of its violations at once, so one run says everything
+ * there is to fix.
  */
 
 const { keys, untranslated } = scanApp();
@@ -48,107 +49,120 @@ const entries = [...catalogs].flatMap(([namespace, catalog]) =>
 const plain = (text: string) =>
   text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Every entry for which `bad` says something, as "entry: what". */
+function violations(
+  bad: (item: (typeof entries)[number]) => string | undefined,
+): string[] {
+  return entries.flatMap((item) => {
+    const said = bad(item);
+    return said === undefined ? [] : [`${item.entry} → ${said}`];
+  });
+}
+
 describe("Greek catalogs", () => {
   test("every value is a non-empty string in NFC", () => {
-    for (const { namespace, entry, value } of entries) {
-      expect({ namespace, entry, ok: typeof value === "string" }).toEqual({
-        namespace,
-        entry,
-        ok: true,
-      });
-      expect({ entry, empty: value.trim() === "" }).toEqual({
-        entry,
-        empty: false,
-      });
-      expect({ entry, nfc: value === value.normalize("NFC") }).toEqual({
-        entry,
-        nfc: true,
-      });
-    }
+    expect(
+      violations(({ value }) =>
+        typeof value !== "string"
+          ? "not a string"
+          : value.trim() === ""
+            ? "empty"
+            : value !== value.normalize("NFC")
+              ? "not NFC"
+              : undefined,
+      ),
+    ).toEqual([]);
   });
 
   test("no entry translates something no code asks for any more", () => {
-    const stale = entries
-      .filter(({ entry }) => !englishFor.has(entry))
-      .map(({ namespace, entry }) => `${namespace}: ${entry}`);
-    expect(stale).toEqual([]);
+    expect(
+      entries
+        .filter(({ entry }) => !englishFor.has(entry))
+        .map(({ namespace, entry }) => `${namespace}: ${entry}`),
+    ).toEqual([]);
   });
 
   test("a translation keeps its English's placeholders and tags", () => {
-    const placeholders = (text: string) =>
+    const placeholders = (text: string, entry: string) =>
       [...text.matchAll(/\{\{\s*([\w.]+)[^}]*\}\}/g)]
-        .map((match) => match[1])
-        .sort();
+        .map((match) => match[1] ?? "")
+        // The singular may say "one" in words rather than repeat the count.
+        .filter((name) => name !== "count" || !entry.endsWith("_one"))
+        .sort()
+        .join(",");
     const tags = (text: string) =>
       [...text.matchAll(/<\/?([\w-]+)\s*\/?>/g)]
         .map((match) => match[0])
-        .sort();
-    for (const { entry, value } of entries) {
-      const english = englishOf(entry);
-      // The singular may say "one" in words rather than repeat the count.
-      const comparable = (text: string) =>
-        placeholders(text).filter(
-          (name) => name !== "count" || !entry.endsWith("_one"),
-        );
-      expect({ entry, placeholders: comparable(value) }).toEqual({
-        entry,
-        placeholders: comparable(english),
-      });
-      expect({ entry, tags: tags(value) }).toEqual({
-        entry,
-        tags: tags(english),
-      });
-    }
+        .sort()
+        .join(",");
+    expect(
+      violations(({ entry, value }) => {
+        const english = englishOf(entry);
+        if (placeholders(value, entry) !== placeholders(english, entry))
+          return `placeholders ${placeholders(value, entry)} vs ${placeholders(english, entry)}`;
+        if (tags(value) !== tags(english))
+          return `tags ${tags(value)} vs ${tags(english)}`;
+        return undefined;
+      }),
+    ).toEqual([]);
   });
 
   test("a translation differs from its English, unless it is only names kept as they are", () => {
-    for (const { entry, value } of entries) {
-      if (value !== englishOf(entry)) continue;
-      let rest = value.replace(/\{\{[^}]*\}\}/g, "").replace(/<[^>]*>/g, "");
-      for (const term of glossary.keep) rest = rest.replaceAll(term, "");
-      expect({ entry, untranslated: /\p{L}{2,}/u.test(rest) }).toEqual({
-        entry,
-        untranslated: false,
-      });
-    }
+    expect(
+      violations(({ entry, value }) => {
+        if (value !== englishOf(entry)) return undefined;
+        let rest = value.replace(/\{\{[^}]*\}\}/g, "").replace(/<[^>]*>/g, "");
+        for (const term of [...glossary.keep].sort(
+          (a, b) => b.length - a.length,
+        ))
+          rest = rest.replaceAll(term, "");
+        return /\p{L}{2,}/u.test(rest) ? "identical to the English" : undefined;
+      }),
+    ).toEqual([]);
   });
 });
 
 describe("the glossary", () => {
   test("a glossary term is translated exactly as the glossary says", () => {
-    for (const { entry, value } of entries) {
-      const english = englishOf(entry).replace(/[.…]+$/, "");
-      const term = glossary.exact[english];
-      if (term === undefined) continue;
-      expect({ entry, value: value.replace(/[.…]+$/, "") }).toEqual({
-        entry,
-        value: term,
-      });
-    }
+    expect(
+      violations(({ entry, value }) => {
+        const english = englishOf(entry).replace(/[.…]+$/, "");
+        const term = glossary.exact[english];
+        if (term === undefined) return undefined;
+        const said = value.replace(/[.…]+$/, "");
+        return said === term ? undefined : `${said}, not ${term}`;
+      }),
+    ).toEqual([]);
   });
 
   test("no machine translation the platform's catalogs were caught with", () => {
-    for (const { entry, value } of entries)
-      for (const bad of glossary.forbidden)
-        expect({
-          entry,
-          bad: new RegExp(`(^|[^\\p{L}])${plain(bad)}([^\\p{L}]|$)`, "u").test(
-            plain(value),
-          ),
-        }).toEqual({ entry, bad: false });
+    expect(
+      violations(({ value }) => {
+        const bad = glossary.forbidden.find((word) =>
+          new RegExp(
+            `(^|[^\\p{L}])${escapeRegExp(plain(word))}([^\\p{L}]|$)`,
+            "u",
+          ).test(plain(value)),
+        );
+        return bad === undefined ? undefined : `uses "${bad}"`;
+      }),
+    ).toEqual([]);
   });
 
   test("names kept as they are stay as they are", () => {
-    for (const { entry, value } of entries)
-      for (const term of glossary.keep) {
-        const pattern = new RegExp(`(^|[^\\p{L}])${term}([^\\p{L}]|$)`, "u");
-        if (!pattern.test(englishOf(entry))) continue;
-        expect({ entry, term, kept: value.includes(term) }).toEqual({
-          entry,
-          term,
-          kept: true,
-        });
-      }
+    expect(
+      violations(({ entry, value }) => {
+        const lost = glossary.keep.filter(
+          (term) =>
+            new RegExp(`(^|[^\\p{L}])${escapeRegExp(term)}([^\\p{L}]|$)`, "u").test(
+              englishOf(entry),
+            ) && !value.includes(term),
+        );
+        return lost.length ? `lost ${lost.join(", ")}` : undefined;
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -161,55 +175,48 @@ describe("Greek spelling", () => {
       .filter((word) => /\p{Script=Greek}/u.test(word));
 
   test("final sigma at the end of a word, and only there", () => {
-    for (const { entry, value } of entries)
-      for (const word of greekWords(value)) {
-        expect({
-          entry,
-          word,
-          ok: !/σ$/.test(word) && !/ς./.test(word),
-        }).toEqual({
-          entry,
-          word,
-          ok: true,
-        });
-      }
+    expect(
+      violations(({ value }) => {
+        const wrong = greekWords(value).filter(
+          (word) => /σ$/.test(word) || /ς./.test(word),
+        );
+        return wrong.length ? wrong.join(", ") : undefined;
+      }),
+    ).toEqual([]);
   });
 
   test("no Latin letter hiding inside a Greek word", () => {
-    for (const { entry, value } of entries)
-      for (const word of greekWords(value))
-        expect({ entry, word, mixed: /\p{Script=Latin}/u.test(word) }).toEqual({
-          entry,
-          word,
-          mixed: false,
-        });
+    expect(
+      violations(({ value }) => {
+        const mixed = greekWords(value).filter((word) =>
+          /\p{Script=Latin}/u.test(word),
+        );
+        return mixed.length ? mixed.join(", ") : undefined;
+      }),
+    ).toEqual([]);
   });
 
   test("a Greek question ends in ; and no polytonic accents", () => {
-    for (const { entry, value } of entries) {
-      const withoutLinks = value.replace(/https?:\/\/\S+/g, "");
-      expect({ entry, question: withoutLinks.includes("?") }).toEqual({
-        entry,
-        question: false,
-      });
-      expect({ entry, polytonic: /[ἀ-῿]/u.test(value) }).toEqual({
-        entry,
-        polytonic: false,
-      });
-    }
+    expect(
+      violations(({ value }) =>
+        value.replace(/https?:\/\/\S+/g, "").includes("?")
+          ? "uses ?"
+          : /[ἀ-῿]/u.test(value)
+            ? "polytonic"
+            : undefined,
+      ),
+    ).toEqual([]);
   });
 
   test("the informal register, as on the platform's Noë Bot pages", () => {
-    for (const { entry, value } of entries) {
-      if (glossary.formal.includes(entry)) continue;
-      expect({
-        entry,
-        formal: /(^|[^\p{L}])σας([^\p{L}]|$)/u.test(value),
-      }).toEqual({
-        entry,
-        formal: false,
-      });
-    }
+    expect(
+      violations(({ entry, value }) =>
+        !glossary.formal.includes(entry) &&
+        /(^|[^\p{L}])σας([^\p{L}]|$)/u.test(value)
+          ? "formal σας"
+          : undefined,
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -217,12 +224,13 @@ describe("translated files", () => {
   const translated = translatedFiles();
 
   test("stay free of untranslated English", () => {
-    const regressions = translated.flatMap((file) =>
-      (untranslated.get(file) ?? []).map(
-        (hit) => `${file}:${hit.line} ${hit.where}: ${hit.text}`,
+    expect(
+      translated.flatMap((file) =>
+        (untranslated.get(file) ?? []).map(
+          (hit) => `${file}:${hit.line} ${hit.where}: ${hit.text}`,
+        ),
       ),
-    );
-    expect(regressions).toEqual([]);
+    ).toEqual([]);
   });
 
   test("have Greek for every key they ask for", () => {
@@ -239,10 +247,8 @@ describe("translated files", () => {
   });
 
   test("name files that exist", () => {
-    for (const file of translated)
-      expect({ file, exists: Bun.file(`${ROOT}/${file}`).size > 0 }).toEqual({
-        file,
-        exists: true,
-      });
+    expect(
+      translated.filter((file) => Bun.file(`${ROOT}/${file}`).size === 0),
+    ).toEqual([]);
   });
 });

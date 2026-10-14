@@ -7,6 +7,7 @@ import {
   installedApps,
 } from "@/components/plugins/connectable-apps";
 import { PluginLogo } from "@/components/plugins/plugin-logo";
+import { useTranslation } from "@/lib/i18n";
 import {
   connectionsQueryOptions,
   pluginsPageQueryOptions,
@@ -35,6 +36,7 @@ function tileFor(app: InstalledApp) {
  * either: the Apps tab below says so once, and a second sentence up here would say it twice.
  */
 export function InstalledCluster() {
+  const { t } = useTranslation();
   const connections = useQuery(connectionsQueryOptions());
   const plugins = useQuery(pluginsPageQueryOptions());
   if (!connections.data || !plugins.data) return null;
@@ -44,7 +46,9 @@ export function InstalledCluster() {
 
   return (
     <Link
-      aria-label={`${installed.length} installed, open connected accounts`}
+      aria-label={t("{{length}} installed, open connected accounts", {
+        length: installed.length,
+      })}
       className="flex shrink-0 items-center gap-2 rounded-full py-1 pl-1 pr-2 text-[13px] text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
       data-testid="installed-cluster"
       to="/settings/connected-accounts"
@@ -61,7 +65,7 @@ export function InstalledCluster() {
           ))}
         </span>
       ) : null}
-      <span>{installed.length} installed</span>
+      <span>{t("{{length}} installed", { length: installed.length })}</span>
       <IconChevronRight aria-hidden="true" className="size-4" />
     </Link>
   );

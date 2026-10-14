@@ -28,6 +28,8 @@ import {
   scheduleDemonstration,
   UNTITLED_WORKFLOW,
 } from "@/lib/demonstrations";
+import { i18n, msg, useTranslation } from "@/lib/i18n";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   grantPlugin,
   invalidatePlugins,
@@ -64,10 +66,10 @@ export const refreshDemonstrations = (botId: string) =>
   queryClient.invalidateQueries({ queryKey: demonstrationKeys.bot(botId) });
 
 const SCHEDULES = [
-  { label: "Every weekday at 09:00", cron: "0 9 * * 1-5" },
-  { label: "Every day at 09:00", cron: "0 9 * * *" },
-  { label: "Every Monday at 09:00", cron: "0 9 * * 1" },
-  { label: "Every hour", cron: "0 * * * *" },
+  { label: msg("Every weekday at 09:00"), cron: "0 9 * * 1-5" },
+  { label: msg("Every day at 09:00"), cron: "0 9 * * *" },
+  { label: msg("Every Monday at 09:00"), cron: "0 9 * * 1" },
+  { label: msg("Every hour"), cron: "0 * * * *" },
 ] as const;
 
 /** Save the demonstrated path as a routine that reruns the published skill. */
@@ -78,6 +80,7 @@ function ScheduleSkill({
   recording: Demonstration;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const [cron, setCron] = useState<string>(SCHEDULES[0].cron);
   const [custom, setCustom] = useState("");
@@ -105,13 +108,15 @@ function ScheduleSkill({
   if (scheduled)
     return (
       <p className="w-full text-xs">
-        Scheduled. /{recording.skillSlug} next runs{" "}
-        {new Date(scheduled.nextRunAt).toLocaleString()}.{" "}
+        {t("Scheduled. /{{slug}} next runs {{when}}.", {
+          slug: recording.skillSlug,
+          when: new Date(scheduled.nextRunAt).toLocaleString(intlLocale()),
+        })}{" "}
         <Link to="/settings/bots" hash="routines" className="underline">
-          See routines
+          {t("See routines")}
         </Link>{" "}
         <button type="button" className="underline" onClick={onDone}>
-          Close
+          {t("Close")}
         </button>
       </p>
     );
@@ -124,7 +129,7 @@ function ScheduleSkill({
       }}
     >
       <label htmlFor={`${id}-when`} className="grid gap-1">
-        When it runs ({timezone})
+        {t("When it runs ({{timezone}})", { timezone })}
         <select
           id={`${id}-when`}
           className="h-8 rounded-md border bg-background px-2"
@@ -133,15 +138,15 @@ function ScheduleSkill({
         >
           {SCHEDULES.map((option) => (
             <option key={option.cron} value={option.cron}>
-              {option.label}
+              {t(option.label)}
             </option>
           ))}
-          <option value="custom">Custom cron expression</option>
+          <option value="custom">{t("Custom cron expression")}</option>
         </select>
       </label>
       {cron === "custom" && (
         <label htmlFor={`${id}-cron`} className="grid gap-1">
-          Cron (minute hour day month weekday)
+          {t("Cron (minute hour day month weekday)")}
           <Input
             id={`${id}-cron`}
             required
@@ -153,14 +158,14 @@ function ScheduleSkill({
         </label>
       )}
       <label htmlFor={`${id}-channel`} className="grid gap-1">
-        Report in
+        {t("Report in")}
         <select
           id={`${id}-channel`}
           className="h-8 rounded-md border bg-background px-2"
           value={channelId}
           onChange={(event) => setChannelId(event.target.value)}
         >
-          <option value="">This Bot's only conversation</option>
+          <option value="">{t("This Bot's only conversation")}</option>
           {botChannels.map((channel) => (
             <option key={channel.id} value={channel.id}>
               {channel.name}
@@ -169,13 +174,13 @@ function ScheduleSkill({
         </select>
       </label>
       <label htmlFor={`${id}-inputs`} className="grid gap-1">
-        Inputs for each run (optional)
+        {t("Inputs for each run (optional)")}
         <Input
           id={`${id}-inputs`}
           maxLength={1000}
           value={inputs}
           onChange={(event) => setInputs(event.target.value)}
-          placeholder="input_1: last month's invoices"
+          placeholder={t("input_1: last month's invoices")}
         />
       </label>
       {schedule.error && (
@@ -190,10 +195,10 @@ function ScheduleSkill({
           type="submit"
           disabled={schedule.isPending || (cron === "custom" && !custom.trim())}
         >
-          Schedule
+          {t("Schedule")}
         </Button>
         <Button size="sm" variant="ghost" type="button" onClick={onDone}>
-          Cancel
+          {t("Cancel")}
         </Button>
       </div>
     </form>
@@ -212,22 +217,24 @@ function SkillDraftReview({
   onCancel: () => void;
   onSaved: (slug: string) => void;
 }) {
+  const { t } = useTranslation();
   const [saveError, setSaveError] = useState<Error | null>(null);
   const save = useMutation(saveSkillMutationOptions(queryClient));
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Review and edit the skill</DialogTitle>
+        <DialogTitle>{t("Review and edit the skill")}</DialogTitle>
         <DialogDescription>
-          Replace parameter names and clarify the expected outcome. Saving uses
-          the same skill permissions as Skills.
+          {t(
+            "Replace parameter names and clarify the expected outcome. Saving uses the same skill permissions as Skills.",
+          )}
         </DialogDescription>
       </DialogHeader>
       <DialogBody>
         <SkillFields
           key={draft.sourceRecordingId}
           defaultValues={draft}
-          submitLabel="Save and use with this Bot"
+          submitLabel={t("Save and use with this Bot")}
           error={saveError || save.error}
           onCancel={onCancel}
           onSubmit={async (values) => {
@@ -247,7 +254,7 @@ function SkillDraftReview({
               setSaveError(
                 error instanceof Error
                   ? error
-                  : new Error("The skill could not be saved."),
+                  : new Error(i18n.t("The skill could not be saved.")),
               );
               await refreshDemonstrations(botId);
             }
@@ -278,6 +285,7 @@ export function WorkflowDialog({
   draft?: DemonstrationDraft;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const recordings = useQuery(demonstrationsQueryOptions(botId));
   const recording = recordings.data?.find((value) => value.id === recordingId);
@@ -311,16 +319,19 @@ export function WorkflowDialog({
     content = (
       <>
         <DialogHeader>
-          <DialogTitle>/{savedSlug} is ready</DialogTitle>
+          <DialogTitle>
+            {t("/{{savedSlug}} is ready", { savedSlug })}
+          </DialogTitle>
           <DialogDescription>
-            /{savedSlug} is ready on this Bot. Invoke it in the conversation
-            with the inputs you want to use, or choose Run on a schedule under
-            Library › Recorded workflows to rerun it as a routine.
+            {t(
+              "/{{savedSlug}} is ready on this Bot. Invoke it in the conversation with the inputs you want to use, or choose Run on a schedule under Library › Recorded workflows to rerun it as a routine.",
+              { savedSlug },
+            )}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button size="sm" onClick={onClose}>
-            Done
+            {t("Done")}
           </Button>
         </DialogFooter>
       </>
@@ -338,16 +349,16 @@ export function WorkflowDialog({
     content = (
       <>
         <DialogHeader>
-          <DialogTitle>Name this workflow</DialogTitle>
+          <DialogTitle>{t("Name this workflow")}</DialogTitle>
           <DialogDescription>
             {recordings.isPending
-              ? "Loading the recording…"
-              : "This recording is no longer here."}
+              ? t("Loading the recording…")
+              : t("This recording is no longer here.")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
+            {t("Close")}
           </Button>
         </DialogFooter>
       </>
@@ -356,10 +367,11 @@ export function WorkflowDialog({
     content = (
       <>
         <DialogHeader>
-          <DialogTitle>Nothing was recorded</DialogTitle>
+          <DialogTitle>{t("Nothing was recorded")}</DialogTitle>
           <DialogDescription>
-            No steps were recorded. Take control and click or type on the page
-            while recording, then stop.
+            {t(
+              "No steps were recorded. Take control and click or type on the page while recording, then stop.",
+            )}
           </DialogDescription>
         </DialogHeader>
         {remove.error ? (
@@ -369,7 +381,7 @@ export function WorkflowDialog({
         ) : null}
         <DialogFooter>
           <Button size="sm" variant="ghost" onClick={onClose}>
-            Later
+            {t("Later")}
           </Button>
           <Button
             size="sm"
@@ -377,7 +389,7 @@ export function WorkflowDialog({
             disabled={remove.isPending}
             onClick={() => remove.mutate()}
           >
-            Delete
+            {t("Delete")}
           </Button>
         </DialogFooter>
       </>
@@ -392,22 +404,27 @@ export function WorkflowDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>Name this workflow</DialogTitle>
+          <DialogTitle>{t("Name this workflow")}</DialogTitle>
           <DialogDescription>
-            {recording.actions.length}{" "}
-            {recording.actions.length === 1 ? "step" : "steps"} recorded. Name
-            it, then review the skill drafted from it.
+            {t(
+              "{{count}} steps recorded. Name it, then review the skill drafted from it.",
+              {
+                count: recording.actions.length,
+                defaultValue_one:
+                  "{{count}} step recorded. Name it, then review the skill drafted from it.",
+              },
+            )}
           </DialogDescription>
         </DialogHeader>
         <Field>
-          <FieldLabel htmlFor={id}>Workflow name</FieldLabel>
+          <FieldLabel htmlFor={id}>{t("Workflow name")}</FieldLabel>
           <Input
             id={id}
             required
             maxLength={120}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Find an invoice"
+            placeholder={t("Find an invoice")}
             autoComplete="off"
           />
         </Field>
@@ -418,7 +435,7 @@ export function WorkflowDialog({
         ) : null}
         <DialogFooter>
           <Button size="sm" variant="ghost" type="button" onClick={onClose}>
-            Later
+            {t("Later")}
           </Button>
           {/* Base UI's Button defaults to type="button", which never submits the form. */}
           <Button
@@ -426,7 +443,7 @@ export function WorkflowDialog({
             type="submit"
             disabled={name.isPending || !title.trim()}
           >
-            Save
+            {t("Save")}
           </Button>
         </DialogFooter>
       </form>
@@ -456,6 +473,7 @@ export function WorkflowDialog({
  * left unnamed (Later) is named first: reviewing it opens on "Name this workflow".
  */
 export function RecordedWorkflows({ botId }: { botId: string }) {
+  const { t } = useTranslation();
   const recordings = useQuery(demonstrationsQueryOptions(botId));
   const [scheduling, setScheduling] = useState("");
   const [reviewing, setReviewing] = useState<{
@@ -486,8 +504,9 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
       ) : null}
       {recordings.isSuccess && !finished.length ? (
         <p className="text-[13px] text-muted-foreground">
-          No recorded workflows yet. Open the Bot's screen and choose Record
-          your steps.
+          {t(
+            "No recorded workflows yet. Open the Bot's screen and choose Record your steps.",
+          )}
         </p>
       ) : null}
       {finished.map((recording) => (
@@ -496,12 +515,15 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
           className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 first:border-t-0 first:pt-0"
         >
           <span>
-            {recording.title} · {recording.actions.length}{" "}
-            {recording.actions.length === 1 ? "step" : "steps"}
+            {recording.title} ·{" "}
+            {t("{{count}} steps", {
+              count: recording.actions.length,
+              defaultValue_one: "{{count}} step",
+            })}
             {recording.reachedTimeLimit && (
               <span className="text-xs text-muted-foreground">
                 {" "}
-                · stopped at the ten-minute limit
+                {t("· stopped at the ten-minute limit")}
               </span>
             )}
           </span>
@@ -513,7 +535,7 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
                   search={{ tab: "skills", edit: recording.skillSlug }}
                   className="text-xs underline"
                 >
-                  Edit /{recording.skillSlug}
+                  {t("Edit /{{skillSlug}}", { skillSlug: recording.skillSlug })}
                 </Link>
                 <Button
                   size="sm"
@@ -524,7 +546,7 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
                     )
                   }
                 >
-                  Run on a schedule
+                  {t("Run on a schedule")}
                 </Button>
               </>
             ) : (
@@ -538,7 +560,7 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
                     : generate.mutate(recording.id)
                 }
               >
-                Review skill draft
+                {t("Review skill draft")}
               </Button>
             )}
             <Button
@@ -547,7 +569,7 @@ export function RecordedWorkflows({ botId }: { botId: string }) {
               disabled={remove.isPending}
               onClick={() => remove.mutate(recording.id)}
             >
-              Delete
+              {t("Delete")}
             </Button>
           </div>
           {scheduling === recording.id && (

@@ -2,6 +2,7 @@ import type { ActivityMessage, Message } from "@ag-ui/core";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { channelKeys } from "@/lib/channels/queries";
 import { client } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 import type {
   SaveVoiceSessionInput,
@@ -103,7 +104,9 @@ export function saveVoiceSession(
       const body: { session?: VoiceSessionRecord; error?: string } =
         await response.json().catch(() => ({}));
       if (!body.session)
-        throw new Error(body.error ?? "Could not save this voice chat.");
+        throw new Error(
+          body.error ?? i18n.t("Could not save this voice chat."),
+        );
       const session = body.session;
       forgetVoiceCall(session, ownerId);
       queryClient.setQueryData<VoiceSessionRecord[]>(
@@ -119,7 +122,7 @@ export function saveVoiceSession(
         saveError:
           (error instanceof Error
             ? error.message
-            : "Could not save this voice chat.") +
+            : i18n.t("Could not save this voice chat.")) +
           (recoverable
             ? ""
             : " Keep this page open to retry; browser recovery is unavailable."),
@@ -146,7 +149,7 @@ export function useVoiceArchive(channelId: string) {
           summary: null,
           summaryStatus: "failed",
           saveState: "unsaved",
-          saveError: "The page closed before saving was confirmed.",
+          saveError: i18n.t("The page closed before saving was confirmed."),
         })),
       enabled: false,
       gcTime: Infinity,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { msg } from "@/lib/i18n";
 
 /**
  * Browser-side coworker form contract. Limits match the server parser so validation errors can be
@@ -8,18 +9,18 @@ export const agentFormSchema = z.object({
   name: z
     .string()
     .trim()
-    .min(1, "Name is required.")
-    .max(80, "Name must be 80 characters or fewer."),
+    .min(1, msg("Name is required."))
+    .max(80, msg("Name must be 80 characters or fewer.")),
   title: z
     .string()
     .trim()
-    .min(1, "Title is required.")
-    .max(120, "Title must be 120 characters or fewer."),
+    .min(1, msg("Title is required."))
+    .max(120, msg("Title must be 120 characters or fewer.")),
   roleDescription: z
     .string()
     .trim()
-    .min(1, "Role description is required.")
-    .max(1000, "Role description must be 1000 characters or fewer."),
+    .min(1, msg("Role description is required."))
+    .max(1000, msg("Role description must be 1000 characters or fewer.")),
   visibility: z.enum(["public", "private"]),
   /**
    * The AG-UI endpoint this coworker runs on. Empty means the Bot in the box.
@@ -31,7 +32,7 @@ export const agentFormSchema = z.object({
     .trim()
     .refine(
       (value) => value === "" || /^https?:\/\/\S+$/.test(value),
-      "Enter a web address starting with http:// or https://.",
+      msg("Enter a web address starting with http:// or https://."),
     ),
   /**
    * A key the agent sits behind. WRITE-ONLY: it is never sent back from the server, so this field is

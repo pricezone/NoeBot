@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { marketplaceSearchSchema } from "@/components/marketplace/search";
 import { ModalShell } from "@/components/ui/modal-shell";
+import { useTranslation } from "@/lib/i18n";
 
 /**
  * The Marketplace: the apps a Bot can reach as you, the skills you have written, and the
@@ -23,11 +24,12 @@ export const Route = createFileRoute("/_authed/_app/marketplace/")({
 });
 
 function RouteComponent() {
+  const { t } = useTranslation();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
 
   return (
-    <ModalShell title="Marketplace" width={1000}>
+    <ModalShell title={t("Marketplace")} width={1000}>
       <Suspense fallback={null}>
         <MarketplaceBody
           onSearchChange={(next, options) =>

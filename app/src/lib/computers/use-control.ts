@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from "react";
+import { i18n } from "@/lib/i18n";
 import {
-  cancelControl,
   type ControlState,
+  cancelControl,
   readControl,
   releaseControl,
   takeControl,
@@ -52,7 +53,9 @@ function createControlStore(computerId: string): ControlStore {
         ? snapshot.problem?.startsWith("Reconnecting:")
           ? null
           : snapshot.problem
-        : "Reconnecting: browser ownership could not be checked. Input is paused.",
+        : i18n.t(
+            "Reconnecting: browser ownership could not be checked. Input is paused.",
+          ),
     });
   };
   // Keep the same store through Strict Mode resubscriptions and pending mutations.
@@ -68,8 +71,9 @@ function createControlStore(computerId: string): ControlStore {
     if (action !== "take" && !requestId) {
       publish({
         ...snapshot,
-        problem:
+        problem: i18n.t(
           "The handoff request could not be identified. Retry the connection.",
+        ),
       });
       return false;
     }
@@ -93,14 +97,18 @@ function createControlStore(computerId: string): ControlStore {
         busy: false,
         problem: next
           ? null
-          : "Control could not be changed. Check the connection and retry.",
+          : i18n.t(
+              "Control could not be changed. Check the connection and retry.",
+            ),
       });
       return next !== null;
     } catch {
       publish({
         ...snapshot,
         busy: false,
-        problem: "The computer could not be reached. Retry when it reconnects.",
+        problem: i18n.t(
+          "The computer could not be reached. Retry when it reconnects.",
+        ),
       });
       return false;
     } finally {

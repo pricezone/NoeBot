@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
+import { intlLocale } from "@/lib/i18n/format";
 import {
   learningDeliveryQueryOptions,
   learningKeys,
@@ -369,7 +370,9 @@ export function LearningPage() {
                     {delivery.data.lastCheckedAt && (
                       <p>
                         Last checked:{" "}
-                        {new Date(delivery.data.lastCheckedAt).toLocaleString()}
+                        {new Date(delivery.data.lastCheckedAt).toLocaleString(
+                          intlLocale(),
+                        )}
                       </p>
                     )}
                     {delivery.data.error && (

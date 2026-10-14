@@ -9,8 +9,9 @@ import {
   type ChannelSummary,
   channelKeys,
 } from "@/lib/channels/queries";
-import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import { client } from "@/lib/client";
+import { msg } from "@/lib/i18n";
+import type { AvatarColor, AvatarExpression } from "../../../../shared/avatar";
 import {
   type AgentProfile,
   type AgentVisibility,
@@ -30,7 +31,7 @@ export type AgentInput = {
 };
 
 /** The sentence for every write here, since they all fail the same way to a reader. */
-const FALLBACK = "Coworker operation failed";
+const FALLBACK = msg("Coworker operation failed");
 
 /** Server-derived fields are invalidated instead of patched by hand. */
 function invalidateAgents(queryClient: QueryClient) {

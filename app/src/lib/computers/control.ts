@@ -13,6 +13,7 @@ import { tryClient } from "@/lib/client";
 
 export type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
 
+import { i18n } from "@/lib/i18n";
 import type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
 
 async function callControl(
@@ -85,11 +86,14 @@ export async function declineSecret(
     const body = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
-    return { ok: false, error: body?.error ?? "That could not be declined." };
+    return {
+      ok: false,
+      error: body?.error ?? i18n.t("That could not be declined."),
+    };
   } catch {
     return {
       ok: false,
-      error: "The assistant's computer could not be reached.",
+      error: i18n.t("The assistant's computer could not be reached."),
     };
   }
 }
@@ -107,11 +111,14 @@ export async function supplySecret(
     const body = (await response.json().catch(() => null)) as {
       error?: string;
     } | null;
-    return { ok: false, error: body?.error ?? "That could not be entered." };
+    return {
+      ok: false,
+      error: body?.error ?? i18n.t("That could not be entered."),
+    };
   } catch {
     return {
       ok: false,
-      error: "The assistant's computer could not be reached.",
+      error: i18n.t("The assistant's computer could not be reached."),
     };
   }
 }

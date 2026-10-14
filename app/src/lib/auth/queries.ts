@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { client, tryClient } from "@/lib/client";
+import { i18n } from "@/lib/i18n";
 import type { Locale } from "../../../../shared/i18n/locales";
 
 /**
@@ -104,7 +105,11 @@ async function currentUser(): Promise<AuthenticatedUser | null> {
     return null;
   }
   if (!response.ok) {
-    throw new Error(`Could not load the current user (${response.status})`);
+    throw new Error(
+      i18n.t("Could not load the current user ({{status}})", {
+        status: response.status,
+      }),
+    );
   }
 
   const body = (await response.json()) as { user: AuthenticatedUser };

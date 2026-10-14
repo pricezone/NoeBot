@@ -1,3 +1,4 @@
+import { i18n } from "@/lib/i18n";
 import type { ConnectVoice } from "./types";
 import { connectWebRtc } from "./webrtc";
 import { connectWebSocket } from "./websocket";
@@ -12,7 +13,7 @@ export function voiceSupported(): boolean {
 export const connectVoice: ConnectVoice = async (options) => {
   if (!voiceSupported())
     throw new Error(
-      "Voice calls need a supported browser and HTTPS or localhost.",
+      i18n.t("Voice calls need a supported browser and HTTPS or localhost."),
     );
   const response = await fetch("/api/voice/config", {
     credentials: "include",
@@ -20,12 +21,16 @@ export const connectVoice: ConnectVoice = async (options) => {
   });
   if (!response.ok)
     throw new Error(
-      "Voice calls are unavailable. Check the deployment's voice configuration.",
+      i18n.t(
+        "Voice calls are unavailable. Check the deployment's voice configuration.",
+      ),
     );
   const config: unknown = await response.json();
   if (config && typeof config === "object" && "transport" in config) {
     if (config.transport === "webrtc") return connectWebRtc(options);
     if (config.transport === "websocket") return connectWebSocket(options);
   }
-  throw new Error("This deployment uses an unsupported voice connection.");
+  throw new Error(
+    i18n.t("This deployment uses an unsupported voice connection."),
+  );
 };

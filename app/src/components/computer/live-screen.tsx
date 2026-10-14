@@ -5,6 +5,7 @@ import {
   type ScreenSocket,
 } from "@/lib/computers/screen-connection";
 import { keyOf } from "@/lib/hotkeys/hotkeys";
+import { useTranslation } from "@/lib/i18n";
 import { socketUrl } from "@/lib/socket-url";
 import { currentPageVisible } from "./preview-visibility";
 import { pageCoordinates } from "./take-the-wheel";
@@ -112,6 +113,7 @@ export function LiveScreen({
   onProblem,
   retryKey = 0,
 }: Props) {
+  const { t } = useTranslation();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   /** Keydowns handled locally whose matching keyup must not leak to the remote browser. */
@@ -205,7 +207,7 @@ export function LiveScreen({
       };
       if (typeof message.type !== "string") return;
       if (message.type === "error") {
-        onProblem?.(message.error ?? "The screen could not be shown.");
+        onProblem?.(message.error ?? t("The screen could not be shown."));
         return;
       }
       if (message.type !== "frame" || !message.data) return;
@@ -503,8 +505,8 @@ export function LiveScreen({
         : {})}
       aria-label={
         driving
-          ? "The assistant's screen. You have control: click and type here."
-          : "The assistant's screen, live"
+          ? t("The assistant's screen. You have control: click and type here.")
+          : t("The assistant's screen, live")
       }
       data-connected={connected}
     />

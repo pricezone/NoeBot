@@ -15,6 +15,7 @@ import {
   approvalInboxOptions,
   decideApproval,
 } from "@/lib/approvals";
+import { i18n, useTranslation } from "@/lib/i18n";
 
 /**
  * A decision made on a card in this conversation, kept so the card can stay drawn as answered.
@@ -72,16 +73,16 @@ function questionFor(request: ApprovalRequest): {
     .replaceAll("_", " ");
   const choices: [ApprovalDecision, string][] = handOff
     ? [
-        ["handled", "I did it myself"],
-        ["deny", "Don't do it"],
+        ["handled", i18n.t("I did it myself")],
+        ["deny", i18n.t("Don't do it")],
       ]
     : [
-        ["allow_once", "Allow once"],
-        ["allow_always", "Always allow here"],
+        ["allow_once", i18n.t("Allow once")],
+        ["allow_always", i18n.t("Always allow here")],
         ["deny", "Deny"],
       ];
   return {
-    title: `${handOff ? "This needs you" : "Waiting for your approval"}: ${what} on ${request.action.scope}`,
+    title: `${handOff ? i18n.t("This needs you") : i18n.t("Waiting for your approval")}: ${what} on ${request.action.scope}`,
     options: choices.map(([id, label]) => ({ id, label })),
   };
 }
@@ -111,6 +112,7 @@ export function InlineApproval({
   requestId?: string;
   fallback: ReactNode;
 }) {
+  const { t } = useTranslation();
   const cache = useQueryClient();
   const inbox = useQuery(approvalInboxOptions());
   const decidedHere = useDecidedHere();
@@ -159,7 +161,7 @@ export function InlineApproval({
           </p>
         ) : null
       }
-      label="Waiting for your approval"
+      label={t("Waiting for your approval")}
       onPick={(option) => {
         if (DECISIONS.has(option.id))
           decision.mutate(option.id as ApprovalDecision);
