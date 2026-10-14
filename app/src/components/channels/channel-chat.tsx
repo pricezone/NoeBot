@@ -780,8 +780,8 @@ export function ChannelChat({
   const rosterBusy = useRosterBusy(channel.id);
   /*
    * The person's language, noted for what is drawn beside this conversation rather than in it: the
-   * Bot panel's screen card. The transcript's cards read the same rule from the same messages, so
-   * the two never disagree.
+   * Bot panel's screen card, and this screen while it reconnects. The transcript's cards read the
+   * same rule from the same messages, so the two never disagree.
    */
   const language = conversationLanguage(lastPersonText(agent.messages));
   useEffect(() => {

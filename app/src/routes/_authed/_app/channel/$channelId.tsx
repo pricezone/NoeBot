@@ -11,6 +11,7 @@ import { BotPanel } from "@/components/bot-panel/bot-panel";
 import { useBotPanel } from "@/components/bot-panel/use-bot-panel";
 import { BotPausedBanner } from "@/components/bot-profile/pause-banner";
 import { ChannelChat } from "@/components/channels/channel-chat";
+import { ChannelLoading } from "@/components/channels/channel-loading";
 import { ChatHeader } from "@/components/chat/chat-header";
 import { DetailPanel } from "@/components/layout/detail-panel";
 import { rememberLastBot } from "@/lib/agents/last-bot";
@@ -21,6 +22,11 @@ import {
   channelListQueryOptions,
   channelQueryOptions,
 } from "@/lib/channels/queries";
+import {
+  conversationLanguage,
+  languageKeys,
+  useNotedLanguage,
+} from "@/lib/i18n/strings";
 
 /** The bot panel's width beside the conversation. */
 const BOT_PANEL_WIDTH = 320;
@@ -58,6 +64,12 @@ function RouteComponent() {
    */
   const roster = useInfiniteQuery(channelListQueryOptions());
   const summary = roster.data?.find((row) => row.id === channelId);
+  // The conversation's language for this screen's own words, noted by it; before it has been open
+  // in this tab, read off the last thing said in it.
+  const language = useNotedLanguage(
+    languageKeys.channel(channelId),
+    conversationLanguage(summary?.lastMessage),
+  );
 
   /*
    * Opening the channel marks it read; the Bot replying while it is open marks it read again.
@@ -128,38 +140,19 @@ function RouteComponent() {
       {agentId && channel.data?.agentIds.length === 1 ? (
         <BotPausedBanner agentId={agentId} />
       ) : null}
-      <ChannelBody
-        channel={channel.data}
-        isPending={channel.isPending}
-        hasError={Boolean(channel.error)}
-      />
+      <ChannelLoading language={language} query={channel}>
+        {(loaded) => <ChannelBody channel={loaded} />}
+      </ChannelLoading>
     </DetailPanel>
   );
 }
 
 /**
  * A channel with exactly one coworker is its CopilotKit chat. One with several is a group, which
- * redirects to its shared transcript at `/group/$channelId`.
+ * redirects to its shared transcript at `/group/$channelId`. Loading, reconnecting and a channel
+ * that cannot be read are `ChannelLoading`'s.
  */
-function ChannelBody({
-  channel,
-  isPending,
-  hasError,
-}: {
-  channel: AgentChannel | undefined;
-  isPending: boolean;
-  hasError: boolean;
-}) {
-  // Nothing while the channel loads: a placeholder inside a local round-trip is a flicker.
-  if (isPending) return null;
-  if (hasError || !channel) {
-    return (
-      <p className="p-8 text-sm text-destructive" role="alert">
-        Could not load this channel.
-      </p>
-    );
-  }
-
+function ChannelBody({ channel }: { channel: AgentChannel }) {
   const runtimeAgentId =
     channel.agentIds.length === 1 ? channel.agentIds[0] : undefined;
   // Two or more Bots is a group conversation, with its own shared transcript. Every link to a

@@ -94,7 +94,18 @@ export function tryClient(
 }
 
 /**
- * A request that throws when the server says no, carrying the server's own message.
+ * The HTTP status a `client` request was refused with, or undefined for one that got no answer at
+ * all (the server unreachable, the connection dropped) or failed some other way.
+ */
+export function httpStatusOf(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("status" in error))
+    return undefined;
+  return typeof error.status === "number" ? error.status : undefined;
+}
+
+/**
+ * A request that throws when the server says no, carrying the server's own message and the status
+ * (`httpStatusOf`), so a caller can tell a server that is restarting from one that refused.
  *
  * With a `key`, the JSON body is parsed and that key unwrapped, so a caller receives the payload
  * rather than the envelope it arrived in. Without one, the `Response` is returned for a caller that
@@ -129,7 +140,10 @@ export async function client<T>(
       .json()
       .then((body: { error?: string }) => body.error)
       .catch(() => undefined);
-    throw new Error(message ?? options.fallback ?? "That request failed.");
+    throw Object.assign(
+      new Error(message ?? options.fallback ?? "That request failed."),
+      { status: response.status },
+    );
   }
 
   if (key === undefined) return response;

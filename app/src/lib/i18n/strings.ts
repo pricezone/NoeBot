@@ -176,6 +176,10 @@ const EN = {
   preparingRequest: "Preparing the request…",
   preparingQuestion: "Preparing the question…",
 
+  // The conversation screen while the server is out of reach (channel route).
+  reconnecting: "Reconnecting…",
+  channelLoadFailed: "Could not load this channel.",
+
   /** A sentence from whatever ended a turn, in this language where it is one we know. */
   reason: (sentence: string) => sentence,
 };
@@ -209,6 +213,8 @@ const GREEK_REASONS: Readonly<Record<string, string>> = {
   "Your answer could not be sent.": "Η απάντησή σου δεν στάλθηκε.",
   "This question was already answered.": "Αυτή η ερώτηση έχει ήδη απαντηθεί.",
   "The answer was not sent.": "Η απάντηση δεν στάλθηκε.",
+  // The channel route's own refusal (server/src/channels/routes.ts).
+  "Channel not found.": "Η συνομιλία δεν βρέθηκε.",
 };
 
 const EL: UiStrings = {
@@ -346,6 +352,9 @@ const EL: UiStrings = {
   preparingRequest: "Ετοιμάζεται το αίτημα…",
   preparingQuestion: "Ετοιμάζεται η ερώτηση…",
 
+  reconnecting: "Επανασύνδεση…",
+  channelLoadFailed: "Δεν ήταν δυνατή η φόρτωση αυτής της συνομιλίας.",
+
   reason: (sentence: string) => GREEK_REASONS[sentence] ?? sentence,
 };
 
@@ -420,9 +429,9 @@ export function useUiStrings(): UiStrings {
 
 /**
  * The language each conversation last spoke, for what is drawn beside it rather than inside it: the
- * Bot panel's screen card, which sits outside the transcript's `UiLanguageProvider`, so a Greek
- * conversation's panel said "Your Bot needs…" in English. Noted by the conversation as its language
- * changes and kept for the life of the tab.
+ * Bot panel's screen card, and the channel screen while it reconnects. Both sit outside the
+ * transcript's `UiLanguageProvider`, so a Greek conversation's panel said "Your Bot needs…" in
+ * English. Noted by the conversation as its language changes and kept for the life of the tab.
  */
 const notedLanguages = new Map<string, UiLanguage>();
 const languageListeners = new Set<() => void>();
