@@ -64,14 +64,13 @@ export type ScreenElements = {
   elements: ScreenElement[];
 };
 
-export type ElementAt = {
-  role: string;
-  name: string;
-  sensitive: boolean;
+export type ElementAt = PageTarget & {
   ref?: string;
-  /** False for a point on the desktop outside the page: the toolbar, another window, the dock. */
+  /** False for a point outside the page: the toolbar, another window, the dock. */
   inPage: boolean;
   url: string;
+  /** On a desktop, which window would receive input there. */
+  window?: "browser" | "other";
 };
 
 /** Where the page is: the screen it is on, its viewport, and the offset between the two. */
@@ -116,6 +115,18 @@ async function placementOf(
     offset: pageOffset(view),
     window: windowPlacement(view),
   };
+}
+
+/** Where the page's viewport is on the screen, clipped to it. */
+export async function pageRectOnScreen(
+  page: Page,
+  desktop: Size,
+): Promise<Rect> {
+  const placement = await placementOf(page, desktop);
+  return clipRect(
+    { ...placement.offset, ...placement.viewport },
+    placement.screen,
+  );
 }
 
 /** A desktop with no browser open: the screen is there, and nothing on it can be asked about. */
@@ -206,25 +217,71 @@ export async function listScreenElements(
   };
 }
 
+/** What the page says about the element under a point, or the one with the keyboard. */
+export type PageTarget = {
+  role: string;
+  name: string;
+  sensitive: boolean;
+  /** A submit button, or any button inside a form: pressing it sends the form. */
+  submits: boolean;
+  /** A frame: what is inside it (often another site's, such as a card field) cannot be read. */
+  opaque: boolean;
+};
+
 /**
- * In the page, the control under a point, the way a person's click would find it. Self-contained;
- * modelled on the reading `demonstration.ts` makes of a recorded gesture.
+ * In the page, the control under a point (the way a person's click would find it), or, without a
+ * point, the one with the keyboard; null when nothing has it. Into open shadow roots, which
+ * `elementFromPoint` and `activeElement` stop at. Self-contained: Playwright serialises it.
  */
-export function targetAtPoint(input: {
-  point: { x: number; y: number };
+export function pageTarget(input: {
+  point: { x: number; y: number } | null;
   selector: string;
-}): { role: string; name: string; sensitive: boolean } {
-  const hit = document.elementFromPoint(input.point.x, input.point.y);
+}): PageTarget | null {
+  let hit: Element | null = null;
+  if (input.point) {
+    hit = document.elementFromPoint(input.point.x, input.point.y);
+    for (let depth = 0; hit?.shadowRoot && depth < 20; depth += 1) {
+      const inner = hit.shadowRoot.elementFromPoint(
+        input.point.x,
+        input.point.y,
+      );
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+  } else {
+    hit = document.activeElement;
+    for (let depth = 0; hit?.shadowRoot?.activeElement && depth < 20; depth++)
+      hit = hit.shadowRoot.activeElement;
+    if (!hit || hit === document.body || hit === document.documentElement)
+      return null;
+  }
   const closest =
     hit?.closest(
-      "button,a,input,textarea,select,label,[role],[contenteditable=true]",
+      "button,a,input,textarea,select,label,iframe,frame,[role],[contenteditable=true]",
     ) ?? hit;
   const element =
     closest instanceof HTMLLabelElement
       ? (closest.control ?? closest)
       : closest;
-  if (!element) return { role: "page", name: "Page", sensitive: false };
+  if (!element)
+    return input.point
+      ? {
+          role: "page",
+          name: "Page",
+          sensitive: false,
+          submits: false,
+          opaque: false,
+        }
+      : null;
   const tag = element.tagName.toLowerCase();
+  if (tag === "iframe" || tag === "frame")
+    return {
+      role: "frame",
+      name: (element.getAttribute("title") ?? "").slice(0, 120),
+      sensitive: false,
+      submits: false,
+      opaque: true,
+    };
   const inputType =
     element instanceof HTMLInputElement ? element.type.toLowerCase() : "";
   const role =
@@ -277,10 +334,43 @@ export function targetAtPoint(input: {
           element.getAttribute("autocomplete"),
         ].join(" "),
       ));
+  const form = element.closest("form");
+  const buttonType = (element.getAttribute("type") ?? "submit").toLowerCase();
+  const submits =
+    inputType === "submit" ||
+    inputType === "image" ||
+    (tag === "button" && buttonType === "submit" && Boolean(form)) ||
+    (role === "button" && Boolean(form));
   const name = sensitive
     ? "[sensitive field]"
     : (label ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-  return { role: role.slice(0, 40), name: name || role, sensitive };
+  return {
+    role: role.slice(0, 40),
+    name: name || role,
+    sensitive,
+    submits,
+    opaque: false,
+  };
+}
+
+/** What has the keyboard: whether that is the Bot's browser at all, and what in its page. */
+export type FocusTarget = {
+  window: "browser" | "other";
+  element: PageTarget | null;
+  url: string;
+};
+
+/** The page's element with the keyboard; `window` says whether the browser has the keyboard. */
+export async function focusOn(
+  page: Page | null,
+  window: "browser" | "other",
+): Promise<FocusTarget> {
+  if (!page || window !== "browser")
+    return { window, element: null, url: page?.url() ?? "" };
+  const element = await page
+    .evaluate(pageTarget, { point: null, selector: SENSITIVE_FIELD_SELECTOR })
+    .catch(() => null);
+  return { window, element, url: page.url() };
 }
 
 /**
@@ -292,21 +382,50 @@ export async function elementAtScreen(
   desktop: Size | null,
   point: Point,
   known?: ScreenElements,
+  /**
+   * On a desktop, which window would receive input at this point: the Bot's browser or something
+   * else. Asked only for a point on the page; a point off it is outside the page already.
+   */
+  windowAt?: () => Promise<"browser" | "other">,
 ): Promise<ElementAt> {
   const placement = await placementOf(page, desktop);
   const inPage = screenPointToPage(point, placement.offset, placement.viewport);
   const url = page.url();
-  if (!inPage)
-    return { role: "desktop", name: "", sensitive: false, inPage: false, url };
-  const target = await page.evaluate(targetAtPoint, {
+  const outside: ElementAt = {
+    role: "desktop",
+    name: "",
+    sensitive: false,
+    submits: false,
+    opaque: false,
+    inPage: false,
+    url,
+    ...(desktop ? { window: "other" as const } : {}),
+  };
+  if (!inPage) return outside;
+  // Another window over the page (a terminal, a dialog of the desktop's) takes the input, not it.
+  const window = desktop && windowAt ? await windowAt() : undefined;
+  if (window === "other") return outside;
+  const target = (await page.evaluate(pageTarget, {
     point: inPage,
     selector: SENSITIVE_FIELD_SELECTOR,
-  });
+  })) ?? {
+    role: "page",
+    name: "Page",
+    sensitive: false,
+    submits: false,
+    opaque: false,
+  };
   const ref =
     known && known.url === url
       ? smallestContaining(point, known.elements)?.ref
       : undefined;
-  return { ...target, ...(ref ? { ref } : {}), inPage: true, url };
+  return {
+    ...target,
+    ...(ref ? { ref } : {}),
+    inPage: true,
+    url,
+    ...(window ? { window } : {}),
+  };
 }
 
 /**
@@ -318,9 +437,18 @@ export function markSensitiveFields(input: {
   attribute: string;
 }): number {
   let marked = 0;
-  for (const element of Array.from(
-    document.querySelectorAll(`${input.selector}, input, textarea`),
-  )) {
+  // The document and every open shadow root in it: a field inside a web component is a field.
+  const roots: (Document | ShadowRoot)[] = [document];
+  for (let index = 0; index < roots.length && index < 500; index += 1) {
+    for (const host of Array.from(
+      (roots[index] as Document | ShadowRoot).querySelectorAll("*"),
+    ))
+      if (host.shadowRoot) roots.push(host.shadowRoot);
+  }
+  const candidates = roots.flatMap((root) =>
+    Array.from(root.querySelectorAll(`${input.selector}, input, textarea`)),
+  );
+  for (const element of candidates) {
     const field =
       element instanceof HTMLInputElement ||
       element instanceof HTMLTextAreaElement;
@@ -384,13 +512,23 @@ export async function maskedFrame(input: {
   page: Page | null;
   desktop: Size | null;
   width: number;
-  captureDesktop: (scale: Size | null) => Promise<Buffer>;
+  /** `keep`: the part of the screen left visible; everything else is drawn black. */
+  captureDesktop: (scale: Size | null, keep: Rect | null) => Promise<Buffer>;
 }): Promise<ClickyFrame> {
   const { page, desktop, width } = input;
   if (page) await maskBeforeCapture(page);
   if (desktop) {
     const fit = fitWidth(desktop, width);
-    const jpeg = await input.captureDesktop(fit.scale < 1 ? fit : null);
+    /*
+     * Only the Bot's page is shown to the model; the rest of the desktop (a terminal, the files, a
+     * notification) is blacked out before the frame leaves this process. With no browser open,
+     * nothing is shown at all.
+     */
+    const keep = page ? await pageRectOnScreen(page, desktop) : null;
+    const jpeg = await input.captureDesktop(
+      fit.scale < 1 ? fit : null,
+      keep ?? { x: 0, y: 0, width: 0, height: 0 },
+    );
     return {
       image: jpeg.toString("base64"),
       width: fit.width,

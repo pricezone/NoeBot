@@ -59,6 +59,7 @@ import { fitWidth, frameWidthFrom } from "./element-geometry";
 import {
   elementAtScreen,
   emptyScreen,
+  focusOn,
   listScreenElements,
   maskedFrame,
   type ScreenElements,
@@ -109,6 +110,7 @@ import {
   SENSITIVE_FIELD_SELECTOR,
   sensitiveRefs,
 } from "./secret-masking";
+import { browserPid, focusedWindow, windowUnderPointer } from "./screen-window";
 import { type BotSession, createSessions } from "./sessions";
 import { createShell } from "./shell";
 import {
@@ -1347,6 +1349,7 @@ serve<StreamData>({
                 url.pathname,
                 body,
                 session.livePage?.url() ?? "",
+                windowChecks(VIRTUAL_DISPLAY.name, botId),
               ),
             );
           } catch (error) {
@@ -1706,6 +1709,7 @@ serve<StreamData>({
         const body = (await request.json().catch(() => null)) as {
           x?: unknown;
           y?: unknown;
+          verifyWindow?: unknown;
         } | null;
         if (
           typeof body?.x !== "number" ||
@@ -1714,6 +1718,16 @@ serve<StreamData>({
           !Number.isFinite(body.y)
         )
           return json({ error: "A point needs numeric x and y." }, 400);
+        const point = { x: body.x, y: body.y };
+        /*
+         * `verifyWindow`: move the pointer there and ask the X server which window it is over, just
+         * before Clicky acts there. Moving the pointer is input, so only for whoever holds the wheel.
+         * Without it, the keyboard's window stands in: a page whose window lacks the keyboard may be
+         * under another one.
+         */
+        const verify = body.verifyWindow === true;
+        if (verify && !session.control.humanMayDrive())
+          return json({ error: TAKE_CONTROL_FIRST }, 409);
         try {
           const page = await livePageOf(botId);
           if (!page) {
@@ -1722,19 +1736,61 @@ serve<StreamData>({
                 role: "desktop",
                 name: "",
                 sensitive: false,
+                submits: false,
+                opaque: false,
                 inPage: false,
                 url: "",
+                window: "other",
               });
             return json({ error: BROWSER_NOT_OPEN }, 409);
           }
+          const display = VIRTUAL_DISPLAY;
           return json(
             await elementAtScreen(
               page,
               DESKTOP ? DISPLAY_SIZE : null,
-              { x: body.x, y: body.y },
+              point,
               knownElements.get(botId),
+              DESKTOP && display
+                ? async () => {
+                    const pid = await browserPid(profiles.directory(botId));
+                    if (!verify) return focusedWindow(display.name, pid);
+                    const pointer = await screenInputFor(display.name);
+                    await pointer.move(
+                      Math.round(point.x),
+                      Math.round(point.y),
+                    );
+                    // A moment for the X server to settle the pointer before it is asked.
+                    await Bun.sleep(40);
+                    return windowUnderPointer(display.name, pid);
+                  }
+                : undefined,
             ),
           );
+        } catch (error) {
+          return json(
+            { error: describe(error, "The screen could not be read.") },
+            502,
+          );
+        }
+      }
+
+      // What has the keyboard: the Bot's browser or another window, and which element of its page.
+      if (url.pathname === "/elements/focus" && request.method === "GET") {
+        try {
+          const page = await livePageOf(botId);
+          if (!page && !DESKTOP) return json({ error: BROWSER_NOT_OPEN }, 409);
+          const display = VIRTUAL_DISPLAY;
+          const window =
+            DESKTOP && display
+              ? page
+                ? await focusedWindow(
+                    display.name,
+                    await browserPid(profiles.directory(botId)),
+                  )
+                : "other"
+              : "browser";
+          return json(await focusOn(page, window));
         } catch (error) {
           return json(
             { error: describe(error, "The screen could not be read.") },
@@ -1758,12 +1814,13 @@ serve<StreamData>({
               page,
               desktop: DESKTOP && display ? DISPLAY_SIZE : null,
               width,
-              captureDesktop: (scale) =>
+              captureDesktop: (scale, keep) =>
                 captureDesktopFrame(
                   display?.name ?? "",
                   DISPLAY_SIZE,
                   undefined,
                   scale,
+                  keep,
                 ),
             }),
           );
@@ -2267,12 +2324,39 @@ async function performHumanInput(
  * is under the point, the browser's toolbar included, exactly as the person's own click would. Like
  * the page path, nothing typed is returned: a length, never the text.
  */
+/** Which window the pointer is over and which has the keyboard, against this Bot's browser. */
+function windowChecks(display: string, botId: string) {
+  const pid = () => browserPid(profiles.directory(botId));
+  return {
+    pointer: async () => windowUnderPointer(display, await pid()),
+    focus: async () => focusedWindow(display, await pid()),
+  };
+}
+
+/** Said when the input would have gone to another window than the one the person approved. */
+const NOT_THE_BROWSER =
+  "That is not the Bot's browser window any more, so nothing was done.";
+
 async function performScreenInput(
   input: XInput,
   action: string,
   body: Record<string, unknown>,
   url: string,
+  /**
+   * With `requireBrowser` (an action the person approved on the page), the window is asked again
+   * at the last moment, after the pointer has moved: another window over the page, or the keyboard
+   * gone elsewhere, and nothing is pressed.
+   */
+  checks?: {
+    pointer: () => Promise<"browser" | "other">;
+    focus: () => Promise<"browser" | "other">;
+  },
 ): Promise<Record<string, unknown>> {
+  const requireBrowser = body.requireBrowser === true && checks !== undefined;
+  const onBrowser = async (which: "pointer" | "focus") => {
+    if (requireBrowser && (await checks[which]()) !== "browser")
+      throw requestError(NOT_THE_BROWSER);
+  };
   const point = (): { x: number; y: number } => {
     const x = typeof body.x === "number" ? body.x : Number.NaN;
     const y = typeof body.y === "number" ? body.y : Number.NaN;
@@ -2288,6 +2372,7 @@ async function performScreenInput(
     const { x, y } = point();
     const button = body.button === "right" ? 3 : 1;
     await input.move(x, y);
+    await onBrowser("pointer");
     for (let n = 0; n < (body.double === true ? 2 : 1); n++) {
       await input.button(button, true);
       await input.button(button, false);
@@ -2297,6 +2382,7 @@ async function performScreenInput(
 
   if (action === "/human/type") {
     if (typeof body.text !== "string") throw requestError("Typing needs text.");
+    await onBrowser("focus");
     await input.type(body.text);
     return { action: "human_type", characters: body.text.length, url };
   }
@@ -2306,6 +2392,7 @@ async function performScreenInput(
       throw requestError("A key press needs a key name.");
     const keys = xKeysForCombo(body.key);
     if (!keys) throw requestError(`${body.key} is not a key this desktop has.`);
+    await onBrowser("focus");
     if (keys.kind === "text") {
       await input.type(keys.text);
     } else {
@@ -2323,6 +2410,7 @@ async function performScreenInput(
     const { x, y } = point();
     await input.move(x, y);
   }
+  await onBrowser("pointer");
   for (const click of wheelClicks(0, deltaY))
     for (let n = 0; n < click.times; n++) {
       await input.button(click.button, true);
