@@ -699,6 +699,23 @@ describe("walkthroughs", () => {
     expect(h.session.reply?.text).toBe("Done!");
   });
 
+  test("a look that finds several steps done moves past all of them", () => {
+    // Live: the person clicked the search box, typed and pressed Enter; the look saw results.
+    const h = guided();
+    h.run({ type: "person.typed" });
+    h.run({
+      type: "brain.check",
+      checkId: h.session.check?.id ?? "",
+      stepDone: true,
+      stepsDone: 2,
+    });
+    expect(h.session.walkthrough?.steps.map((step) => step.status)).toEqual([
+      "done",
+      "done",
+      "current",
+    ]);
+  });
+
   test("carrying on stops at the auto-step limit, with 'that's everything'", () => {
     const h = harness();
     h.command({ type: "ask", text: "how?" });

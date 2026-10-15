@@ -4,6 +4,7 @@ import {
   CLICKY_NUDGE_AFTER_MS,
   CLICKY_PROPOSAL_TTL_MS,
   CLICKY_SESSION_GRANT_TTL_MS,
+  CLICKY_STEP_LIMIT,
   CLICKY_TEXT_LIMIT,
   CLICKY_TRANSCRIPT_LIMIT,
   type ClickyAction,
@@ -148,6 +149,11 @@ export type ClickyEvent =
       type: "brain.check";
       checkId: string;
       stepDone: boolean;
+      /**
+       * How many steps, from the one looked at, are done by now: the person may do several at once
+       * (click a box, type, press Enter). One when absent and `stepDone`.
+       */
+      stepsDone?: number;
       overlays?: ClickyOverlay[];
       say?: string;
       /** The look could not be made (model failure, rate limit): keep the marks dimmed. */
@@ -1398,10 +1404,16 @@ function reduceInternal(
       const aboutThisStep = (step?.id ?? null) === pending.stepId;
       if (!aboutThisStep) return changed({ session: next, effects: [] });
       if (event.stepDone && step) {
-        const moved = advance(next, context);
-        if (moved.finished)
-          return carryOnOrFinish(moved.session, context, false);
-        next = moved.session;
+        const count = Math.max(
+          1,
+          Math.min(CLICKY_STEP_LIMIT, Math.floor(event.stepsDone ?? 1)),
+        );
+        for (let done = 0; done < count; done += 1) {
+          const moved = advance(next, context);
+          if (moved.finished)
+            return carryOnOrFinish(moved.session, context, false);
+          next = moved.session;
+        }
       }
       // What the look found is where things are now; nothing found means the target is not on the
       // screen, and an old mark drawn where the page used to be is worse than none.

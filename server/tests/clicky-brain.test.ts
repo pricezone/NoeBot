@@ -110,24 +110,35 @@ describe("parseBrainAnswer", () => {
     ]);
   });
 
-  test("a step on a field to type into says so; a step on a button does not", () => {
+  test("a step is typed when the model says so and its control takes text; clicking a field is a step of its own", () => {
     const answer = parseBrainAnswer(
       JSON.stringify({
-        say: "Two steps.",
+        say: "Three steps.",
         plan: {
           goal: "Sign in",
           steps: [
-            { title: "Type your password", ref: "e2" },
-            { title: "Press Continue", ref: "e1" },
+            { title: "Click the password box", ref: "e2" },
+            { title: "Type your password", ref: "e2", typing: true },
+            { title: "Press Continue", ref: "e1", typing: true },
           ],
         },
       }),
       context,
     );
     expect(answer.plan?.steps.map((step) => step.typing ?? false)).toEqual([
+      false,
       true,
       false,
     ]);
+  });
+
+  test("a check may say several steps are done at once; one is the least a done step counts", () => {
+    const check = (answer: Record<string, unknown>) =>
+      parseCheckAnswer(JSON.stringify(answer), { placed, newId });
+    expect(check({ stepDone: true, stepsDone: 3 }).stepsDone).toBe(3);
+    expect(check({ stepDone: true, stepsDone: 1 }).stepsDone).toBeUndefined();
+    expect(check({ stepDone: true, stepsDone: "x" }).stepsDone).toBeUndefined();
+    expect(check({ stepDone: false, stepsDone: 3 }).stepsDone).toBeUndefined();
   });
 
   test("a combobox step is typed only when the model says so: a search with suggestions, not a drop-down", () => {
@@ -543,7 +554,7 @@ describe("the look after a step", () => {
     walkthrough,
   };
 
-  test("asks about the step it was for and the one after, with the screen in the envelope", () => {
+  test("asks about the step it was for and the ones after, with the screen in the envelope", () => {
     const { system, text } = buildCheckPrompt({
       session,
       stepId: "s-search",
@@ -556,7 +567,9 @@ describe("the look after a step", () => {
     expect(system).toContain("Never propose an action.");
     expect(system).toContain("You are Show me how");
     expect(text).toContain("The step to check: 1.");
-    expect(text).toContain("The step after it: 2.");
+    expect(text).toContain("The steps after it:");
+    expect(text).toMatch(/\n2\. /);
+    expect(system).toContain('"stepsDone"');
     for (const outside of text.split(
       new RegExp(`<${UNTRUSTED_TAG}[\\s\\S]*?</${UNTRUSTED_TAG}>`),
     ))

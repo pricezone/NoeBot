@@ -833,6 +833,7 @@ export function createClickyService(deps: {
               type: "brain.check",
               checkId: entry.checkId,
               stepDone: result.stepDone,
+              ...(result.stepsDone ? { stepsDone: result.stepsDone } : {}),
               ...(result.overlays ? { overlays: result.overlays } : {}),
               ...(result.say ? { say: result.say } : {}),
             },

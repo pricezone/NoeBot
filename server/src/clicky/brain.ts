@@ -371,15 +371,16 @@ function refOf(value: unknown): string | undefined {
 }
 
 /**
- * Roles a step is done in by typing, not by the click that starts it. Not `combobox` by itself: a
- * drop-down is one too, and it is done by choosing, which the viewer does not see as typing; a
- * combobox step is typed when the model says so (a search with suggestions).
+ * Roles whose control takes text, so a step on one can be done by typing rather than by the click
+ * that starts it. A combobox is a search with suggestions as often as a drop-down; the model's
+ * "typing" tells them apart.
  */
 const TYPED_INTO = new Set([
   "textbox",
   "searchbox",
   "spinbutton",
   "addressbar",
+  "combobox",
 ]);
 
 /** A model's `{ref, point, box}` as where to point, or null when it named nowhere usable. */
@@ -546,11 +547,12 @@ export function parseBrainAnswer(
         const role = target?.ref
           ? context.placed.find((element) => element.ref === target.ref)?.role
           : undefined;
-        // A combobox is a search with suggestions as often as a drop-down: typed when the model says.
+        /*
+         * Typed when the model says the step is done by typing, and its control takes text. Not
+         * by role alone: "Click the search box" is a step of its own, finished by the click.
+         */
         const typing =
-          role !== undefined &&
-          (TYPED_INTO.has(role) ||
-            (role === "combobox" && step.typing === true));
+          step.typing === true && role !== undefined && TYPED_INTO.has(role);
         return [
           {
             title,
@@ -769,6 +771,8 @@ export type BrainReply = Extract<ClickyEvent, { type: "brain.reply" }>;
 /** A look after the person (or Clicky) did something: whether the step is done, and where now. */
 export type BrainCheck = {
   stepDone: boolean;
+  /** How many steps, from the one looked at, are done (the person may do several at once). */
+  stepsDone?: number;
   overlays?: ClickyOverlay[];
   say?: string;
 };
@@ -824,8 +828,8 @@ export function buildCheckPrompt(input: {
 }): { system: string; text: string } {
   const system = [
     ...persona(input),
-    'Answer with ONE JSON object and nothing else, in this shape: {"stepDone": true, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "say": "..."}',
-    '"stepDone" is whether the person has done the step, judging by the screen now (a page that moved on to where the step leads counts). "point" is where to point now: the next step\'s control when the step is done, otherwise this step\'s control where it is now; leave it out when that control is not on the screen. Include "say" only when the person needs a new short instruction (the control moved, the page changed, the step is done and the next one starts), in one short sentence; otherwise leave it out. Never propose an action.',
+    'Answer with ONE JSON object and nothing else, in this shape: {"stepDone": true, "stepsDone": 1, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "say": "..."}',
+    '"stepDone" is whether the person has done the step, judging by the screen now (a page that moved on to where the step leads counts). "stepsDone" is how many steps, counting from this one, the screen shows done: people often do several at once (click a search box, type, press Enter), so a results page means the search steps are all done; 0 when this one is not. "point" is where to point now: the control of the first step not done yet, otherwise this step\'s control where it is now; leave it out when that control is not on the screen. Include "say" only when the person needs a new short instruction (the control moved, the page changed, the step is done and the next one starts), in one short sentence; otherwise leave it out. Never propose an action.',
   ].join("\n\n");
   const parts: string[] = [`Why you are looking: ${CHECK_REASON}`];
   const walkthrough = input.session.walkthrough;
@@ -848,8 +852,16 @@ export function buildCheckPrompt(input: {
   parts.push(
     step
       ? `The step to check: ${index + 1}. ${wrapUntrusted(`${step.title}${step.detail ? ` (${step.detail})` : ""}`, "step")}${
-          next
-            ? `\nThe step after it: ${index + 2}. ${wrapUntrusted(next.title, "next step")}`
+          next && walkthrough
+            ? `\nThe steps after it:\n${wrapUntrusted(
+                walkthrough.steps
+                  .slice(index + 1)
+                  .map(
+                    (entry, offset) => `${index + 2 + offset}. ${entry.title}`,
+                  )
+                  .join("\n"),
+                "next steps",
+              )}`
             : "\nIt is the last step."
         }`
       : 'There is no step to check: point again at what you last pointed at, where it is now, and answer "stepDone": false.',
@@ -866,6 +878,9 @@ export function parseCheckAnswer(
 ): BrainCheck {
   const answer = jsonObjectIn(raw);
   const result: BrainCheck = { stepDone: answer.stepDone === true };
+  const many = Number(answer.stepsDone);
+  if (result.stepDone && Number.isInteger(many) && many > 1)
+    result.stepsDone = many;
   const point = asRecord(answer.point);
   if (point) {
     const target = targetIn(point, context.placed);
