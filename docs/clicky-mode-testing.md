@@ -41,23 +41,23 @@ tooltip, the manual take and the "Bot is working" signal.
 Use a test account and a page that asks for nothing real. Never type real credentials or codes into
 a session you are testing, and never let Clicky submit anything that cannot be undone.
 
-1. **Guide.** Open a Bot's computer, press **Clicky**, ask "where do I search?". The pointer lands
-   on the search box with a caption; the bar says "Showing you". Click the box yourself: the step
+1. **Guide.** Open a Bot's computer, press **Show me how**, ask "where do I search?". The pointer lands
+   on the search box with the instruction typing out beside it; the bar says "Showing you". Click the box yourself: the step
    is marked done.
 2. **Walkthrough.** Ask "how do I open a new tab and go to wikipedia.org?". Steps appear with Back,
    Next and Show me again; the progress survives a reload of the page.
-3. **Do it for me.** Switch to **Do it for me** and ask Clicky to click the search box. A card asks
-   first; **Not now** leaves a pointer; **Allow once** clicks it. With "ask once per task" in
-   Settings, **Allow for this task** appears for low-risk steps only.
+3. **Do it for me.** Switch to **Do it for me** and ask it to click the search box. A card asks
+   first; **Not now** leaves a pointer; **Allow for this session** clicks it, and later low-risk
+   steps on the same site run without asking. With "ask every time" in Settings, each step asks.
 4. **Guardrails.** Ask Clicky to press Ctrl+Alt+Delete, to type into a password field, and to press
    a "Delete account" button: the first two are refused with a reason, the third asks every time
    with "Can't be undone".
-5. **Stop.** While Clicky is acting, press ⌃⌥S, then try the Stop pill and the bar's Stop: it halts
+5. **Stop.** While it is acting, press ⌃⌥S, then try the Stop pill and the bar's Stop: it halts
    at once, drops back to guide, and does nothing more until you resume.
 6. **Opening by itself.** Ask the Bot for a task behind a sign-in. When it hands over, the viewer
    opens with "Noë Bot needs you here" and a pointer on the form; "Do it for me" is not offered.
    Hand back: Clicky says thanks and steps aside.
-7. **Phone.** In the HyperNoesis app, open **Noë Bot › Clicky**, pick the same computer, hold to
+7. **Phone.** In the HyperNoesis app, open **Noë Bot › Show me how**, pick the same computer, hold to
    talk. The web viewer points while the phone shows the same state and the short reply. Approve a
    low-risk click from the phone; press Stop on the phone during an action. Put the phone in
    airplane mode for a minute and back: it reconnects and shows the current state.
@@ -70,3 +70,7 @@ a session you are testing, and never let Clicky submit anything that cannot be u
     scrolls to it or tells you to. With **Do it for me**, Allow for this session once: typing and
     scrolling then run without asking, a submit still asks. Minimize: it sleeps. Ask the Bot for a
     browsing task and open the viewer: it narrates the Bot's clicks. "Say that again" speaks.
+11. **Going to a site.** In Guide, ask "how do I get to wikipedia.org?": the first step points at the
+    address bar. In Do it for me, the card says "Open wikipedia.org" with the full address under it;
+    a site you did not name always asks first ("You didn't name that site, so I'm asking first.").
+    The instance log shows one `[timing] clicky.look` line per look.

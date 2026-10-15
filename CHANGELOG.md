@@ -13,7 +13,10 @@ types out beside its pointer; it follows the person's clicks, typing and page ch
 itself; it sees the whole page and can type and scroll; one "Allow for this session" covers everyday
 actions (anything hard to undo still asks; the default policy is now `ask_once_per_session`, and
 `ask_once_per_task` is read as it); it takes control for the person while guiding and sleeps when the
-viewer is minimized; opening the viewer while the Bot works shows what the Bot is doing.
+viewer is minimized; opening the viewer while the Bot works shows what the Bot is doing. It can go to
+a site (a guide step points at the address bar; in Do it for me it proposes opening an https address,
+everyday only for a site the person named). A look reads the page's parts side by side and never
+waits on the slowest; each look logs a `[timing] clicky.look` line.
 - **Behaviour change:** the whole API now refuses state-changing requests and WebSocket upgrades from
   other sites, including sibling instances on the same parent domain (see docs/clicky-mode-safety.md
   rule 11). A page on another origin that called the API from a browser must be in `TRUSTED_ORIGINS`.

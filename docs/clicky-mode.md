@@ -38,13 +38,16 @@ and types it out again. The small preview in the Bot's panel shows the screen on
 how far it is scrolled), not only what is on the screen. When the person clicks on the step's target,
 presses Enter or Tab, types, or the page changes, Clicky looks again: the step it was about is marked
 done when it is, and the next one is pointed at where it is now. It can scroll a target into view.
+To go to a site, a guide step points at the browser's address bar ("Click the address bar and type
+gov.gr"); in Do it for me, Clicky proposes opening the address itself.
 
 **Taking the wheel.** While Clicky is guiding the person, the viewer takes control of the computer for
 them, so their clicks and typing go straight to the page; it gives control back when Clicky sleeps,
 stops, finishes the walkthrough or the viewer closes. Minimizing the viewer puts Clicky to sleep.
 
-**Showing what the Bot does.** Opening the viewer while the Bot is working shows what it is doing
-instead: Clicky points at each element the Bot clicks or types into and says so ("Noë Bot is clicking
+**Showing what the Bot does.** Opening the viewer while the Bot is working, or the Bot starting work
+while the viewer is open, shows what it is doing instead (the server decides, from the open screen
+and the Bot's activity): Clicky points at each element the Bot clicks or types into and says so ("Noë Bot is clicking
 “Sign in”"). It only watches and never takes control. A question asked meanwhile makes it guide the
 person again, and the Bot waits.
 
@@ -82,7 +85,7 @@ lists linked phones, each with Revoke.
                                        │
           brain (vision call, deployment model)   guardrails   actions (as the person's input)
                                        │                              │
-                       agent-computer /elements, /elements/at, /elements/frame, /human/:kind
+      agent-computer /elements, /elements/at, /elements/frame, /elements/text, /human/:kind
 ```
 
 - **Protocol**: `shared/clicky.ts`. Overlays are normalized to the computer's screen (0–1), so the
@@ -96,16 +99,25 @@ lists linked phones, each with Revoke.
   and Postgres `NOTIFY` (the payload names the session, listeners read it from the database).
 - **The brain**: one vision call per turn on the deployment's own model (`CLICKY_MODEL` to choose
   another), with a masked, downscaled frame, the elements on and off the screen with their boxes, the
-  page's title, text and scroll position, the walkthrough so far and the person's words. After the
+  page's title, text and scroll position, the walkthrough so far and the person's words. The
+  elements, the picture and the text are read side by side, each with its own time budget (3 s, 4 s,
+  1.5 s); a part that is late is left out and the model is told, and a look fails only when both the
+  elements and the picture are missing. The model call gives up after 12 s without output or 30 s in
+  all. Every look and check logs one `[timing] clicky.look|check` line naming each part's time and
+  any part that failed. On a desktop the browser's address bar is listed as a control (`addressbar`).
+  After the
   person (or Clicky) does something, a smaller "check" look says whether the step is done and where
   the next target is; it waits for the page to settle (`/elements/state`) and has its own rate limit. Screen content is untrusted data. The reply's `say` streams to both
   screens; points are snapped to real element boxes when one is near.
 - **Actions**: re-checked just before running, then performed as the person's own input while the
   person holds control: clicks and the wheel through XTEST on a desktop computer (which also reaches
   system dialogs and file pickers), page coordinates in page mode; typing and Enter/Tab into the page
-  through the page's own keyboard (it cannot reach another window); scrolling a target into view.
+  through the page's own keyboard (it cannot reach another window); scrolling a target into view;
+  opening an https address in the Bot's tab (`/human/open`, behind the gateway's navigation guard).
 - **Narration**: the gateway tells Clicky about each Bot action after its policy check
-  (`onBotAction`); only an open narrating session of that person and Bot turns it into a pointer
+  (`onBotAction`). When that person has the Bot's screen open (the `/stream` relay reports viewers,
+  per process) and Clicky is asleep or idle, the server starts narrating; a client's `watch` counts
+  only while the Bot is at work. A narrating session turns each action into a pointer
   (`/elements/ref`).
 - **The Bot's side**: `computer_guide_person` lets a Bot show the person steps with Clicky pointing at
   each element, and `computer_request_help` takes an optional `point_at` element.

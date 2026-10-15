@@ -13,8 +13,9 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
    other than `never` (`shared/clicky-state.ts`, `approve`).
 3. **"Allow for this session" covers everyday actions only.** It is offered when the person's setting
    is "ask once per session" (the default). One yes covers the session's low-risk clicks, typing,
-   scrolling and everyday keys for at most two hours, until Sleep, Stop, guide only, or the Bot
-   needing the person ends it. Anything rated `confirm` (a submit, a send, a payment, deleting, closing
+   scrolling and everyday keys on the site where it was given (its registrable domain), for at most
+   two hours, until Sleep, Stop, guide only, or the Bot needing the person ends it. On another site
+   Clicky asks again. Anything rated `confirm` (a submit, a send, a payment, deleting, closing
    a tab, Enter in a form) is asked about every time, and `yours`/`blocked` are never offered. Each
    action is still probed and rated again just before it runs, against the page it was proposed on.
    The auto-step limit (12 in a row without the person) stays.
@@ -33,6 +34,10 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
      cannot tell, and targets named like submit, send, pay, buy, delete, confirm, sign, publish,
      transfer, share, invite, add, allow, authorize, grant, accept, approve, install, connect, save,
      post, reply, forward, merge, enable, disable, subscribe, upgrade (English and Greek).
+   - **opening a site** — https only, with no name or password in the address; `low` only when the
+     person's own words this session named that site ("gov.gr" covers its hosts), otherwise
+     `confirm`. The gateway also applies the navigation target guard (no private or metadata hosts
+     on a hosted deployment), and the deny rules see it as a navigation.
    - **low** — everything else.
    `yours` and `blocked` never become proposals: Clicky shows where instead. Ratings use what is
    really there: the element under the point as the browser reports it (and, on a desktop computer,
@@ -79,7 +84,7 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
     sends neither header. Clients may only `activate` Clicky for a person's own question; the Bot's
     needs are opened by the server. Questions are rate-limited per person and computer.
 12. **Everything important is audited.** `clicky.session_started`, `clicky.action_proposed`,
-    `clicky.action_approved` (with `once` or `task`), `clicky.action_denied`,
+    `clicky.action_approved` (with `once` or `session`), `clicky.action_denied`,
     `clicky.action_performed` (with what was probed, the host and the size of what was typed),
     `clicky.action_failed`, `clicky.action_blocked` (with the reason), `clicky.mode_changed`,
     `clicky.guide_installed`, `clicky.stopped`, `mobile.device_linked`, `mobile.device_revoked`, and
