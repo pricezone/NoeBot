@@ -197,3 +197,34 @@ test("the guardrails' reason is shown as the server wrote it where there is no t
   });
   expect(view.getByText("A sentence the catalog has never seen.")).toBeTruthy();
 });
+
+test("typing that ends with Enter says so, whatever is offered", () => {
+  const typing = proposal({
+    action: {
+      kind: "type",
+      text: "υπεύθυνη δήλωση",
+      label: "the Search box",
+      pressEnter: true,
+    },
+  });
+  for (const options of [
+    { policy: "ask_once_per_session" as const, proposal: typing },
+    { policy: "ask_each" as const, proposal: typing },
+    { policy: null, proposal: typing },
+    { proposal: { ...typing, risk: "confirm" as const } },
+  ]) {
+    const { view } = draw(options);
+    expect(
+      view.getByText(
+        "Type “υπεύθυνη δήλωση” into: the Search box, then press Enter",
+      ),
+    ).toBeTruthy();
+    view.unmount();
+  }
+  const { view } = draw({
+    proposal: proposal({
+      action: { kind: "type", text: "hello", label: "the Name field" },
+    }),
+  });
+  expect(view.getByText("Type “hello” into: the Name field")).toBeTruthy();
+});

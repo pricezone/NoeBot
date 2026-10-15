@@ -83,10 +83,16 @@ function useActionWords(action: ClickyAction): string {
         return t("Right-click: {{target}}", { target: action.label });
       return t("Click: {{target}}", { target: action.label });
     case "type":
-      return t("Type “{{text}}” into: {{target}}", {
-        text: action.text,
-        target: action.label,
-      });
+      // Enter is part of the yes: a search runs, a form may be sent. Said, never left implied.
+      return action.pressEnter
+        ? t("Type “{{text}}” into: {{target}}, then press Enter", {
+            text: action.text,
+            target: action.label,
+          })
+        : t("Type “{{text}}” into: {{target}}", {
+            text: action.text,
+            target: action.label,
+          });
     case "key":
       return t("Press: {{target}}", { target: action.label || action.keys });
     case "scroll":

@@ -49,7 +49,11 @@ export const CLICKY_WATCH_RECENT_MS = 10_000;
 /** What deciding to take or give back control needs from the session. */
 type Guidance = {
   id: string;
-  /** Awake, guiding the person (not narrating), with something on the screen to do. */
+  /**
+   * Awake, guiding the person (not narrating), with something on the screen to do: a step, or a
+   * pointer or a box. An awake session with nothing drawn (narration just ended, a plain answer)
+   * guides nobody, and takes nothing.
+   */
   guiding: boolean;
   /** Asleep, stopped, or the walkthrough is done: what was taken to guide goes back. */
   ended: boolean;
@@ -66,7 +70,8 @@ export function selectGuidance(session: ClickySession): Guidance {
     guiding:
       session.awake &&
       session.narrating !== true &&
-      session.state === "guiding",
+      session.state === "guiding" &&
+      (currentStep(session) !== null || session.overlays.length > 0),
     ended:
       !session.awake ||
       session.state === "stopped" ||

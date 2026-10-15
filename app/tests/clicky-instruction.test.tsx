@@ -14,6 +14,10 @@ import {
   renderHook,
   waitFor,
 } from "@testing-library/react";
+import {
+  CLICKY_INSTRUCTION_LIMIT,
+  clippedInstruction,
+} from "@/components/clicky/clicky-instruction";
 import { ClickyScreenOverlay } from "@/components/clicky/clicky-overlay";
 import { clickyKeys } from "@/lib/clicky/queries";
 import { replayClickyLineNow, resetClickyReplays } from "@/lib/clicky/replay";
@@ -361,5 +365,32 @@ test("Say that again types the instruction in again", async () => {
   expect(typedText(view.container).length).toBeLessThan(5);
   await waitFor(() =>
     expect(typedText(view.container)).toBe("Press the green button."),
+  );
+});
+
+test("a long answer is held to the bubble's size; the bar has it whole", async () => {
+  reduced = true;
+  const long = "Open the menu at the top right. ".repeat(20).trim();
+  expect(clippedInstruction("Short.")).toBe("Short.");
+  const clipped = clippedInstruction(long);
+  expect(clipped.length).toBeLessThanOrEqual(CLICKY_INSTRUCTION_LIMIT);
+  expect(clipped.endsWith("…")).toBe(true);
+
+  const view = draw(
+    session({
+      overlays: [pointer(0.5, 0.5)],
+      reply: { text: long, final: true },
+    }),
+  );
+  await waitFor(() => expect(typedText(view.container)).toBe(clipped));
+  const text = view.container.querySelector('[data-clicky="instruction-text"]');
+  expect(text?.className).toContain("line-clamp-4");
+});
+
+test("with a step and no reply, the step is the instruction", async () => {
+  reduced = true;
+  const view = draw(session({ walkthrough: walkthrough(), reply: null }));
+  await waitFor(() =>
+    expect(typedText(view.container)).toBe("Click the search box"),
   );
 });

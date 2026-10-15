@@ -13,6 +13,17 @@ import { cn } from "@/lib/utils";
 import type { ClickySession } from "../../../../shared/clicky";
 import { stepOf } from "./clicky-words";
 
+/**
+ * The longest instruction the bubble holds, in characters; it is also held to four lines. A longer
+ * answer is cut with "…" here and read whole in the bar's status line, which opens on a click.
+ */
+export const CLICKY_INSTRUCTION_LIMIT = 280;
+
+export function clippedInstruction(text: string): string {
+  if (text.length <= CLICKY_INSTRUCTION_LIMIT) return text;
+  return `${text.slice(0, CLICKY_INSTRUCTION_LIMIT - 1).trimEnd()}…`;
+}
+
 /** What the instruction needs from the session, apart from the reply (read with its words arriving). */
 function selectInstruction(session: ClickySession): {
   narrating: boolean;
@@ -44,6 +55,9 @@ function selectInstruction(session: ClickySession): {
  *
  * `fallback` is the pointer's own label (and its "around here"), shown when there is no instruction,
  * as for overlays the bridge draws with nothing said.
+ *
+ * Held to four lines and `CLICKY_INSTRUCTION_LIMIT` characters, so a long answer never covers the
+ * screen it is about; the bar's status line has it whole.
  */
 export const ClickyInstruction = memo(function ClickyInstruction({
   botId,
@@ -73,7 +87,7 @@ export const ClickyInstruction = memo(function ClickyInstruction({
         (key, params) => t(key, params),
       )
     : "";
-  const text = instruction || fallback || "";
+  const text = clippedInstruction(instruction || fallback || "");
   const typed = useTypedSentence(text, replays, reduce);
   if (!text) return null;
   return (
@@ -87,9 +101,9 @@ export const ClickyInstruction = memo(function ClickyInstruction({
       data-typing={typed.typing ? "true" : undefined}
     >
       {/* The whole sentence, unseen, holds the bubble at its final size. */}
-      <span className="invisible block whitespace-pre-line">{text}</span>
+      <span className="invisible line-clamp-4 whitespace-pre-line">{text}</span>
       <span
-        className="absolute inset-x-2.5 top-1.5 block whitespace-pre-line"
+        className="absolute inset-x-2.5 top-1.5 line-clamp-4 whitespace-pre-line"
         data-clicky="instruction-text"
       >
         {typed.text}

@@ -450,16 +450,59 @@ test("a refused command says why, in Clicky's words", async () => {
   ).toBeTruthy();
 });
 
-test("a long reply is one line under the screen, whole in its title", async () => {
+test("a long reply is one line under the screen, and opens to be read whole", async () => {
   const long =
     "Open the menu at the top right, choose Account, then Security, then scroll to the bottom of the page where the two-step settings are, and press Change.";
   const view = draw(sessionAt(1, { reply: { text: long, final: true } }));
-  const line = view.getByText(long);
+  const line = view.getByRole("button", { name: long });
   expect(line.getAttribute("data-clicky")).toBe("status");
   expect(line.className).toContain("truncate");
   expect(line.getAttribute("title")).toBe(long);
-  // No second copy of it, and nothing to expand: the instruction over the screen has it whole.
+  expect(line.getAttribute("aria-expanded")).toBe("false");
   expect(view.queryByRole("button", { name: "Show more" })).toBeNull();
+
+  fireEvent.click(line);
+  expect(line.getAttribute("aria-expanded")).toBe("true");
+  expect(line.className).not.toContain("truncate");
+  expect(line.textContent).toBe(long);
+  fireEvent.click(line);
+  expect(line.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("in a walkthrough the line says the step, and opens to what was last said", () => {
+  const view = draw(
+    sessionAt(1, {
+      state: "guiding",
+      reply: { text: "Let's sign in. First open the menu.", final: true },
+      walkthrough: {
+        id: "w1",
+        goal: "Sign in",
+        startedAt: "",
+        updatedAt: "",
+        currentStepId: "a",
+        steps: [
+          { id: "a", title: "Open the menu", status: "current", overlays: [] },
+          { id: "b", title: "Click Sign in", status: "pending", overlays: [] },
+        ],
+      },
+    }),
+  );
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-clicky="status"]',
+  );
+  expect(line?.textContent).toBe("Step 1 of 2 — Open the menu");
+  fireEvent.click(line as HTMLElement);
+  expect(line?.textContent).toBe(
+    "Step 1 of 2 — Open the menu\nLet's sign in. First open the menu.",
+  );
+});
+
+test("a short reply is a plain line, with nothing to open", () => {
+  const view = draw(
+    sessionAt(1, { reply: { text: "Done here.", final: true } }),
+  );
+  const line = view.getByText("Done here.");
+  expect(line.tagName).toBe("P");
 });
 
 test("Say that again speaks the line at once, with reading aloud off, and tells the server", async () => {
@@ -513,6 +556,49 @@ test("in a walkthrough, Say that again says the step, not words about a step tha
     await view.findByRole("menuitem", { name: "Say that again" }),
   );
   expect(voice.said).toEqual(["Click Sign in"]);
+});
+
+test("with a step and no reply, Say that again says the step, and a repeat from the phone does too", async () => {
+  preferences = {
+    messageListEmphasis: "agent",
+    clickyOnboarded: true,
+    clickySpeakReplies: true,
+  };
+  const shown = sessionAt(1, {
+    state: "guiding",
+    reply: null,
+    walkthrough: {
+      id: "w1",
+      goal: "Sign in",
+      startedAt: "",
+      updatedAt: "",
+      currentStepId: "a",
+      steps: [
+        { id: "a", title: "Open the menu", status: "current", overlays: [] },
+      ],
+    },
+  });
+  const view = draw(shown);
+  drawn = { ...shown, seq: 2 };
+  await settingsIn();
+  fireEvent.click(view.getByRole("button", { name: "More options" }));
+  const again = await view.findByRole("menuitem", { name: "Say that again" });
+  expect(again.hasAttribute("data-disabled")).toBe(false);
+  fireEvent.click(again);
+  expect(voice.said).toEqual(["Open the menu"]);
+  await waitFor(() => expect(commands).toEqual([{ type: "repeat" }]));
+  await hold(30);
+  // The server's answer is the echo of the press: said once.
+  expect(voice.said).toEqual(["Open the menu"]);
+
+  // Asked on the phone, later: said here as well.
+  await hold(3_100);
+  act(() => {
+    queryClient.setQueryData(clickyKeys.session(BOT), { ...shown, seq: 3 });
+  });
+  await waitFor(() =>
+    expect(voice.said).toEqual(["Open the menu", "Open the menu"]),
+  );
 });
 
 test("with reading aloud on, a repeat asked for on the phone is said here too", async () => {
