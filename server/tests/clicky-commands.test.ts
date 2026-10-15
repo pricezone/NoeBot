@@ -233,6 +233,20 @@ describe("POST /:botId/clicky/commands", () => {
     expect(drawn.body.session.overlays).toHaveLength(1);
   });
 
+  test("watch shows what the Bot is doing, as the person's own session", async () => {
+    const { command } = harness();
+    const watched = await command({ type: "watch" });
+    expect(watched.status).toBe(200);
+    expect(watched.body.session).toMatchObject({
+      awake: true,
+      narrating: true,
+      state: "guiding",
+      trigger: { kind: "person" },
+      reply: { notice: "watching" },
+    });
+    expect((await command({ type: "watch", extra: 1 })).status).toBe(400);
+  });
+
   test("asking looks at the screen and answers", async () => {
     const { command, store } = harness();
     const asked = await command({ type: "ask", text: "What next?" });
@@ -344,7 +358,7 @@ describe("save_notes", () => {
       new RegExp(`^clicky-notes/\\d{4}-\\d{2}-\\d{2}-${session?.id}\\.md$`),
     );
     expect(written[0]?.contents).toContain("**Person:** What next?");
-    expect(written[0]?.contents).toContain("**Clicky:** Press Continue.");
+    expect(written[0]?.contents).toContain("**Show me how:** Press Continue.");
     expect(session?.reply?.text).toBe(written[0]?.path);
   });
 });

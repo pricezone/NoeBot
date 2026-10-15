@@ -35,7 +35,7 @@ export function notesMarkdown(
   now: number,
 ): string {
   const parts: string[] = [
-    `# Clicky notes, ${new Date(now).toISOString().slice(0, 10)}`,
+    `# Show me how notes, ${new Date(now).toISOString().slice(0, 10)}`,
     "",
   ];
   const walkthrough = session.walkthrough;
@@ -54,12 +54,12 @@ export function notesMarkdown(
     parts.push("## Conversation", "");
     for (const turn of session.transcript)
       parts.push(
-        `- ${turn.at} **${turn.role === "person" ? "Person" : "Clicky"}:** ${line(turn.text)}`,
+        `- ${turn.at} **${turn.role === "person" ? "Person" : "Show me how"}:** ${line(turn.text)}`,
       );
     parts.push("");
   }
   if (actions.length > 0) {
-    parts.push("## What Clicky did", "");
+    parts.push("## What Show me how did", "");
     for (const action of actions)
       parts.push(
         `- ${action.at} ${action.kind}: ${line(action.label)} (${action.outcome})`,

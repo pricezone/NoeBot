@@ -4,6 +4,7 @@ import {
   CLICKY_RESUME_WINDOW_MS,
   type ClickySession,
   newClickySession,
+  normalizeClickySession,
 } from "../../../shared/clicky";
 import type { Database } from "../db/client";
 import { clickySessions } from "../db/schema";
@@ -15,6 +16,10 @@ import { clickySessions } from "../db/schema";
  * compare-and-set on `seq`: the reducer bumps it on every change, so a writer that read seq 7 writes
  * only where the row still says 7. Two replicas, or a person's command racing the model's answer,
  * cannot write over each other; the loser reads again and reduces again (`service.ts`).
+ *
+ * A session is brought up to this version of the protocol as it is read (`normalizeClickySession`):
+ * fields added since it was written get their defaults, and a grant from before "Allow for this
+ * session" is dropped rather than widened.
  */
 export type ClickyStore = {
   /** The open session, or null. Never creates one. */
@@ -61,7 +66,8 @@ export function createClickyStore(database: Database): ClickyStore {
 
   const store: ClickyStore = {
     async load(userId, botId) {
-      return (await openRow(userId, botId))?.session ?? null;
+      const session = (await openRow(userId, botId))?.session;
+      return session ? normalizeClickySession(session) : null;
     },
 
     async open(userId, botId, now) {
@@ -70,7 +76,10 @@ export function createClickyStore(database: Database): ClickyStore {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const row = await openRow(userId, botId);
         if (row && !pastResumeWindow(row.session, now))
-          return { session: row.session, created: false };
+          return {
+            session: normalizeClickySession(row.session),
+            created: false,
+          };
         if (row)
           await database
             .update(clickySessions)
@@ -97,7 +106,7 @@ export function createClickyStore(database: Database): ClickyStore {
           if (attempt > 0) throw error;
         }
       }
-      throw new Error("Clicky could not open a session.");
+      throw new Error("Show me how could not open a session.");
     },
 
     async save(userId, botId, session, expectedSeq) {
@@ -133,12 +142,13 @@ export function createInMemoryClickyStore(): ClickyStore & {
   const key = (userId: string, botId: string) => `${userId}\u0000${botId}`;
   return {
     async load(userId, botId) {
-      return open.get(key(userId, botId)) ?? null;
+      const session = open.get(key(userId, botId));
+      return session ? normalizeClickySession(session) : null;
     },
     async open(userId, botId, now) {
       const current = open.get(key(userId, botId));
       if (current && !pastResumeWindow(current, now))
-        return { session: current, created: false };
+        return { session: normalizeClickySession(current), created: false };
       if (current) ended.push(current);
       const session = newClickySession({ id: randomUUID(), botId, now });
       open.set(key(userId, botId), session);

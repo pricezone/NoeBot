@@ -15,10 +15,20 @@ import type { ClickyService } from "./service";
  * left alone, and so is an event with nobody to show it to.
  *
  * Clicky's own request for control (when it acts for the person) is not the Bot needing anybody, and
- * is recognised by its words.
+ * is recognised by its words; a person pressing Take control themselves is not either, and says so
+ * (`source: "manual"`). Neither opens Clicky, from the handover event or from the run it suspends.
  *
- * When a Bot ends a run, a session that is awake is told it finished, so Clicky can say so.
+ * When a Bot ends a run, a session that is awake is told it finished, so Clicky can say so. A run
+ * that only stopped to wait for the person (it went through `onWaiting`) has not finished: its lock
+ * is given back while it waits, and that is not said to be the end.
  */
+
+/** Whether a handover is the person's own, or Clicky's: not the Bot needing anybody. */
+function notTheBots(request: unknown): boolean {
+  if (!request || typeof request !== "object") return false;
+  const { reason, source } = request as { reason?: unknown; source?: unknown };
+  return reason === CLICKY_HELP_REASON || source === "manual";
+}
 
 export type ClickyActivation = {
   onControlEvent(event: ComputerControlEvent): void;
@@ -101,6 +111,8 @@ export function createClickyActivation(deps: {
   const secrets = new Map<string, string>();
   /** Which person and Bot each running thread belongs to, from its start to its end. */
   const runs = new Map<string, { userId: string; botId: string }>();
+  /** Threads whose run stopped to wait on the person: their next release is not an end. */
+  const suspended = new Set<string>();
 
   const activate = async (
     userId: string,
@@ -151,7 +163,9 @@ export function createClickyActivation(deps: {
       const requestId = event.state.request?.id;
       switch (event.type) {
         case "help_requested":
-          if (event.reason === CLICKY_HELP_REASON) return;
+          // Clicky's own request, or the person's own Take control: nobody needs them.
+          if (event.reason === CLICKY_HELP_REASON || event.source === "manual")
+            return;
           quietly(activate(userId, botId, helpTrigger(event)));
           return;
         case "secret_requested": {
@@ -200,6 +214,17 @@ export function createClickyActivation(deps: {
     },
 
     onWaiting({ userId, botId, wait }) {
+      suspended.add(wait.threadId);
+      if (suspended.size > 1000) {
+        const oldest = suspended.values().next().value;
+        if (oldest !== undefined) suspended.delete(oldest);
+      }
+      /*
+       * A run that met a person holding the computer under their own Take control, or under
+       * Clicky's, waits for them; it does not need them. Decided on the request it met, not on the
+       * words of the refusal.
+       */
+      if (notTheBots(wait.waiting.handoff)) return;
       const trigger = waitTrigger(wait);
       if (trigger) quietly(activate(userId, botId, trigger));
     },
@@ -216,6 +241,8 @@ export function createClickyActivation(deps: {
       }
       const run = runs.get(threadId);
       runs.delete(threadId);
+      // Waiting on the person is not finishing: the run picks up again once they are done.
+      if (suspended.delete(threadId)) return;
       if (!run) return;
       // No words of its own: the notice ("Noë Bot finished.") says it, in the person's language.
       quietly(

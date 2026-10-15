@@ -87,6 +87,8 @@ export const clickyCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("retry") }),
   z.strictObject({ type: z.literal("set_mode"), mode: z.enum(CLICKY_MODES) }),
   z.strictObject({ type: z.literal("activate"), trigger }),
+  // The screen was opened while the Bot works: show what it is doing. Watches only.
+  z.strictObject({ type: z.literal("watch") }),
   z.strictObject({
     type: z.literal("overlay.set"),
     overlays: z.array(overlay).max(CLICKY_OVERLAY_LIMIT),

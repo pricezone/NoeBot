@@ -40,7 +40,7 @@ export function createClickyRoutes(deps: {
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    return { error: "Clicky is not available right now. Try again." };
+    return { error: "Show me how is not available right now. Try again." };
   };
 
   routes.get("/:botId/clicky", async (context) => {
