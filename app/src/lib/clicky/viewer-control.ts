@@ -97,17 +97,29 @@ export function useClickyAutoControl(
   changeRef.current = change;
   const keepRef = useRef(keepControl);
   keepRef.current = keepControl;
+  /** The last control drawn, for a release after the shared store has gone with the screen. */
+  const controlRef = useRef(control);
+  controlRef.current = control;
 
-  /** Gives back what Clicky took, if the person still holds it under Clicky's reason. */
-  const giveBack = useCallback(() => {
-    const held = latch.current;
-    latch.current = null;
-    if (!held?.took || keepRef.current) return;
-    const now = latestComputerControl(botId);
+  /** Hands the computer back, if the person still holds it under Clicky's own reason. */
+  const release = useCallback(() => {
+    if (keepRef.current) return;
+    /*
+     * Asked of the store rather than of what was drawn, which may be a poll behind as the viewer
+     * closes. (The server also hands it back when Clicky sleeps or stops, should this not get there.)
+     */
+    const now = latestComputerControl(botId) ?? controlRef.current;
     if (now?.holder !== "human" || now.request?.reason !== CLICKY_HELP_REASON)
       return;
     void changeRef.current?.("release");
   }, [botId]);
+
+  /** Gives back what Clicky took, if it took anything. */
+  const giveBack = useCallback(() => {
+    const held = latch.current;
+    latch.current = null;
+    if (held?.took) release();
+  }, [release]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `retry` is read by nothing inside; bumping it is what tries a failed take again.
   useEffect(() => {
@@ -124,11 +136,13 @@ export function useClickyAutoControl(
     )
       return;
     let held = latch.current;
+    // One take at a time, whichever session asked for it.
+    if (held?.inFlight) return;
     if (held && held.sessionId !== view.id) {
       latch.current = null;
       held = null;
     }
-    if (held?.took || held?.inFlight) return;
+    if (held?.took) return;
     const wait = held ? held.retryAt - Date.now() : 0;
     if (wait > 0) {
       const timer = setTimeout(() => setRetry((count) => count + 1), wait);
@@ -146,7 +160,7 @@ export function useClickyAutoControl(
     void change?.("take", { reason: CLICKY_HELP_REASON }).then((took) => {
       if (latch.current !== mine) {
         // Clicky slept, stopped or the viewer closed while the take was on its way: give it back.
-        if (took && !keepRef.current) void changeRef.current?.("release");
+        if (took) release();
         return;
       }
       if (took) {
@@ -162,7 +176,7 @@ export function useClickyAutoControl(
       };
       setRetry((count) => count + 1);
     });
-  }, [enabled, view, control, busy, change, giveBack, retry]);
+  }, [enabled, view, control, busy, change, giveBack, release, retry]);
 
   /*
    * The viewer closing gives back what Clicky took for it. A moment after, so React's second mount

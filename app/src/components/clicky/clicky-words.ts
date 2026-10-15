@@ -3,8 +3,8 @@ import { useTranslation } from "@/lib/i18n";
 import { type ClickySession, currentStep } from "../../../../shared/clicky";
 
 /**
- * The words Clicky's surfaces share, so the bar and the preview's chip say the same thing in the
- * same language.
+ * The words "Show me how"'s surfaces share, so the bar, its chip and the instruction over the
+ * screen say the same thing in the same language.
  */
 
 /** "Step 2 of 4", and the step's own words, or null when there is no walkthrough under way. */

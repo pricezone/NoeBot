@@ -9,8 +9,8 @@ import { showClickySession } from "./shown-sessions";
 /**
  * A Bot's Clicky session, kept current by the server's events socket.
  *
- * ONE SOCKET PER BOT, HOWEVER MANY THINGS DRAW IT. The viewer's overlay and bar, the panel's
- * preview, a live transcript tile and the stop pill can all show the same session at once; each asks
+ * ONE SOCKET PER BOT, HOWEVER MANY THINGS DRAW IT. The viewer's overlay, its instruction and its
+ * bar, a live transcript tile and the stop pill can all show the same session at once; each asks
  * for it here, and the socket is opened by the first and closed by the last (`subscribeClickyEvents`
  * counts them). Everything they draw comes from the one query cache entry the socket writes into.
  *
