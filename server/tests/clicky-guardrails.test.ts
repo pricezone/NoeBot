@@ -417,6 +417,8 @@ describe("assessAction", () => {
       reason: "That link opens another site.",
     });
     expect(link("www.google.com").risk).toBe("low");
+    // The same site under another name is not leaving it.
+    expect(link("support.google.com").risk).toBe("low");
     // The everyday words that are not everyday after all.
     for (const name of [
       "Archive",

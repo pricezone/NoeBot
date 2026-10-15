@@ -750,5 +750,7 @@
   "I can't see into that part of the page.": "Δεν μπορώ να δω μέσα σε αυτό το μέρος της σελίδας.",
   "Enter can send what was typed.": "Το Enter μπορεί να στείλει ό,τι πληκτρολογήθηκε.",
   "Show me how is not available right now. Try again.": "Το «Δείξε μου πώς» δεν είναι διαθέσιμο αυτή τη στιγμή. Δοκίμασε ξανά.",
-  "Show me how is busy carrying out a step for the person. Try again in a moment.": "Το «Δείξε μου πώς» εκτελεί ένα βήμα για το άτομο. Δοκίμασε ξανά σε λίγο."
+  "Show me how is busy carrying out a step for the person. Try again in a moment.": "Το «Δείξε μου πώς» εκτελεί ένα βήμα για το άτομο. Δοκίμασε ξανά σε λίγο.",
+  "Outside a text field, that key can delete what is selected.": "Έξω από πεδίο κειμένου, αυτό το πλήκτρο μπορεί να διαγράψει ό,τι είναι επιλεγμένο.",
+  "That link opens another site.": "Αυτός ο σύνδεσμος ανοίγει άλλον ιστότοπο."
 }

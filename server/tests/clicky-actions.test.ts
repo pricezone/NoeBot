@@ -410,6 +410,20 @@ describe("createClickyActions", () => {
         })
       ).ok,
     ).toBe(true);
+    // A yes given on the site covers its other hosts (www.example.com → help.example.com). A
+    // public suffix splits sites the browser's way: www.gov.gr and services.gov.gr are two.
+    const sameSite = fakeGateway({
+      at: { url: "https://help.example.com/form" },
+    });
+    expect(
+      (
+        await run(sameSite.gateway, clickContinue, {
+          viaGrant: true,
+          grantHost: "example.com",
+          seen: { url: "https://help.example.com/form" },
+        })
+      ).ok,
+    ).toBe(true);
     // The person switched to asking every time since: the session's yes no longer counts.
     const switched = fakeGateway({});
     expect(

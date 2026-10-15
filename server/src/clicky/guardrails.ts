@@ -7,6 +7,7 @@ import {
 import type { ClickyActionPolicy } from "../../../shared/user-preferences";
 import { safetyRequirement } from "../approvals/policy";
 import type { ElementAtResult, FocusResult } from "../computer/schema";
+import { siteOfHost } from "./site";
 
 /**
  * How risky one of Clicky's actions is, decided here and never by the model.
@@ -563,11 +564,12 @@ export function assessAction(
     // Typing puts text in a field and sends nothing; a click on a committing control does.
     if (commits(receiver.name))
       return { risk: "confirm", reason: `“${receiver.name}” is hard to undo.` };
-    // A link that leaves for another site takes the session somewhere nobody said yes to.
+    // A link that leaves for another site takes the session somewhere nobody said yes to. The same
+    // site under another name (www.gov.gr → services.gov.gr) is not leaving.
     if (
       receiver.linkHost &&
       context.pageHost &&
-      receiver.linkHost.toLowerCase() !== context.pageHost.toLowerCase()
+      siteOfHost(receiver.linkHost) !== siteOfHost(context.pageHost)
     )
       return { risk: "confirm", reason: "That link opens another site." };
   }

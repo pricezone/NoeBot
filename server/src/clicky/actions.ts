@@ -24,6 +24,7 @@ import {
   RISK_RANK,
 } from "./guardrails";
 import { toScreenPixels } from "./screen";
+import { siteOfUrl } from "./site";
 
 /**
  * Carrying out what the person approved, as the person.
@@ -283,7 +284,7 @@ export function createClickyActions(deps: {
       const grantFits = (pageUrl: string | undefined) =>
         (actionPolicy === "ask_once_per_session" ||
           actionPolicy === "ask_once_per_task") &&
-        (!grantHost || hostOf(pageUrl ?? "").toLowerCase() === grantHost);
+        (!grantHost || siteOfUrl(pageUrl) === grantHost.toLowerCase());
       if (viaGrant && !grantFits(proposal.seen?.url))
         return refuse(
           botId,

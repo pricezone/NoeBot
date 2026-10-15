@@ -365,6 +365,11 @@ function hostOf(url: string | undefined): string | undefined {
   }
 }
 
+/** The site an action was proposed on: the server's registrable domain, else the page's host. */
+function siteOf(seen: ClickySeen | undefined): string | undefined {
+  return seen?.site?.toLowerCase() || hostOf(seen?.url);
+}
+
 /**
  * Whether the session's yes covers an action: still allowed by the setting, not lapsed, and on the
  * site it was given on. An action whose page is unknown is only covered by a yes given without one.
@@ -372,14 +377,14 @@ function hostOf(url: string | undefined): string | undefined {
 function grantActive(
   session: ClickySession,
   context: ClickyContext,
-  seenUrl?: string,
+  seen?: ClickySeen,
 ): boolean {
   const grant = session.grant;
   if (grant?.scope !== "session") return false;
   if (!sessionGrantsAllowed(context)) return false;
   if (Date.parse(grant.expiresAt) <= context.now) return false;
   if (!grant.host) return true;
-  return hostOf(seenUrl) === grant.host;
+  return siteOf(seen) === grant.host;
 }
 
 /** A pointer at where an action would happen, so the person can do it themselves. */
@@ -685,7 +690,7 @@ function reduceCommand(
         command.scope === "session" &&
         proposal.risk === "low" &&
         sessionGrantsAllowed(context);
-      const host = hostOf(proposal.seen?.url);
+      const host = siteOf(proposal.seen);
       return changed({
         session: {
           ...session,
@@ -1115,7 +1120,7 @@ function reduceInternal(
         // The session's yes covers everyday actions; anything hard to undo waits for its own.
         if (
           rated.risk === "low" &&
-          grantActive(next, context, rated.seen?.url) &&
+          grantActive(next, context, rated.seen) &&
           next.autoSteps < CLICKY_AUTO_STEP_LIMIT
         ) {
           effects.push(

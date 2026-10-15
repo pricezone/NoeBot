@@ -765,6 +765,7 @@ describe("createClickyBrain", () => {
     });
     expect(reply.proposal?.seen).toEqual({
       url: "https://bank.example/settings",
+      site: "bank.example",
       role: "button",
       name: "Delete account",
       ref: "e1",
@@ -789,7 +790,10 @@ describe("createClickyBrain", () => {
     });
     expect(reply.proposal?.risk).toBe("confirm");
     // The page is always recorded, so a yes given after it changed is refused.
-    expect(reply.proposal?.seen).toEqual({ url: "https://bank.example/login" });
+    expect(reply.proposal?.seen).toEqual({
+      url: "https://bank.example/login",
+      site: "bank.example",
+    });
   });
 
   test("a line break at the end is Enter, pressed on its own; anywhere else, or a tab, is no proposal", async () => {

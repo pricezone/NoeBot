@@ -40,6 +40,7 @@ import {
   toGrid,
   toScreenPixels,
 } from "./screen";
+import { siteOfUrl } from "./site";
 
 /**
  * Clicky looking at the screen: one model call per question, with one masked frame and the list of
@@ -982,6 +983,7 @@ export function createClickyBrain(deps: {
            */
           seen: {
             url: seenUrl,
+            ...(siteOfUrl(seenUrl) ? { site: siteOfUrl(seenUrl) } : {}),
             ...(seenOn && seenOn.inPage !== false
               ? { role: seenOn.role, name: seenOn.name }
               : {}),

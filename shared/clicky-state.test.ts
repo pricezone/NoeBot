@@ -414,7 +414,24 @@ describe("approvals", () => {
     };
     h.command({ type: "approve", proposalId: id, scope: "session" });
     expect(h.session.grant?.host).toBe("www.gov.gr");
+    // The same site under another name, as the server names it, is covered.
+    h.session = {
+      ...h.session,
+      grant: h.session.grant ? { ...h.session.grant, host: "gov.gr" } : null,
+    };
     h.run({ type: "action.done", proposalId: id });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Here.",
+      proposal: {
+        ...onStep("e2"),
+        seen: { url: "https://dilosi.services.gov.gr/form", site: "gov.gr" },
+      },
+    });
+    expect(h.session.state).toBe("acting");
+    h.run({ type: "action.done", proposalId: h.session.proposal?.id ?? "" });
+    if (h.session.state !== "thinking") h.command({ type: "show_me" });
     // Another site: asked about.
     h.run({
       type: "brain.reply",

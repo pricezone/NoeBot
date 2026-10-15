@@ -177,6 +177,11 @@ export type ClickyProposal = {
  */
 export type ClickySeen = {
   url: string;
+  /**
+   * The page's site (its registrable domain, e.g. `gov.gr` for `www.gov.gr` and
+   * `dilosi.services.gov.gr`), as the server worked it out. "Allow for this session" is bound to it.
+   */
+  site?: string;
   role?: string;
   name?: string;
   ref?: string;
@@ -228,7 +233,10 @@ export type ClickyTaskGrant = {
   scope: "session";
   grantedAt: string;
   expiresAt: string;
-  /** The site the yes was given on; actions elsewhere are asked about again. */
+  /**
+   * The site the yes was given on (a registrable domain, or the host when the server named none);
+   * actions on another site are asked about again.
+   */
   host?: string;
 };
 
