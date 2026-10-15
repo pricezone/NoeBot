@@ -22,8 +22,8 @@ import { settleReactWork } from "./settle-react-work";
 /**
  * The Bot's screen, near full-window.
  *
- * Opened from the preview card. Whose screen it is sits top-left; Take control (with what teaching
- * a workflow means), Record your steps and Minimize sit top-right. Minimize and Escape close it,
+ * Opened from the preview card. Whose screen it is sits top-left; Take control (with a line on what
+ * it is for), Record your steps (with what teaching a workflow means) and Minimize sit top-right. Minimize and Escape close it,
  * and Escape inside "Name this workflow" belongs to that dialog, not to the viewer behind it.
  *
  * While the person holds control there is no Hand back: minimizing hands control back, unless they
@@ -225,7 +225,7 @@ test("the preview card has no wheel; the viewer has the Bot top-left and the con
   expect(viewer.getByText(/You cannot see the screen right now/)).toBeTruthy();
 });
 
-test("hovering Take control in the viewer explains teaching a browser workflow", async () => {
+test("hovering Take control says what it is for; teaching a workflow is Record your steps' to explain", async () => {
   const { view, user } = preview();
   const { viewer } = await open(view);
   const take = await viewer.findByRole("button", { name: "Take control" });
@@ -233,12 +233,15 @@ test("hovering Take control in the viewer explains teaching a browser workflow",
 
   await user.hover(take);
 
+  expect(await view.findByText("Use the computer yourself.")).toBeTruthy();
+  expect(view.queryByText("Teach a browser workflow")).toBeNull();
+
+  await user.unhover(take);
+  await user.hover(
+    viewer.getByRole("button", { name: "Record your steps" })
+      .parentElement as HTMLElement,
+  );
   expect(await view.findByText("Teach a browser workflow")).toBeTruthy();
-  expect(
-    view.getByText(
-      "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
-    ),
-  ).toBeTruthy();
 });
 
 test("Minimize closes the viewer and the backdrop does not", async () => {

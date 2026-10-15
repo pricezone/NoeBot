@@ -83,7 +83,7 @@
   "All {{count}} Bots_one": "Ο μοναδικός Bot",
   "All {{count}} Bots_other": "Και οι {{count}} Bots",
   "Allow all network access": "Πλήρης πρόσβαση στο δίκτυο",
-  "Allow for this task": "Να επιτρέπεται σε αυτή την εργασία",
+  "Allow for this session": "Να επιτρέπεται σε αυτή τη συνεδρία",
   "Allow once": "Να επιτραπεί μία φορά",
   "Allowed": "Επιτράπηκε",
   "Also stops the Bot pressing Enter for anything else, because a form submits from Enter in any of its fields.": "Εμποδίζει επίσης τον Bot να πατά Enter για οτιδήποτε άλλο, επειδή μια φόρμα υποβάλλεται με Enter από οποιοδήποτε πεδίο της.",
@@ -1573,5 +1573,7 @@
   "Noë Bot is pressing {{key}}.": "Το Noë Bot πατάει {{key}}.",
   "Noë Bot is working on the page.": "Το Noë Bot δουλεύει στη σελίδα.",
   "Ask once per session": "Ερώτηση μία φορά ανά συνεδρία",
-  "Show me how": "Δείξε μου πώς"
+  "Show me how": "Δείξε μου πώς",
+  "Allow": "Να επιτραπεί",
+  "Use the computer yourself.": "Χρησιμοποίησε τον υπολογιστή μόνος σου."
 }

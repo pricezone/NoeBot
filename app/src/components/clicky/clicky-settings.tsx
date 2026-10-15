@@ -91,8 +91,8 @@ export function ClickySettingsSection() {
               disabled={disabled}
               onValueChange={(value) => {
                 if (
+                  value === "ask_once_per_session" ||
                   value === "ask_each" ||
-                  value === "ask_once_per_task" ||
                   value === "never"
                 )
                   save.mutate({ clickyActionPolicy: value });
@@ -105,11 +105,11 @@ export function ClickySettingsSection() {
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="ask_once_per_session">
+                  {t(POLICY_LABEL.ask_once_per_session)}
+                </SelectItem>
                 <SelectItem value="ask_each">
                   {t(POLICY_LABEL.ask_each)}
-                </SelectItem>
-                <SelectItem value="ask_once_per_task">
-                  {t(POLICY_LABEL.ask_once_per_task)}
                 </SelectItem>
                 <SelectItem value="never">{t(POLICY_LABEL.never)}</SelectItem>
               </SelectContent>
@@ -118,9 +118,10 @@ export function ClickySettingsSection() {
           description={
             values.clickyActionPolicy === "never"
               ? t("Show me how points and explains, and never clicks or types.")
-              : values.clickyActionPolicy === "ask_once_per_task"
+              : values.clickyActionPolicy === "ask_once_per_session" ||
+                  values.clickyActionPolicy === "ask_once_per_task"
                 ? t(
-                    "With Do it for me on, one yes covers the rest of a task. Anything hard to undo is still asked about.",
+                    "With Do it for me on, one yes covers the rest of the session. Anything hard to undo is still asked about.",
                   )
                 : t(
                     "With Do it for me on, Show me how asks before every action.",

@@ -379,7 +379,7 @@ test("the outline buttons carry their own text colour, readable in the viewer's 
   expect(keepButton.classList.contains("text-foreground")).toBe(true);
 });
 
-test("in the viewer, hovering Take control explains teaching a browser workflow", async () => {
+test("in the viewer, hovering Take control says what it is for", async () => {
   const backend = server();
   const view = render(
     <TooltipProvider>
@@ -389,18 +389,15 @@ test("in the viewer, hovering Take control explains teaching a browser workflow"
   const button = await view.findByRole("button", { name: "Take control" });
   await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   // Nothing is said until it is asked for.
-  expect(view.queryByText("Teach a browser workflow")).toBeNull();
+  expect(view.queryByText("Use the computer yourself.")).toBeNull();
 
   await userEvent
     .setup({ document: view.container.ownerDocument })
     .hover(button);
 
-  expect(await view.findByText("Teach a browser workflow")).toBeTruthy();
-  expect(
-    view.getByText(
-      "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
-    ),
-  ).toBeTruthy();
+  expect(await view.findByText("Use the computer yourself.")).toBeTruthy();
+  // Teaching a workflow is said on Record your steps now, not here.
+  expect(view.queryByText("Teach a browser workflow")).toBeNull();
   // The tooltip wraps the same wheel: it still takes control.
   fireEvent.click(button);
   expect(

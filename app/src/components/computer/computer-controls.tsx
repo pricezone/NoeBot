@@ -14,10 +14,10 @@ import { useTranslation } from "@/lib/i18n";
  * only the Bot pill and the panel toggle; the wheel lives with the screen it steers, and the panel
  * opens itself when the Bot needs somebody (`lib/computers/attention.ts`).
  *
- * `withTooltip` is the viewer's top bar, where Take control sits beside Record your steps: hovering
- * it says what the two together are for. There the viewer's own status pill says that the current
- * action is finishing, so this does not say it a second time, and a problem hangs below the button
- * rather than stretching the bar.
+ * `withTooltip` is the viewer's top bar: hovering Take control says, in a line, what it is for (what
+ * recording a workflow is for is said on Record your steps, beside it). There the viewer's own
+ * status pill says that the current action is finishing, so this does not say it a second time, and
+ * a problem hangs below the button rather than stretching the bar.
  *
  * THERE IS NO "HAND BACK" WHILE THE PERSON HOLDS THE WHEEL. Minimizing the viewer hands control
  * back (`ComputerView`'s `minimize`), so the viewer's button becomes "Keep control" instead: a
@@ -84,22 +84,16 @@ export function ComputerControlButton({
   if (withTooltip)
     return (
       <div className="relative">
-        <Tooltip>
-          <TooltipTrigger render={button} />
-          <TooltipContent
-            className="max-w-sm flex-col items-start text-left"
-            side="bottom"
-          >
-            <span className="font-semibold">
-              {t("Teach a browser workflow")}
-            </span>
-            <span>
-              {t(
-                "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
-              )}
-            </span>
-          </TooltipContent>
-        </Tooltip>
+        {human ? (
+          button
+        ) : (
+          <Tooltip>
+            <TooltipTrigger render={button} />
+            <TooltipContent side="bottom">
+              {t("Use the computer yourself.")}
+            </TooltipContent>
+          </Tooltip>
+        )}
         {problem ? (
           <span
             className="absolute top-full right-0 mt-1 w-64 rounded-md bg-background px-2 py-1 text-xs text-destructive shadow-sm"

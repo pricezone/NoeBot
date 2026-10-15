@@ -2,6 +2,11 @@ import { IconPlayerRecordFilled } from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useComputerControl } from "@/lib/computers/use-control";
 import {
   demonstrationsQueryOptions,
@@ -24,6 +29,10 @@ import {
  * a person does while holding the wheel, and recording starts under a placeholder title the start
  * route requires. The workflow is named afterwards, once its steps exist — on stop, or when the
  * server stops it at ten minutes, "Name this workflow" opens and carries on into the skill review.
+ *
+ * Hovering it says what recording is for: teaching the Bot a browser workflow. The tooltip hangs on a
+ * span around the button, so it is still there while the button is disabled (a disabled button
+ * hears no pointer at all), which is exactly when somebody wonders what it would do.
  *
  * `onRecordingChange` reconnects the stream whenever a recording starts or ends: the server attaches
  * the recording to the stream when it connects, so a stream opened before the recording started
@@ -136,15 +145,36 @@ export function RecordStepsButton({
           </Button>
         </>
       ) : (
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={start.isPending || cannotTake}
-          onClick={() => start.mutate()}
-        >
-          <IconPlayerRecordFilled className="text-red-500" />
-          {t("Record your steps")}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="inline-flex" data-slot="record-steps-tooltip" />
+            }
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={start.isPending || cannotTake}
+              onClick={() => start.mutate()}
+            >
+              <IconPlayerRecordFilled className="text-red-500" />
+              {t("Record your steps")}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent
+            className="max-w-sm flex-col items-start text-left"
+            side="bottom"
+          >
+            <span className="font-semibold">
+              {t("Teach a browser workflow")}
+            </span>
+            <span>
+              {t(
+                "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
+              )}
+            </span>
+          </TooltipContent>
+        </Tooltip>
       )}
       {problem ? (
         <span

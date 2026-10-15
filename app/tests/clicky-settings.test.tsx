@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
   ClickyPhonesSection,
   ClickySettingsSection,
@@ -11,7 +12,7 @@ import type { MobileDevice } from "../../shared/mobile-link";
 import { settleReactWork } from "./settle-react-work";
 
 /**
- * Settings › Clicky: each setting takes effect when changed and is saved as its own flat key; the
+ * Settings › Show me how: each setting takes effect when changed and is saved as its own flat key; the
  * phones linked through the HyperNoesis app are listed with Revoke, and a server too old to keep
  * that list hides the section rather than showing an error.
  */
@@ -96,6 +97,49 @@ test("auto-open is on by default, and switching it off saves only that", async (
   );
   // Asking once per session is what somebody who never chose gets.
   expect(view.getByText("Ask once per session")).toBeTruthy();
+});
+
+test("how far it may go: once per session (the default), every time, or guide only", async () => {
+  preferences = { messageListEmphasis: "agent" };
+  const view = draw(<ClickySettingsSection />);
+  const select = await view.findByRole("combobox", {
+    name: "How far Show me how may go",
+  });
+  await waitFor(() => expect(select.hasAttribute("data-disabled")).toBe(false));
+  expect(select.textContent).toContain("Ask once per session");
+  expect(
+    view.getByText(
+      "With Do it for me on, one yes covers the rest of the session. Anything hard to undo is still asked about.",
+    ),
+  ).toBeTruthy();
+
+  fireEvent.click(select);
+  const options = await view.findAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual([
+    "Ask once per session",
+    "Ask every time",
+    "Guide only",
+  ]);
+  await userEvent
+    .setup({ document: view.container.ownerDocument })
+    .click(view.getByRole("option", { name: "Ask every time" }));
+  await waitFor(() =>
+    expect(patches).toEqual([{ clickyActionPolicy: "ask_each" }]),
+  );
+});
+
+test("a setting saved as once per task reads as once per session", async () => {
+  preferences = {
+    messageListEmphasis: "agent",
+    clickyActionPolicy: "ask_once_per_task",
+  };
+  const view = draw(<ClickySettingsSection />);
+  const select = await view.findByRole("combobox", {
+    name: "How far Show me how may go",
+  });
+  await waitFor(() =>
+    expect(select.textContent).toContain("Ask once per session"),
+  );
 });
 
 test("linked phones are listed and Revoke signs one out", async () => {

@@ -95,12 +95,19 @@ function useActionWords(action: ClickyAction): string {
 }
 
 /**
- * Clicky asking before it does something on the computer.
+ * "Show me how" (Clicky) asking before it does something on the computer.
  *
- * What it wants to do and why, a warning when the guardrails rated it hard to undo, and the three
- * answers: Allow once, Allow for this task (only for a low-risk action, and only for somebody whose
- * setting lets one yes cover a task), and Not now. The request lapses after two minutes, counted
- * down here; the server is what expires it.
+ * What it wants to do and why, a warning when the guardrails rated it hard to undo, and two answers:
+ *
+ * - an everyday (low-risk) action, for somebody whose setting asks once per session: "Allow for this
+ *   session", one yes that covers every everyday action until Clicky sleeps, is stopped or two hours
+ *   pass (`ClickyTaskGrant`), and Not now;
+ * - the same for somebody who asked to be asked every time (or before their setting has arrived):
+ *   "Allow once", and Not now;
+ * - something hard to undo (a submit, a send, closing a window): "Allow", once, beside "Can't be
+ *   undone", and Not now. It is asked about every time, whatever was allowed before.
+ *
+ * The request lapses after two minutes, counted down here; the server is what expires it.
  *
  * Drawn with `key={proposal.id}`, so a new proposal is a new card: its Allow buttons wait a moment
  * again, and its countdown starts again.
@@ -125,8 +132,13 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
   const armed = useArmed(armDelayMs);
   const words = useActionWords(proposal.action);
   const riskReason = useServerSentence(proposal.riskReason);
-  const taskWide =
-    proposal.risk === "low" && actionPolicy === "ask_once_per_task";
+  // The person's setting, read as the server reads it: the old "once per task" is once per session.
+  const sessionWide =
+    proposal.risk === "low" &&
+    (actionPolicy === "ask_once_per_session" ||
+      actionPolicy === "ask_once_per_task");
+  const allow = (scope: "once" | "session") =>
+    onCommand({ type: "approve", proposalId: proposal.id, scope });
   return (
     <section
       aria-label={t("May I do this?")}
@@ -154,34 +166,15 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           disabled={busy || expired || !armed}
-          onClick={() =>
-            onCommand({
-              type: "approve",
-              proposalId: proposal.id,
-              scope: "once",
-            })
-          }
+          onClick={() => allow(sessionWide ? "session" : "once")}
           size="sm"
         >
-          {t("Allow once")}
+          {sessionWide
+            ? t("Allow for this session")
+            : proposal.risk === "confirm"
+              ? t("Allow")
+              : t("Allow once")}
         </Button>
-        {taskWide ? (
-          <Button
-            className="border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100"
-            disabled={busy || expired || !armed}
-            onClick={() =>
-              onCommand({
-                type: "approve",
-                proposalId: proposal.id,
-                scope: "task",
-              })
-            }
-            size="sm"
-            variant="outline"
-          >
-            {t("Allow for this task")}
-          </Button>
-        ) : null}
         <Button
           className="text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900"
           disabled={busy}

@@ -10,9 +10,11 @@ import type { ClickyActionPolicy } from "../../shared/user-preferences";
 import { settleReactWork } from "./settle-react-work";
 
 /**
- * Clicky asking before it acts. Allow once is always offered; Allow for this task only for a
- * low-risk action and only for somebody whose setting lets one yes cover a task; something hard to
- * undo says so. Not now refuses it, and a request that has lapsed can no longer be allowed.
+ * "Show me how" asking before it acts. An everyday action, for somebody whose setting asks once per
+ * session, offers one yes for the whole session ("Allow for this session") and Not now; somebody
+ * who asked to be asked every time gets Allow once. Something hard to undo says so and is allowed
+ * once at a time ("Allow"), whatever was allowed before. Not now refuses it, a request that has
+ * lapsed can no longer be allowed, and the Allow button waits a moment before it takes a click.
  */
 
 beforeAll(() => GlobalRegistrator.register({ url: "http://localhost/" }));
@@ -49,42 +51,59 @@ function draw(
   const view = render(
     <ClickyProposalCard
       actionPolicy={
-        options.policy === undefined ? "ask_once_per_task" : options.policy
+        options.policy === undefined ? "ask_once_per_session" : options.policy
       }
       armDelayMs={options.armDelayMs ?? 0}
       busy={false}
       onCommand={(command) => sent.push(command)}
       proposal={options.proposal ?? proposal()}
+      key={options.proposal?.id ?? "proposal-1"}
     />,
   );
   return { view, sent };
 }
 
-test("it says what Clicky would do and why", () => {
+test("it says what Show me how would do and why", () => {
   const { view } = draw();
+  expect(view.getByText("I'd like to")).toBeTruthy();
   expect(view.getByText("Click: the Search box")).toBeTruthy();
   expect(view.getByText("That is where the order number goes.")).toBeTruthy();
   expect(view.queryByText("Can't be undone")).toBeNull();
   expect(view.getByText(/left$/)).toBeTruthy();
 });
 
-test("Allow for this task is offered for a low-risk action when one yes may cover a task", () => {
+test("an everyday action is allowed for the whole session with one yes, or not now", () => {
   const { view, sent } = draw();
-  view.getByRole("button", { name: "Allow for this task" }).click();
+  const buttons = view
+    .getAllByRole("button")
+    .map((button) => button.textContent);
+  expect(buttons).toEqual(["Allow for this session", "Not now"]);
+  fireEvent.click(view.getByRole("button", { name: "Allow for this session" }));
   expect(sent).toEqual([
-    { type: "approve", proposalId: "proposal-1", scope: "task" },
+    { type: "approve", proposalId: "proposal-1", scope: "session" },
+  ]);
+});
+
+test("a setting saved as once per task is read as once per session", () => {
+  const { view, sent } = draw({ policy: "ask_once_per_task" });
+  fireEvent.click(view.getByRole("button", { name: "Allow for this session" }));
+  expect(sent).toEqual([
+    { type: "approve", proposalId: "proposal-1", scope: "session" },
   ]);
 });
 
 test("asking every time, only Allow once is offered", () => {
-  const { view } = draw({ policy: "ask_each" });
-  expect(view.getByRole("button", { name: "Allow once" })).toBeTruthy();
+  const { view, sent } = draw({ policy: "ask_each" });
   expect(
-    view.queryByRole("button", { name: "Allow for this task" }),
+    view.queryByRole("button", { name: "Allow for this session" }),
   ).toBeNull();
+  fireEvent.click(view.getByRole("button", { name: "Allow once" }));
+  expect(sent).toEqual([
+    { type: "approve", proposalId: "proposal-1", scope: "once" },
+  ]);
 });
 
-test("something hard to undo says so, and is asked about once at a time", () => {
+test("something hard to undo says so, and is allowed once at a time, even with a session's yes on offer", () => {
   const { view, sent } = draw({
     proposal: proposal({
       risk: "confirm",
@@ -96,10 +115,10 @@ test("something hard to undo says so, and is asked about once at a time", () => 
   expect(view.getByText("This sends the form.")).toBeTruthy();
   expect(view.getByText("Press: Enter")).toBeTruthy();
   expect(
-    view.queryByRole("button", { name: "Allow for this task" }),
+    view.queryByRole("button", { name: "Allow for this session" }),
   ).toBeNull();
 
-  fireEvent.click(view.getByRole("button", { name: "Allow once" }));
+  fireEvent.click(view.getByRole("button", { name: "Allow" }));
   expect(sent).toEqual([
     { type: "approve", proposalId: "proposal-1", scope: "once" },
   ]);
@@ -119,11 +138,8 @@ test("a lapsed request can no longer be allowed", () => {
   });
   expect(view.getByText("Timed out")).toBeTruthy();
   expect(
-    view.getByRole("button", { name: "Allow once" }).hasAttribute("disabled"),
-  ).toBe(true);
-  expect(
     view
-      .getByRole("button", { name: "Allow for this task" })
+      .getByRole("button", { name: "Allow for this session" })
       .hasAttribute("disabled"),
   ).toBe(true);
   expect(
@@ -131,25 +147,23 @@ test("a lapsed request can no longer be allowed", () => {
   ).toBe(false);
 });
 
-test("the Allow buttons wait a moment before they take a click, like a permission prompt", async () => {
+test("the Allow button waits a moment before it takes a click, like a permission prompt", async () => {
   const { view, sent } = draw({ armDelayMs: CLICKY_ALLOW_ARM_MS });
-  const once = view.getByRole("button", { name: "Allow once" });
-  const task = view.getByRole("button", { name: "Allow for this task" });
-  expect(once.hasAttribute("disabled")).toBe(true);
-  expect(task.hasAttribute("disabled")).toBe(true);
+  const session = view.getByRole("button", { name: "Allow for this session" });
+  expect(session.hasAttribute("disabled")).toBe(true);
   // Not now is never held back.
   expect(
     view.getByRole("button", { name: "Not now" }).hasAttribute("disabled"),
   ).toBe(false);
-  fireEvent.click(once);
+  fireEvent.click(session);
   expect(sent).toEqual([]);
 
-  await waitFor(() => expect(once.hasAttribute("disabled")).toBe(false), {
+  await waitFor(() => expect(session.hasAttribute("disabled")).toBe(false), {
     timeout: 2_000,
   });
-  fireEvent.click(once);
+  fireEvent.click(session);
   expect(sent).toEqual([
-    { type: "approve", proposalId: "proposal-1", scope: "once" },
+    { type: "approve", proposalId: "proposal-1", scope: "session" },
   ]);
 });
 
@@ -166,11 +180,11 @@ test("the countdown runs from when the request arrived, whatever the two clocks 
   expect(view.queryByText("Timed out")).toBeNull();
 });
 
-test("before the person's setting has arrived, Allow for this task is not offered", () => {
+test("before the person's setting has arrived, a session's yes is not offered", () => {
   const { view } = draw({ policy: null });
   expect(view.getByRole("button", { name: "Allow once" })).toBeTruthy();
   expect(
-    view.queryByRole("button", { name: "Allow for this task" }),
+    view.queryByRole("button", { name: "Allow for this session" }),
   ).toBeNull();
 });
 
