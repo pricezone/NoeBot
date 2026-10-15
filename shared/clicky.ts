@@ -344,6 +344,9 @@ export const CLICKY_NOTICES = [
   "narrate_select",
   "narrate_key",
   "narrate_working",
+  "narrate_choose",
+  "narrate_click_here",
+  "narrate_type_here",
 ] as const;
 export type ClickyNotice = (typeof CLICKY_NOTICES)[number];
 
@@ -376,6 +379,10 @@ export const CLICKY_NOTICE_TEXT: Record<ClickyNotice, string> = {
   narrate_select: "Noë Bot is choosing in “{{label}}”.",
   narrate_key: "Noë Bot is pressing {{key}}.",
   narrate_working: "Noë Bot is working on the page.",
+  // For a control the page gave no name: the option chosen, or "here" beside the pointer.
+  narrate_choose: "Noë Bot is choosing “{{option}}”.",
+  narrate_click_here: "Noë Bot is clicking here.",
+  narrate_type_here: "Noë Bot is typing here.",
 };
 
 /** What a client may send: the web app's bar, the phone, and the bridge for overlays. */

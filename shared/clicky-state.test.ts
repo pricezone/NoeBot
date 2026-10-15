@@ -871,6 +871,35 @@ describe("showing what the Bot does", () => {
     });
   });
 
+  test("a control the page gave no name is 'here' beside the pointer, or the option chosen", () => {
+    const h = harness();
+    h.command({ type: "watch" });
+    // Measured live: the-internet's drop-down and checkboxes have no accessible name.
+    h.run({
+      type: "bot.action",
+      verb: "select",
+      option: " Option 1 ",
+      rect: RECT,
+    });
+    expect(h.session.reply).toMatchObject({
+      notice: "narrate_choose",
+      params: { option: "Option 1" },
+    });
+    h.run({ type: "bot.action", verb: "click", rect: RECT });
+    expect(h.session.reply?.notice).toBe("narrate_click_here");
+    h.run({ type: "bot.action", verb: "type", rect: RECT });
+    expect(h.session.reply?.notice).toBe("narrate_type_here");
+    // A named drop-down with no option said is still named.
+    h.run({ type: "bot.action", verb: "select", label: "Country", rect: RECT });
+    expect(h.session.reply).toMatchObject({
+      notice: "narrate_select",
+      params: { label: "Country" },
+    });
+    // Nothing to name and nothing to point at.
+    h.run({ type: "bot.action", verb: "select" });
+    expect(h.session.reply?.notice).toBe("narrate_working");
+  });
+
   test("the Bot's actions are not shown unless narrating, nor after Stop", () => {
     const h = harness();
     h.command({ type: "wake" });

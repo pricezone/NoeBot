@@ -130,6 +130,8 @@ export type ClickyEvent =
       label?: string;
       host?: string;
       key?: string;
+      /** The option a drop-down is set to. */
+      option?: string;
       /** Where the element is on the screen, when it is on it. */
       rect?: ClickyRect;
     }
@@ -1010,6 +1012,41 @@ const NARRATION: Record<ClickyBotVerb, ClickyNotice> = {
   other: "narrate_working",
 };
 
+/**
+ * What narration says for one of the Bot's actions, from what is known about it: a control the page
+ * gave no name is "here" beside the pointer (or the option a drop-down is set to), and only with
+ * nothing to point at either is it "working on the page".
+ */
+export function narrationFor(
+  verb: ClickyBotVerb,
+  known: {
+    label: boolean;
+    option: boolean;
+    host: boolean;
+    key: boolean;
+    pointed: boolean;
+  },
+): ClickyNotice {
+  switch (verb) {
+    case "select":
+      if (known.option) return "narrate_choose";
+      if (known.label) return "narrate_select";
+      return known.pointed ? "narrate_click_here" : "narrate_working";
+    case "click":
+      if (known.label) return "narrate_click";
+      return known.pointed ? "narrate_click_here" : "narrate_working";
+    case "type":
+      if (known.label) return "narrate_type";
+      return known.pointed ? "narrate_type_here" : "narrate_working";
+    case "navigate":
+      return known.host ? "narrate_navigate" : "narrate_working";
+    case "key":
+      return known.key ? "narrate_key" : "narrate_working";
+    default:
+      return NARRATION[verb];
+  }
+}
+
 function reduceInternal(
   session: ClickySession,
   event: Exclude<ClickyEvent, { type: "command" }>,
@@ -1375,22 +1412,19 @@ function reduceInternal(
             },
           ]
         : [];
-      const narration = NARRATION[event.verb];
+      const option = event.option?.trim().slice(0, 80);
       const params: Record<string, string> = {};
       if (label) params.label = label;
       if (event.host) params.host = event.host;
       if (event.key) params.key = event.key;
-      const usable =
-        (narration === "narrate_click" ||
-          narration === "narrate_type" ||
-          narration === "narrate_select") &&
-        !label
-          ? "narrate_working"
-          : narration === "narrate_navigate" && !event.host
-            ? "narrate_working"
-            : narration === "narrate_key" && !event.key
-              ? "narrate_working"
-              : narration;
+      if (option) params.option = option;
+      const usable = narrationFor(event.verb, {
+        label: Boolean(label),
+        option: Boolean(option),
+        host: Boolean(event.host),
+        key: Boolean(event.key),
+        pointed: overlays.length > 0,
+      });
       return changed({
         session: {
           ...session,

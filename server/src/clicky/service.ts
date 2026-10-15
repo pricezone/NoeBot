@@ -124,6 +124,8 @@ export const CLICKY_PROGRESS = {
 export function botVerbOf(tool: string): ClickyBotVerb {
   switch (tool) {
     case "computer_click":
+    // A box ticked or cleared is a click on it, said with its name ("clicking “Remember me”").
+    case "computer_check":
       return "click";
     case "computer_type":
     case "computer_fill":
@@ -134,7 +136,6 @@ export function botVerbOf(tool: string): ClickyBotVerb {
     case "computer_scroll":
       return "scroll";
     case "computer_select":
-    case "computer_check":
       return "select";
     case "computer_key":
       return "key";
@@ -152,6 +153,7 @@ export type ClickyBotAction = {
   name?: string;
   url?: string;
   key?: string;
+  option?: string;
 };
 
 /**
@@ -1048,6 +1050,9 @@ export function createClickyService(deps: {
         ...(label ? { label } : {}),
         ...(host ? { host } : {}),
         ...(verb === "key" && action.key ? { key: action.key } : {}),
+        ...(verb === "select" && action.option
+          ? { option: action.option }
+          : {}),
         ...(rect && rect.width > 0 && rect.height > 0 ? { rect } : {}),
       },
       { onlyIfOpen: true },

@@ -45,6 +45,9 @@ export const CLICKY_NOTICE_KEYS: Record<ClickyNotice, string> = {
   narrate_select: msg("Noë Bot is choosing in “{{label}}”."),
   narrate_key: msg("Noë Bot is pressing {{key}}."),
   narrate_working: msg("Noë Bot is working on the page."),
+  narrate_choose: msg("Noë Bot is choosing “{{option}}”."),
+  narrate_click_here: msg("Noë Bot is clicking here."),
+  narrate_type_here: msg("Noë Bot is typing here."),
 };
 
 /** What the state chip says. `asleep` is a session that is not awake, whatever its state. */

@@ -135,6 +135,21 @@ describe("onBotAction", () => {
     expect(JSON.stringify(heard)).not.toContain("Παπαδοπούλου");
   });
 
+  test("a drop-down is heard with the option it is set to", async () => {
+    const heard: ComputerBotAction[] = [];
+    const fake = await gatewayWith({
+      onBotAction: (event) => heard.push(event),
+    });
+    await fake.gateway.select("bot-1", ACTOR, {
+      ref: "e1",
+      snapshotId: 7,
+      option: "  Option 1 ",
+    });
+    expect(heard).toMatchObject([
+      { tool: "computer_select", ref: "e1", option: "Option 1" },
+    ]);
+  });
+
   test("not for shell or file calls, not for a refused action, not for an approval's replay", async () => {
     const heard: ComputerBotAction[] = [];
     const replaying: ApprovalGate = async () => ({

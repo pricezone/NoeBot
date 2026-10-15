@@ -608,7 +608,7 @@ describe("narration", () => {
       "navigate",
       "scroll",
       "select",
-      "select",
+      "click",
       "key",
       "other",
     ]);

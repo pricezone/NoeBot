@@ -299,6 +299,7 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
           ...(event.name ? { name: event.name } : {}),
           ...(event.url ? { url: event.url } : {}),
           ...(event.key ? { key: event.key } : {}),
+          ...(event.option ? { option: event.option } : {}),
         },
         // The person has the Bot's screen open: narration may start by itself.
         { autoWatch: clicky.presence.viewing(event.userId, event.botId) },

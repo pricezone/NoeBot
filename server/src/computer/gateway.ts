@@ -210,6 +210,8 @@ export type ComputerBotAction = {
   key?: string;
   /** How many characters are being typed. Never the text. */
   characters?: number;
+  /** The option a drop-down is being set to, as the Bot named it. */
+  option?: string;
 };
 
 /** One handover moment, as `onControlEvent` hears it. */
@@ -931,8 +933,11 @@ export function createComputerGateway(
       page?: boolean;
     },
     run: (address: string | undefined, context: GovernedRun) => Promise<T>,
-    /** What `onBotAction` hears about it beyond the subject: how many characters are typed. */
-    narration: { characters?: number } = {},
+    /**
+     * What `onBotAction` hears about it beyond the subject: how many characters are typed, and the
+     * option a drop-down is set to.
+     */
+    narration: { characters?: number; option?: string } = {},
   ): Promise<T> {
     const { ref, filePath, snapshotId } = subject;
     /*
@@ -1094,6 +1099,7 @@ export function createComputerGateway(
             ...(narration.characters !== undefined
               ? { characters: narration.characters }
               : {}),
+            ...(narration.option ? { option: narration.option } : {}),
           });
         result = await run(address, {
           session: async () => (await asked).session,
@@ -1193,10 +1199,10 @@ export function createComputerGateway(
     payload: unknown,
     signal?: AbortSignal,
   ): Promise<R> {
-    const text =
+    const { text, option } =
       payload && typeof payload === "object"
-        ? (payload as { text?: unknown }).text
-        : undefined;
+        ? (payload as { text?: unknown; option?: unknown })
+        : {};
     return govern(
       toolName,
       botId,
@@ -1208,7 +1214,12 @@ export function createComputerGateway(
           await post<R>(botId, path, payload, signal, undefined, address),
           context,
         ),
-      typeof text === "string" ? { characters: text.length } : {},
+      {
+        ...(typeof text === "string" ? { characters: text.length } : {}),
+        ...(typeof option === "string" && option.trim()
+          ? { option: option.trim().slice(0, 80) }
+          : {}),
+      },
     ).then((result) => markPage(result));
   }
 
