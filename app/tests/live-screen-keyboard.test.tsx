@@ -281,3 +281,26 @@ test("the paste event sends clipboard text without forwarding it through a key e
   expect(paste.defaultPrevented).toBe(true);
   expect(socket.sent).toEqual([{ type: "text", text: "." }]);
 });
+
+test("a character with no key code behind it is sent as text, and its key-up stays here", async () => {
+  // An on-screen or IME keyboard reports no `code`; the computer refuses a key message without one.
+  const socket = await liveSocket();
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "ύ",
+      code: "",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  window.dispatchEvent(
+    new KeyboardEvent("keyup", {
+      key: "ύ",
+      code: "",
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+
+  expect(socket.sent).toEqual([{ type: "text", text: "ύ" }]);
+});

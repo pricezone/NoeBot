@@ -86,7 +86,7 @@ const REASONS: Record<ClickyThinkReason, string> = {
  * the steps, which were only those Clicky could see from where the task began.
  */
 const GUIDE_CONTINUE =
-  "The person just did the last of the steps you gave them. Look at the screen now. If the goal of the walkthrough is reached, say so in one short sentence and give no plan. If not, give the next steps toward it from this screen.";
+  "The person just did the last of the steps you gave them. Look at the screen now. Only if what the person asked for, in their own words, is finished, set done and say so in one short sentence. Otherwise give the next steps toward it from this screen, as a new plan.";
 
 export type BrainPromptInput = {
   session: ClickySession;
@@ -225,8 +225,8 @@ export function buildBrainPrompt(input: BrainPromptInput): {
   const act = session.mode === "act";
   const system = [
     ...persona(input),
-    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h]}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true}',
-    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true when the task is finished.',
+    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h], "typing": true}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true}',
+    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8; "typing" is true for a step the person does by typing into its control (a search, a field), not by clicking it. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true only when what the person asked for, in their own words, is finished: finding the way there is not doing it.',
     act
       ? 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, propose scrolling to it first: {"action": "scroll", "ref": "e40"}.'
       : 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, make the step before it "Scroll down" (or up) to it, and point at where to scroll.',
@@ -370,10 +370,10 @@ function refOf(value: unknown): string | undefined {
     : undefined;
 }
 
-/** A model's `{ref, point, box}` as where to point, or null when it named nowhere usable. */
 /**
- * Roles a step is done in by typing, not by the click that starts it. Not `combobox`: a drop-down
- * is one too, and it is done by choosing, which the viewer does not see as typing.
+ * Roles a step is done in by typing, not by the click that starts it. Not `combobox` by itself: a
+ * drop-down is one too, and it is done by choosing, which the viewer does not see as typing; a
+ * combobox step is typed when the model says so (a search with suggestions).
  */
 const TYPED_INTO = new Set([
   "textbox",
@@ -382,6 +382,7 @@ const TYPED_INTO = new Set([
   "addressbar",
 ]);
 
+/** A model's `{ref, point, box}` as where to point, or null when it named nowhere usable. */
 function targetIn(
   value: Record<string, unknown>,
   placed: readonly PlacedElement[],
@@ -545,13 +546,18 @@ export function parseBrainAnswer(
         const role = target?.ref
           ? context.placed.find((element) => element.ref === target.ref)?.role
           : undefined;
+        // A combobox is a search with suggestions as often as a drop-down: typed when the model says.
+        const typing =
+          role !== undefined &&
+          (TYPED_INTO.has(role) ||
+            (role === "combobox" && step.typing === true));
         return [
           {
             title,
             ...(detail ? { detail } : {}),
             overlays: target ? overlaysFor(target, context.newId) : [],
             ...(target?.ref ? { targetRef: target.ref } : {}),
-            ...(role && TYPED_INTO.has(role) ? { typing: true } : {}),
+            ...(typing ? { typing: true } : {}),
           },
         ];
       });

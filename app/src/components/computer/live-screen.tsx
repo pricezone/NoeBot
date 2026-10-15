@@ -453,6 +453,16 @@ export function LiveScreen({
       }
       event.preventDefault();
       event.stopPropagation();
+      /*
+       * A character with no key behind it (an on-screen or IME keyboard reports no `code`) is sent
+       * as the text it types: the computer refuses a key message without a code, and that refusal
+       * ended the live screen.
+       */
+      if (!event.code && event.key.length === 1) {
+        localKeyUps.current.add("");
+        send({ type: "text", text: event.key });
+        return;
+      }
       send({
         type: "key",
         event: "down",

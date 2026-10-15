@@ -130,6 +130,40 @@ describe("parseBrainAnswer", () => {
     ]);
   });
 
+  test("a combobox step is typed only when the model says so: a search with suggestions, not a drop-down", () => {
+    // Live: gov.gr's search box is a combobox; its "search for" step was finished by the click.
+    const combo = placeElements({
+      ...screen,
+      elements: [
+        {
+          ref: "e3",
+          role: "combobox",
+          name: "Αναζητήστε εδώ",
+          rect: { x: 200, y: 500, width: 600, height: 40 },
+          sensitive: false,
+          focused: false,
+        },
+      ],
+    });
+    const answer = parseBrainAnswer(
+      JSON.stringify({
+        say: "Two steps.",
+        plan: {
+          goal: "Find the declaration",
+          steps: [
+            { title: "Search for υπεύθυνη δήλωση", ref: "e3", typing: true },
+            { title: "Choose a country", ref: "e3" },
+          ],
+        },
+      }),
+      { ...context, placed: combo },
+    );
+    expect(answer.plan?.steps.map((step) => step.typing ?? false)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
   test("a guessed point near an element snaps onto it", () => {
     // 2% of the screen to the right of the button's edge.
     const answer = parseBrainAnswer(
