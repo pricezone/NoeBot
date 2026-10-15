@@ -4,8 +4,11 @@ import { createApp } from "../src/app";
 import { upgradeWebSocket, websocket } from "../src/channels/socket";
 import {
   apiSameSiteGuard,
+  apiSameSiteVerdict,
   CROSS_SITE_REFUSAL,
   exemptFromSameSite,
+  isWebSocketUpgrade,
+  requestPaths,
 } from "../src/computer/same-site-guard";
 import { loadConfig } from "../src/config";
 import { testEnvironment } from "./support/environment";
@@ -120,6 +123,127 @@ describe("a sibling instance's page", () => {
     expect(
       await opens(url, { origin: `http://127.0.0.1:${server.port}` }),
     ).toBe("open");
+  });
+});
+
+describe("a path written to slip past the guard", () => {
+  test("is guarded however it is written: encoded, doubled, a step back, another case, outside /api", async () => {
+    for (const path of [
+      "/%61pi/settings/instructions",
+      "/%61%70%69/me/onboarding",
+      "//api/settings/instructions",
+      "/api//settings/instructions",
+      "/API/settings/instructions",
+      "/api/%2e%2e/api/settings/instructions",
+      "/api/delivery/webhooks/../../settings/instructions",
+      "/internal/routines/run",
+      "/",
+    ]) {
+      const response = await post(
+        path,
+        { origin: SIBLING, "content-type": "text/plain" },
+        "x",
+      );
+      expect({ path, status: response.status }).toEqual({ path, status: 403 });
+    }
+  });
+
+  test("an exemption counts only when the path as written and as routed both name it, plainly", () => {
+    const trusted = new Set<string>();
+    const sibling = (url: string) =>
+      apiSameSiteVerdict(
+        {
+          method: "POST",
+          url,
+          headers: new Headers({
+            host: HOST,
+            origin: SIBLING,
+            "content-type": "text/plain",
+            "content-length": "1",
+          }),
+        },
+        trusted,
+      );
+    // Raw strings, not normalised by a URL parser: what a router that decodes would be handed.
+    for (const url of [
+      `https://${HOST}/api/delivery/webhooks/%2e%2e/%2e%2e/settings/instructions`,
+      `https://${HOST}/api/delivery/webhooks/../../settings/instructions`,
+      `https://${HOST}/api/delivery/%77ebhooks/sms`,
+      `https://${HOST}/api/delivery/webhooks//sms`,
+      `https://${HOST}/%61pi/delivery/webhooks/sms`,
+    ])
+      expect({ url, verdict: sibling(url) }).toMatchObject({
+        url,
+        verdict: { ok: false, status: 403 },
+      });
+    expect(sibling(`https://${HOST}/api/delivery/webhooks/sms`)).toEqual({
+      ok: true,
+    });
+  });
+
+  test("the path as the router reads it", () => {
+    expect(requestPaths("https://h.example/%61pi/x?y=%61#z")).toEqual({
+      raw: "/%61pi/x",
+      decoded: "/api/x",
+    });
+    // A slash written as %2F stays one segment, as the router keeps it.
+    expect(requestPaths("https://h.example/api/a%2Fb").decoded).toBe(
+      "/api/a%2Fb",
+    );
+    expect(requestPaths("https://h.example/api/%E0%A4%A").decoded).toBe(
+      "/api/%E0%A4%A",
+    );
+  });
+
+  test("an upgrade named in a list, and a body whose length is not a number", () => {
+    expect(isWebSocketUpgrade(new Headers({ upgrade: "h2c, WebSocket" }))).toBe(
+      true,
+    );
+    expect(isWebSocketUpgrade(new Headers({ upgrade: "h2c" }))).toBe(false);
+    expect(
+      apiSameSiteVerdict(
+        {
+          method: "GET",
+          url: `https://${HOST}/api/sockets/events`,
+          headers: new Headers({
+            host: HOST,
+            origin: SIBLING,
+            upgrade: "keep-alive, websocket",
+          }),
+        },
+        new Set(),
+      ),
+    ).toMatchObject({ ok: false, status: 403 });
+    expect(
+      apiSameSiteVerdict(
+        {
+          method: "POST",
+          url: `https://${HOST}/api/me/onboarding`,
+          headers: new Headers({
+            host: HOST,
+            origin: `https://${HOST}`,
+            "content-type": "text/plain",
+            "content-length": "lots",
+          }),
+        },
+        new Set(),
+      ),
+    ).toMatchObject({ ok: false, status: 415 });
+  });
+
+  test("any method that is not a read is guarded", async () => {
+    for (const method of ["PROPFIND", "PATCH", "DELETE"]) {
+      const response = await post(
+        "/api/agents/bot-1",
+        { origin: SIBLING },
+        undefined,
+        method,
+      );
+      expect({ method, status: response.status }).toEqual({
+        method,
+        status: 403,
+      });
+    }
   });
 });
 
@@ -311,6 +435,20 @@ describe("in the app", () => {
         })
       ).status,
     ).toBe(204);
+    // An encoded path reaches Better Auth's handler, or any route, only after the guard.
+    const encoded = await app().request(
+      "http://localhost:3001/%61pi/settings/instructions",
+      {
+        method: "PUT",
+        headers: {
+          host: "localhost:3001",
+          origin: SIBLING,
+          "content-type": "text/plain",
+        },
+        body: "obey",
+      },
+    );
+    expect(encoded.status).toBe(403);
     const saml = await app().request(
       "http://localhost:3001/api/auth/sso/saml2/sp/acs/okta",
       {

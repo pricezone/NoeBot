@@ -67,13 +67,44 @@ export function deploymentOrigins(
 export type SameSiteOptions = {
   /** Whose bodies must be JSON: everybody's, or only a browser's (an `Origin` or any `Sec-Fetch-*`). */
   jsonBodies?: "all" | "browser";
-  /** The methods whose body is checked. POST, PUT and PATCH unless said. */
-  bodyMethods?: readonly string[];
+  /**
+   * The methods whose body is checked: POST, PUT and PATCH unless said, or "unsafe" for every
+   * method but GET, HEAD and OPTIONS.
+   */
+  bodyMethods?: readonly string[] | "unsafe";
   /** Multipart form data is taken too: an upload. */
   multipart?: boolean;
 };
 
 const BODY_METHODS = ["POST", "PUT", "PATCH"];
+
+/** The methods that only read. Everything else may change something. */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** Whether a request asks to become a WebSocket: `Upgrade` names it, alone or in a list. */
+export function isWebSocketUpgrade(headers: Headers): boolean {
+  return (headers.get("upgrade") ?? "")
+    .toLowerCase()
+    .split(",")
+    .some((token) => token.trim() === "websocket");
+}
+
+/**
+ * Whether a request carries a body: a positive `Content-Length`, any `Content-Length` that is not
+ * a number (a server further on may still read one), chunked transfer, or a body stream.
+ */
+function hasBodyOf(request: {
+  headers: Headers;
+  body?: ReadableStream | null;
+}): boolean {
+  const length = request.headers.get("content-length")?.trim();
+  if (length !== undefined && length !== "")
+    return /^\d+$/.test(length) ? Number(length) > 0 : true;
+  return (
+    request.headers.has("transfer-encoding") ||
+    (request.body !== undefined && request.body !== null)
+  );
+}
 
 /** Whether a request came from a browser page: it says where from, or how it was fetched. */
 function fromBrowser(headers: Headers): boolean {
@@ -119,19 +150,16 @@ export function checkSameSite(
   if ((site === "cross-site" || site === "same-site") && !explicit)
     return refused;
   const bodyMethods = options.bodyMethods ?? BODY_METHODS;
+  const method = request.method.toUpperCase();
   if (
-    bodyMethods.includes(request.method.toUpperCase()) &&
+    (bodyMethods === "unsafe"
+      ? !SAFE_METHODS.has(method)
+      : bodyMethods.includes(method)) &&
     (options.jsonBodies !== "browser" || fromBrowser(request.headers))
   ) {
-    const length = request.headers.get("content-length");
-    const hasBody =
-      length !== null && length.trim() !== ""
-        ? Number(length) > 0
-        : request.headers.has("transfer-encoding") ||
-          (request.body !== undefined && request.body !== null);
     const type = request.headers.get("content-type")?.toLowerCase() ?? "";
     if (
-      hasBody &&
+      hasBodyOf(request) &&
       !/^application\/json\s*(;|$)/.test(type) &&
       !(options.multipart && /^multipart\/form-data\s*(;|$)/.test(type))
     )
@@ -185,7 +213,7 @@ const SAME_SITE_EXEMPT: readonly { pattern: RegExp; methods?: string[] }[] = [
   { pattern: /^\/api\/desktop(?:\/|$)/ },
 ];
 
-/** Whether a request to `/api` is one of the exemptions above. */
+/** Whether a path is one of the exemptions above, for this method. */
 export function exemptFromSameSite(method: string, pathname: string): boolean {
   const upper = method.toUpperCase();
   return SAME_SITE_EXEMPT.some(
@@ -195,25 +223,119 @@ export function exemptFromSameSite(method: string, pathname: string): boolean {
   );
 }
 
+/**
+ * A request's path as it arrived (still percent-encoded) and as the router reads it. Hono slices the
+ * path out of the URL and decodes it with `decodeURI`, so `/%61pi/settings` is routed to
+ * `/api/settings`; this decodes it the same way, so the guard decides on the path that will be
+ * served rather than on the one that was written.
+ */
+export function requestPaths(url: string): { raw: string; decoded: string } {
+  const start = url.indexOf("/", url.indexOf(":") + 3);
+  if (start === -1) return { raw: "/", decoded: "/" };
+  let end = url.length;
+  for (const mark of ["?", "#"]) {
+    const at = url.indexOf(mark, start);
+    if (at !== -1 && at < end) end = at;
+  }
+  const raw = url.slice(start, end) || "/";
+  const decodable = raw.includes("%25") ? raw.replace(/%25/g, "%2525") : raw;
+  let decoded: string;
+  try {
+    decoded = decodeURI(decodable);
+  } catch {
+    decoded = decodable.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+      try {
+        return decodeURI(run);
+      } catch {
+        return run;
+      }
+    });
+  }
+  return { raw, decoded };
+}
+
+/** No empty, `.` or `..` segment: a path that means what it says. */
+function plainPath(path: string): boolean {
+  return path
+    .split("/")
+    .slice(1)
+    .every(
+      (segment, index, all) =>
+        (segment !== "" || index === all.length - 1) &&
+        segment !== "." &&
+        segment !== "..",
+    );
+}
+
+/**
+ * Whether a request is exempt: its path as written AND as routed both name an exemption, and
+ * neither hides a step back or an empty segment. An encoding that turns one into another is not.
+ */
+function exempt(method: string, paths: { raw: string; decoded: string }) {
+  return (
+    plainPath(paths.raw) &&
+    plainPath(paths.decoded) &&
+    exemptFromSameSite(method, paths.raw) &&
+    exemptFromSameSite(method, paths.decoded)
+  );
+}
+
 /** The two routes a browser uploads a file to, as multipart form data. */
 const MULTIPART_ROUTES = [
   /^\/api\/channels\/[^/]+\/attachments$/,
   /^\/api\/audio\/transcriptions$/,
 ];
 
-const CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+/**
+ * The global rules, for one request: what the middleware below answers, and what the live screen's
+ * socket (upgraded before Hono sees it) is asked too.
+ *
+ * Every request that may change something (any method but GET, HEAD and OPTIONS) and every
+ * WebSocket upgrade, on ANY path: a prefix check on the path as written is what an encoded path
+ * (`/%61pi/...`), a double slash or a step back walks around, since the router decodes it.
+ */
+export function apiSameSiteVerdict(
+  request: {
+    method: string;
+    url: string;
+    headers: Headers;
+    body?: ReadableStream | null;
+  },
+  trusted: ReadonlySet<string>,
+): SameSiteVerdict {
+  const method = request.method.toUpperCase();
+  if (!isWebSocketUpgrade(request.headers) && SAFE_METHODS.has(method))
+    return { ok: true };
+  const paths = requestPaths(request.url);
+  if (exempt(method, paths)) return { ok: true };
+  return checkSameSite(request, trusted, {
+    jsonBodies: "browser",
+    bodyMethods: "unsafe",
+    multipart:
+      method === "POST" &&
+      MULTIPART_ROUTES.some(
+        (route) => route.test(paths.raw) && route.test(paths.decoded),
+      ),
+  });
+}
+
+/** The trusted origins of a deployment, ready for `apiSameSiteVerdict`. */
+export function trustedOriginsOf(origins: readonly string[]): Set<string> {
+  return trustedSet(origins);
+}
 
 /**
- * The same rules for the whole of `/api`, registered before every route: a sibling instance's page
+ * The same rules for the whole server, registered before every route: a sibling instance's page
  * (the same site, carrying the person's cookie) can change nothing through any of it, where before
  * only the computer routes, the phones and the sockets refused it.
  *
- * Only what changes something is checked: POST, PUT, PATCH, DELETE and a WebSocket upgrade. A GET,
- * HEAD or OPTIONS passes, since OAuth and SSO callbacks, the sign-in handoff, the plugin consent
- * callback and attachment links all arrive as a top-level navigation from another site. A body is
- * required to be JSON only of a browser (an `Origin` or any `Sec-Fetch-*`), except a multipart upload
- * on the two upload routes; the phone and anything else that is not a browser sends neither header
- * and passes, as it always did. The exemptions are checked first, before any header is read.
+ * Only what may change something is checked: every method but GET, HEAD and OPTIONS, and every
+ * WebSocket upgrade, whatever the path. A GET, HEAD or OPTIONS passes, since OAuth and SSO callbacks,
+ * the sign-in handoff, the plugin consent callback and attachment links all arrive as a top-level
+ * navigation from another site. A body is required to be JSON only of a browser (an `Origin` or any
+ * `Sec-Fetch-*`), except a multipart upload on the two upload routes; the phone and anything else
+ * that is not a browser sends neither header and passes, as it always did. The exemptions are
+ * checked before any header is read, against the path as written and as routed.
  *
  * The per-router guards stay where they were: they also check reads, which this one does not.
  */
@@ -222,26 +344,7 @@ export function apiSameSiteGuard(
 ): MiddlewareHandler {
   const trusted = trustedSet(origins);
   return async (context, next) => {
-    const request = context.req.raw;
-    let pathname: string;
-    try {
-      pathname = new URL(request.url).pathname;
-    } catch {
-      return next();
-    }
-    if (pathname !== "/api" && !pathname.startsWith("/api/")) return next();
-    const method = request.method.toUpperCase();
-    if (exemptFromSameSite(method, pathname)) return next();
-    const upgrade =
-      request.headers.get("upgrade")?.toLowerCase() === "websocket";
-    if (!upgrade && !CHANGING_METHODS.has(method)) return next();
-    const verdict = checkSameSite(request, trusted, {
-      jsonBodies: "browser",
-      bodyMethods: [...CHANGING_METHODS],
-      multipart:
-        method === "POST" &&
-        MULTIPART_ROUTES.some((route) => route.test(pathname)),
-    });
+    const verdict = apiSameSiteVerdict(context.req.raw, trusted);
     if (!verdict.ok)
       return context.json({ error: verdict.error }, verdict.status);
     await next();
