@@ -661,6 +661,60 @@ describe("walkthroughs", () => {
     expect(h.session.walkthrough?.steps[0]?.status).toBe("done");
   });
 
+  test("the person finishing the last step carries on: a look for the next steps, not 'that's everything'", () => {
+    // Live: three steps took the person to gov.gr's documents page, short of the declaration.
+    const h = harness();
+    h.command({ type: "ask", text: "how do I issue a declaration?" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "One step.",
+      plan: { goal: "Issue a declaration", steps: [PLAN.steps[0]!] },
+    });
+    const clicked = h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } });
+    expect(h.session.state).toBe("thinking");
+    expect(h.session.lastThink?.reason).toBe("continue");
+    expect(h.session.overlays).toEqual([]);
+    expect(
+      clicked.effects.filter((effect) => effect.type === "think"),
+    ).toHaveLength(1);
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Now the service.",
+      plan: { goal: "Issue a declaration", steps: [PLAN.steps[0]!] },
+    });
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("current");
+    // The look after typing finishing the last step carries on the same way.
+    h.run({ type: "person.typed" });
+    h.run({
+      type: "brain.check",
+      checkId: h.session.check?.id ?? "",
+      stepDone: true,
+    });
+    expect(h.session.lastThink?.reason).toBe("continue");
+    // The model saying the goal is reached, with no plan, ends it there.
+    h.run({ type: "brain.reply", thinkId: h.thinking(), say: "Done!" });
+    expect(h.session.state).not.toBe("thinking");
+    expect(h.session.reply?.text).toBe("Done!");
+  });
+
+  test("carrying on stops at the auto-step limit, with 'that's everything'", () => {
+    const h = harness();
+    h.command({ type: "ask", text: "how?" });
+    for (let round = 0; round < 40; round += 1) {
+      h.run({
+        type: "brain.reply",
+        thinkId: h.thinking(),
+        say: "Next.",
+        plan: { goal: "Somewhere", steps: [PLAN.steps[0]!] },
+      });
+      h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } });
+      if (h.session.state !== "thinking") break;
+    }
+    expect(h.session.reply?.notice).toBe("walkthrough_done");
+  });
+
   test("the stuck nudge comes once, after a quiet spell", () => {
     const h = guided();
     h.advance(CLICKY_NUDGE_AFTER_MS - 1);

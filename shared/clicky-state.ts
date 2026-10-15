@@ -446,6 +446,41 @@ function advance(
 }
 
 /** After a walkthrough's last step. The session's grant outlives it, as the session goes on. */
+/**
+ * The person did the last step themselves (a click on it, or the look after their typing): the
+ * steps were only those Clicky could see from where the task began, so it looks again and, unless
+ * the goal is reached, shows the next ones. Counted against the auto-step limit, so a goal it keeps
+ * not reaching ends in "that's everything" rather than looking for ever.
+ */
+function carryOnOrFinish(
+  moved: ClickySession,
+  context: ClickyContext,
+  cancelCheck: boolean,
+): ClickyResult {
+  const cancel: ClickyEffect[] = cancelCheck ? [{ type: "cancel_check" }] : [];
+  if (moved.walkthrough && moved.autoSteps < CLICKY_AUTO_STEP_LIMIT) {
+    const draft = startThinking(
+      {
+        ...moved,
+        ...NO_CHECK,
+        overlays: [],
+        autoSteps: moved.autoSteps + 1,
+      },
+      "continue",
+      context,
+    );
+    return changed({
+      session: draft.session,
+      effects: [...cancel, ...draft.effects],
+    });
+  }
+  const finished = finishWalkthrough(moved);
+  return changed({
+    session: { ...finished, state: restingState(finished) },
+    effects: cancel,
+  });
+}
+
 function finishWalkthrough(session: ClickySession): ClickySession {
   return {
     ...session,
@@ -1316,13 +1351,8 @@ function reduceInternal(
       // A field to type into is only started by a click; the typing's own look finishes it.
       if (step.typing) return unchanged(session);
       const moved = advance({ ...session, ...NO_CHECK }, context);
-      if (moved.finished) {
-        const finished = finishWalkthrough(moved.session);
-        return changed({
-          session: { ...finished, state: restingState(finished) },
-          effects: session.check ? [{ type: "cancel_check" }] : [],
-        });
-      }
+      if (moved.finished)
+        return carryOnOrFinish(moved.session, context, Boolean(session.check));
       // The click may have changed the page: look again to place the next step where it is now.
       const resting = { ...moved.session, state: restingState(moved.session) };
       if (!mayCheck(resting))
@@ -1369,13 +1399,8 @@ function reduceInternal(
       if (!aboutThisStep) return changed({ session: next, effects: [] });
       if (event.stepDone && step) {
         const moved = advance(next, context);
-        if (moved.finished) {
-          const finished = finishWalkthrough(moved.session);
-          return changed({
-            session: { ...finished, state: restingState(finished) },
-            effects: [],
-          });
-        }
+        if (moved.finished)
+          return carryOnOrFinish(moved.session, context, false);
         next = moved.session;
       }
       // What the look found is where things are now; nothing found means the target is not on the

@@ -81,6 +81,13 @@ const REASONS: Record<ClickyThinkReason, string> = {
     "You just did a step for the person. Look at the result, and propose the next step if there is one.",
 };
 
+/**
+ * In guide mode Clicky does nothing itself: "continue" there is the person having done the last of
+ * the steps, which were only those Clicky could see from where the task began.
+ */
+const GUIDE_CONTINUE =
+  "The person just did the last of the steps you gave them. Look at the screen now. If the goal of the walkthrough is reached, say so in one short sentence and give no plan. If not, give the next steps toward it from this screen.";
+
 export type BrainPromptInput = {
   session: ClickySession;
   reason: ClickyThinkReason;
@@ -232,7 +239,11 @@ export function buildBrainPrompt(input: BrainPromptInput): {
       : 'You are in guide mode: never include "proposal". The person does every step themselves.',
   ].join("\n\n");
 
-  const parts: string[] = [`Why you are looking: ${REASONS[input.reason]}`];
+  const why =
+    input.reason === "continue" && input.session.mode === "guide"
+      ? GUIDE_CONTINUE
+      : REASONS[input.reason];
+  const parts: string[] = [`Why you are looking: ${why}`];
   if (session.trigger && session.trigger.kind !== "person") {
     parts.push(
       `Noë Bot asked for the person (${session.trigger.kind}).${

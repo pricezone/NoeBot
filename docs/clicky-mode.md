@@ -40,6 +40,10 @@ presses Enter or Tab, types, or the page changes, Clicky looks again: the step i
 done when it is, and the next one is pointed at where it is now. It can scroll a target into view.
 To go to a site, a guide step points at the browser's address bar ("Click the address bar and type
 gov.gr"); in Do it for me, Clicky proposes opening the address itself.
+A click on a field to type into only starts its step; the typing (Enter, Tab, or typing that settles)
+finishes it. Steps are what Clicky can see from where the task began, so when the person finishes the
+last one and the goal is not reached yet, it looks again and shows the next steps (up to the
+auto-step limit) rather than saying it is done.
 
 **Taking the wheel.** While Clicky is guiding the person, the viewer takes control of the computer for
 them, so their clicks and typing go straight to the page; it gives control back when Clicky sleeps,
