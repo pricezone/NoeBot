@@ -43,6 +43,14 @@ export type GuardTarget = {
   inDialog?: boolean;
   /** Inside a form on the page: Enter in one of its fields sends it. */
   inForm?: boolean;
+  /** A search field by what the page says (type=search, the searchbox role, a search landmark). */
+  search?: boolean;
+  /** Takes several lines: a textarea or a rich editor, where Enter may send what was written. */
+  multiline?: boolean;
+  /** Text can be typed into it: Backspace and Delete edit that text. */
+  editable?: boolean;
+  /** For a link, the host it leads to. */
+  linkHost?: string;
 };
 
 export type GuardContext = {
@@ -109,6 +117,29 @@ const COMMITTING_EN = [
   "upgrade",
   "reset",
   "leave",
+  "archive",
+  "trash",
+  "discard",
+  "block",
+  "report",
+  "mute",
+  "apply",
+  "applied",
+  "applies",
+  "book",
+  "reserve",
+  "reservation",
+  "agree",
+  "update",
+  "clear",
+  "empty",
+  "emptied",
+  "empties",
+  "end",
+  "close",
+  "unfollow",
+  "move",
+  "spam",
 ];
 
 /**
@@ -165,11 +196,35 @@ const COMMITTING_EL = [
   "ανακλησ",
   "επαναφορ",
   "αποχωρ",
+  "αρχειοθετ",
+  "καδο",
+  "απορριψ",
+  "απορριπτ",
+  "αποκλεισ",
+  "αναφορ",
+  "σιγασ",
+  "εφαρμογ",
+  "κρατησ",
+  "συμφων",
+  "ενημερω",
+  "εκκαθαρ",
+  "αδειασ",
+  "αδειαζ",
+  "τελος",
+  "κλεισ",
+  "μετακιν",
+  "ανεπιθυμητ",
 ];
+
+/** A word ending in a silent e drops it before "-ing": "closing", "moving", "updating". */
+const COMMITTING_EN_ING = COMMITTING_EN.filter((word) =>
+  word.endsWith("e"),
+).map((word) => `${word.slice(0, -1)}ing`);
 
 const COMMITTING = new RegExp(
   [
     `\\b(?:${COMMITTING_EN.join("|")})(?:s|es|ed|d|ing|ion|ions|ment|ments|al)?\\b`,
+    `\\b(?:${COMMITTING_EN_ING.join("|")})\\b`,
     `\\b(?:${COMMITTING_EN_STEMS.join("|")})\\w*`,
     "\\bcancel\\s+(?:my\\s+|the\\s+|your\\s+)?subscription",
     ...COMMITTING_EL,
@@ -307,7 +362,11 @@ const ALLOWED_KEYS = new Set([
 /** A paste puts in whatever is on the clipboard, which nobody here has read. */
 const PASTE_KEYS = new Set(["Control+v", "Control+Shift+v", "Shift+Insert"]);
 
-const SEARCH = /search|αναζητ/i;
+/**
+ * A search named as one, as a word of its own: "Search", "Site search", "Αναζήτηση", but not
+ * "Research" or "#research". Matched on the name without accents.
+ */
+const SEARCH_NAME = /(?:^|[^\p{L}\p{N}])(?:search|αναζητ)/u;
 
 /** The roles a click presses, as opposed to fills in or reads. */
 const CONTROL_ROLES = new Set([
@@ -470,6 +529,12 @@ export function assessAction(
         reason: "That reloads the page, and anything typed on it may be lost.",
       };
     if (keys === "Enter") return enterOn(receiver);
+    // In a text field they edit the text; anywhere else they can delete what is selected (a mail).
+    if ((keys === "Delete" || keys === "Backspace") && !receiver.editable)
+      return {
+        risk: "confirm",
+        reason: "Outside a text field, that key can delete what is selected.",
+      };
     if (
       keys === "Space" &&
       (receiver.submits || receiver.inDialog || commits(receiver.name))
@@ -498,6 +563,13 @@ export function assessAction(
     // Typing puts text in a field and sends nothing; a click on a committing control does.
     if (commits(receiver.name))
       return { risk: "confirm", reason: `“${receiver.name}” is hard to undo.` };
+    // A link that leaves for another site takes the session somewhere nobody said yes to.
+    if (
+      receiver.linkHost &&
+      context.pageHost &&
+      receiver.linkHost.toLowerCase() !== context.pageHost.toLowerCase()
+    )
+      return { risk: "confirm", reason: "That link opens another site." };
   }
   // Typing that ends in Enter: the Enter, pressed on the field typed into, is rated as the key is.
   if (action.kind === "type" && action.pressEnter) return enterOn(receiver);
@@ -505,12 +577,21 @@ export function assessAction(
 }
 
 /**
- * Enter on what has the keyboard. In a search box (by its role, or by its name, in English or
- * Greek) it searches, which is everyday even inside a form; anywhere else it may send something:
- * the form the field is in, or a message box that sends on Enter.
+ * Enter on what has the keyboard. In a search box (by what the page says it is, or by a name that is
+ * a search, in English or Greek) it searches, which is everyday even inside a form. Never in a
+ * textarea or a rich editor, where Enter often sends a message, nor in a field named like something
+ * hard to undo; anywhere else it may send something: the form the field is in, or what was typed.
  */
 function enterOn(receiver: GuardTarget): Assessment {
-  if (receiver.role === "searchbox" || SEARCH.test(plain(receiver.name)))
+  if (receiver.multiline)
+    return { risk: "confirm", reason: "Enter can send what was typed." };
+  if (commits(receiver.name))
+    return { risk: "confirm", reason: `“${receiver.name}” is hard to undo.` };
+  if (
+    receiver.search ||
+    receiver.role === "searchbox" ||
+    SEARCH_NAME.test(plain(receiver.name))
+  )
     return { risk: "low" };
   return {
     risk: "confirm",
@@ -532,6 +613,10 @@ export function guardTargetOf(probe: ElementAtResult): GuardTarget {
     ...(probe.opaque ? { opaque: true } : {}),
     ...(probe.inDialog ? { inDialog: true } : {}),
     ...(probe.inForm ? { inForm: true } : {}),
+    ...(probe.search ? { search: true } : {}),
+    ...(probe.multiline ? { multiline: true } : {}),
+    ...(probe.editable ? { editable: true } : {}),
+    ...(probe.linkHost ? { linkHost: probe.linkHost } : {}),
   };
 }
 
@@ -549,5 +634,9 @@ export function guardFocusOf(focus: FocusResult): GuardTarget | undefined {
     ...(focus.element.opaque ? { opaque: true } : {}),
     ...(focus.element.inDialog ? { inDialog: true } : {}),
     ...(focus.element.inForm ? { inForm: true } : {}),
+    ...(focus.element.search ? { search: true } : {}),
+    ...(focus.element.multiline ? { multiline: true } : {}),
+    ...(focus.element.editable ? { editable: true } : {}),
+    ...(focus.element.linkHost ? { linkHost: focus.element.linkHost } : {}),
   };
 }

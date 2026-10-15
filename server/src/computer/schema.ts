@@ -576,6 +576,8 @@ export type HumanInput = {
 type PageKeyboard = {
   keyboard?: "page";
   at?: { x: number; y: number };
+  /** For a key: only into the element the page was last typed into (the Enter after typing). */
+  sameField?: boolean;
 };
 
 /**
@@ -660,6 +662,14 @@ export type ElementAtResult = {
   inDialog?: boolean;
   /** Inside a form, where Enter in a field sends it. Absent from older computers. */
   inForm?: boolean;
+  /** A search field by what the page says it is (type=search, searchbox, a search landmark). */
+  search?: boolean;
+  /** A textarea or a rich editor, where Enter may send what was written. */
+  multiline?: boolean;
+  /** Text can be typed into it. */
+  editable?: boolean;
+  /** For a link, the host it leads to. */
+  linkHost?: string;
   ref?: string;
   /** False for a point outside the page: the toolbar, another window, the dock. */
   inPage: boolean;
@@ -679,6 +689,10 @@ export type FocusResult = {
     opaque?: boolean;
     inDialog?: boolean;
     inForm?: boolean;
+    search?: boolean;
+    multiline?: boolean;
+    editable?: boolean;
+    linkHost?: string;
   } | null;
   url: string;
 };

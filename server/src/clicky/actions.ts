@@ -93,6 +93,8 @@ export type ClickyActions = {
     signal: AbortSignal;
     /** Run on "Allow for this session" rather than a yes for this proposal. */
     viaGrant?: boolean;
+    /** The site that yes was given on (the session grant's `host`), when it names one. */
+    grantHost?: string;
   }): Promise<ActionOutcome>;
 };
 
@@ -265,6 +267,7 @@ export function createClickyActions(deps: {
       trigger,
       signal,
       viaGrant,
+      grantHost,
     }) {
       const actor: ActionActor = {
         id: userId,
@@ -272,6 +275,23 @@ export function createClickyActions(deps: {
         initiator: PERSON_INITIATOR,
       };
       const { action } = proposal;
+
+      /*
+       * The session's yes, checked here as well as in the reducer: only while the person's setting
+       * still lets one yes cover a session, and only on the site it was given on.
+       */
+      const grantFits = (pageUrl: string | undefined) =>
+        (actionPolicy === "ask_once_per_session" ||
+          actionPolicy === "ask_once_per_task") &&
+        (!grantHost || hostOf(pageUrl ?? "").toLowerCase() === grantHost);
+      if (viaGrant && !grantFits(proposal.seen?.url))
+        return refuse(
+          botId,
+          userId,
+          proposal,
+          "What is there now needs a fresh yes.",
+          { reason: "grant" },
+        );
 
       /*
        * The computer first, then the look. Once the person holds it the Bot cannot act on it, so
@@ -325,6 +345,14 @@ export function createClickyActions(deps: {
           proposal,
           "The page changed since I asked, so I did nothing. Ask again.",
           { reason: "changed" },
+        );
+      if (viaGrant && !grantFits(url))
+        return refuse(
+          botId,
+          userId,
+          proposal,
+          "What is there now needs a fresh yes.",
+          { reason: "grant" },
         );
       // Rated again on what is there now. Worse than what the person said yes to is not done.
       const fresh = assessAction(action, {
@@ -431,7 +459,14 @@ export function createClickyActions(deps: {
             await input(
               botId,
               pageKeyboard
-                ? { kind: "key", key: "Enter", keyboard: "page", ...typedAt }
+                ? {
+                    kind: "key",
+                    key: "Enter",
+                    keyboard: "page",
+                    // Only into the element just typed into.
+                    sameField: true,
+                    ...typedAt,
+                  }
                 : { kind: "key", key: "Enter", ...space },
               signal,
             );
