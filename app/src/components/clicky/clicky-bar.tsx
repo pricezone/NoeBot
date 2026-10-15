@@ -65,13 +65,21 @@ const NOTICE_MS = 6_000;
 const QUIET =
   "text-white hover:bg-white/10 hover:text-white dark:hover:bg-white/10 disabled:opacity-40";
 
+/** A line longer than this is likely cut short in the bar, and opens to be read whole. */
+const LONG_LINE = 80;
+
 /**
  * The bar's one status line, the one part of it drawn again as words arrive: the step being worked
  * on ("Step 2 of 4 — Click Sign in"), or else Clicky's latest words.
  *
  * ONE LINE. The instruction itself is drawn large beside Clicky's pointer, typing in
- * (`ClickyInstruction`); this only says where things are, cut to a line, with the whole of it as the
- * line's title. Something gone wrong (`error`) is said here rather than the step, beside its Retry.
+ * (`ClickyInstruction`), held to four lines; this only says where things are, cut to a line, with
+ * the whole of it as the line's title. Something gone wrong (`error`) is said here rather than the
+ * step, beside its Retry.
+ *
+ * THE WHOLE REPLY IS ALWAYS ONE CLICK AWAY. When the line is cut (a long answer), or shows the step
+ * rather than what Clicky last said, the line is a button that opens to the whole of it, and closes
+ * again on a second click or when the words change.
  */
 const ClickyStatusLine = memo(function ClickyStatusLine({
   botId,
@@ -83,25 +91,44 @@ const ClickyStatusLine = memo(function ClickyStatusLine({
 }) {
   const { t } = useTranslation();
   const reply = useClickyReply(botId);
+  const [openFor, setOpenFor] = useState<string | null>(null);
   const streaming = reply !== null && reply !== undefined && !reply.final;
-  const text =
-    stepLine && !streaming
-      ? stepLine
-      : replyText(reply ?? null, (key, params) => t(key, params));
+  const said = replyText(reply ?? null, (key, params) => t(key, params));
+  const text = stepLine && !streaming ? stepLine : said;
+  const whole = text === said ? said : said ? `${text}\n${said}` : text;
+  const opens = !streaming && (whole !== text || text.length > LONG_LINE);
+  const open = opens && openFor === whole;
+  const caret = streaming ? (
+    <span
+      aria-hidden="true"
+      className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-white/70 align-middle motion-reduce:animate-none"
+    />
+  ) : null;
+  if (!opens)
+    return (
+      <p
+        className="min-w-0 flex-1 truncate pt-1 text-sm leading-snug"
+        data-clicky="status"
+        title={text || undefined}
+      >
+        {text}
+        {caret}
+      </p>
+    );
   return (
-    <p
-      className="min-w-0 flex-1 truncate pt-1 text-sm leading-snug"
+    <button
+      aria-expanded={open}
+      className={cn(
+        "min-w-0 flex-1 rounded-md pt-1 text-left text-sm leading-snug hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60",
+        open ? "max-h-40 overflow-y-auto whitespace-pre-line" : "truncate",
+      )}
       data-clicky="status"
-      title={text || undefined}
+      onClick={() => setOpenFor(open ? null : whole)}
+      title={open ? undefined : whole}
+      type="button"
     >
-      {text}
-      {streaming ? (
-        <span
-          aria-hidden="true"
-          className="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-white/70 align-middle motion-reduce:animate-none"
-        />
-      ) : null}
-    </p>
+      {open ? whole : text}
+    </button>
   );
 });
 

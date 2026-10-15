@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { ClickySession } from "../../../../shared/clicky";
 import { keepClickySession, sendClickyCommand } from "./mutations";
 import { clickyKeys } from "./queries";
@@ -100,7 +100,12 @@ export async function sleepClickyNow(
 const closing = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
- * Puts "Show me how" to sleep when the surface showing it goes away, while `enabled`.
+ * Puts "Show me how" to sleep when the surface showing it goes away, if it showed it at all
+ * (`shown`, at any moment while it was there).
+ *
+ * ONLY ON GOING AWAY. `shown` turning false while the surface stays (a chat card's turn finishing
+ * under its open viewer) is not the person closing anything, and sleeping then cut narration and
+ * guidance off in front of them. Minimizing says so itself (`sleepClickyNow`).
  *
  * A moment after, not at once: React mounts a component twice in development (StrictMode) and the
  * second mount, straight after the first one's cleanup, would otherwise wake to a session it had
@@ -109,16 +114,18 @@ const closing = new Map<string, ReturnType<typeof setTimeout>>();
 export function useClickySleepOnClose(
   queryClient: QueryClient,
   botId: string,
-  enabled: boolean,
+  shown: boolean,
 ): void {
+  const everShown = useRef(false);
+  if (shown) everShown.current = true;
   useEffect(() => {
-    if (!enabled) return;
     const pending = closing.get(botId);
     if (pending !== undefined) {
       clearTimeout(pending);
       closing.delete(botId);
     }
     return () => {
+      if (!everShown.current) return;
       closing.set(
         botId,
         setTimeout(() => {
@@ -127,5 +134,5 @@ export function useClickySleepOnClose(
         }, 0),
       );
     };
-  }, [queryClient, botId, enabled]);
+  }, [queryClient, botId]);
 }

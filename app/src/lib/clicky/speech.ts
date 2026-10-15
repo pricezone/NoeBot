@@ -153,10 +153,13 @@ export function useClickySpeech(
     const translate = (key: string, params?: Record<string, string>) =>
       t(key, params);
     if (previous.body === spoken.body) {
-      // Said again: from elsewhere, or the echo of this tab's own press, which already spoke.
-      if (!spoken.reply || !replayClickyLineFromServer(botId) || !enabled)
-        return;
-      speak(clickyLineOf(spoken.session, detailed, translate), locale);
+      /*
+       * Said again: from elsewhere, or the echo of this tab's own press, which already spoke. What is
+       * said is the line beside the pointer, which a walkthrough's step gives even with no reply.
+       */
+      const line = clickyLineOf(spoken.session, detailed, translate);
+      if (!line || !replayClickyLineFromServer(botId) || !enabled) return;
+      speak(line, locale);
       return;
     }
     if (!enabled || !spoken.reply || spoken.reply === previous.reply) return;

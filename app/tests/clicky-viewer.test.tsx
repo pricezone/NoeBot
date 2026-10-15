@@ -60,6 +60,8 @@ const BOT = "clicky-viewer-bot";
 let awake = true;
 let narrating = false;
 let stopped = false;
+/** Awake, but nothing drawn on the screen: no step, no pointer. */
+let bare = false;
 let commands: ClickyCommand[] = [];
 /** What the viewer asked of the computer's wheel, and of whom. */
 let controlCalls: { path: string; body: unknown }[] = [];
@@ -90,7 +92,7 @@ function clickySession(botId = BOT): ClickySession {
         ? { text: "", final: true, notice: "watching" }
         : { text: "Click Sign in, top right.", final: true },
     overlays:
-      awake && !narrating
+      awake && !narrating && !bare
         ? [{ kind: "pointer", id: "p1", at: { x: 0.9, y: 0.1 } }]
         : [],
     seq: commands.length + 1,
@@ -217,6 +219,7 @@ afterEach(() => {
   awake = true;
   narrating = false;
   stopped = false;
+  bare = false;
 });
 
 afterAll(async () => {
@@ -233,6 +236,24 @@ function offerClicky(enabled: boolean) {
     selfHostBanner: false,
     ...(enabled ? { clicky: { enabled: true, voice: false } } : {}),
   });
+}
+
+/** A transcript tile for a turn still running, as `computer-tools.tsx` draws one. */
+function tile(finished: boolean) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <ComputerView
+          active={!finished}
+          computerId={BOT}
+          finished={finished}
+          minHeight={0}
+          minWidth={0}
+          toolCallId="clicky-viewer-call"
+        />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
 }
 
 function preview(botId = BOT) {
@@ -586,13 +607,21 @@ test("opened while the Bot works on its computer, Show me how narrates it", asyn
 });
 
 test("what counts as guiding the person, and as the end of it", () => {
-  const base = { ...newClickySession({ id: "s1", botId: BOT, now: 0 }) };
-  // Awake and guiding: take. Narrating: never.
+  const base = {
+    ...newClickySession({ id: "s1", botId: BOT, now: 0 }),
+    overlays: [{ kind: "pointer" as const, id: "p1", at: { x: 0.5, y: 0.5 } }],
+  };
+  // Awake and guiding, with something on the screen: take. Narrating: never.
   expect(
     selectGuidance({ ...base, awake: true, state: "guiding" }).guiding,
   ).toBe(true);
   expect(
     selectGuidance({ ...base, awake: true, state: "guiding", narrating: true })
+      .guiding,
+  ).toBe(false);
+  // Awake with nothing drawn (narration just ended, a plain answer): nobody to guide.
+  expect(
+    selectGuidance({ ...base, awake: true, state: "guiding", overlays: [] })
       .guiding,
   ).toBe(false);
   // A sign-in or a secret is answered in the conversation's form, not on the screen.
@@ -665,4 +694,32 @@ test("narration only ever adds to a session nobody is using", () => {
       trigger: "person",
     }),
   ).toBe(false);
+});
+
+test("awake with nothing on the screen to guide, the viewer takes nothing", async () => {
+  offerClicky(true);
+  bare = true;
+  const view = preview();
+  const viewer = await openViewer(view);
+  await viewer.findByRole("region", { name: "Show me how" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(controlCalls).toEqual([]);
+});
+
+test("a chat card's turn finishing under the open viewer does not put Show me how to sleep; closing does", async () => {
+  offerClicky(true);
+  const view = render(tile(false));
+  const viewer = await openViewer(view);
+  await viewer.findByRole("region", { name: "Show me how" });
+
+  // The turn ends: the viewer stays open on its record, and Show me how is left as it was.
+  view.rerender(tile(true));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(
+    view.queryByRole("dialog", { name: "The assistant's screen" }),
+  ).toBeTruthy();
+  expect(commands).not.toContainEqual({ type: "sleep" });
+
+  view.unmount();
+  await waitFor(() => expect(commands).toContainEqual({ type: "sleep" }));
 });

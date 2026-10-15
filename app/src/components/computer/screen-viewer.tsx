@@ -248,6 +248,7 @@ export function ScreenViewer({
   const clicky = useClickyCapability();
   const clickyOn = clicky.enabled && !settled;
   const clickyLive = clickyOn && !asleep;
+  // On closing only: a chat card's turn finishing under the open viewer is not the person leaving.
   useClickySleepOnClose(queryClient, computerId, clickyOn);
   useClickyAutoControl(computerId, clickyLive, keepControl);
   useClickyWatchOnOpen(computerId, clickyLive, turnRunning);
