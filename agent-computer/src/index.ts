@@ -1385,6 +1385,46 @@ serve<StreamData>({
           }
         }
         /*
+         * Clicky going to a site the person asked for, as their typing it into the address bar
+         * would: in the live tab, an https address with no credentials in it. Never a browser started
+         * for this.
+         */
+        if (url.pathname === "/human/open") {
+          const address = typeof body?.url === "string" ? body.url : "";
+          let target: URL | undefined;
+          try {
+            target = new URL(address);
+          } catch {
+            target = undefined;
+          }
+          if (
+            target?.protocol !== "https:" ||
+            target.username ||
+            target.password
+          )
+            return json(
+              {
+                error:
+                  "Only a secure web address (https), with no name or password in it, can be opened.",
+              },
+              400,
+            );
+          const { live } = profiles.tabs(botId);
+          if (!live) return json({ error: BROWSER_NOT_OPEN }, 409);
+          try {
+            await live.goto(target.toString(), {
+              waitUntil: "domcontentloaded",
+              timeout: 20_000,
+            });
+            return json({ action: "human_open", url: live.url() });
+          } catch (error) {
+            return json(
+              { error: describe(error, "That site could not be opened.") },
+              502,
+            );
+          }
+        }
+        /*
          * Clicky typing, or pressing one of the page's own keys, through the page's keyboard once
          * the field it meant has it (page-keyboard.ts): on a desktop the X keyboard goes wherever
          * the window manager says, and this cannot leave the Bot's page.
@@ -1771,10 +1811,24 @@ serve<StreamData>({
             if (DESKTOP) return json(emptyScreen(DISPLAY_SIZE));
             return json({ error: BROWSER_NOT_OPEN }, 409);
           }
+          const started = performance.now();
           const found = await listScreenElements(
             page,
             DESKTOP ? DISPLAY_SIZE : null,
-            { dialogPending: Boolean(dialogs.pending(botId)) },
+            {
+              dialogPending: Boolean(dialogs.pending(botId)),
+              // One line per read, in the run timing's shape, so a slow page says which part was.
+              timing: ({ phases, candidates, visible, offscreen }) =>
+                console.info(
+                  `[timing] clicky.elements bot=${botId} total=${Math.round(performance.now() - started)} phases=${Object.entries(
+                    phases,
+                  )
+                    .map(([name, ms]) => `${name}:${ms}`)
+                    .join(
+                      ",",
+                    )} candidates=${candidates} visible=${visible} offscreen=${offscreen}`,
+                ),
+            },
           );
           knownElements.set(botId, found);
           return json(found);
@@ -1804,8 +1858,14 @@ serve<StreamData>({
         }
         if (dialogs.pending(botId))
           return json({ text: "", truncated: false, url: live.url() });
+        // `limit`: a look asks for less than the whole (it is read on every look).
+        const asked = Number(url.searchParams.get("limit"));
+        const limit =
+          Number.isInteger(asked) && asked > 0
+            ? Math.min(CLICKY_TEXT_LIMIT, Math.max(500, asked))
+            : CLICKY_TEXT_LIMIT;
         const read = await Promise.race([
-          readablePageText(live, CLICKY_TEXT_LIMIT).catch(() => ({
+          readablePageText(live, limit).catch(() => ({
             text: "",
             truncated: false,
           })),
@@ -1959,26 +2019,32 @@ serve<StreamData>({
           min: 160,
           max: 1920,
         });
+        const started = performance.now();
         try {
           const page = await livePageOf(botId);
           if (!page && !DESKTOP) return json({ error: BROWSER_NOT_OPEN }, 409);
           const display = VIRTUAL_DISPLAY;
-          return json(
-            await maskedFrame({
-              page,
-              desktop: DESKTOP && display ? DISPLAY_SIZE : null,
-              width,
-              captureDesktop: (scale, keep) =>
-                captureDesktopFrame(
-                  display?.name ?? "",
-                  DISPLAY_SIZE,
-                  undefined,
-                  scale,
-                  keep,
-                ),
-            }),
+          const framed = await maskedFrame({
+            page,
+            desktop: DESKTOP && display ? DISPLAY_SIZE : null,
+            width,
+            captureDesktop: (scale, keep) =>
+              captureDesktopFrame(
+                display?.name ?? "",
+                DISPLAY_SIZE,
+                undefined,
+                scale,
+                keep,
+              ),
+          });
+          console.info(
+            `[timing] clicky.frame bot=${botId} total=${Math.round(performance.now() - started)} mode=${DESKTOP ? "desktop" : "page"} width=${framed.width}`,
           );
+          return json(framed);
         } catch (error) {
+          console.info(
+            `[timing] clicky.frame bot=${botId} total=${Math.round(performance.now() - started)} error=${describe(error, "failed").replace(/\s/g, "_").slice(0, 120)}`,
+          );
           return json(
             { error: describe(error, "The screen could not be captured.") },
             502,
@@ -2390,6 +2456,7 @@ const HUMAN_INPUT = new Set([
   "/human/key",
   "/human/scroll",
   "/human/scroll-into-view",
+  "/human/open",
 ]);
 
 /**

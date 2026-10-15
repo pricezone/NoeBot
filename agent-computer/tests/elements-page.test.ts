@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { snapshotBoxes } from "../src/aria-snapshot";
+import { addressBarRect } from "../src/element-geometry";
 import {
   CANDIDATE_LIMIT,
   chooseElements,
   classifyBox,
   ELEMENT_LIMIT,
+  measureWithin,
   OFFSCREEN_LIMIT,
 } from "../src/elements";
 import {
@@ -375,5 +378,92 @@ describe("the desktop's input", () => {
     expect(failure.message).toBe(
       "The desktop's input did not go through (xdotool type: exit code 1).",
     );
+  });
+});
+
+describe("a heavy page, measured in one call", () => {
+  test("every box comes from the snapshot, a frame's inside placed from the frame's corner", () => {
+    const boxes = snapshotBoxes(`- generic [ref=e1] [box=8,-992,1264,3000]:
+  - button "Go [box=1,1,1,1]" [ref=e2] [box=20,-900,34,21]
+  - 'link "Say: hi" [ref=e3] [box=10,40,50,20]'
+  - iframe [ref=e5] [box=300,-800,304,154]:
+    - button "Inner" [ref=f1e2] [box=8,8,46,21]
+  - button "Hidden" [ref=e6]`);
+    expect(boxes.get("e2")).toEqual({ x: 20, y: -900, width: 34, height: 21 });
+    // A name that looks like a box is a name.
+    expect(boxes.get("e3")).toEqual({ x: 10, y: 40, width: 50, height: 20 });
+    expect(boxes.get("f1e2")).toEqual({
+      x: 308,
+      y: -792,
+      width: 46,
+      height: 21,
+    });
+    expect(boxes.has("e6")).toBe(false);
+    expect(snapshotBoxes("not: [valid").size).toBe(0);
+  });
+
+  test("measuring one by one stops at its budget and answers what finished", async () => {
+    let running = 0;
+    let most = 0;
+    const started = Date.now();
+    const results = await measureWithin(
+      Array.from({ length: 40 }, (_, index) => index),
+      async (index) => {
+        running += 1;
+        most = Math.max(most, running);
+        await Bun.sleep(index < 8 ? 5 : 400);
+        running -= 1;
+        return index;
+      },
+      { concurrency: 4, deadline: Date.now() + 100 },
+    );
+    expect(Date.now() - started).toBeLessThan(300);
+    expect(most).toBeLessThanOrEqual(4);
+    expect(results.slice(0, 8)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(results.filter((result) => result === null).length).toBeGreaterThan(
+      20,
+    );
+  });
+});
+
+describe("the browser's address bar, placed by the window", () => {
+  const maximized = {
+    screenX: 0,
+    screenY: 0,
+    outerWidth: 1440,
+    outerHeight: 900,
+    innerWidth: 1440,
+    innerHeight: 813,
+  };
+
+  test("in the toolbar under the tab strip, from 12% to 88% of the window", () => {
+    expect(addressBarRect(maximized)).toEqual({
+      x: 172.8,
+      y: 47,
+      width: 1094.4,
+      height: 34,
+    });
+    // Moved with its window, and the same under a bookmarks bar, which is below the toolbar.
+    expect(
+      addressBarRect({
+        ...maximized,
+        screenX: 100,
+        screenY: 50,
+        outerWidth: 1000,
+        innerWidth: 1000,
+        innerHeight: 785,
+      }),
+    ).toEqual({ x: 220, y: 97, width: 760, height: 34 });
+  });
+
+  test("a window with no tab strip has its toolbar right above the page; one with no chrome has none", () => {
+    expect(addressBarRect({ ...maximized, innerHeight: 854 })).toEqual({
+      x: 172.8,
+      y: 6,
+      width: 1094.4,
+      height: 34,
+    });
+    expect(addressBarRect({ ...maximized, innerHeight: 900 })).toBeNull();
+    expect(addressBarRect({ ...maximized, innerHeight: 880 })).toBeNull();
   });
 });

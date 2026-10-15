@@ -96,6 +96,8 @@ export type ClickyActions = {
     viaGrant?: boolean;
     /** The site that yes was given on (the session grant's `host`), when it names one. */
     grantHost?: string;
+    /** The sites the person named this session, which opening a site is rated against. */
+    namedSites?: readonly string[];
   }): Promise<ActionOutcome>;
 };
 
@@ -116,6 +118,8 @@ const TOOL: Record<ClickyAction["kind"], string> = {
   type: "computer_type",
   key: "computer_key",
   scroll: "computer_scroll",
+  // Going to a site is a navigation, and the deny rules see it as one.
+  open: "computer_navigate",
 };
 
 function hostOf(url: string): string {
@@ -269,6 +273,7 @@ export function createClickyActions(deps: {
       signal,
       viaGrant,
       grantHost,
+      namedSites,
     }) {
       const actor: ActionActor = {
         id: userId,
@@ -309,7 +314,8 @@ export function createClickyActions(deps: {
       const screen = await gateway.elements(botId);
       signal.throwIfAborted();
       const desktop = screen.mode === "desktop";
-      const at = action.kind === "key" ? undefined : (action.at ?? undefined);
+      const opens = action.kind === "open";
+      const at = "at" in action ? (action.at ?? undefined) : undefined;
       const pointed =
         action.kind === "click" || action.kind === "scroll" || Boolean(at);
       const pixels = at ? toScreenPixels(at, screen.screen) : undefined;
@@ -317,7 +323,8 @@ export function createClickyActions(deps: {
       const probe = pixels
         ? await gateway.elementAt(botId, pixels, { verifyWindow: desktop })
         : undefined;
-      const focus = pointed ? undefined : await gateway.focus(botId);
+      // Opening a site goes to the browser: nothing on the page receives it.
+      const focus = pointed || opens ? undefined : await gateway.focus(botId);
       signal.throwIfAborted();
       const target = probe ? guardTargetOf(probe) : undefined;
       const focused = focus ? guardFocusOf(focus) : undefined;
@@ -364,6 +371,7 @@ export function createClickyActions(deps: {
         botId,
         actorId: userId,
         pageHost: hostOf(url),
+        ...(namedSites ? { namedSites } : {}),
       });
       if (
         fresh.risk === "yours" ||
@@ -396,7 +404,8 @@ export function createClickyActions(deps: {
           action,
           botId,
           actor,
-          pageUrl: url,
+          // A navigation is decided on where it goes, as the gateway decides the Bot's.
+          pageUrl: action.kind === "open" ? action.url : url,
           element: probe,
         }),
       );
@@ -482,6 +491,9 @@ export function createClickyActions(deps: {
             signal,
           );
           break;
+        case "open":
+          await input(botId, { kind: "open", url: action.url }, signal);
+          break;
         case "scroll":
           await input(
             botId,
@@ -512,6 +524,7 @@ export function createClickyActions(deps: {
             : {}),
           ...(action.kind === "key" ? { keys: action.keys } : {}),
           ...(action.kind === "scroll" && action.ref ? { intoView: true } : {}),
+          ...(action.kind === "open" ? { opened: hostOf(action.url) } : {}),
           ...(viaGrant ? { viaGrant: true, scope: "session" } : {}),
         },
       };

@@ -7,7 +7,7 @@ import {
 import type { ClickyActionPolicy } from "../../../shared/user-preferences";
 import { safetyRequirement } from "../approvals/policy";
 import type { ElementAtResult, FocusResult } from "../computer/schema";
-import { siteOfHost } from "./site";
+import { namedSite, openableUrl, siteOfHost } from "./site";
 
 /**
  * How risky one of Clicky's actions is, decided here and never by the model.
@@ -56,6 +56,11 @@ export type GuardTarget = {
 
 export type GuardContext = {
   actionPolicy: ClickyActionPolicy;
+  /**
+   * The sites the person named in their own words this session (`sitesNamedIn`): opening one of
+   * them is everyday, opening any other is asked about.
+   */
+  namedSites?: readonly string[];
   /** What is under the action's point, read just now. */
   target?: GuardTarget;
   /** What has the keyboard, read just now; absent when it could not be told. */
@@ -447,7 +452,13 @@ export function assessAction(
     action.kind === "click" ||
     action.kind === "scroll" ||
     (action.kind === "type" && Boolean(action.at));
-  const receiver = pointed ? context.target : context.focused;
+  // Opening an address goes to the browser, not to anything on the page.
+  const receiver =
+    action.kind === "open"
+      ? undefined
+      : pointed
+        ? context.target
+        : context.focused;
 
   if (receiver?.sensitive && action.kind !== "scroll") {
     if (action.kind === "type" || action.kind === "key")
@@ -475,6 +486,35 @@ export function assessAction(
       reason:
         "Noë Bot handed this to you: a sign-in, a code or a check only you can do.",
     };
+
+  /*
+   * Going to a site: an https address only, and everyday only when the person named that site
+   * themselves. A site the model chose (a search result, a link it read on a page) is asked about.
+   */
+  if (action.kind === "open") {
+    const url = openableUrl(action.url);
+    if (!url)
+      return {
+        risk: "blocked",
+        reason:
+          "I only open secure web addresses (https), with no name or password in them.",
+      };
+    const safety = safetyRequirement({
+      actorId: context.actorId,
+      botId: context.botId,
+      toolRef: "computer_open",
+      effect: "write",
+      scope: new URL(url).host,
+      args: { label: action.label, url },
+      target: {},
+    });
+    if (safety) return { risk: "yours", reason: safety.reason };
+    if (namedSite(context.namedSites ?? [], url)) return { risk: "low" };
+    return {
+      risk: "confirm",
+      reason: "You didn't name that site, so I'm asking first.",
+    };
+  }
 
   if (action.kind !== "scroll") {
     const safety = safetyRequirement({

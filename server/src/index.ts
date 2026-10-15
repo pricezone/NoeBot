@@ -3628,6 +3628,8 @@ type StreamData = {
   /** The session that opened this screen, and the detach from the watch that closes it with it. */
   sessionToken?: string | null;
   unwatch?: () => void;
+  /** Counted as an open viewer of this Bot's screen, for Show me how's narration. */
+  viewing?: boolean;
 };
 
 /** The origins the live screen's socket accepts besides this deployment's own host. */
@@ -3804,6 +3806,9 @@ serve<SocketData>({
         return;
       }
       const stream = ws.data;
+      // A person is watching this Bot's screen: Show me how may narrate what the Bot does on it.
+      stream.viewing = true;
+      clickyWiring?.viewerOpen(stream.ownerUserId, stream.botId, true);
       /*
        * A screen's frames and the person's input stay open only as long as the session that opened
        * them: a phone signed out, or a session that ended, loses its screen too.
@@ -3911,6 +3916,10 @@ serve<SocketData>({
       }
       ws.data.unwatch?.();
       ws.data.inward?.close();
+      if (ws.data.viewing) {
+        ws.data.viewing = false;
+        clickyWiring?.viewerOpen(ws.data.ownerUserId, ws.data.botId, false);
+      }
     },
   },
 });

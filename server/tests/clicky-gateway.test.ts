@@ -237,6 +237,26 @@ describe("Show me how's reads and the person's own Take control", () => {
       }),
     ).rejects.toThrow("ref");
   });
+
+  test("going to a site reaches the computer only for an https address the target guard allows", async () => {
+    const fake = await gatewayWith();
+    await fake.gateway.humanInput("bot-1", {
+      kind: "open",
+      url: "https://www.gov.gr/",
+    });
+    expect(fake.paths).toContain("/human/open");
+    for (const url of [
+      "http://www.gov.gr/",
+      "javascript:alert(1)",
+      "https://user:pw@www.gov.gr/",
+      "https://127.0.0.1/admin",
+      "https://169.254.169.254/latest/meta-data",
+    ])
+      await expect(
+        fake.gateway.humanInput("bot-1", { kind: "open", url }),
+      ).rejects.toThrow();
+    expect(fake.paths.filter((path) => path === "/human/open")).toHaveLength(1);
+  });
 });
 
 describe("POST /:botId/control/request", () => {

@@ -119,15 +119,82 @@ export function anthropicMessagesUrl(
 export type VisionRequest = {
   system: string;
   text: string;
-  /** A JPEG, base64, without the `data:` prefix. */
-  image: string;
+  /**
+   * A JPEG, base64, without the `data:` prefix. Absent when the picture could not be taken in time:
+   * the look goes ahead on the words alone.
+   */
+  image?: string;
   signal?: AbortSignal;
   /** The answer's text as it arrives, a piece at a time. Not called on the Anthropic path. */
   onText?: (chunk: string) => void;
 };
 
-/** How long one look may take before it is given up. Clicky answers a person who is waiting. */
-export const VISION_TIMEOUT_MS = 20_000;
+/**
+ * How long a look may go without a word from the model, while it is being asked and while it
+ * answers: a model that is still writing is waited for, one that has gone quiet is not.
+ */
+export const VISION_IDLE_MS = 12_000;
+/** How long one look may take at most, however steadily it answers. */
+export const VISION_TOTAL_MS = 30_000;
+
+/**
+ * A signal for one model call: the caller's, the overall cap, and the quiet one. `progress()` is
+ * called whenever the model says anything, and restarts the quiet clock; `done()` stops both.
+ */
+export function visionDeadline(
+  outer: AbortSignal | undefined,
+  options: { idleMs?: number | null; totalMs?: number } = {},
+) {
+  const controller = new AbortController();
+  const totalMs = options.totalMs ?? VISION_TOTAL_MS;
+  const idleMs = options.idleMs === undefined ? VISION_IDLE_MS : options.idleMs;
+  const total = setTimeout(
+    () =>
+      controller.abort(
+        new Error(`the model took longer than ${Math.round(totalMs / 1000)} s`),
+      ),
+    totalMs,
+  );
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const progress = () => {
+    if (idleMs === null) return;
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(
+      () =>
+        controller.abort(
+          new Error(
+            `the model said nothing for ${Math.round(idleMs / 1000)} s`,
+          ),
+        ),
+      idleMs,
+    );
+  };
+  progress();
+  return {
+    signal: outer
+      ? AbortSignal.any([outer, controller.signal])
+      : controller.signal,
+    /** Why it was given up, when it was ours and not the caller's. */
+    reason: () =>
+      controller.signal.aborted ? (controller.signal.reason as Error) : null,
+    progress,
+    done() {
+      clearTimeout(total);
+      if (idle) clearTimeout(idle);
+    },
+  };
+}
+
+/** An HTTP failure, with the start of what the model's server said about it. */
+async function answeredError(response: Response): Promise<Error> {
+  const said = (await response.text().catch(() => ""))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  return new Error(
+    `vision model answered ${response.status}${said ? `: ${said}` : ""}`,
+  );
+}
 
 /**
  * How long one look's answer may be: room for a walkthrough of eight steps, each with a point and a
@@ -152,6 +219,8 @@ export function createVisionCompleter(deps: {
   resolveApiKey: () => Promise<string | null>;
   environment?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
+  /** The quiet and overall limits; `VISION_IDLE_MS` and `VISION_TOTAL_MS` unless a test says. */
+  deadlines?: { idleMs?: number; totalMs?: number };
 }): (request: VisionRequest) => Promise<string> {
   const environment = deps.environment ?? process.env;
   const send = deps.fetchImpl ?? fetch;
@@ -161,13 +230,33 @@ export function createVisionCompleter(deps: {
     request.signal?.throwIfAborted();
     if (!key) throw new Error("no model key");
     const model = environment.CLICKY_MODEL?.trim() || deps.model.defaultModel;
-    const signal = request.signal
-      ? AbortSignal.any([
-          request.signal,
-          AbortSignal.timeout(VISION_TIMEOUT_MS),
-        ])
-      : AbortSignal.timeout(VISION_TIMEOUT_MS);
+    // The Anthropic path answers whole, so only the overall cap applies to it.
+    const deadline = visionDeadline(request.signal, {
+      idleMs:
+        deps.model.provider === "anthropic"
+          ? null
+          : (deps.deadlines?.idleMs ?? VISION_IDLE_MS),
+      ...(deps.deadlines?.totalMs ? { totalMs: deps.deadlines.totalMs } : {}),
+    });
+    try {
+      return await ask(model, key, request, deadline);
+    } catch (error) {
+      // Ours (the model went quiet, or took too long): said as such, not as "operation timed out".
+      const ours = deadline.reason();
+      if (ours && !request.signal?.aborted) throw ours;
+      throw error;
+    } finally {
+      deadline.done();
+    }
+  };
 
+  async function ask(
+    model: string,
+    key: string,
+    request: VisionRequest,
+    deadline: ReturnType<typeof visionDeadline>,
+  ): Promise<string> {
+    const { signal } = deadline;
     if (deps.model.provider === "anthropic") {
       const response = await send(anthropicMessagesUrl(environment), {
         method: "POST",
@@ -184,14 +273,18 @@ export function createVisionCompleter(deps: {
             {
               role: "user",
               content: [
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: "image/jpeg",
-                    data: request.image,
-                  },
-                },
+                ...(request.image
+                  ? [
+                      {
+                        type: "image",
+                        source: {
+                          type: "base64",
+                          media_type: "image/jpeg",
+                          data: request.image,
+                        },
+                      },
+                    ]
+                  : []),
                 { type: "text", text: request.text },
               ],
             },
@@ -199,8 +292,7 @@ export function createVisionCompleter(deps: {
         }),
         signal,
       });
-      if (!response.ok)
-        throw new Error(`vision model answered ${response.status}`);
+      if (!response.ok) throw await answeredError(response);
       const body = (await response.json()) as {
         content?: { type?: string; text?: unknown }[];
       };
@@ -231,22 +323,33 @@ export function createVisionCompleter(deps: {
             role: "user",
             content: [
               { type: "text", text: request.text },
-              {
-                type: "image_url",
-                image_url: { url: `data:image/jpeg;base64,${request.image}` },
-              },
+              ...(request.image
+                ? [
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:image/jpeg;base64,${request.image}`,
+                      },
+                    },
+                  ]
+                : []),
             ],
           },
         ],
       }),
       signal,
     });
-    if (!response.ok)
-      throw new Error(`vision model answered ${response.status}`);
-    const text = await readChatStream(response, request.onText);
+    if (!response.ok) throw await answeredError(response);
+    deadline.progress();
+    const text = await readChatStream(
+      response,
+      request.onText,
+      deadline.progress,
+      signal,
+    );
     if (!text) throw new Error("vision model returned no text");
     return text;
-  };
+  }
 }
 
 /**
@@ -257,6 +360,10 @@ export function createVisionCompleter(deps: {
 export async function readChatStream(
   response: Response,
   onText?: (chunk: string) => void,
+  /** Anything at all arrived: the model is still there. */
+  onProgress?: () => void,
+  /** Stops the read where it is, whether or not the body itself heeds the request's signal. */
+  signal?: AbortSignal,
 ): Promise<string> {
   const type = response.headers.get("content-type") ?? "";
   if (!response.body || type.includes("application/json")) {
@@ -289,14 +396,31 @@ export async function readChatStream(
       onText?.(piece);
     }
   };
+  const stopped = signal
+    ? new Promise<never>((_resolve, reject) => {
+        const stop = () => {
+          reject(signal.reason ?? new Error("The read was stopped."));
+          void reader.cancel().catch(() => undefined);
+        };
+        if (signal.aborted) stop();
+        else signal.addEventListener("abort", stop, { once: true });
+      })
+    : undefined;
+  stopped?.catch(() => undefined);
   for (;;) {
-    const { value, done } = await reader.read();
+    const { value, done } = await (stopped
+      ? Promise.race([reader.read(), stopped])
+      : reader.read());
     if (done) break;
+    onProgress?.();
     pending += decoder.decode(value, { stream: true });
     const lines = pending.split("\n");
     pending = lines.pop() ?? "";
     for (const raw of lines) line(raw);
   }
+  // A read cut short is not an answer, however much of one had arrived.
+  if (signal?.aborted)
+    throw signal.reason ?? new Error("The read was stopped.");
   pending += decoder.decode();
   if (pending) line(pending);
   return text;

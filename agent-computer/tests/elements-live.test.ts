@@ -387,6 +387,15 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
             at: { x: 850, y: 160 },
           }),
         ).rejects.toThrow("password");
+        // Going to a site takes an https address only.
+        for (const address of [
+          `http://127.0.0.1:${second.port}/next`,
+          "javascript:alert(1)",
+          "https://user:pw@example.com/",
+        ])
+          await expect(api("/human/open", { url: address })).rejects.toThrow(
+            "400",
+          );
         // A field that does not have the keyboard gets nothing.
         await expect(
           api("/human/type", {
