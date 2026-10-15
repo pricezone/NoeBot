@@ -472,17 +472,17 @@ const DECISIONS: Record<string, string> = {
   "computer.updated": msg("The computer was updated"),
   "computer.stopped": msg("A person pressed stop"),
 
-  // Clicky Mode: the companion beside the screen, and the phones linked to it.
-  "clicky.session_started": msg("Clicky opened"),
-  "clicky.action_proposed": msg("Clicky asked to do something"),
-  "clicky.action_approved": msg("A person let Clicky do it"),
-  "clicky.action_denied": msg("A person said no to Clicky"),
-  "clicky.action_performed": msg("Clicky did it for the person"),
-  "clicky.action_failed": msg("Clicky could not do it"),
-  "clicky.action_blocked": msg("Clicky pointed instead of acting"),
-  "clicky.stopped": msg("A person stopped Clicky"),
-  "clicky.mode_changed": msg("Clicky's mode was changed"),
-  "clicky.guide_installed": msg("The Bot showed steps with Clicky"),
+  // "Show me how" (Clicky Mode): the companion beside the screen, and the phones linked to it.
+  "clicky.session_started": msg("Show me how opened"),
+  "clicky.action_proposed": msg("Show me how asked to do something"),
+  "clicky.action_approved": msg("A person let Show me how do it"),
+  "clicky.action_denied": msg("A person said no to Show me how"),
+  "clicky.action_performed": msg("Show me how did it for the person"),
+  "clicky.action_failed": msg("Show me how could not do it"),
+  "clicky.action_blocked": msg("Show me how pointed instead of acting"),
+  "clicky.stopped": msg("A person stopped Show me how"),
+  "clicky.mode_changed": msg("Show me how switched mode"),
+  "clicky.guide_installed": msg("The Bot showed steps with Show me how"),
   "mobile.device_linked": msg("A phone was linked"),
   "mobile.device_revoked": msg("A phone was signed out"),
 

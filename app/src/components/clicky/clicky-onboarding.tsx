@@ -3,6 +3,7 @@ import { memo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { currentUserQueryOptions } from "@/lib/auth/queries";
 import { clickyStopKeys } from "@/lib/clicky/keyboard";
+import { CLICKY_NAME } from "@/lib/clicky/notices";
 import { useClickyPreferences } from "@/lib/clicky/queries";
 import { msg, useTranslation } from "@/lib/i18n";
 import { saveUserPreferencesMutationOptions } from "@/lib/settings/message-list";
@@ -10,15 +11,15 @@ import { queryClient } from "@/query-client";
 
 const CARDS = [
   {
-    heading: msg("Meet Clicky"),
+    heading: CLICKY_NAME,
     body: msg(
-      "Clicky points at the part of the screen that matters and walks you through it, one step at a time. Ask it anything, by typing or by holding the microphone.",
+      "I point at the part of the screen that matters and walk you through it, one step at a time. Ask me anything, by typing or by holding the microphone.",
     ),
   },
   {
     heading: msg("Guide, or Do it for me"),
     body: msg(
-      "Clicky guides you by default. Turn on Do it for me and it can click and type for you, and it asks you before every action.",
+      "I guide you by default. Turn on Do it for me and I can click and type for you. I ask you first, once for the session, and again for anything that can't be undone.",
     ),
   },
   {
@@ -62,7 +63,7 @@ export const ClickyOnboarding = memo(function ClickyOnboarding() {
   };
   return (
     <section
-      aria-label={t("Meet Clicky")}
+      aria-label={t("About Show me how")}
       className="flex flex-col gap-2 rounded-xl bg-white p-3 text-zinc-900 shadow-lg"
       data-clicky-card="onboarding"
     >

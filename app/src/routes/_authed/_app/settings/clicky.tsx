@@ -22,9 +22,9 @@ function RouteComponent() {
   return (
     <SettingsPage
       description={t(
-        "Clicky points at your Bot's screen, walks you through it step by step, and acts only when you say so.",
+        "Show me how points at your Bot's screen, walks you through it step by step, and acts only when you say so.",
       )}
-      title={CLICKY_NAME}
+      title={t(CLICKY_NAME)}
     >
       {enabled ? (
         <>
@@ -33,7 +33,7 @@ function RouteComponent() {
         </>
       ) : (
         <p className="text-[13px] text-muted-foreground">
-          {t("Clicky is not available on this deployment.")}
+          {t("Show me how is not available on this deployment.")}
         </p>
       )}
     </SettingsPage>

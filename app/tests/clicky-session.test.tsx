@@ -443,7 +443,7 @@ test("a guide the session refused is reported to the Bot as not shown", async ()
   ).toEqual({
     ok: false,
     reason:
-      "Clicky could not show this right now; describe the steps in words.",
+      "Show me how could not show this right now; describe the steps in words.",
   });
   guideAnswer = () => Response.json({ session: at(2) });
   expect((await postClickyGuide(BOT, { goal: "x", steps: [] })).ok).toBe(true);

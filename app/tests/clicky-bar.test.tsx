@@ -269,7 +269,9 @@ test("no microphone where the deployment cannot listen", () => {
   });
   const view = draw();
   expect(view.queryByRole("button", { name: "Hold to talk" })).toBeNull();
-  expect(view.getByRole("textbox", { name: "Ask Clicky" })).toBeTruthy();
+  expect(
+    view.getByRole("textbox", { name: "Ask about the screen" }),
+  ).toBeTruthy();
 });
 
 test("Stop sends stop, and a typed question is asked", async () => {
@@ -277,7 +279,7 @@ test("Stop sends stop, and a typed question is asked", async () => {
   fireEvent.click(view.getByRole("button", { name: "Stop" }));
   await waitFor(() => expect(commands).toEqual([{ type: "stop" }]));
 
-  const box = view.getByRole("textbox", { name: "Ask Clicky" });
+  const box = view.getByRole("textbox", { name: "Ask about the screen" });
   const user = userEvent.setup({ document });
   await user.type(box, "  What is this button?  ");
   expect(
@@ -332,7 +334,7 @@ test("a Stop that cannot get through is tried again, then said, with a way to tr
   fireEvent.click(view.getByRole("button", { name: "Stop" }));
 
   const said = await view.findByText(
-    "Clicky couldn't be stopped. Try again.",
+    "Couldn't stop. Try again.",
     {},
     { timeout: 2_000 },
   );
@@ -342,7 +344,7 @@ test("a Stop that cannot get through is tried again, then said, with a way to tr
   fireEvent.click(view.getByRole("button", { name: "Try again" }));
   // The answer settles outside any React event; give it a moment inside `act`.
   await hold(100);
-  expect(view.queryByText("Clicky couldn't be stopped. Try again.")).toBeNull();
+  expect(view.queryByText("Couldn't stop. Try again.")).toBeNull();
   expect(commands).toHaveLength(3);
 });
 
@@ -515,7 +517,7 @@ test("the bar and its menu are marked as this page's own controls", async () => 
   expect(
     view.container.querySelector("[data-clicky-bar][data-clicky-ui]"),
   ).toBeTruthy();
-  fireEvent.click(view.getByRole("button", { name: "More for Clicky" }));
+  fireEvent.click(view.getByRole("button", { name: "More options" }));
   const menu = await view.findByRole("menu");
   expect(menu.closest("[data-clicky-ui]")).toBeTruthy();
   // Portalled: outside the bar itself.

@@ -184,31 +184,36 @@ async function openViewer(view: ReturnType<typeof render>) {
   );
 }
 
-test("awake, Clicky shows on the preview, and the viewer has its switch and its bar", async () => {
+test("awake, the preview draws none of Clicky, and the viewer has its switch and its bar", async () => {
   offerClicky(true);
   const view = preview();
-  // The panel's card says where Clicky is.
-  const row = await waitFor(() => {
-    const found = view.container.querySelector(
-      '[data-slot="clicky-panel-row"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
+  // The picture arrives; nothing of Clicky is drawn over it or under it, however awake it is.
   await waitFor(() =>
-    expect(within(row).getByText("Showing you")).toBeTruthy(),
+    expect(
+      view.container.querySelector(
+        'img[alt="What the assistant is looking at"]',
+      ),
+    ).toBeTruthy(),
   );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(view.container.querySelector("[data-clicky]")).toBeNull();
+  expect(view.container.querySelector("[data-clicky-state]")).toBeNull();
+  expect(
+    view.container.querySelector('[data-slot="clicky-overlay"]'),
+  ).toBeNull();
+  expect(view.queryByText("Showing you")).toBeNull();
 
   const viewer = await openViewer(view);
   // One name whatever its state; pressed means awake.
-  expect(
-    viewer.getByRole("button", { name: "Clicky" }).getAttribute("aria-pressed"),
-  ).toBe("true");
-  const bar = await viewer.findByRole("region", { name: "Clicky" });
+  const launcher = await viewer.findByRole("button", { name: "Show me how" });
+  await waitFor(() =>
+    expect(launcher.getAttribute("aria-pressed")).toBe("true"),
+  );
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
   expect(within(bar).getByText("Click Sign in, top right.")).toBeTruthy();
 
   fireEvent.click(within(bar).getByRole("button", { name: "Stop" }));
-  await waitFor(() => expect(commands).toEqual([{ type: "stop" }]));
+  await waitFor(() => expect(commands).toContainEqual({ type: "stop" }));
 });
 
 test("asleep, the switch wakes Clicky and the bar appears", async () => {
@@ -216,25 +221,24 @@ test("asleep, the switch wakes Clicky and the bar appears", async () => {
   awake = false;
   const view = preview();
   const viewer = await openViewer(view);
-  const wake = await viewer.findByRole("button", { name: "Clicky" });
+  const wake = await viewer.findByRole("button", { name: "Show me how" });
   await waitFor(() => expect(wake.hasAttribute("disabled")).toBe(false));
   expect(wake.getAttribute("aria-pressed")).toBe("false");
-  expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
+  expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
 
   fireEvent.click(wake);
   await waitFor(() => expect(commands).toEqual([{ type: "wake" }]));
-  expect(await viewer.findByRole("region", { name: "Clicky" })).toBeTruthy();
+  expect(
+    await viewer.findByRole("region", { name: "Show me how" }),
+  ).toBeTruthy();
 });
 
 test("without Clicky on the deployment there is no switch, no bar and no socket", async () => {
   offerClicky(false);
   const view = preview();
   const viewer = await openViewer(view);
-  expect(viewer.queryByRole("button", { name: "Clicky" })).toBeNull();
-  expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
-  expect(
-    view.container.querySelector('[data-slot="clicky-panel-row"]'),
-  ).toBeNull();
+  expect(viewer.queryByRole("button", { name: "Show me how" })).toBeNull();
+  expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
   expect(SocketDouble.all.some((socket) => socket.url.includes("clicky"))).toBe(
     false,
   );
@@ -327,36 +331,12 @@ test("without Clicky awake, the same keys go to the computer as before", async (
   ]);
 });
 
-test("on the preview, Clicky covers a 16:9 picture letterboxed in its 1.6 card, not the bands", async () => {
-  offerClicky(true);
-  const view = preview();
-  const frame = await waitFor(() => {
-    const found = view.container.querySelector<HTMLElement>(
-      '[data-slot="clicky-frame"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
-  expect(frame.style.top).toBe("5%");
-  expect(frame.style.height).toBe("90%");
-  expect(frame.style.width).toBe("100%");
-  const arrow = await waitFor(() => {
-    const found = frame.querySelector<HTMLElement>(
-      '[data-clicky="clicky-pointer"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
-  expect(arrow.style.left).toBe("90%");
-  expect(arrow.style.top).toBe("10%");
-});
-
 test("Escape in Clicky's menu closes the menu, not the viewer", async () => {
   offerClicky(true);
   const view = preview();
   const viewer = await openViewer(view);
-  const bar = await viewer.findByRole("region", { name: "Clicky" });
-  fireEvent.click(within(bar).getByRole("button", { name: "More for Clicky" }));
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
+  fireEvent.click(within(bar).getByRole("button", { name: "More options" }));
   const menu = await view.findByRole("menu");
   fireEvent.keyDown(menu, { key: "Escape" });
   await waitFor(() => expect(view.queryByRole("menu")).toBeNull());

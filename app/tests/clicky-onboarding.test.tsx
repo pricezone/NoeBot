@@ -50,7 +50,7 @@ test("the first time: three cards, then it is saved as seen and not shown again"
   preferences = { messageListEmphasis: "agent" };
   const view = render(<ClickyOnboarding />);
 
-  expect(await view.findByText("Meet Clicky")).toBeTruthy();
+  expect(await view.findByText("Show me how")).toBeTruthy();
   expect(view.getByText("1 of 3")).toBeTruthy();
   fireEvent.click(view.getByRole("button", { name: "Next" }));
   expect(view.getByText("Guide, or Do it for me")).toBeTruthy();
@@ -78,7 +78,7 @@ test("the first time: three cards, then it is saved as seen and not shown again"
         ),
     ).toBe(true),
   );
-  expect(again.queryByText("Meet Clicky")).toBeNull();
+  expect(again.queryByText("Show me how")).toBeNull();
   expect(patches).toHaveLength(1);
 });
 
@@ -86,7 +86,7 @@ test("Skip counts as seen", async () => {
   preferences = { messageListEmphasis: "agent" };
   const view = render(<ClickyOnboarding />);
   fireEvent.click(await view.findByRole("button", { name: "Skip" }));
-  expect(view.queryByText("Meet Clicky")).toBeNull();
+  expect(view.queryByText("Show me how")).toBeNull();
   await waitFor(() => expect(patches).toEqual([{ clickyOnboarded: true }]));
 });
 
@@ -101,6 +101,6 @@ test("somebody who has seen it never sees it", async () => {
         .some((query) => query.state.data !== undefined),
     ).toBe(true),
   );
-  expect(view.queryByText("Meet Clicky")).toBeNull();
+  expect(view.queryByText("Show me how")).toBeNull();
   expect(patches).toEqual([]);
 });

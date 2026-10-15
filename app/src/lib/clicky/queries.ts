@@ -65,7 +65,7 @@ export function clickySessionQueryOptions(botId: string) {
     queryFn: ({ signal }): Promise<ClickySession> =>
       client(`/api/computers/${encodeURIComponent(botId)}/clicky`, "session", {
         signal,
-        fallback: "Could not load Clicky",
+        fallback: "Could not load Show me how",
       }),
     /*
      * Never let an older copy replace a newer one, whichever way it arrived: this runs for the

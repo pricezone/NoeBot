@@ -308,7 +308,9 @@ export function ScreenViewer({
 
   // Every reason is the Bot's own words, except Clicky's, which is a fixed English line drawn here.
   const handoverReason = (reason: string) =>
-    reason === CLICKY_HELP_REASON ? t("Clicky is doing this for you.") : reason;
+    reason === CLICKY_HELP_REASON
+      ? t("Show me how is helping you here.")
+      : reason;
   const status = settled
     ? null
     : control?.transitioning

@@ -129,13 +129,13 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
     proposal.risk === "low" && actionPolicy === "ask_once_per_task";
   return (
     <section
-      aria-label={t("Clicky asks before doing this")}
+      aria-label={t("May I do this?")}
       className="flex flex-col gap-2 rounded-xl bg-white p-3 text-zinc-900 shadow-lg"
       data-clicky-card="proposal"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-zinc-500">{t("Clicky would like to")}</p>
+          <p className="text-xs text-zinc-500">{t("I'd like to")}</p>
           <p className="font-medium text-[15px] leading-snug">{words}</p>
           {proposal.why ? (
             <p className="mt-0.5 text-sm text-zinc-600">{proposal.why}</p>

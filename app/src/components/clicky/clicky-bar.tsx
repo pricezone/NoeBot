@@ -272,7 +272,7 @@ function ClickyBarBody({
 
   return (
     <section
-      aria-label={CLICKY_NAME}
+      aria-label={t(CLICKY_NAME)}
       className="mx-auto flex w-full max-w-3xl flex-col gap-2 text-white"
       data-clicky-bar
       data-clicky-ui
@@ -325,7 +325,7 @@ function ClickyBarBody({
             className="flex flex-wrap items-center gap-2 text-[13px] text-red-300"
             role="alert"
           >
-            {t("Clicky couldn't be stopped. Try again.")}
+            {t("Couldn't stop. Try again.")}
             <Button
               className="h-6 bg-red-600 px-2 text-white hover:bg-red-500"
               onClick={stop}
@@ -400,7 +400,7 @@ function ClickyBarBody({
           }}
         >
           <input
-            aria-label={t("Ask Clicky")}
+            aria-label={t("Ask about the screen")}
             className="h-8 min-w-40 flex-1 rounded-lg bg-white/10 px-3 text-sm text-white outline-none ring-1 ring-white/15 placeholder:text-white/50 focus-visible:ring-2 focus-visible:ring-white/60"
             maxLength={CLICKY_TEXT_LIMIT}
             onChange={(event) => setQuestion(event.target.value)}
@@ -470,7 +470,7 @@ function ClickyBarBody({
 
           {mayAct ? (
             <fieldset className="m-0 flex min-w-0 items-center gap-0.5 rounded-lg border-0 bg-white/10 p-0.5">
-              <legend className="sr-only">{t("How Clicky helps")}</legend>
+              <legend className="sr-only">{t("How I help")}</legend>
               {modeButton("guide", t("Guide"))}
               {modeButton("act", t("Do it for me"))}
             </fieldset>
@@ -507,7 +507,7 @@ function ClickyBarBody({
             <DropdownMenuTrigger
               render={
                 <Button
-                  aria-label={t("More for Clicky")}
+                  aria-label={t("More options")}
                   className={QUIET}
                   size="icon-sm"
                   type="button"

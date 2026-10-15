@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { parse } from "../../scripts/i18n/scan";
-import { appSourceFiles, ROOT, scanApp } from "../../scripts/i18n/source";
+import {
+  appSourceFiles,
+  greekCatalogs,
+  ROOT,
+  scanApp,
+} from "../../scripts/i18n/source";
 
 /**
  * The whole app is translated, and stays so.
@@ -20,7 +25,7 @@ import { appSourceFiles, ROOT, scanApp } from "../../scripts/i18n/source";
  * identifiers or timestamps says so with `// i18n-ignore`.
  */
 
-const { untranslated } = scanApp();
+const { keys, untranslated } = scanApp();
 
 test("no English a person would see goes untranslated, in any file", () => {
   expect(
@@ -134,4 +139,31 @@ test("a label kept in a map is marked as a key", () => {
     visit(source);
   }
   expect(found).toEqual([]);
+});
+
+/**
+ * People know the companion beside the Bot's screen as "Show me how" («Δείξε μου πώς»); the code
+ * keeps calling it Clicky. No word the app shows says Clicky, in either language: not a key the app
+ * asks for, and not a Greek translation. (The server's own sentences, namespace `server`, are the
+ * server's to word.)
+ */
+test("no word a person reads calls the companion Clicky", () => {
+  const ours = keys.filter(
+    (key) => key.namespace !== "server" && key.namespace !== "content",
+  );
+  expect(
+    ours
+      .filter((key) => /clicky/i.test(key.key))
+      .map((key) => `${key.file}:${key.line} ${key.key}`),
+  ).toEqual([]);
+  const greek = [...greekCatalogs()]
+    .filter(([namespace]) => namespace !== "server" && namespace !== "content")
+    .flatMap(([namespace, catalog]) =>
+      Object.entries(catalog)
+        .filter(([key, value]) => /clicky/i.test(`${key} ${value}`))
+        .map(([key]) => `${namespace}: ${key}`),
+    );
+  expect(greek).toEqual([]);
+  // And the name itself is there to be drawn, the same in every place it is.
+  expect(ours.some((key) => key.key === "Show me how")).toBe(true);
 });

@@ -72,15 +72,18 @@ export function chipStateOf(
 }
 
 /**
- * Clicky's latest line as a person reads it: the fixed line in the interface's language, then the
- * model's own words (already in the person's language), or either alone.
+ * Clicky's latest line as a person reads it: the fixed line in the interface's language, with the
+ * words it names put in (`reply.params`: what the Bot clicked, the site it opened), then the model's
+ * own words (already in the person's language), or either alone.
  */
 export function replyText(
   reply: ClickySession["reply"],
-  t: (key: string) => string,
+  t: (key: string, params?: Record<string, string>) => string,
 ): string {
   if (!reply) return "";
-  const fixed = reply.notice ? t(CLICKY_NOTICE_KEYS[reply.notice]) : "";
+  const fixed = reply.notice
+    ? t(CLICKY_NOTICE_KEYS[reply.notice], reply.params ?? {})
+    : "";
   const words = reply.text.trim();
   // A saved note's `text` is the file's path: detail, not a second sentence worth reading out.
   if (reply.notice === "notes_saved") return fixed;
@@ -89,5 +92,9 @@ export function replyText(
   return `${fixed} ${words}`;
 }
 
-/** The companion's name: a product name, kept as it is in every language, like Noë Bot. */
-export const CLICKY_NAME = "Clicky";
+/**
+ * The companion's name as people know it, "Show me how" («Δείξε μου πώς»), drawn with `t()`. The
+ * code calls it Clicky; nothing a person reads does. In its own sentences the guide speaks in the
+ * first person ("Stopped.", "I'll show you where.") rather than naming itself.
+ */
+export const CLICKY_NAME = msg("Show me how");

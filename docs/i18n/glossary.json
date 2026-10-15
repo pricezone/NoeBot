@@ -2,7 +2,6 @@
   "$comment": "Read by app/tests/i18n-catalogs.test.ts. keep: written as is in Greek. exact: an English string that is exactly one of these (ignoring a final '…' or '.') is translated exactly so. forbidden: machine translations that must never appear (matched without accents or case). formal: keys allowed the formal register. See glossary.md.",
   "keep": [
     "Noë Bot",
-    "Clicky",
     "OpenBot",
     "HyperNoesis",
     "Composio",
@@ -105,6 +104,7 @@
     "Search": "Αναζήτηση",
     "Send": "Αποστολή",
     "Settings": "Ρυθμίσεις",
+    "Show me how": "Δείξε μου πώς",
     "Sign out": "Αποσύνδεση",
     "Skills": "Δεξιότητες",
     "System": "Σύστημα",

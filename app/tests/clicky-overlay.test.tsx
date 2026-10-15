@@ -62,8 +62,8 @@ function session(overlays: Overlay[], patch: Partial<ClickySession> = {}) {
 }
 
 /** The overlay as a surface draws it: from the view it selects out of the session. */
-function Drawn({ of, compact }: { of: ClickySession; compact?: boolean }) {
-  return <ClickyOverlay compact={compact} view={selectClickyOverlay(of)} />;
+function Drawn({ of }: { of: ClickySession }) {
+  return <ClickyOverlay view={selectClickyOverlay(of)} />;
 }
 
 const pointer = (x: number, y: number, extra: Partial<Overlay> = {}) =>
@@ -276,17 +276,9 @@ test("words still arriving are not part of what the overlay draws", () => {
   expect(selectClickyOverlay(streaming).reply).toBeNull();
 });
 
-test("asleep, nothing is drawn; the preview draws no words and no live region", () => {
+test("asleep, nothing is drawn", () => {
   const asleep = render(
     <Drawn of={session([pointer(0.5, 0.5)], { awake: false })} />,
   );
   expect(clickyPointer(asleep.container)).toBeNull();
-  asleep.unmount();
-
-  const compact = render(
-    <Drawn compact of={session([pointer(0.5, 0.5, { label: "Sign in" })])} />,
-  );
-  expect(clickyPointer(compact.container)?.style.left).toBe("50%");
-  expect(compact.queryByText("Sign in")).toBeNull();
-  expect(compact.container.querySelector('[aria-live="polite"]')).toBeNull();
 });
