@@ -1,7 +1,8 @@
-import type { Page } from "playwright";
+import type { JSHandle, Page } from "playwright";
 import { requestError } from "./action-errors";
 import type { Point, Size } from "./element-geometry";
 import { screenPointInPage } from "./elements";
+import { SENSITIVE_FIELD_SELECTOR } from "./secret-masking";
 
 /**
  * Clicky's keyboard on the Bot's page: typing and the page's own keys (Enter, Tab, the arrows),
@@ -17,6 +18,10 @@ import { screenPointInPage } from "./elements";
  * That is asked in the page itself, just before each press. The pointer (clicks, the wheel) stays on
  * XTEST, where the window under it is still checked.
  *
+ * It never types into a frame (whose inside, often another site's card field, cannot be asked) or
+ * into a field that holds a secret, whatever the server decided; and the Enter that follows typing
+ * goes only to the very element that was typed into.
+ *
  * Nothing typed is returned: a length, never the text.
  */
 
@@ -28,10 +33,25 @@ export const KEYBOARD_ELSEWHERE =
 export const KEYBOARD_OFF_PAGE =
   "That place is not on the Bot's page, so nothing was typed.";
 
+/** Said when what has the keyboard is a frame, whose inside cannot be asked. */
+export const KEYBOARD_IN_FRAME =
+  "That field is inside a frame I can't see into, so nothing was typed.";
+
+/** Said when what has the keyboard holds a secret. */
+export const KEYBOARD_SECRET =
+  "That field holds a password, a code or a card number, so nothing was typed.";
+
+/** Said when the field typed into lost the keyboard before its Enter. */
+export const KEYBOARD_MOVED =
+  "The field I typed into does not have the keyboard any more, so Enter was not pressed.";
+
 export type KeyboardReadiness = {
   ready: boolean;
-  /** Why not: the page lacks the focus, nothing on it has it, or something else does. */
-  reason: "no-focus" | "nothing" | "elsewhere" | null;
+  /**
+   * Why not: the page lacks the focus, nothing on it has it, something else does, it is a frame, or
+   * it holds a secret.
+   */
+  reason: "no-focus" | "nothing" | "elsewhere" | "frame" | "secret" | null;
 };
 
 /**
@@ -44,6 +64,8 @@ export type KeyboardReadiness = {
 export function keyboardReady(input: {
   point: { x: number; y: number } | null;
   page?: boolean;
+  /** The selector of fields that hold a secret (`SENSITIVE_FIELD_SELECTOR`). */
+  selector: string;
 }): KeyboardReadiness {
   if (!document.hasFocus()) return { ready: false, reason: "no-focus" };
   let active: Element | null = document.activeElement;
@@ -57,6 +79,33 @@ export function keyboardReady(input: {
     return input.page && !input.point
       ? { ready: true, reason: null }
       : { ready: false, reason: "nothing" };
+  const tag = active.tagName.toLowerCase();
+  // Focus inside a frame shows as the frame: what is in it cannot be asked.
+  if (tag === "iframe" || tag === "frame")
+    return { ready: false, reason: "frame" };
+  const textField =
+    active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+  const words = [
+    active.getAttribute("aria-label"),
+    active.getAttribute("name"),
+    active.getAttribute("autocomplete"),
+    active.getAttribute("placeholder"),
+    active.id,
+    ...(textField
+      ? Array.from(
+          (active as HTMLInputElement | HTMLTextAreaElement).labels ?? [],
+        ).map((label) => label.textContent)
+      : []),
+  ].join(" ");
+  if (
+    active.matches(`${input.selector}, input[autocomplete^="cc-"]`) ||
+    active.closest("[data-openbot-secret]") ||
+    (textField &&
+      /password|secret|token|one.time|verification|credit.card|security.code|passcode|(?:^|[^a-z])(?:cc-|(?:cvc|cvv|pin|otp)(?![a-z]))/i.test(
+        words,
+      ))
+  )
+    return { ready: false, reason: "secret" };
   if (!input.point) return { ready: true, reason: null };
   let hit: Element | null = document.elementFromPoint(
     input.point.x,
@@ -86,6 +135,9 @@ export function keyboardReady(input: {
 const READY_ATTEMPTS = 8;
 const READY_WAIT_MS = 75;
 
+/** The element each page was last typed into, for the Enter that follows. */
+const typedInto = new WeakMap<Page, JSHandle>();
+
 /**
  * Type, or press one of the page's keys, on the Bot's page once the field has the keyboard. `at`
  * is the screen point of the field when Clicky clicked it first; the focus can take a moment to
@@ -109,24 +161,74 @@ export async function performPageKeyboard(
   let readiness: KeyboardReadiness = { ready: false, reason: null };
   for (let attempt = 0; attempt < READY_ATTEMPTS; attempt += 1) {
     readiness = await page
-      .evaluate(keyboardReady, { point, page: action === "/human/key" })
+      .evaluate(keyboardReady, {
+        point,
+        page: action === "/human/key" && body.sameField !== true,
+        selector: SENSITIVE_FIELD_SELECTOR,
+      })
       .catch((): KeyboardReadiness => ({ ready: false, reason: null }));
-    if (readiness.ready) break;
+    // A frame or a secret does not stop being one by waiting.
+    if (
+      readiness.ready ||
+      readiness.reason === "frame" ||
+      readiness.reason === "secret"
+    )
+      break;
     await wait(READY_WAIT_MS);
   }
   if (!readiness.ready)
     throw keyboardError(
-      action === "/human/type"
-        ? KEYBOARD_ELSEWHERE
-        : "What would take that key does not have the keyboard, so nothing was pressed.",
+      readiness.reason === "frame"
+        ? KEYBOARD_IN_FRAME
+        : readiness.reason === "secret"
+          ? KEYBOARD_SECRET
+          : action === "/human/type"
+            ? KEYBOARD_ELSEWHERE
+            : "What would take that key does not have the keyboard, so nothing was pressed.",
     );
   if (action === "/human/type") {
     const text = body.text as string;
     // As one insertion, like the person's own paste: a field that reformats as you go gets it whole.
     await page.keyboard.insertText(text);
+    // Which element it went into, for an Enter that follows.
+    const previous = typedInto.get(page);
+    typedInto.delete(page);
+    await previous?.dispose().catch(() => undefined);
+    const handle = await page
+      .evaluateHandle(() => {
+        let active: Element | null = document.activeElement;
+        for (
+          let depth = 0;
+          active?.shadowRoot?.activeElement && depth < 20;
+          depth++
+        )
+          active = active.shadowRoot.activeElement;
+        return active;
+      })
+      .catch(() => null);
+    if (handle) typedInto.set(page, handle);
     return { action: "human_type", characters: text.length, url: page.url() };
   }
   const key = body.key as string;
+  // The Enter after typing: only into the element that was typed into.
+  if (body.sameField === true) {
+    const typed = typedInto.get(page);
+    const same = typed
+      ? await page
+          .evaluate((element) => {
+            let active: Element | null = document.activeElement;
+            for (
+              let depth = 0;
+              active?.shadowRoot?.activeElement && depth < 20;
+              depth++
+            )
+              active = active.shadowRoot.activeElement;
+            return active !== null && active === element;
+          }, typed)
+          .catch(() => false)
+      : false;
+    if (!same) throw keyboardError(KEYBOARD_MOVED);
+  }
   await page.keyboard.press(key);
   return { action: "human_key", key, url: page.url() };
 }

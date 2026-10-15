@@ -209,6 +209,9 @@ export function elementFacts(
   return { sensitive, focused: active === element };
 }
 
+/** Roles whose contents are typed: unreadable, they are treated as holding a secret. */
+const TYPED_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
+
 /**
  * In the page, the scroll position and the boxes of the fields whose ATTRIBUTES say they hold a
  * secret (a password, a one-time code, a card number), for an element whose own probe ran out of
@@ -370,22 +373,25 @@ export async function listScreenElements(
   /*
    * Whether each one holds a secret and has the keyboard, asked of the element itself. One that
    * does not answer in time is judged by the attributes of the fields the page itself marks as
-   * secret, never "every text field": a search box that was slow to answer is a search box.
+   * secret, not as "every text field": a search box that was slow to answer is a search box. Only
+   * when the page answered neither question is every typed field treated as a secret, as before.
    */
   const secretBoxes = facts?.secrets ?? [];
-  const factsOf = async (ref: string, box: Rect) => {
+  const factsOf = async (ref: string, role: string, box: Rect) => {
     const read = await page
       .locator(`aria-ref=${ref}`)
       .evaluate(elementFacts, SENSITIVE_FIELD_SELECTOR, {
         timeout: PROBE_TIMEOUT_MS,
       })
       .catch(() => null);
-    return (
-      read ?? {
-        sensitive: secretBoxes.some((secret) => sameField(secret, box)),
-        focused: false,
-      }
-    );
+    if (read) return read;
+    return {
+      sensitive: facts
+        ? secretBoxes.some((secret) => sameField(secret, box))
+        : // Nothing in the page answered at all: a field that cannot be asked is treated as secret.
+          TYPED_ROLES.has(role),
+      focused: false,
+    };
   };
   const [visible, offscreen] = await Promise.all([
     Promise.all(
@@ -396,7 +402,7 @@ export async function listScreenElements(
           placement.screen,
         );
         if (!(onScreen.width > 0 && onScreen.height > 0)) return null;
-        const read = await factsOf(element.ref, box);
+        const read = await factsOf(element.ref, element.role, box);
         return {
           ref: element.ref,
           role: element.role,
@@ -409,7 +415,7 @@ export async function listScreenElements(
     ),
     Promise.all(
       chosen.offscreen.map(async ({ element, box, offscreen: where }) => {
-        const read = await factsOf(element.ref, box);
+        const read = await factsOf(element.ref, element.role, box);
         return {
           ref: element.ref,
           role: element.role,
@@ -498,6 +504,17 @@ export type PageTarget = {
   inDialog: boolean;
   /** Inside a form: Enter in one of its fields sends it. */
   inForm: boolean;
+  /**
+   * A search field by what the page says it is: `type=search`, the searchbox role, or inside a
+   * search landmark. Absent from older computers.
+   */
+  search?: boolean;
+  /** Takes several lines (a textarea, a rich editor): Enter there may send what was written. */
+  multiline?: boolean;
+  /** Text can be typed into it, so Backspace and Delete edit the text rather than the page. */
+  editable?: boolean;
+  /** For a link: the host it leads to. */
+  linkHost?: string;
 };
 
 /**
@@ -623,6 +640,41 @@ export function pageTarget(input: {
   const inDialog = Boolean(
     element.closest('dialog,[role="dialog"],[role="alertdialog"]'),
   );
+  const search =
+    inputType === "search" ||
+    role === "searchbox" ||
+    Boolean(element.closest('search,[role="search"]'));
+  const htmlElement = element as HTMLElement;
+  const multiline =
+    tag === "textarea" ||
+    htmlElement.isContentEditable === true ||
+    element.getAttribute("aria-multiline") === "true";
+  const textInputs = [
+    "",
+    "text",
+    "search",
+    "email",
+    "url",
+    "tel",
+    "number",
+    "password",
+  ];
+  const editable =
+    !element.matches(":disabled") &&
+    ((element instanceof HTMLInputElement &&
+      textInputs.includes(inputType) &&
+      !element.readOnly) ||
+      (element instanceof HTMLTextAreaElement && !element.readOnly) ||
+      htmlElement.isContentEditable === true);
+  const link = element.closest("a[href]");
+  let linkHost: string | undefined;
+  if (link instanceof HTMLAnchorElement) {
+    try {
+      linkHost = new URL(link.href, document.baseURI).host || undefined;
+    } catch {
+      linkHost = undefined;
+    }
+  }
   return {
     role: role.slice(0, 40),
     name: name || role,
@@ -631,6 +683,10 @@ export function pageTarget(input: {
     opaque: false,
     inDialog,
     inForm: Boolean(form),
+    search,
+    multiline,
+    editable,
+    ...(linkHost ? { linkHost } : {}),
   };
 }
 

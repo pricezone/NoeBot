@@ -6,6 +6,7 @@
  */
 import type { Frame, Page } from "playwright";
 import { cutAtCodeUnits } from "./aria-snapshot";
+import { SENSITIVE_FIELD_SELECTOR } from "./secret-masking";
 
 /** How long one frame may take to hand over its text before it is left out. */
 const FRAME_TEXT_MS = 1_500;
@@ -17,11 +18,25 @@ const FRAME_TEXT_LIMIT = 3_000;
  * One document's visible text, its open shadow roots included. Runs in the page.
  *
  * `innerText` leaves out what is not rendered (scripts, styles, hidden sections) but stops at a
- * shadow root, and web components put whole forms behind one; their text is added after.
+ * shadow root, and web components put whole forms behind one; their text is added after. The text of
+ * anything that holds a secret (`selector`: a password or code field, an editable area a secret was
+ * typed into) is taken out of it: it is never read.
  */
-function documentText(): string {
+function documentText(selector: string): string {
   const body = document.body;
   if (!body) return "";
+  const hidden: string[] = [];
+  const collect = (root: Document | ShadowRoot) => {
+    for (const element of Array.from(root.querySelectorAll(selector))) {
+      const text = (
+        (element as HTMLElement).innerText ??
+        element.textContent ??
+        ""
+      ).trim();
+      if (text) hidden.push(text);
+    }
+  };
+  collect(document);
   const parts = [body.innerText ?? ""];
   const visit = (root: Document | ShadowRoot, depth: number) => {
     if (depth > 4) return;
@@ -30,6 +45,7 @@ function documentText(): string {
     while (node) {
       const shadow = (node as Element).shadowRoot;
       if (shadow) {
+        collect(shadow);
         for (const child of Array.from(shadow.children)) {
           if (/^(SCRIPT|STYLE|TEMPLATE|SLOT)$/.test(child.tagName)) continue;
           const text = (child as HTMLElement).innerText?.trim();
@@ -41,13 +57,28 @@ function documentText(): string {
     }
   };
   visit(document, 0);
-  return parts.join("\n");
+  let text = parts.join("\n");
+  // Longest first, so a secret that contains a shorter one is taken out whole.
+  for (const secret of hidden.sort((a, b) => b.length - a.length))
+    text = text.split(secret).join("");
+  return text;
 }
 
-/** A child frame's text, if it is big enough to be content rather than an ad or a tracker. */
-function frameText(): string {
+/**
+ * A child frame's text, if it is big enough to be content rather than an ad or a tracker, with what
+ * holds a secret taken out as above.
+ */
+function frameText(selector: string): string {
   if (innerWidth < 80 || innerHeight < 40) return "";
-  return document.body?.innerText ?? "";
+  let text = document.body?.innerText ?? "";
+  const hidden = Array.from(document.querySelectorAll(selector))
+    .map((element) =>
+      ((element as HTMLElement).innerText ?? element.textContent ?? "").trim(),
+    )
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (const secret of hidden) text = text.split(secret).join("");
+  return text;
 }
 
 async function within<T>(work: Promise<T>, fallback: T): Promise<T> {
@@ -84,8 +115,10 @@ export async function readablePageText(
     .filter((frame) => frame !== main && frame.url() !== "about:blank")
     .slice(0, FRAME_LIMIT);
   const [own, ...framed] = await Promise.all([
-    target.evaluate(documentText),
-    ...children.map((frame) => within(frame.evaluate(frameText), "")),
+    target.evaluate(documentText, SENSITIVE_FIELD_SELECTOR),
+    ...children.map((frame) =>
+      within(frame.evaluate(frameText, SENSITIVE_FIELD_SELECTOR), ""),
+    ),
   ]);
   const sections = [own ?? ""];
   for (const [index, text] of framed.entries()) {

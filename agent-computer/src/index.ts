@@ -1369,8 +1369,10 @@ serve<StreamData>({
               { error: "Scrolling to an element needs its ref." },
               400,
             );
+          // The page the person is looking at, as it is: never a browser started for this.
+          const { live: target } = profiles.tabs(botId);
+          if (!target) return json({ error: BROWSER_NOT_OPEN }, 409);
           try {
-            const target = await currentPage(botId);
             await target
               .locator(`aria-ref=${ref}`)
               .scrollIntoViewIfNeeded({ timeout: 2_000 });
@@ -1391,8 +1393,9 @@ serve<StreamData>({
           body?.keyboard === "page" &&
           (url.pathname === "/human/type" || url.pathname === "/human/key")
         ) {
+          const { live: target } = profiles.tabs(botId);
+          if (!target) return json({ error: BROWSER_NOT_OPEN }, 409);
           try {
-            const target = await currentPage(botId);
             return json(
               await performPageKeyboard(
                 target,
