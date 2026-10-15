@@ -256,9 +256,10 @@ describe("createClickyActions", () => {
       label: "Search",
     });
     expect(fake.calls).toContain("elementAt");
+    // Typed through the page's keyboard, once the field clicked has it.
     expect(fake.inputs).toEqual([
       { kind: "click", x: 500, y: 250 },
-      { kind: "type", text: "pizza" },
+      { kind: "type", text: "pizza", keyboard: "page", at: { x: 500, y: 250 } },
     ]);
   });
 
@@ -344,16 +345,44 @@ describe("createClickyActions", () => {
     expect(covered.inputs).toEqual([]);
   });
 
-  test("on a grant, only the step's own element", async () => {
+  test("on the session's yes, any everyday element, rated again on what is there now", async () => {
+    // Not the step's own element: the yes was for the session's everyday actions, not one element.
     const elsewhere = fakeGateway({ at: { ref: "e7" } });
+    const outcome = await run(elsewhere.gateway, clickContinue, {
+      viaGrant: true,
+    });
+    expect(outcome).toMatchObject({
+      ok: true,
+      audit: { viaGrant: true, scope: "session" },
+    });
+    expect(elsewhere.inputs).toHaveLength(1);
+    // What is there now is no longer everyday: not done on the session's yes.
+    const riskier = fakeGateway({ at: { name: "Submit order now" } });
     expect(
-      (await run(elsewhere.gateway, clickContinue, { viaGrant: true })).ok,
+      (await run(riskier.gateway, clickContinue, { viaGrant: true })).ok,
     ).toBe(false);
-    expect(elsewhere.inputs).toEqual([]);
-    const onIt = fakeGateway({});
+    expect(riskier.inputs).toEqual([]);
+    // A page that changed, or a deny rule, refuses it as for any yes.
+    const moved = fakeGateway({ at: { url: "https://shop.example/pay" } });
     expect(
-      (await run(onIt.gateway, clickContinue, { viaGrant: true })).ok,
-    ).toBe(true);
+      (
+        await run(moved.gateway, clickContinue, {
+          viaGrant: true,
+          seen: { url: "https://shop.example/cart" },
+        })
+      ).ok,
+    ).toBe(false);
+    const denied = fakeGateway({
+      policy: {
+        mode: "enforce",
+        deny: ['contains(element.name, "Continue")'],
+        allow: [],
+      },
+    });
+    expect(
+      (await run(denied.gateway, clickContinue, { viaGrant: true })).ok,
+    ).toBe(false);
+    expect(denied.inputs).toEqual([]);
   });
 
   test("another window over the page makes a yes for the page no yes at all", async () => {
@@ -444,9 +473,10 @@ describe("createClickyActions", () => {
       deltaY: 400,
       label: "down",
     });
+    // The page's keys and typing through the page's keyboard; the wheel through the desktop's.
     expect(fake.inputs).toEqual([
-      { kind: "key", key: "Tab", space: "screen", requireBrowser: true },
-      { kind: "type", text: "pizza", space: "screen", requireBrowser: true },
+      { kind: "key", key: "Tab", keyboard: "page" },
+      { kind: "type", text: "pizza", keyboard: "page" },
       {
         kind: "scroll",
         deltaY: 400,
@@ -455,6 +485,74 @@ describe("createClickyActions", () => {
         space: "screen",
         requireBrowser: true,
       },
+    ]);
+  });
+
+  test("typing at a field clicks it through the desktop, then types through the page and presses Enter there", async () => {
+    const fake = fakeGateway({
+      holder: "human",
+      at: { role: "searchbox", name: "Search", ref: "e3" },
+    });
+    const outcome = await run(fake.gateway, {
+      kind: "type",
+      text: "υπεύθυνη δήλωση",
+      at: { x: 0.5, y: 0.5 },
+      ref: "e3",
+      label: "Search",
+      pressEnter: true,
+    });
+    expect(outcome).toMatchObject({
+      ok: true,
+      audit: { characters: 15, keys: "Enter" },
+    });
+    expect(JSON.stringify(outcome)).not.toContain("δήλωση");
+    expect(fake.calls).toContain("elementAt:verify");
+    expect(fake.inputs).toEqual([
+      { kind: "click", x: 720, y: 450, space: "screen", requireBrowser: true },
+      {
+        kind: "type",
+        text: "υπεύθυνη δήλωση",
+        keyboard: "page",
+        at: { x: 720, y: 450 },
+      },
+      { kind: "key", key: "Enter", keyboard: "page", at: { x: 720, y: 450 } },
+    ]);
+  });
+
+  test("the browser's own keys stay on the desktop's keyboard; a scroll to a step goes by its ref", async () => {
+    const fake = fakeGateway({ holder: "human" });
+    await run(
+      fake.gateway,
+      { kind: "key", keys: "Control+l", label: "address bar" },
+      { risk: "confirm" },
+    );
+    await run(fake.gateway, {
+      kind: "scroll",
+      at: { x: 0.5, y: 0.5 },
+      deltaY: 600,
+      ref: "e40",
+      label: "Bottom",
+    });
+    expect(fake.inputs).toEqual([
+      { kind: "key", key: "Control+l", space: "screen", requireBrowser: true },
+      { kind: "scroll-into-view", ref: "e40" },
+    ]);
+  });
+
+  test("typing approved off the page knowingly stays on the desktop's keyboard", async () => {
+    const fake = fakeGateway({
+      holder: "human",
+      at: { role: "desktop", name: "", inPage: false, window: "other" },
+    });
+    const outcome = await run(
+      fake.gateway,
+      { kind: "type", text: "notes", at: { x: 0.5, y: 0.02 }, label: "bar" },
+      { risk: "confirm" },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(fake.inputs).toEqual([
+      { kind: "click", x: 720, y: 18, space: "screen" },
+      { kind: "type", text: "notes", space: "screen" },
     ]);
   });
 

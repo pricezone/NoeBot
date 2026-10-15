@@ -130,6 +130,12 @@ export type VisionRequest = {
 export const VISION_TIMEOUT_MS = 20_000;
 
 /**
+ * How long one look's answer may be: room for a walkthrough of eight steps, each with a point and a
+ * box, and a proposal beside it. An answer cut off is not JSON, and reads as a failed look.
+ */
+export const VISION_MAX_TOKENS = 1600;
+
+/**
  * A model call that looks at a picture: Clicky's, the companion beside a Bot's screen.
  *
  * The deployment's own model and key, like `createModelCompleter`, unless `CLICKY_MODEL` names a
@@ -172,7 +178,7 @@ export function createVisionCompleter(deps: {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 1024,
+          max_tokens: VISION_MAX_TOKENS,
           system: request.system,
           messages: [
             {
