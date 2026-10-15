@@ -392,7 +392,7 @@ function pointerFor(
   action: ClickyAction,
   context: ClickyContext,
 ): ClickyOverlay[] {
-  if (action.kind === "key" || !action.at) return [];
+  if (!("at" in action) || !action.at) return [];
   return [
     {
       kind: "pointer",

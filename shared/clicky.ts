@@ -127,6 +127,11 @@ export type ClickyAction = (
     }
   /** A key or a combination in Playwright's notation: `Enter`, `Control+L`. */
   | { kind: "key"; keys: string; label: string }
+  /**
+   * Open a web address in the browser's current tab, as typing it into the address bar would. An
+   * https address only; everyday only when the person's own words named that site.
+   */
+  | { kind: "open"; url: string; label: string }
   | {
       kind: "scroll";
       at: ClickyPoint;
