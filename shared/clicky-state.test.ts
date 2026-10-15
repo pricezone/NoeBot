@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   CLICKY_NUDGE_AFTER_MS,
+  CLICKY_SESSION_GRANT_TTL_MS,
   CLICKY_PROPOSAL_TTL_MS,
   CLICKY_STATES,
   type ClickyCommand,
   type ClickySession,
   type ClickyState,
   newClickySession,
+  normalizeClickySession,
   visibleOverlays,
 } from "./clicky";
 import {
@@ -16,7 +18,10 @@ import {
   type ClickyRatedAction,
   reduceClicky,
 } from "./clicky-state";
-import type { ClickyActionPolicy } from "./user-preferences";
+import {
+  type ClickyActionPolicy,
+  clickyPreferencesOf,
+} from "./user-preferences";
 
 const T0 = Date.parse("2026-10-14T10:00:00.000Z");
 
@@ -283,7 +288,7 @@ describe("approvals", () => {
   });
 
   /** A walkthrough whose steps point at e1, e2 and e3, and Clicky proposing a click on e1. */
-  function walking(policy: ClickyActionPolicy = "ask_once_per_task") {
+  function walking(policy: ClickyActionPolicy = "ask_once_per_session") {
     const h = harness(policy);
     h.command({ type: "wake" });
     h.command({ type: "set_mode", mode: "act" });
@@ -317,32 +322,49 @@ describe("approvals", () => {
     action: { ...CLICK.action, ref },
   });
 
-  test("'for this task' runs the walkthrough's next step on its own element, and nothing else", () => {
+  test("'for this session' then runs every everyday action without asking, on or off the plan", () => {
     const h = walking();
     const id = h.session.proposal?.id ?? "";
-    h.command({ type: "approve", proposalId: id, scope: "task" });
-    expect(h.session.grant).not.toBeNull();
-    // Done, the walkthrough moves on and Clicky looks again by itself.
+    h.command({ type: "approve", proposalId: id, scope: "session" });
+    expect(h.session.grant?.scope).toBe("session");
     h.run({ type: "action.done", proposalId: id });
-    const auto = h.run({
-      type: "brain.reply",
-      thinkId: h.thinking(),
-      say: "Next.",
-      proposal: onStep("e2"),
-    });
-    expect(h.session.state).toBe("acting");
-    expect(auto.effects).toContainEqual(
-      expect.objectContaining({ type: "act", viaGrant: true }),
-    );
-    // Off the plan (another element), or hard to undo: asked about.
-    h.run({ type: "action.done", proposalId: h.session.proposal?.id ?? "" });
-    h.run({
-      type: "brain.reply",
-      thinkId: h.thinking(),
-      say: "This other one.",
-      proposal: onStep("e9"),
-    });
-    expect(h.session.state).toBe("awaiting_permission");
+    for (const proposal of [
+      onStep("e9"),
+      {
+        action: { kind: "key", keys: "Enter", label: "Enter" },
+        why: "search",
+        risk: "low",
+      } satisfies ClickyRatedAction,
+      {
+        action: {
+          kind: "scroll",
+          at: { x: 0.5, y: 0.5 },
+          deltaY: 600,
+          label: "the page",
+        },
+        why: "see more",
+        risk: "low",
+      } satisfies ClickyRatedAction,
+    ]) {
+      const auto = h.run({
+        type: "brain.reply",
+        thinkId: h.thinking(),
+        say: "Next.",
+        proposal,
+      });
+      expect(h.session.state).toBe("acting");
+      expect(auto.effects).toContainEqual(
+        expect.objectContaining({ type: "act", viaGrant: true }),
+      );
+      expect(auto.effects).toContainEqual(
+        expect.objectContaining({
+          event: "clicky.action_approved",
+          detail: expect.objectContaining({ scope: "session" }),
+        }),
+      );
+      h.run({ type: "action.done", proposalId: h.session.proposal?.id ?? "" });
+      if (h.session.state !== "thinking") h.command({ type: "show_me" });
+    }
   });
 
   test("a step that is hard to undo is asked about even on its own element", () => {
@@ -359,52 +381,71 @@ describe("approvals", () => {
     expect(h.session.state).toBe("awaiting_permission");
   });
 
-  test("a key or a scroll never runs on a grant", () => {
-    const h = walking();
-    const id = h.session.proposal?.id ?? "";
-    h.command({ type: "approve", proposalId: id, scope: "task" });
-    h.run({ type: "action.done", proposalId: id });
-    h.run({
-      type: "brain.reply",
-      thinkId: h.thinking(),
-      say: "Enter.",
-      proposal: {
-        action: { kind: "key", keys: "Enter", label: "Enter" },
-        why: "send",
-        risk: "low",
-      },
-    });
-    expect(h.session.state).toBe("awaiting_permission");
-  });
-
-  test("without a walkthrough, 'for this task' is a yes for this one only", () => {
-    const h = proposing("ask_once_per_task");
+  test("with 'ask every time', 'for this session' is a yes for this one only", () => {
+    const h = walking("ask_each");
     h.command({
       type: "approve",
       proposalId: h.session.proposal?.id ?? "",
-      scope: "task",
+      scope: "session",
     });
     expect(h.session.state).toBe("acting");
     expect(h.session.grant).toBeNull();
   });
 
-  test.each([
-    { type: "ask", text: "something else" },
-    { type: "show_me" },
-    { type: "retry" },
-    { type: "set_mode", mode: "guide" },
-  ] as const)("$type ends a grant", (next) => {
+  test("a phone that says 'task' gets the session's yes, and needs no walkthrough", () => {
+    const h = proposing("ask_once_per_session");
+    h.command({
+      type: "approve",
+      proposalId: h.session.proposal?.id ?? "",
+      scope: "task",
+    });
+    expect(h.session.grant?.scope).toBe("session");
+  });
+
+  test("the session's yes survives a new question, Show me again, Retry and a new plan", () => {
     const h = walking();
     const id = h.session.proposal?.id ?? "";
-    h.command({ type: "approve", proposalId: id, scope: "task" });
+    h.command({ type: "approve", proposalId: id, scope: "session" });
     h.run({ type: "action.done", proposalId: id });
+    h.run({ type: "brain.reply", thinkId: h.thinking(), say: "Next." });
+    h.command({ type: "ask", text: "and then?" });
     h.run({
       type: "brain.reply",
       thinkId: h.thinking(),
-      say: "Stopping here.",
+      say: "New plan.",
+      plan: PLAN,
     });
+    h.command({ type: "show_me" });
+    h.run({ type: "brain.failed", thinkId: h.thinking() });
+    h.command({ type: "retry" });
+    expect(h.session.grant?.scope).toBe("session");
+  });
+
+  test.each([
+    { type: "stop" },
+    { type: "sleep" },
+    { type: "set_mode", mode: "guide" },
+    { type: "activate", trigger: { kind: "takeover", requestId: "r-grant" } },
+  ] as const)("$type ends the session's yes", (next) => {
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "session" });
+    h.run({ type: "action.done", proposalId: id });
+    h.run({ type: "brain.reply", thinkId: h.thinking(), say: "Done." });
     expect(h.session.grant).not.toBeNull();
     h.command(next);
+    expect(h.session.grant).toBeNull();
+  });
+
+  test("the session's yes lapses after two hours", () => {
+    const h = walking();
+    h.command({
+      type: "approve",
+      proposalId: h.session.proposal?.id ?? "",
+      scope: "session",
+    });
+    h.advance(CLICKY_SESSION_GRANT_TTL_MS);
+    h.run({ type: "tick" });
     expect(h.session.grant).toBeNull();
   });
 
@@ -705,5 +746,218 @@ describe("sleep, pause, listen", () => {
     expect(h.session.state).toBe("listening");
     h.command({ type: "listen", active: false });
     expect(h.session.state).toBe("idle");
+  });
+});
+
+describe("an older session, an older setting", () => {
+  test("a stored session gets the new fields, and a walkthrough-bound grant is dropped", () => {
+    const old = {
+      ...newClickySession({ id: "s", botId: "b", now: T0 }),
+      grant: {
+        walkthroughId: "w1",
+        grantedAt: "x",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    } as unknown as ClickySession;
+    for (const key of ["narrating", "check", "overlaysStale"])
+      delete (old as Record<string, unknown>)[key];
+    const session = normalizeClickySession(old);
+    expect(session.grant).toBeNull();
+    expect(session.narrating).toBe(false);
+    expect(session.check).toBeNull();
+    expect(session.overlaysStale).toBe(false);
+  });
+
+  test("'ask once per task' is read as 'ask once per session', which is the default", () => {
+    expect(
+      clickyPreferencesOf({ clickyActionPolicy: "ask_once_per_task" })
+        .clickyActionPolicy,
+    ).toBe("ask_once_per_session");
+    expect(clickyPreferencesOf(undefined).clickyActionPolicy).toBe(
+      "ask_once_per_session",
+    );
+  });
+});
+
+describe("showing what the Bot does", () => {
+  const RECT = { x: 0.2, y: 0.3, width: 0.1, height: 0.05 };
+
+  test("watch narrates without a model call, as a person's session", () => {
+    const h = harness();
+    const watched = h.command({ type: "watch" });
+    expect(h.session).toMatchObject({
+      awake: true,
+      narrating: true,
+      state: "guiding",
+      mode: "guide",
+      trigger: { kind: "person" },
+    });
+    expect(h.session.reply?.notice).toBe("watching");
+    expect(watched.effects.some((effect) => effect.type === "think")).toBe(
+      false,
+    );
+    h.run({ type: "bot.action", verb: "click", label: "Sign in", rect: RECT });
+    expect(h.session.reply).toMatchObject({
+      notice: "narrate_click",
+      params: { label: "Sign in" },
+    });
+    expect(visibleOverlays(h.session).map((overlay) => overlay.kind)).toEqual([
+      "highlight",
+      "pointer",
+    ]);
+    h.run({ type: "bot.action", verb: "click" });
+    expect(h.session.reply?.notice).toBe("narrate_working");
+    expect(h.session.overlays).toEqual([]);
+    h.run({ type: "bot.action", verb: "navigate", host: "gov.gr" });
+    expect(h.session.reply).toMatchObject({
+      notice: "narrate_navigate",
+      params: { host: "gov.gr" },
+    });
+  });
+
+  test("the Bot's actions are not shown unless narrating, nor after Stop", () => {
+    const h = harness();
+    h.command({ type: "wake" });
+    expect(
+      h.run({ type: "bot.action", verb: "click", label: "x" }).changed,
+    ).toBe(false);
+    h.command({ type: "watch" });
+    h.command({ type: "stop" });
+    expect(h.session.narrating).toBe(false);
+    expect(
+      h.run({ type: "bot.action", verb: "click", label: "x" }).changed,
+    ).toBe(false);
+  });
+
+  test("a question while narrating is the person's own", () => {
+    const h = harness();
+    h.command({ type: "watch" });
+    h.command({ type: "ask", text: "what is it doing?" });
+    expect(h.session.narrating).toBe(false);
+    expect(h.session.state).toBe("thinking");
+  });
+
+  test("the Bot finishing ends narration with the follow-up; a person's walkthrough keeps going", () => {
+    const h = harness();
+    h.command({ type: "watch" });
+    h.run({ type: "bot.finished", summary: "" });
+    expect(h.session.narrating).toBe(false);
+    expect(h.session.reply?.notice).toBe("follow_up");
+
+    const g = harness();
+    g.command({ type: "ask", text: "how?" });
+    g.run({
+      type: "brain.reply",
+      thinkId: g.thinking(),
+      say: "Steps.",
+      plan: PLAN,
+    });
+    expect(g.run({ type: "bot.finished", summary: "" }).changed).toBe(false);
+    expect(g.session.walkthrough?.currentStepId).not.toBeNull();
+  });
+});
+
+describe("seeing the person's progress", () => {
+  function guided() {
+    const h = harness();
+    h.command({ type: "ask", text: "how do I search?" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Three steps.",
+      plan: PLAN,
+    });
+    return h;
+  }
+
+  test("a page change looks again without leaving guiding, and its answer moves the step on", () => {
+    const h = guided();
+    const first = h.session.walkthrough?.currentStepId;
+    const looked = h.run({
+      type: "page.changed",
+      url: "https://example.com/results",
+    });
+    const check = looked.effects.find((effect) => effect.type === "check");
+    expect(check).toMatchObject({ type: "check", stepId: first });
+    expect(h.session.state).toBe("guiding");
+    expect(h.session.overlaysStale).toBe(true);
+    // Next still works while it looks.
+    expect(h.command({ type: "next" }).rejected).toBeUndefined();
+    h.command({ type: "back" });
+    const fresh = [
+      { kind: "pointer", id: "fresh", at: { x: 0.7, y: 0.2 } },
+    ] as const;
+    h.run({
+      type: "brain.check",
+      checkId: h.session.check?.id ?? "",
+      stepDone: true,
+      overlays: [...fresh],
+    });
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("done");
+    expect(h.session.overlaysStale).toBe(false);
+    expect(visibleOverlays(h.session)).toEqual([...fresh]);
+  });
+
+  test("an answer to another look, or about a step already finished, changes nothing twice", () => {
+    const h = guided();
+    h.run({ type: "person.typed" });
+    expect(
+      h.run({ type: "brain.check", checkId: "other", stepDone: true }).changed,
+    ).toBe(false);
+    const pending = h.session.check?.id ?? "";
+    // The person's click finishes the step meanwhile; the look about it must not finish the next.
+    h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } });
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("done");
+    const second = h.session.walkthrough?.currentStepId;
+    h.run({ type: "brain.check", checkId: pending, stepDone: true });
+    expect(h.session.walkthrough?.currentStepId).toBe(second);
+  });
+
+  test("a click on the target moves on and looks again for where the next step is", () => {
+    const h = guided();
+    const clicked = h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } });
+    expect(clicked.effects.some((effect) => effect.type === "check")).toBe(
+      true,
+    );
+    expect(h.session.check?.stepId).toBe(h.session.walkthrough?.currentStepId);
+  });
+
+  test("a scroll Clicky made never finishes a step, and is followed by a look", () => {
+    const h = harness("ask_once_per_session");
+    h.command({ type: "set_mode", mode: "act" });
+    h.command({ type: "ask", text: "scroll" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Scrolling.",
+      plan: PLAN,
+      proposal: {
+        action: {
+          kind: "scroll",
+          at: { x: 0.5, y: 0.5 },
+          deltaY: 600,
+          label: "the page",
+        },
+        why: "to see it",
+        risk: "low",
+      },
+    });
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "once" });
+    const done = h.run({ type: "action.done", proposalId: id });
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("current");
+    expect(done.effects.some((effect) => effect.type === "check")).toBe(true);
+  });
+
+  test("no look while stopped, asleep, thinking or narrating", () => {
+    const h = guided();
+    h.command({ type: "stop" });
+    expect(h.run({ type: "page.changed", url: "x" }).changed).toBe(false);
+    const w = harness();
+    w.command({ type: "watch" });
+    expect(w.run({ type: "person.typed" }).changed).toBe(false);
+    const t = harness();
+    t.command({ type: "ask", text: "hm" });
+    expect(t.run({ type: "person.typed" }).changed).toBe(false);
   });
 });

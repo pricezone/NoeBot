@@ -32,7 +32,8 @@ import {
 
 const POLICY_LABEL: Record<ClickyActionPolicy, string> = {
   ask_each: msg("Ask every time"),
-  ask_once_per_task: msg("Ask once per task"),
+  ask_once_per_session: msg("Ask once per session"),
+  ask_once_per_task: msg("Ask once per session"),
   never: msg("Guide only"),
 };
 

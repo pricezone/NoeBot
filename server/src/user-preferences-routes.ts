@@ -17,7 +17,7 @@ const preferencesPatch = z
     locale: z.enum(LOCALES).nullable().optional(),
     clickyAutoActivate: z.boolean().optional(),
     clickyActionPolicy: z
-      .enum(["ask_each", "ask_once_per_task", "never"])
+      .enum(["ask_once_per_session", "ask_each", "never", "ask_once_per_task"])
       .optional(),
     clickyGuidance: z.enum(["brief", "detailed"]).optional(),
     clickySpeakReplies: z.boolean().optional(),
@@ -54,7 +54,7 @@ export function userPreferencesRoutes(
       return context.json(
         {
           error:
-            "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Clicky's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_each, ask_once_per_task or never; clickyGuidance brief or detailed).",
+            "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Clicky's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_once_per_session, ask_each or never; clickyGuidance brief or detailed).",
         },
         400,
       );

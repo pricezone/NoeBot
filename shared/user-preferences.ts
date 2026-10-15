@@ -3,14 +3,19 @@ import type { Locale } from "./i18n/locales";
 export type MessageListEmphasis = "agent" | "thread";
 
 /**
- * How far Clicky may go on the computer for this person.
+ * How far "Show me how" (Clicky) may go on the computer for this person.
  *
+ * - `ask_once_per_session`: it may act; one yes covers the session's everyday actions, and anything
+ *   that is hard to undo is still asked about each time.
  * - `ask_each`: it may act, and asks before every action.
- * - `ask_once_per_task`: one yes covers the rest of the task's low-risk actions; anything that is hard
- *   to undo is still asked about each time.
- * - `never`: guide only. Clicky points and explains and never clicks or types.
+ * - `never`: guide only. It points and explains and never clicks or types.
+ * - `ask_once_per_task`: what `ask_once_per_session` was called before; read as it.
  */
-export type ClickyActionPolicy = "ask_each" | "ask_once_per_task" | "never";
+export type ClickyActionPolicy =
+  | "ask_once_per_session"
+  | "ask_each"
+  | "never"
+  | "ask_once_per_task";
 
 /** How much Clicky says per step: one short line, or a line and the reason behind it. */
 export type ClickyGuidance = "brief" | "detailed";
@@ -55,8 +60,8 @@ export type ClickyPreferences = Required<
 
 export const DEFAULT_CLICKY_PREFERENCES: ClickyPreferences = {
   clickyAutoActivate: true,
-  // Clicky may act only after the person turns "Do it for me" on, and then asks every time.
-  clickyActionPolicy: "ask_each",
+  // It may act only after the person turns "Do it for me" on, and then asks once for the session.
+  clickyActionPolicy: "ask_once_per_session",
   clickyGuidance: "brief",
   clickySpeakReplies: false,
   clickyOnboarded: false,
@@ -71,8 +76,10 @@ export function clickyPreferencesOf(
       preferences?.clickyAutoActivate ??
       DEFAULT_CLICKY_PREFERENCES.clickyAutoActivate,
     clickyActionPolicy:
-      preferences?.clickyActionPolicy ??
-      DEFAULT_CLICKY_PREFERENCES.clickyActionPolicy,
+      preferences?.clickyActionPolicy === "ask_once_per_task"
+        ? "ask_once_per_session"
+        : (preferences?.clickyActionPolicy ??
+          DEFAULT_CLICKY_PREFERENCES.clickyActionPolicy),
     clickyGuidance:
       preferences?.clickyGuidance ?? DEFAULT_CLICKY_PREFERENCES.clickyGuidance,
     clickySpeakReplies:

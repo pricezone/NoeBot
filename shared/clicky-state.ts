@@ -3,7 +3,7 @@ import {
   CLICKY_PERSON_ONLY_TRIGGERS,
   CLICKY_NUDGE_AFTER_MS,
   CLICKY_PROPOSAL_TTL_MS,
-  CLICKY_TASK_GRANT_TTL_MS,
+  CLICKY_SESSION_GRANT_TTL_MS,
   CLICKY_TEXT_LIMIT,
   CLICKY_TRANSCRIPT_LIMIT,
   type ClickyAction,
@@ -12,6 +12,7 @@ import {
   type ClickyOverlay,
   type ClickyPoint,
   type ClickyProposal,
+  type ClickyRect,
   type ClickyRisk,
   type ClickySeen,
   type ClickySession,
@@ -38,8 +39,8 @@ import type { ClickyActionPolicy } from "./user-preferences";
  *   proposal and any "for this task" grant, and puts Clicky back in guide mode. Acting stays off until
  *   the person turns "Do it for me" on again.
  * - **Nothing acts without a yes.** An action runs only from `approve` on the exact, unexpired
- *   proposal that is waiting, or from a grant the person gave for this task, and a grant only covers
- *   low-risk actions. The model's proposal is rated by the server's guardrails before it arrives
+ *   proposal that is waiting, or from the person's "Allow for this session", and that only covers
+ *   low-risk actions: anything hard to undo is asked about every time. The model's proposal is rated by the server's guardrails before it arrives
  *   here; `yours` and `blocked` never become proposals at all, Clicky points instead.
  * - **Late answers are dropped.** A model answer or an action result counts only if it is for the
  *   call this session is still waiting on (`thinkId`, the proposal id), so Stop, a new question or
@@ -57,6 +58,16 @@ export type ClickyAuditEvent =
   | "clicky.stopped"
   /** "Do it for me" switched on or off. */
   | "clicky.mode_changed";
+
+/** What the Bot did, as narration names it. */
+export type ClickyBotVerb =
+  | "click"
+  | "type"
+  | "navigate"
+  | "scroll"
+  | "select"
+  | "key"
+  | "other";
 
 /** The model's plan for a task, before it has ids. */
 export type ClickyPlan = {
@@ -112,6 +123,31 @@ export type ClickyEvent =
       outcome: "completed" | "cancelled" | "expired";
     }
   | { type: "bot.finished"; summary: string }
+  /** The Bot is acting on its computer; shown while Clicky is narrating. */
+  | {
+      type: "bot.action";
+      verb: ClickyBotVerb;
+      label?: string;
+      host?: string;
+      key?: string;
+      /** Where the element is on the screen, when it is on it. */
+      rect?: ClickyRect;
+    }
+  /** The person typed on the computer (Enter or Tab, or a burst of typing that has settled). */
+  | { type: "person.typed" }
+  /** The page changed under the person (a navigation, settled). */
+  | { type: "page.changed"; url: string }
+  /**
+   * A look after the person or Clicky did something: whether the step the look was about is done,
+   * and where things are now (`overlays` are for the step that is current once `stepDone` applies).
+   */
+  | {
+      type: "brain.check";
+      checkId: string;
+      stepDone: boolean;
+      overlays?: ClickyOverlay[];
+      say?: string;
+    }
   /** The clock. `lastInputAt` is the person's last input on the screen, kept outside the session. */
   | { type: "tick"; lastInputAt?: number }
   | { type: "notes.saved"; path: string };
@@ -122,13 +158,13 @@ export type ClickyEffect =
   | {
       type: "act";
       proposal: ClickyProposal;
-      /**
-       * Run on a "for this task" grant rather than a yes for this proposal: the server then also
-       * insists the element is still the one the step points at.
-       */
+      /** Run on the person's "Allow for this session" rather than a yes for this proposal. */
       viaGrant?: boolean;
     }
   | { type: "abort_action" }
+  /** Look at the screen again for the step `stepId` (or the answer's pointer when null). */
+  | { type: "check"; checkId: string; stepId: string | null }
+  | { type: "cancel_check" }
   | { type: "save_notes" }
   | {
       type: "audit";
@@ -212,20 +248,53 @@ function appendTurn(
   ].slice(-CLICKY_TRANSCRIPT_LIMIT);
 }
 
-/** Stops whatever is in flight: the model call and the action. */
+/** Stops whatever is in flight: the model call, the look after a step, and the action. */
 function stopInFlight(session: ClickySession): ClickyEffect[] {
   const effects: ClickyEffect[] = [];
   if (session.state === "thinking" && session.thinkId)
     effects.push({ type: "cancel_think" });
+  if (session.check) effects.push({ type: "cancel_check" });
   if (session.state === "acting") effects.push({ type: "abort_action" });
   return effects;
 }
 
+/** Fields that put a look after a step away. */
+const NO_CHECK = { check: null, overlaysStale: false } as const;
+
 /** Where Clicky rests when it is not doing anything: on the walkthrough if there is one. */
 function restingState(session: ClickySession): ClickyState {
   if (!session.awake) return "idle";
+  if (session.narrating) return "guiding";
   if (currentStep(session) || session.overlays.length > 0) return "guiding";
   return "idle";
+}
+
+/**
+ * Looks at the screen again, without leaving `guiding`: Next, Back and the person's clicks keep
+ * working while it runs, and its answer counts only if it is still the look being waited for and the
+ * step it was about is still the current one. A look never proposes an action.
+ */
+function startCheck(session: ClickySession, context: ClickyContext): Draft {
+  const effects: ClickyEffect[] = session.check
+    ? [{ type: "cancel_check" }]
+    : [];
+  const id = context.newId();
+  const stepId = currentStep(session)?.id ?? null;
+  effects.push({ type: "check", checkId: id, stepId });
+  return {
+    session: { ...session, check: { id, stepId }, overlaysStale: true },
+    effects,
+  };
+}
+
+/** Whether a look after a step makes sense now: guiding the person, with something on screen. */
+function mayCheck(session: ClickySession): boolean {
+  return (
+    session.awake &&
+    !session.narrating &&
+    session.state === "guiding" &&
+    (currentStep(session) !== null || session.overlays.length > 0)
+  );
 }
 
 function startThinking(
@@ -278,9 +347,8 @@ function modeAudit(
 
 function grantActive(session: ClickySession, context: ClickyContext): boolean {
   const grant = session.grant;
-  if (!grant) return false;
-  if (Date.parse(grant.expiresAt) <= context.now) return false;
-  return grant.walkthroughId === (session.walkthrough?.id ?? null);
+  if (grant?.scope !== "session") return false;
+  return Date.parse(grant.expiresAt) > context.now;
 }
 
 /** A pointer at where an action would happen, so the person can do it themselves. */
@@ -338,11 +406,11 @@ function advance(
   };
 }
 
-/** After a walkthrough's last step: the grant ends with it. */
+/** After a walkthrough's last step. The session's grant outlives it, as the session goes on. */
 function finishWalkthrough(session: ClickySession): ClickySession {
   return {
     ...session,
-    grant: null,
+    ...NO_CHECK,
     overlays: [],
     reply: notice("walkthrough_done"),
   };
@@ -425,6 +493,8 @@ function reduceCommand(
           reply: null,
           grant: null,
           thinkId: null,
+          narrating: false,
+          ...NO_CHECK,
         },
         effects: stopInFlight(session),
       });
@@ -462,10 +532,13 @@ function reduceCommand(
       const asked: ClickySession = {
         ...session,
         awake: true,
-        // A new question moves on from a proposal nobody answered, and from any grant: the
-        // person is steering again, so nothing runs on an earlier yes.
+        // A new question moves on from a proposal nobody answered. The session's yes stands: it
+        // was given for the session, not for one question.
         proposal: null,
-        grant: null,
+        // A question while the Bot is shown working is the person's own, and Clicky guides again.
+        narrating: false,
+        trigger: session.narrating ? { kind: "person" } : session.trigger,
+        ...NO_CHECK,
         transcript: appendTurn(session, "person", text, context),
         lastProgressAt: iso(context),
         nudgedAt: null,
@@ -474,7 +547,11 @@ function reduceCommand(
       const draft = startThinking(asked, "ask", context, text);
       return changed({
         session: draft.session,
-        effects: [...wakeAudit(session, "ask"), ...draft.effects],
+        effects: [
+          ...wakeAudit(session, "ask"),
+          ...(session.check ? [{ type: "cancel_check" } as const] : []),
+          ...draft.effects,
+        ],
       });
     }
     case "show_me": {
@@ -484,7 +561,8 @@ function reduceCommand(
           ...session,
           awake: true,
           proposal: null,
-          grant: null,
+          narrating: false,
+          ...NO_CHECK,
           nudgedAt: null,
         },
         "show_me",
@@ -492,7 +570,11 @@ function reduceCommand(
       );
       return changed({
         session: draft.session,
-        effects: [...wakeAudit(session, "show_me"), ...draft.effects],
+        effects: [
+          ...wakeAudit(session, "show_me"),
+          ...(session.check ? [{ type: "cancel_check" } as const] : []),
+          ...draft.effects,
+        ],
       });
     }
     case "next": {
@@ -560,12 +642,12 @@ function reduceCommand(
         return refuse(session, "guide_only");
       if (proposal.risk !== "low" && proposal.risk !== "confirm")
         return refuse(session, "yours");
-      // "For this task" needs a task: a walkthrough with a step in hand. Otherwise it is a yes for this one.
-      const taskWide =
-        command.scope === "task" &&
+      // "For this session" covers everyday actions only, and only when the person's setting allows
+      // it; anything hard to undo is a yes for this one action.
+      const sessionWide =
+        (command.scope === "session" || command.scope === "task") &&
         proposal.risk === "low" &&
-        context.actionPolicy !== "ask_each" &&
-        currentStep(session) !== null;
+        context.actionPolicy !== "ask_each";
       return changed({
         session: {
           ...session,
@@ -573,11 +655,12 @@ function reduceCommand(
           resumeState: null,
           autoSteps: 0,
           error: null,
-          grant: taskWide
+          ...NO_CHECK,
+          grant: sessionWide
             ? {
-                walkthroughId: session.walkthrough?.id ?? null,
+                scope: "session",
                 grantedAt: iso(context),
-                expiresAt: iso(context, CLICKY_TASK_GRANT_TTL_MS),
+                expiresAt: iso(context, CLICKY_SESSION_GRANT_TTL_MS),
               }
             : session.grant,
         },
@@ -589,7 +672,7 @@ function reduceCommand(
               proposalId: proposal.id,
               action: proposal.action.kind,
               risk: proposal.risk,
-              scope: taskWide ? "task" : "once",
+              scope: sessionWide ? "session" : "once",
             },
           },
           { type: "act", proposal },
@@ -631,6 +714,8 @@ function reduceCommand(
           proposal: null,
           grant: null,
           thinkId: null,
+          narrating: false,
+          ...NO_CHECK,
           autoSteps: 0,
           stoppedAt: iso(context),
           reply: notice("stopped"),
@@ -702,7 +787,7 @@ function reduceCommand(
       if (session.state === "acting") return refuse(session, "busy");
       if (!session.lastThink) return refuse(session, "nothing_to_retry");
       const draft = startThinking(
-        { ...session, awake: true, proposal: null, grant: null },
+        { ...session, awake: true, proposal: null, ...NO_CHECK },
         "retry",
         context,
         session.lastThink.text,
@@ -774,6 +859,8 @@ function reduceCommand(
         overlays: caption,
         proposal: null,
         grant: null,
+        narrating: false,
+        ...NO_CHECK,
         reply: notice(
           trigger.kind === "person" ? "awake" : "takeover",
           trigger.reason ?? "",
@@ -800,6 +887,37 @@ function reduceCommand(
       return changed({
         session: draft.session,
         effects: [...audit, ...draft.effects],
+      });
+    }
+    case "watch": {
+      if (session.awake && session.narrating) return unchanged(session);
+      // Never over something the person is in the middle of: a question, an action, a yes to give.
+      if (
+        session.state === "thinking" ||
+        session.state === "acting" ||
+        session.state === "awaiting_permission" ||
+        session.state === "listening"
+      )
+        return unchanged(session);
+      return changed({
+        session: {
+          ...session,
+          awake: true,
+          narrating: true,
+          trigger: { kind: "person" },
+          mode: "guide",
+          state: "guiding",
+          resumeState: null,
+          overlays: [],
+          proposal: null,
+          grant: null,
+          ...NO_CHECK,
+          reply: notice("watching"),
+        },
+        effects: [
+          ...wakeAudit(session, "watch"),
+          ...(session.check ? [{ type: "cancel_check" } as const] : []),
+        ],
       });
     }
     case "overlay.set": {
@@ -832,6 +950,16 @@ function reduceCommand(
   }
 }
 
+const NARRATION: Record<ClickyBotVerb, ClickyNotice> = {
+  click: "narrate_click",
+  type: "narrate_type",
+  navigate: "narrate_navigate",
+  scroll: "narrate_scroll",
+  select: "narrate_select",
+  key: "narrate_key",
+  other: "narrate_working",
+};
+
 function reduceInternal(
   session: ClickySession,
   event: Exclude<ClickyEvent, { type: "command" }>,
@@ -853,7 +981,6 @@ function reduceInternal(
           ...next,
           walkthrough: buildWalkthrough(event.plan, context),
           overlays: [],
-          grant: null,
           lastProgressAt: iso(context),
           nudgedAt: null,
         };
@@ -940,19 +1067,9 @@ function reduceInternal(
             modelLabel: proposal.action.modelLabel ?? null,
           },
         });
-        /*
-         * A grant covers the walkthrough's own next step and nothing else: the action has to be on
-         * the element that step points at. Anything off the plan (another element, a key, a scroll)
-         * waits for a yes like any other proposal.
-         */
-        const onTheStep =
-          rated.action.kind !== "key" &&
-          rated.action.kind !== "scroll" &&
-          Boolean(rated.action.ref) &&
-          rated.action.ref === currentStep(next)?.targetRef;
+        // The session's yes covers everyday actions; anything hard to undo waits for its own.
         if (
           rated.risk === "low" &&
-          onTheStep &&
           grantActive(next, context) &&
           next.autoSteps < CLICKY_AUTO_STEP_LIMIT
         ) {
@@ -964,7 +1081,7 @@ function reduceInternal(
                 proposalId: proposal.id,
                 action: proposal.action.kind,
                 risk: proposal.risk,
-                scope: "task",
+                scope: "session",
               },
             },
             { type: "act", proposal, viaGrant: true },
@@ -1023,21 +1140,27 @@ function reduceInternal(
         },
       ];
       const done: ClickySession = { ...session, proposal: null, error: null };
-      if (!currentStep(done)) {
+      /** Rests, then looks again: what was done may have moved everything on the screen. */
+      const restAndLook = (rested: ClickySession): ClickyResult => {
+        const resting = { ...rested, state: restingState(rested) };
+        if (!mayCheck(resting)) return changed({ session: resting, effects });
+        const look = startCheck(resting, context);
         return changed({
-          session: {
-            ...done,
-            state: restingState(done),
-            reply: notice("action_done"),
-          },
-          effects,
+          session: look.session,
+          effects: [...effects, ...look.effects],
         });
+      };
+      // A scroll only brings something into view; it never finishes a step.
+      if (!currentStep(done) || proposal.action.kind === "scroll") {
+        return restAndLook({ ...done, reply: notice("action_done") });
       }
       const moved = advance(done, context);
       if (moved.finished) {
-        const finished = finishWalkthrough(moved.session);
         return changed({
-          session: { ...finished, state: restingState(finished) },
+          session: (() => {
+            const finished = finishWalkthrough(moved.session);
+            return { ...finished, state: restingState(finished) };
+          })(),
           effects,
         });
       }
@@ -1052,14 +1175,7 @@ function reduceInternal(
           effects: [...effects, ...draft.effects],
         });
       }
-      return changed({
-        session: {
-          ...moved.session,
-          state: restingState(moved.session),
-          reply: notice("action_done"),
-        },
-        effects,
-      });
+      return restAndLook({ ...moved.session, reply: notice("action_done") });
     }
     case "action.failed": {
       const proposal = session.proposal;
@@ -1095,12 +1211,113 @@ function reduceInternal(
       const step = currentStep(session);
       if (!step?.overlays.some((overlay) => hitsOverlay(event.at, overlay)))
         return unchanged(session);
-      const moved = advance(session, context);
-      const next = moved.finished
-        ? finishWalkthrough(moved.session)
-        : moved.session;
+      const moved = advance({ ...session, ...NO_CHECK }, context);
+      if (moved.finished) {
+        const finished = finishWalkthrough(moved.session);
+        return changed({
+          session: { ...finished, state: restingState(finished) },
+          effects: session.check ? [{ type: "cancel_check" }] : [],
+        });
+      }
+      // The click may have changed the page: look again to place the next step where it is now.
+      const resting = { ...moved.session, state: restingState(moved.session) };
+      const look = startCheck(resting, context);
+      return changed({
+        session: look.session,
+        effects: [
+          ...(session.check ? [{ type: "cancel_check" } as const] : []),
+          ...look.effects.filter((effect) => effect.type !== "cancel_check"),
+        ],
+      });
+    }
+    case "person.typed":
+    case "page.changed": {
+      if (!mayCheck(session)) return unchanged(session);
+      const look = startCheck(session, context);
+      return changed(look);
+    }
+    case "brain.check": {
+      const pending = session.check;
+      if (!pending || pending.id !== event.checkId) return unchanged(session);
+      // Anything but guiding (a question, an action, Stop) has moved on from this look.
+      if (session.state !== "guiding" || session.narrating)
+        return changed({
+          session: { ...session, ...NO_CHECK },
+          effects: [],
+        });
+      let next: ClickySession = { ...session, ...NO_CHECK };
+      const step = currentStep(next);
+      // Only for the step it was asked about: a step finished meanwhile by a click is not finished twice.
+      if (event.stepDone && step && step.id === pending.stepId) {
+        const moved = advance(next, context);
+        if (moved.finished) {
+          const finished = finishWalkthrough(moved.session);
+          return changed({
+            session: { ...finished, state: restingState(finished) },
+            effects: [],
+          });
+        }
+        next = moved.session;
+      }
+      if (event.overlays) next = placeOverlays(next, event.overlays);
+      if (event.say?.trim())
+        next = {
+          ...next,
+          reply: { text: event.say.trim(), final: true },
+          transcript: appendTurn(next, "clicky", event.say, context),
+        };
       return changed({
         session: { ...next, state: restingState(next) },
+        effects: [],
+      });
+    }
+    case "bot.action": {
+      if (!session.awake || !session.narrating) return unchanged(session);
+      if (session.state !== "guiding" && session.state !== "idle")
+        return unchanged(session);
+      const label = event.label?.trim().slice(0, 120);
+      const overlays: ClickyOverlay[] = event.rect
+        ? [
+            {
+              kind: "highlight",
+              id: context.newId(),
+              rect: event.rect,
+              ...(label ? { label } : {}),
+            },
+            {
+              kind: "pointer",
+              id: context.newId(),
+              at: {
+                x: event.rect.x + event.rect.width / 2,
+                y: event.rect.y + event.rect.height / 2,
+              },
+              ...(label ? { label } : {}),
+            },
+          ]
+        : [];
+      const narration = NARRATION[event.verb];
+      const params: Record<string, string> = {};
+      if (label) params.label = label;
+      if (event.host) params.host = event.host;
+      if (event.key) params.key = event.key;
+      const usable =
+        (narration === "narrate_click" ||
+          narration === "narrate_type" ||
+          narration === "narrate_select") &&
+        !label
+          ? "narrate_working"
+          : narration === "narrate_navigate" && !event.host
+            ? "narrate_working"
+            : narration === "narrate_key" && !event.key
+              ? "narrate_working"
+              : narration;
+      return changed({
+        session: {
+          ...session,
+          state: "guiding",
+          overlays,
+          reply: { text: "", final: true, notice: usable, params },
+        },
         effects: [],
       });
     }
@@ -1140,10 +1357,14 @@ function reduceInternal(
       if (!session.awake) return unchanged(session);
       if (session.state !== "idle" && session.state !== "guiding")
         return unchanged(session);
+      // A person in the middle of a walkthrough keeps it; the Bot's news waits.
+      if (!session.narrating && currentStep(session)) return unchanged(session);
       const summary = event.summary.trim().slice(0, CLICKY_TEXT_LIMIT);
       return changed({
         session: {
           ...session,
+          narrating: false,
+          overlays: session.narrating ? [] : session.overlays,
           trigger: { kind: "follow_up" },
           reply: { text: summary, final: true, notice: "follow_up" },
           transcript: appendTurn(session, "clicky", summary, context),

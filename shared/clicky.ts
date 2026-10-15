@@ -1,5 +1,7 @@
 /**
- * Clicky Mode: the protocol shared by the server, the app and the HyperNoesis phone app.
+ * Clicky Mode, which people know as "Show me how" (Greek «Δείξε μου πώς»): the protocol shared by the
+ * server, the app and the HyperNoesis phone app. The code keeps the name Clicky; nothing a person
+ * reads does.
  *
  * Clicky is a companion beside the screen of a Bot's computer. It points at the part of the screen
  * that matters, walks the person through a task one step at a time, and acts on the computer only
@@ -117,10 +119,22 @@ export type ClickyAction = (
       at?: ClickyPoint;
       ref?: string;
       label: string;
+      /**
+       * Press Enter once the text is in, as a separate key the guardrails rate on its own (a search
+       * box is everyday; a form's submit is asked about). The text itself never holds a line break.
+       */
+      pressEnter?: boolean;
     }
   /** A key or a combination in Playwright's notation: `Enter`, `Control+L`. */
   | { kind: "key"; keys: string; label: string }
-  | { kind: "scroll"; at: ClickyPoint; deltaY: number; label: string }
+  | {
+      kind: "scroll";
+      at: ClickyPoint;
+      deltaY: number;
+      label: string;
+      /** Bring this element into view instead of turning the wheel by `deltaY`. */
+      ref?: string;
+    }
 ) & {
   /**
    * What the model called it, when `label` was replaced with the element's own role and name as
@@ -132,7 +146,7 @@ export type ClickyAction = (
 /**
  * How an action is treated, decided by the server's guardrails and never by the model.
  *
- * - `low`: may run on an "Allow for this task" grant.
+ * - `low`: may run on the person's "Allow for this session" without asking again.
  * - `confirm`: hard to undo (a submit, a send, closing a window); asked about every time.
  * - `yours`: only the person does this (a password, a code, a payment, a security setting, a
  *   CAPTCHA). Clicky points and the person acts.
@@ -205,11 +219,13 @@ export type ClickyTurn = {
 };
 
 /**
- * "Allow for this task": low-risk actions in the same walkthrough run without asking again until it
- * expires, the walkthrough ends, the mode changes or the person presses Stop.
+ * "Allow for this session": once the person says yes, everyday (low-risk) actions run without asking
+ * again until Clicky sleeps, is stopped, goes back to guide only, the Bot needs the person, or two
+ * hours pass. Anything hard to undo is still asked about every time, and what is the person's to do
+ * never becomes an action at all.
  */
 export type ClickyTaskGrant = {
-  walkthroughId: string | null;
+  scope: "session";
   grantedAt: string;
   expiresAt: string;
 };
@@ -232,7 +248,13 @@ export type ClickySession = {
    * one of Clicky's own fixed lines, which each client draws in its own language (and then `text` is
    * extra detail, or empty). `final` is false while the model's words are still arriving.
    */
-  reply: { text: string; final: boolean; notice?: ClickyNotice } | null;
+  reply: {
+    text: string;
+    final: boolean;
+    notice?: ClickyNotice;
+    /** Words a notice names (`{{label}}`, `{{host}}`, `{{key}}`), for the client to put in its own sentence. */
+    params?: Record<string, string>;
+  } | null;
   /** The last turns, newest last, at most `CLICKY_TRANSCRIPT_LIMIT`. */
   transcript: ClickyTurn[];
   grant: ClickyTaskGrant | null;
@@ -248,6 +270,17 @@ export type ClickySession = {
   nudgedAt: string | null;
   /** Actions run back to back without the person, so a task cannot loop forever. */
   autoSteps: number;
+  /**
+   * Showing what the Bot is doing on its computer rather than guiding the person: Clicky points at
+   * each element the Bot acts on and says what it does. Only watches; never takes control.
+   */
+  narrating: boolean;
+  /**
+   * A look at the screen after the person (or Clicky) did something, to see whether the step is done
+   * and where things are now. While it runs the overlays are `overlaysStale` and drawn dimmed.
+   */
+  check: { id: string; stepId: string | null } | null;
+  overlaysStale: boolean;
   stoppedAt: string | null;
   /** Bumped on every change. A client that sees a gap refetches the snapshot. */
   seq: number;
@@ -288,6 +321,14 @@ export const CLICKY_NOTICES = [
   "no_step",
   "follow_up",
   "notes_saved",
+  "watching",
+  "narrate_click",
+  "narrate_type",
+  "narrate_navigate",
+  "narrate_scroll",
+  "narrate_select",
+  "narrate_key",
+  "narrate_working",
 ] as const;
 export type ClickyNotice = (typeof CLICKY_NOTICES)[number];
 
@@ -306,12 +347,20 @@ export const CLICKY_NOTICE_TEXT: Record<ClickyNotice, string> = {
   action_done: "Done.",
   action_failed: "That didn't work. Try again, or do it yourself.",
   think_failed: "I couldn't look at the screen just now. Try again.",
-  guide_only: "Clicky is set to guide only. You can change that in Settings.",
+  guide_only: "I'm set to guide only. You can change that in Settings.",
   busy: "One moment, I'm still working on the last thing.",
   nothing_to_retry: "There's nothing to try again yet.",
   no_step: "There's no step to move to.",
   follow_up: "Noë Bot finished.",
   notes_saved: "Notes saved.",
+  watching: "I'll show you what Noë Bot is doing.",
+  narrate_click: "Noë Bot is clicking “{{label}}”.",
+  narrate_type: "Noë Bot is typing in “{{label}}”.",
+  narrate_navigate: "Noë Bot is opening {{host}}.",
+  narrate_scroll: "Noë Bot is scrolling the page.",
+  narrate_select: "Noë Bot is choosing in “{{label}}”.",
+  narrate_key: "Noë Bot is pressing {{key}}.",
+  narrate_working: "Noë Bot is working on the page.",
 };
 
 /** What a client may send: the web app's bar, the phone, and the bridge for overlays. */
@@ -327,7 +376,8 @@ export type ClickyCommand =
   | { type: "back" }
   /** Say the last line again; clients read it aloud when speaking is on. */
   | { type: "repeat" }
-  | { type: "approve"; proposalId: string; scope: "once" | "task" }
+  /** `task` is how phones built before "Allow for this session" say `session`. */
+  | { type: "approve"; proposalId: string; scope: "once" | "session" | "task" }
   | { type: "deny"; proposalId: string }
   | { type: "stop" }
   | { type: "pause" }
@@ -335,6 +385,8 @@ export type ClickyCommand =
   | { type: "retry" }
   | { type: "set_mode"; mode: ClickyMode }
   | { type: "activate"; trigger: ClickyTrigger }
+  /** Show what the Bot is doing (the screen was opened while the Bot works). */
+  | { type: "watch" }
   /** The bridge: draw these overlays (OpenClicky's `/cursor`, `/cursors`, `/caption`). */
   | { type: "overlay.set"; overlays: ClickyOverlay[] }
   | { type: "overlay.clear" }
@@ -362,7 +414,7 @@ export type ClickyServerEvent =
  * computer). The server compares it so its own handover never reopens Clicky, and screens that show a
  * handover's reason draw their own words for it, since every other reason is the Bot's.
  */
-export const CLICKY_HELP_REASON = "Clicky is doing this for you";
+export const CLICKY_HELP_REASON = "Show me how is doing this for you";
 
 export const CLICKY_TRANSCRIPT_LIMIT = 20;
 export const CLICKY_TEXT_LIMIT = 2000;
@@ -370,7 +422,8 @@ export const CLICKY_OVERLAY_LIMIT = 12;
 export const CLICKY_STEP_LIMIT = 20;
 /** An unanswered proposal lapses after two minutes; the screen has likely moved on. */
 export const CLICKY_PROPOSAL_TTL_MS = 2 * 60_000;
-export const CLICKY_TASK_GRANT_TTL_MS = 30 * 60_000;
+/** How long one "Allow for this session" lasts at most. */
+export const CLICKY_SESSION_GRANT_TTL_MS = 2 * 60 * 60_000;
 export const CLICKY_NUDGE_AFTER_MS = 45_000;
 /** A session the person comes back to within this long resumes where it was. */
 export const CLICKY_RESUME_WINDOW_MS = 30 * 60_000;
@@ -447,8 +500,31 @@ export function newClickySession(input: {
     lastProgressAt: at,
     nudgedAt: null,
     autoSteps: 0,
+    narrating: false,
+    check: null,
+    overlaysStale: false,
     stoppedAt: null,
     seq: 0,
     updatedAt: at,
+  };
+}
+
+/**
+ * A session as read back from storage, brought up to this version of the protocol: fields added
+ * since it was written get their defaults, and a grant from before "Allow for this session" (one tied
+ * to a walkthrough) is dropped rather than widened, so the person is simply asked again.
+ */
+export function normalizeClickySession(session: ClickySession): ClickySession {
+  const stored = session as Partial<ClickySession> & ClickySession;
+  const grant =
+    stored.grant && (stored.grant as { scope?: unknown }).scope === "session"
+      ? stored.grant
+      : null;
+  return {
+    ...stored,
+    grant,
+    narrating: stored.narrating ?? false,
+    check: stored.check ?? null,
+    overlaysStale: stored.overlaysStale ?? false,
   };
 }

@@ -31,14 +31,20 @@ export const CLICKY_NOTICE_KEYS: Record<ClickyNotice, string> = {
   action_done: msg("Done."),
   action_failed: msg("That didn't work. Try again, or do it yourself."),
   think_failed: msg("I couldn't look at the screen just now. Try again."),
-  guide_only: msg(
-    "Clicky is set to guide only. You can change that in Settings.",
-  ),
+  guide_only: msg("I'm set to guide only. You can change that in Settings."),
   busy: msg("One moment, I'm still working on the last thing."),
   nothing_to_retry: msg("There's nothing to try again yet."),
   no_step: msg("There's no step to move to."),
   follow_up: msg("Noë Bot finished."),
   notes_saved: msg("Notes saved."),
+  watching: msg("I'll show you what Noë Bot is doing."),
+  narrate_click: msg("Noë Bot is clicking “{{label}}”."),
+  narrate_type: msg("Noë Bot is typing in “{{label}}”."),
+  narrate_navigate: msg("Noë Bot is opening {{host}}."),
+  narrate_scroll: msg("Noë Bot is scrolling the page."),
+  narrate_select: msg("Noë Bot is choosing in “{{label}}”."),
+  narrate_key: msg("Noë Bot is pressing {{key}}."),
+  narrate_working: msg("Noë Bot is working on the page."),
 };
 
 /** What the state chip says. `asleep` is a session that is not awake, whatever its state. */

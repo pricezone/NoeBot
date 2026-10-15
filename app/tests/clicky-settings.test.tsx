@@ -94,8 +94,8 @@ test("auto-open is on by default, and switching it off saves only that", async (
   await waitFor(() =>
     expect(toggle.getAttribute("aria-checked")).toBe("false"),
   );
-  // Ask every time is what somebody who never chose gets.
-  expect(view.getByText("Ask every time")).toBeTruthy();
+  // Asking once per session is what somebody who never chose gets.
+  expect(view.getByText("Ask once per session")).toBeTruthy();
 });
 
 test("linked phones are listed and Revoke signs one out", async () => {

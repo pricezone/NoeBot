@@ -78,7 +78,7 @@ export const clickyCommandSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("approve"),
     proposalId: id,
-    scope: z.enum(["once", "task"]),
+    scope: z.enum(["once", "session", "task"]),
   }),
   z.strictObject({ type: z.literal("deny"), proposalId: id }),
   z.strictObject({ type: z.literal("stop") }),
