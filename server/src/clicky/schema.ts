@@ -135,5 +135,5 @@ export function parseClickyGuide(body: unknown): Parsed<ClickyGuideInput> {
 function describeIssue(error: z.ZodError): string {
   const issue = error.issues[0];
   const where = issue?.path.length ? issue.path.join(".") : "the body";
-  return `Clicky could not read ${where}: ${issue?.message ?? "invalid"}.`;
+  return `I couldn't read ${where}: ${issue?.message ?? "invalid"}.`;
 }
