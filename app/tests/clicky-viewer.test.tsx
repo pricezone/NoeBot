@@ -685,6 +685,19 @@ test("what counts as guiding the person, and as the end of it", () => {
       reply: { text: "", final: true, notice: "walkthrough_done" },
     }).ended,
   ).toBe(true);
+  // Done is given back a moment later (the finishing click still has to land); asleep, at once.
+  expect(
+    selectGuidance({
+      ...base,
+      awake: true,
+      state: "idle",
+      reply: { text: "", final: true, notice: "walkthrough_done" },
+    }).done,
+  ).toBe(true);
+  expect(selectGuidance({ ...base, awake: false }).done).toBe(false);
+  expect(selectGuidance({ ...base, awake: true, state: "stopped" }).done).toBe(
+    false,
+  );
 });
 
 test("narration is only ever asked for over a session nobody is using", () => {

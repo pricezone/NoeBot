@@ -40,6 +40,14 @@ import { useClickySessionView } from "./use-clicky-session";
  * is the server's to answer: the session turns to guiding the person, and the take above follows.
  */
 
+/**
+ * How long control stays with the person after the walkthrough is done, before it goes back. The
+ * person's own click finishes the last step as the button goes down: given back at once, the button
+ * coming up never reached the page (live, gov.gr's "Είσοδος στην υπηρεσία" was pressed and never
+ * clicked), nor did the page that click opens.
+ */
+export const CLICKY_GIVE_BACK_AFTER_DONE_MS = 2_000;
+
 /** Retries of a take that failed: two seconds, then twice as long each time, up to thirty. */
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
@@ -55,6 +63,8 @@ type Guidance = {
   guiding: boolean;
   /** Asleep, stopped, or the walkthrough is done: what was taken to guide goes back. */
   ended: boolean;
+  /** Ended by the walkthrough being done, awake: given back a moment later, not at once. */
+  done: boolean;
   /**
    * The Bot waits on a form in the conversation (a secret, a sign-in), not on the screen: the person
    * answers there, and the Bot carries on at its own wheel.
@@ -74,6 +84,11 @@ export function selectGuidance(session: ClickySession): Guidance {
       !session.awake ||
       session.state === "stopped" ||
       (session.reply?.notice === "walkthrough_done" && !currentStep(session)),
+    done:
+      session.awake &&
+      session.state !== "stopped" &&
+      session.reply?.notice === "walkthrough_done" &&
+      !currentStep(session),
     inForm:
       session.trigger?.kind === "secret" || session.trigger?.kind === "sign_in",
   };
@@ -128,8 +143,12 @@ export function useClickyAutoControl(
   useEffect(() => {
     if (!enabled || !view) return;
     if (view.ended) {
-      giveBack();
-      return;
+      if (!view.done) {
+        giveBack();
+        return;
+      }
+      const timer = setTimeout(giveBack, CLICKY_GIVE_BACK_AFTER_DONE_MS);
+      return () => clearTimeout(timer);
     }
     if (!view.guiding || view.inForm || !control || busy) return;
     if (
