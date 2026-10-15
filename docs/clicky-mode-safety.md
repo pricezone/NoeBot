@@ -11,11 +11,13 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
 2. **Nothing acts without a yes.** Every action is a proposal the person answers. It runs only on
    `approve` for that exact proposal id, before it expires (two minutes), in act mode, with a policy
    other than `never` (`shared/clicky-state.ts`, `approve`).
-3. **"For this task" is narrow.** Offered only when the person chose "ask once per task" and Clicky
-   is walking them through steps. It covers low-risk actions in that walkthrough for at most thirty
-   minutes, and only on the element each step is about: an action whose target is not the current
-   step's own element is asked about. A new question, Show me again, Retry, a mode change, the end of
-   the walkthrough, Sleep and Stop all end it. Anything rated `confirm` is asked about every time.
+3. **"Allow for this session" covers everyday actions only.** It is offered when the person's setting
+   is "ask once per session" (the default). One yes covers the session's low-risk clicks, typing,
+   scrolling and everyday keys for at most two hours, until Sleep, Stop, guide only, or the Bot
+   needing the person ends it. Anything rated `confirm` (a submit, a send, a payment, deleting, closing
+   a tab, Enter in a form) is asked about every time, and `yours`/`blocked` are never offered. Each
+   action is still probed and rated again just before it runs, against the page it was proposed on.
+   The auto-step limit (12 in a row without the person) stays.
 4. **The server rates every action, never the model.** `server/src/clicky/guardrails.ts` decides:
    - **blocked** — typing into a password, code or card field; any key that is not an everyday one.
      Clicky presses only an allowlist (Enter, Tab, Shift+Tab, Escape, the arrows, Backspace, Delete,
@@ -66,10 +68,14 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
     Bot or Clicky reads never contains Clicky's own pointer.
 11. **Only this deployment's own pages may drive it.** Hosted instances share a parent domain that
     is not on the Public Suffix List, so a sibling instance counts as the same site and its requests
-    carry this person's cookie. Every computer route (the live screen and the person's input
-    included), Clicky's routes and socket, and `/api/mobile` refuse a request whose `Origin` is not
-    this deployment's or one it trusts, refuse `Sec-Fetch-Site: same-site` or `cross-site` from an
-    untrusted origin, and take JSON bodies only (`server/src/computer/same-site-guard.ts`). The phone
+    carry this person's cookie. The whole API is guarded (`apiSameSiteGuard`, registered first in
+    `createApp`): every POST, PUT, PATCH, DELETE and WebSocket upgrade under `/api` is refused when its
+    `Origin` is not this deployment's or one it trusts, or when `Sec-Fetch-Site` says same-site or
+    cross-site from an untrusted origin, and a browser's body must be JSON (multipart only for
+    attachments and dictation). Callers that are not browsers and carry their own proof (SAML and
+    OAuth form posts, SCIM, signed webhooks, the agent tools, the desktop's own token) are exempt.
+    The computer routes, Clicky, `/api/mobile` and the conversations socket keep their own stricter
+    guard too (`server/src/computer/same-site-guard.ts`). The phone
     sends neither header. Clients may only `activate` Clicky for a person's own question; the Bot's
     needs are opened by the server. Questions are rate-limited per person and computer.
 12. **Everything important is audited.** `clicky.session_started`, `clicky.action_proposed`,

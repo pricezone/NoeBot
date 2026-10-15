@@ -1,4 +1,7 @@
-# Clicky Mode
+# Clicky Mode ("Show me how")
+
+People know it as **Show me how** (Greek «Δείξε μου πώς»); the code calls it Clicky, and so does
+this page. It speaks in the first person and never names itself in a sentence.
 
 Clicky is a companion that sits beside a Bot's computer screen. It sees what is on the screen, talks
 with the person, points at the place that matters, walks them through a task one step at a time, and
@@ -22,17 +25,34 @@ Safety: [clicky-mode-safety.md](clicky-mode-safety.md). Linking a phone:
 
 ## What a person sees
 
-**On the computer screen (web app).** The live viewer and the Computer panel's preview carry
-Clicky's layer: a small pointer with Noë Bot beside it and a caption, boxes around elements, numbered
-markers. Under the viewer, Clicky's bar shows what it is doing (Asleep, Ready, Listening, Thinking,
-Showing you, Needs your OK, Doing it, Paused, Stopped), its last reply, the current step with Back,
-Next and Show me again, a text box and a hold-to-talk button, the Guide / Do it for me switch, and
-Stop.
+**On the computer screen (web app).** The full-window viewer carries Clicky's layer: a small pointer
+with Noë Bot beside it, and next to it a bubble that types out the instruction (the current step, or
+Clicky's answer); boxes around elements; numbered markers. While Clicky is looking again after the
+person did something, the marks are drawn dimmed. Under the viewer, a bar shows what Clicky is doing
+(Asleep, Ready, Listening, Thinking, Showing you, Needs your OK, Doing it, Paused, Stopped) in one
+short line, the current step with Back, Next and Show me again, a text box and a hold-to-talk button,
+the Guide / Do it for me switch, and Stop. "Say that again" in its menu reads the instruction aloud
+and types it out again. The small preview in the Bot's panel shows the screen only.
 
-**When Clicky wants to act.** A card says what it will do and why: Allow once, Allow for this task
-(when the person's setting allows it and the action is low risk), or Not now. Anything that cannot
-be undone says so. Things that are always the person's (passwords, codes, payments, security
-settings, CAPTCHAs) are never offered; Clicky points at them instead.
+**Following the person.** Clicky sees the whole page (what is above and below the screen, its text,
+how far it is scrolled), not only what is on the screen. When the person clicks on the step's target,
+presses Enter or Tab, types, or the page changes, Clicky looks again: the step it was about is marked
+done when it is, and the next one is pointed at where it is now. It can scroll a target into view.
+
+**Taking the wheel.** While Clicky is guiding the person, the viewer takes control of the computer for
+them, so their clicks and typing go straight to the page; it gives control back when Clicky sleeps,
+stops, finishes the walkthrough or the viewer closes. Minimizing the viewer puts Clicky to sleep.
+
+**Showing what the Bot does.** Opening the viewer while the Bot is working shows what it is doing
+instead: Clicky points at each element the Bot clicks or types into and says so ("Noë Bot is clicking
+“Sign in”"). It only watches and never takes control. A question asked meanwhile makes it guide the
+person again, and the Bot waits.
+
+**When Clicky wants to act.** A card says what it will do and why. For everyday actions: Allow for
+this session (one yes covers the rest of the session's everyday actions) or Not now. For anything
+that cannot be undone (a submit, a send, a payment, deleting, closing a tab): Allow, for that one
+action, under "Can't be undone". Things that are always the person's (passwords, codes, payments,
+security settings, CAPTCHAs) are never offered; Clicky points at them instead.
 
 **When the Bot needs the person.** The viewer opens, Clicky says "Noë Bot needs you here" with the
 Bot's own reason, and points at the place to act. "I'll guide you" keeps it at pointing; "Do it for
@@ -46,8 +66,8 @@ shows the same state, the short reply, the current step, a small picture of the 
 markers, Approve and Deny, and an always-visible Stop. "Noë Bot needs you" arrives as a notification
 and opens Clicky for that computer.
 
-**Settings › Clicky.** Open by itself when Noë Bot needs you; how far Clicky may go (ask every time,
-ask once per task, guide only); brief or detailed guidance; read replies aloud. **Settings › Phones**
+**Settings › Show me how.** Open by itself when Noë Bot needs you; how far it may go (ask once per
+session, the default; ask every time; guide only); brief or detailed guidance; read replies aloud. **Settings › Phones**
 lists linked phones, each with Revoke.
 
 ## Architecture
@@ -75,12 +95,18 @@ lists linked phones, each with Revoke.
   Every change bumps `seq`, written compare-and-set; the event hub fans changes out over WebSocket
   and Postgres `NOTIFY` (the payload names the session, listeners read it from the database).
 - **The brain**: one vision call per turn on the deployment's own model (`CLICKY_MODEL` to choose
-  another), with a masked, downscaled frame, the visible elements and their boxes, the walkthrough so
-  far and the person's words. Screen content is untrusted data. The reply's `say` streams to both
+  another), with a masked, downscaled frame, the elements on and off the screen with their boxes, the
+  page's title, text and scroll position, the walkthrough so far and the person's words. After the
+  person (or Clicky) does something, a smaller "check" look says whether the step is done and where
+  the next target is; it waits for the page to settle (`/elements/state`) and has its own rate limit. Screen content is untrusted data. The reply's `say` streams to both
   screens; points are snapped to real element boxes when one is near.
 - **Actions**: re-checked just before running, then performed as the person's own input while the
-  person holds control: screen coordinates through XTEST on a desktop computer (which also reaches
-  system dialogs and file pickers), page coordinates in page mode.
+  person holds control: clicks and the wheel through XTEST on a desktop computer (which also reaches
+  system dialogs and file pickers), page coordinates in page mode; typing and Enter/Tab into the page
+  through the page's own keyboard (it cannot reach another window); scrolling a target into view.
+- **Narration**: the gateway tells Clicky about each Bot action after its policy check
+  (`onBotAction`); only an open narrating session of that person and Bot turns it into a pointer
+  (`/elements/ref`).
 - **The Bot's side**: `computer_guide_person` lets a Bot show the person steps with Clicky pointing at
   each element, and `computer_request_help` takes an optional `point_at` element.
 

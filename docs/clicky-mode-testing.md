@@ -22,12 +22,19 @@ bun test shared/clicky-state.test.ts \
 | `server/tests/clicky-tools.test.ts` | `computer_guide_person` and `point_at`. |
 | `server/tests/clicky-pairing.test.ts`, `clicky-pairing.integration.test.ts` | Audiences refused both ways, single use, expiry, the response's cookie pair, no `Set-Cookie`, refused without a device recorder, revoked phones signed out. |
 | `server/tests/clicky-store.integration.test.ts`, `mobile-links.test.ts` | Session storage and compare-and-set; phone rows and push links. |
+| `server/tests/clicky-progress.test.ts` | Looks after the person acts: the page watch (settled navigations, typing that settles), the check look and its rate limit, stale answers dropped. |
+| `server/tests/clicky-gateway.test.ts` | Narration: the gateway's `onBotAction` after the policy check, never for replays, shell and file tools left out, only for a narrating session. |
+| `server/tests/api-same-site.test.ts` | The whole-API guard: sibling instances refused (JSON, form, multipart, WebSocket); the app, the desktop, the phone, webhooks, SAML and OAuth form posts allowed. |
 | `agent-computer/tests/elements-geometry.test.ts` | Page ↔ screen mapping with the window offset; clamping. |
 | `agent-computer/tests/elements-live.test.ts` | Opt-in (`OPENBOT_ELEMENTS_LIVE=1`): element boxes and a masked frame from a real headless browser. |
 | `app/tests/clicky-*.test.tsx` | Overlay positions (and letterboxed frames), reduced motion; the bar's hold to talk, Stop, Next/Back; proposal cards and their rules; the events socket's ordering and streaming; activation from the attention hook; onboarding once; settings and phones. |
 
 The `*.integration.test.ts` suites need `TEST_DATABASE_URL` pointing at a migrated, disposable
 database (`bun server/scripts/migrate.ts` with `DATABASE_URL` set to it).
+
+App suites added in the second round: `clicky-instruction` (the typed bubble, reduced motion,
+"Say that again"), plus `record-steps`, `computer-control-button` and `computer-activity` for the moved
+tooltip, the manual take and the "Bot is working" signal.
 
 ## By hand, on a running instance
 
@@ -57,3 +64,9 @@ a session you are testing, and never let Clicky submit anything that cannot be u
 8. **Revoke.** Settings › Phones › Revoke: the phone's next action asks it to connect again.
 9. **Greek.** Switch the interface to Ελληνικά and repeat 1 and 3: every label is Greek, and
    Clicky answers in Greek.
+10. **Second round.** Ask "how do I search for X?" and follow it: the instruction types out beside
+    the pointer; typing the query and pressing Enter moves to the next step by itself, and the
+    highlight is never left where the page used to be. Ask for something below the fold: Clicky
+    scrolls to it or tells you to. With **Do it for me**, Allow for this session once: typing and
+    scrolling then run without asking, a submit still asks. Minimize: it sleeps. Ask the Bot for a
+    browsing task and open the viewer: it narrates the Bot's clicks. "Say that again" speaks.

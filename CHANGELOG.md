@@ -8,6 +8,16 @@ Newest first. `Unreleased` is what is on `main` and not yet tagged.
 
 ## Unreleased
 
+**Show me how (Clicky Mode), second round.** Renamed for people to "Show me how"; the instruction
+types out beside its pointer; it follows the person's clicks, typing and page changes and moves on by
+itself; it sees the whole page and can type and scroll; one "Allow for this session" covers everyday
+actions (anything hard to undo still asks; the default policy is now `ask_once_per_session`, and
+`ask_once_per_task` is read as it); it takes control for the person while guiding and sleeps when the
+viewer is minimized; opening the viewer while the Bot works shows what the Bot is doing.
+- **Behaviour change:** the whole API now refuses state-changing requests and WebSocket upgrades from
+  other sites, including sibling instances on the same parent domain (see docs/clicky-mode-safety.md
+  rule 11). A page on another origin that called the API from a browser must be in `TRUSTED_ORIGINS`.
+
 **Clicky Mode.** A companion beside every Bot's computer screen: it points at the place that matters,
 walks the person through a task step by step, does things on the computer only after they approve,
 and opens by itself when the Bot needs them to sign in, type a code or solve a CAPTCHA. The person
