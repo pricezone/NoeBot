@@ -1265,4 +1265,84 @@ describe("the model's deadline", () => {
       (bodies[0] as { messages: { content: unknown }[] }).messages[1]?.content,
     ).toEqual([{ type: "text", text: "t" }]);
   });
+
+  test("a look asks the model not to think first; an endpoint that refuses the field is asked without it, from then on", async () => {
+    const stream = () =>
+      new Response(
+        'data: {"choices":[{"delta":{"content":"{\\"say\\":\\"Hi\\"}"}}]}\n\ndata: [DONE]\n\n',
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    const sent: { reasoning_effort?: string }[] = [];
+    const thinking = createVisionCompleter({
+      model: { provider: "openai", defaultModel: "qwen-test" } as never,
+      resolveApiKey: async () => "key",
+      environment: {},
+      fetchImpl: (async (_url: string, init?: RequestInit) => {
+        sent.push(JSON.parse(String(init?.body)));
+        return stream();
+      }) as unknown as typeof fetch,
+    });
+    expect(await thinking({ system: "s", text: "t" })).toBe('{"say":"Hi"}');
+    expect(sent[0]?.reasoning_effort).toBe("none");
+
+    const tried: { reasoning_effort?: string }[] = [];
+    const older = createVisionCompleter({
+      model: { provider: "openai", defaultModel: "older-test" } as never,
+      resolveApiKey: async () => "key",
+      environment: {},
+      fetchImpl: (async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        tried.push(body);
+        return body.reasoning_effort
+          ? new Response(
+              '{"error":{"message":"Unrecognized request argument supplied: reasoning_effort"}}',
+              { status: 400 },
+            )
+          : stream();
+      }) as unknown as typeof fetch,
+    });
+    expect(await older({ system: "s", text: "t" })).toBe('{"say":"Hi"}');
+    expect(await older({ system: "s", text: "t" })).toBe('{"say":"Hi"}');
+    expect(tried.map((body) => body.reasoning_effort ?? null)).toEqual([
+      "none",
+      null,
+      null,
+    ]);
+
+    // Any other refusal is the look's failure, not a reason to ask again.
+    let calls = 0;
+    const refusing = createVisionCompleter({
+      model: { provider: "openai", defaultModel: "strict-test" } as never,
+      resolveApiKey: async () => "key",
+      environment: {},
+      fetchImpl: (async () => {
+        calls += 1;
+        return new Response('{"error":{"message":"image too large"}}', {
+          status: 400,
+        });
+      }) as unknown as typeof fetch,
+    });
+    await expect(refusing({ system: "s", text: "t" })).rejects.toThrow(
+      "image too large",
+    );
+    expect(calls).toBe(1);
+
+    // The deployment may name another level, or none at all.
+    const chosen: { reasoning_effort?: string }[] = [];
+    for (const level of ["low", ""]) {
+      await createVisionCompleter({
+        model: { provider: "openai", defaultModel: "qwen-test" } as never,
+        resolveApiKey: async () => "key",
+        environment: { CLICKY_REASONING_EFFORT: level },
+        fetchImpl: (async (_url: string, init?: RequestInit) => {
+          chosen.push(JSON.parse(String(init?.body)));
+          return stream();
+        }) as unknown as typeof fetch,
+      })({ system: "s", text: "t" });
+    }
+    expect(chosen.map((body) => body.reasoning_effort ?? null)).toEqual([
+      "low",
+      null,
+    ]);
+  });
 });

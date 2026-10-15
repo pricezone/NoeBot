@@ -203,6 +203,18 @@ async function answeredError(response: Response): Promise<Error> {
 export const VISION_MAX_TOKENS = 1600;
 
 /**
+ * How much the model thinks before it answers a look, on the OpenAI-compatible path: not at all. A
+ * look is a short structured answer about one picture, and the person waits for its first word.
+ * Measured on AI Gateway (2026-10-15): qwen3.7-plus thinks by default, which put a check's first
+ * word at 22.6 s and broke the JSON of half the looks; with "none", 2.1 s and every answer whole.
+ * gpt-5.4 takes it too. `CLICKY_REASONING_EFFORT` names another level, and empty sends nothing.
+ */
+export const VISION_REASONING_EFFORT = "none";
+
+/** Models whose endpoint refused `reasoning_effort`, asked without it from then on. */
+const refusesReasoningEffort = new Set<string>();
+
+/**
  * A model call that looks at a picture: Clicky's, the companion beside a Bot's screen.
  *
  * The deployment's own model and key, like `createModelCompleter`, unless `CLICKY_MODEL` names a
@@ -306,14 +318,13 @@ export function createVisionCompleter(deps: {
       return text;
     }
 
-    const response = await send(chatCompletionsUrl(environment), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
+    const effort = (
+      environment.CLICKY_REASONING_EFFORT ?? VISION_REASONING_EFFORT
+    ).trim();
+    const chatBody = (reasoning: string | undefined) =>
+      JSON.stringify({
         model,
+        ...(reasoning ? { reasoning_effort: reasoning } : {}),
         response_format: { type: "json_object" },
         stream: true,
         stream_options: { include_usage: true },
@@ -336,9 +347,30 @@ export function createVisionCompleter(deps: {
             ],
           },
         ],
-      }),
-      signal,
-    });
+      });
+    const post = (reasoning: string | undefined) =>
+      send(chatCompletionsUrl(environment), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${key}`,
+        },
+        body: chatBody(reasoning),
+        signal,
+      });
+    const asked =
+      effort && !refusesReasoningEffort.has(model) ? effort : undefined;
+    let response = await post(asked);
+    /*
+     * An endpoint that does not know the field (an older model, a server of its own) refuses the
+     * whole request; asked again without it, and not offered it again for this model.
+     */
+    if (!response.ok && asked && response.status === 400) {
+      const refused = await answeredError(response);
+      if (!/reasoning/i.test(refused.message)) throw refused;
+      refusesReasoningEffort.add(model);
+      response = await post(undefined);
+    }
     if (!response.ok) throw await answeredError(response);
     deadline.progress();
     const text = await readChatStream(

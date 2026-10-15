@@ -147,6 +147,7 @@ pending request, for a server that missed the event.
 | --- | --- |
 | `CLICKY_MODE` | `off` turns Clicky off: no routes, capability `clicky.enabled` false. On by default. |
 | `CLICKY_MODEL` | The model Clicky looks with. Defaults to the deployment's model; on a metered deployment it must be one the gateway offers. |
+| `CLICKY_REASONING_EFFORT` | How much the model thinks before a look, sent as `reasoning_effort` on the OpenAI-compatible path. Default `none` (measured: a thinking Qwen took 22.6 s to its first word, 2.1 s with `none`); empty sends nothing. An endpoint that refuses the field is asked again without it. |
 | `TRANSCRIPTION_*` | Hold to talk needs transcription; without it `clicky.voice` is false and only typing works. |
 | `OPENBOT_MOBILE_LINK_BASE` | Where push links point, e.g. `hypernoesis://noebot/`. Default `openbotmobile://`. |
 | `OPENBOT_NATIVE_APP_SIGN_IN` | `off` keeps push (which needs `EXPO_PROJECT_ID`) without trusting `openbotmobile://` for sign-in. |
