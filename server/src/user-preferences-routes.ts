@@ -54,7 +54,7 @@ export function userPreferencesRoutes(
       return context.json(
         {
           error:
-            "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Clicky's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_once_per_session, ask_each or never; clickyGuidance brief or detailed).",
+            "Send at least one known preference: agent or thread for message list emphasis, true or false for the self-host banner, en, el or null for the interface language, or one of Show me how's settings (clickyAutoActivate, clickySpeakReplies and clickyOnboarded true or false; clickyActionPolicy ask_once_per_session, ask_each or never; clickyGuidance brief or detailed).",
         },
         400,
       );

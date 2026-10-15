@@ -949,6 +949,17 @@ describe("seeing the person's progress", () => {
     expect(done.effects.some((effect) => effect.type === "check")).toBe(true);
   });
 
+  test("pausing puts a pending look away, so nothing stays dimmed after resume", () => {
+    const h = guided();
+    h.run({ type: "page.changed", url: "x" });
+    const paused = h.command({ type: "pause" });
+    expect(paused.effects).toContainEqual({ type: "cancel_check" });
+    expect(h.session.check).toBeNull();
+    expect(h.session.overlaysStale).toBe(false);
+    h.command({ type: "resume" });
+    expect(h.session.state).toBe("guiding");
+  });
+
   test("no look while stopped, asleep, thinking or narrating", () => {
     const h = guided();
     h.command({ type: "stop" });

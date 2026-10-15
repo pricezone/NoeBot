@@ -11,7 +11,7 @@ export const COMPUTER_GUIDE_PERSON_TOOL = "computer_guide_person";
 
 export const COMPUTER_GUIDE_PERSON_DESCRIPTION =
   "Show the person, on your computer's screen, exactly where to look and what to do, as short steps " +
-  "with Clicky pointing at each element. Use it when the person has to do something on the screen " +
+  "with Show me how (the on-screen guide) pointing at each element. Use it when the person has to do something on the screen " +
   "themselves (sign in, enter a code, pick a file, confirm a payment) or asks how to do something. It " +
   "draws on the person's view only: it does not click, type or change the page, and the person may " +
   "ignore it.";
@@ -33,6 +33,6 @@ export const COMPUTER_GUIDE_PERSON_REF_DESCRIPTION =
 export const POINT_AT_FIELD = "point_at";
 
 export const POINT_AT_DESCRIPTION =
-  "The ref of the element the person should use first, from your latest snapshot, so Clicky can point at it. Leave it out when there is no such element.";
+  "The ref of the element the person should use first, from your latest snapshot, so Show me how can point at it. Leave it out when there is no such element.";
 
 export const COMPUTER_GUIDE_PERSON_STEP_LIMIT = 8;

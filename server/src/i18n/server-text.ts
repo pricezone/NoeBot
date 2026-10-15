@@ -64,10 +64,8 @@ export const SERVER_TEXT_EL: Record<string, string> = {
     "Επιτρέπεται πάντα. {{name}}: συνεχίζει και θα στείλει το αποτέλεσμα εδώ.",
   "Allowed once. {{name}} is continuing and will send its result here.":
     "Επιτράπηκε μία φορά. {{name}}: συνεχίζει και θα στείλει το αποτέλεσμα εδώ.",
-  // Clicky, on the person's phone, when the Bot needs them on its computer.
+  // "Show me how" (Clicky), on the person's phone, when the Bot needs them on its computer.
   "Noë Bot needs you": "Το Noë Bot σε χρειάζεται",
-  "Open Clicky to see what to do.":
-    "Άνοιξε το Clicky για να δεις τι να κάνεις.",
   "Noë Bot needs your help on its computer.":
     "Το Noë Bot χρειάζεται τη βοήθειά σου στον υπολογιστή του.",
   "Noë Bot needs you to sign in.": "Το Noë Bot χρειάζεται να συνδεθείς.",

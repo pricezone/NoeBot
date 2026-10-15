@@ -747,6 +747,7 @@ function reduceCommand(
           state: "paused",
           resumeState: resumeTo,
           thinkId: null,
+          ...NO_CHECK,
           reply: notice("paused"),
         },
         effects: stopInFlight(session),
