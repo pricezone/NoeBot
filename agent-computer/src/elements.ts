@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
-import { parseAriaSnapshot } from "./aria-snapshot";
+import { parseAriaSnapshot, snapshotBoxes } from "./aria-snapshot";
 import {
+  addressBarRect,
   clipRect,
   fitWidth,
   type PageWindow,
@@ -44,11 +45,12 @@ export const ELEMENT_LIMIT = 80;
 /** How many controls off the screen are named beside those, the nearest to the screen first. */
 export const OFFSCREEN_LIMIT = 40;
 /**
- * How many of the snapshot's controls are measured, in its order. Every one of them, not the first
- * few: on a page scrolled down, the first controls in the document are all above the screen, and
- * measuring only those once found nothing at all on it.
+ * How many of the snapshot's controls are looked at, in its order. All of them, not the first few:
+ * on a page scrolled down, the first controls in the document are all above the screen, and
+ * measuring only those once found nothing at all on it. Their boxes come with the snapshot, so a
+ * long page costs no more calls than a short one.
  */
-export const CANDIDATE_LIMIT = 400;
+export const CANDIDATE_LIMIT = 4_000;
 const PROBE_TIMEOUT_MS = 500;
 const NAME_LIMIT = 120;
 
@@ -108,6 +110,8 @@ type Placement = {
   viewport: Size;
   offset: Point;
   window?: ScreenElements["window"];
+  /** What the page says about its window, on a desktop. */
+  view?: PageWindow;
 };
 
 async function viewportOf(page: Page): Promise<Size> {
@@ -142,6 +146,7 @@ async function placementOf(
     viewport,
     offset: pageOffset(view),
     window: windowPlacement(view),
+    view,
   };
 }
 
@@ -326,28 +331,85 @@ export function chooseElements<T extends { box: Rect | null }>(
   };
 }
 
+/** How many typed fields are asked, one by one, whether they hold a secret and have the keyboard. */
+export const FACTS_LIMIT = 30;
+/** How many of those questions run at once, and how long they all may take together. */
+const FACTS_CONCURRENCY = 16;
+const FACTS_BUDGET_MS = 400;
+/** The fallback when a snapshot carries no boxes: how many are measured, and for how long at most. */
+const FALLBACK_MEASURE_LIMIT = 120;
+const MEASURE_BUDGET_MS = 1_200;
+
+/** Where the time of one `/elements` went, for the `[timing]` line its caller writes. */
+export type ElementsTiming = {
+  phases: Record<string, number>;
+  candidates: number;
+  visible: number;
+  offscreen: number;
+};
+
+/**
+ * The work `items` hand to `work`, at most `concurrency` at a time, stopped at `deadline`: what
+ * finished is answered, what did not is null. A slow page costs the budget, never more.
+ */
+export async function measureWithin<T, R>(
+  items: readonly T[],
+  work: (item: T) => Promise<R>,
+  options: { concurrency: number; deadline: number; now?: () => number },
+): Promise<(R | null)[]> {
+  const now = options.now ?? Date.now;
+  const results: (R | null)[] = items.map(() => null);
+  let next = 0;
+  const late = () =>
+    new Promise<null>((resolve) =>
+      setTimeout(() => resolve(null), Math.max(0, options.deadline - now())),
+    );
+  const worker = async () => {
+    while (next < items.length && now() < options.deadline) {
+      const index = next;
+      next += 1;
+      results[index] = await Promise.race([
+        work(items[index] as T).catch(() => null),
+        late(),
+      ]);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(options.concurrency, items.length) }, worker),
+  );
+  return results;
+}
+
 /**
  * The page's controls with their boxes on the screen, the ones off it named beside them, the
  * scroll position and the title. `dialogPending`: the page is paused on a JavaScript dialog, and
  * nothing that runs in it (the title, the scroll position) is asked.
+ *
+ * Fast on a heavy page: every box comes with the snapshot itself (`boxes: true`), one call to the
+ * page rather than one per control, so the whole page is seen whatever its size. Only the typed
+ * fields on the screen (at most {@link FACTS_LIMIT}) are then asked, one by one, whether they hold a
+ * secret and have the keyboard, within a budget; everything else is judged by the page's own word
+ * on its secret fields. On a desktop the browser's address bar, which the page cannot describe, is
+ * listed as a control of its own (`addressbar`), placed by the window's geometry.
  */
 export async function listScreenElements(
   page: Page,
   desktop: Size | null,
-  options: { dialogPending?: boolean } = {},
+  options: {
+    dialogPending?: boolean;
+    timing?: (timing: ElementsTiming) => void;
+  } = {},
 ): Promise<ScreenElements> {
+  const phases: Record<string, number> = {};
+  const since = (started: number, name: string) => {
+    phases[name] = Math.round(performance.now() - started);
+  };
+  let started = performance.now();
   const placement = await placementOf(page, desktop);
-  const parsed = parseAriaSnapshot(await page.ariaSnapshot({ mode: "ai" }));
-  const candidates = parsed.elements.slice(0, CANDIDATE_LIMIT);
-  const [boxes, facts, title] = await Promise.all([
-    Promise.all(
-      candidates.map((element) =>
-        page
-          .locator(`aria-ref=${element.ref}`)
-          .boundingBox({ timeout: PROBE_TIMEOUT_MS })
-          .catch(() => null),
-      ),
-    ),
+  since(started, "placement");
+  started = performance.now();
+  const [yaml, facts, title] = await Promise.all([
+    page.ariaSnapshot({ mode: "ai", boxes: true }),
     options.dialogPending
       ? Promise.resolve(null)
       : withinMs(
@@ -363,83 +425,145 @@ export async function listScreenElements(
           "",
         ),
   ]);
+  since(started, "snapshot");
+  const parsed = parseAriaSnapshot(yaml, {}, { limit: CANDIDATE_LIMIT });
+  const candidates = parsed.elements;
+  const boxes = snapshotBoxes(yaml);
+  /*
+   * A snapshot that carries no boxes at all (a Playwright before `boxes`) is measured the old way,
+   * one by one, but only so many and only for so long.
+   */
+  if (boxes.size === 0 && candidates.length > 0) {
+    started = performance.now();
+    const measured = await measureWithin(
+      candidates.slice(0, FALLBACK_MEASURE_LIMIT),
+      (element) =>
+        page
+          .locator(`aria-ref=${element.ref}`)
+          .boundingBox({ timeout: PROBE_TIMEOUT_MS }),
+      {
+        concurrency: FACTS_CONCURRENCY,
+        deadline: Date.now() + MEASURE_BUDGET_MS,
+      },
+    );
+    measured.forEach((box, index) => {
+      const ref = candidates[index]?.ref;
+      if (ref && box) boxes.set(ref, box);
+    });
+    since(started, "measure");
+  }
   const chosen = chooseElements(
-    candidates.map((element, index) => ({
+    candidates.map((element) => ({
       element,
-      box: boxes[index] ?? null,
+      box: boxes.get(element.ref) ?? null,
     })),
     placement.viewport,
   );
   /*
-   * Whether each one holds a secret and has the keyboard, asked of the element itself. One that
-   * does not answer in time is judged by the attributes of the fields the page itself marks as
-   * secret, not as "every text field": a search box that was slow to answer is a search box. Only
-   * when the page answered neither question is every typed field treated as a secret, as before.
+   * Whether a field holds a secret: asked of the element itself for the typed fields on the screen;
+   * for the rest, and for one that does not answer in time, judged by the attributes of the fields
+   * the page itself marks as secret, not as "every text field": a search box that was slow to
+   * answer is a search box. Only when the page answered neither question is every typed field
+   * treated as a secret, as before.
    */
   const secretBoxes = facts?.secrets ?? [];
-  const factsOf = async (ref: string, role: string, box: Rect) => {
-    const read = await page
-      .locator(`aria-ref=${ref}`)
-      .evaluate(elementFacts, SENSITIVE_FIELD_SELECTOR, {
-        timeout: PROBE_TIMEOUT_MS,
-      })
-      .catch(() => null);
-    if (read) return read;
-    return {
-      sensitive: facts
-        ? secretBoxes.some((secret) => sameField(secret, box))
-        : // Nothing in the page answered at all: a field that cannot be asked is treated as secret.
-          TYPED_ROLES.has(role),
-      focused: false,
-    };
-  };
-  const [visible, offscreen] = await Promise.all([
-    Promise.all(
-      chosen.visible.map(async ({ element, box }) => {
-        if (!box) return null;
-        const onScreen = clipRect(
-          pageRectToScreen(clipRect(box, placement.viewport), placement.offset),
-          placement.screen,
-        );
-        if (!(onScreen.width > 0 && onScreen.height > 0)) return null;
-        const read = await factsOf(element.ref, element.role, box);
-        return {
-          ref: element.ref,
-          role: element.role,
-          name: element.name.slice(0, NAME_LIMIT),
-          rect: onScreen,
-          sensitive: read.sensitive,
-          focused: read.focused,
-        } satisfies ScreenElement;
-      }),
-    ),
-    Promise.all(
-      chosen.offscreen.map(async ({ element, box, offscreen: where }) => {
-        const read = await factsOf(element.ref, element.role, box);
-        return {
-          ref: element.ref,
-          role: element.role,
-          name: element.name.slice(0, NAME_LIMIT),
-          offscreen: where,
-          y: Math.round(box.y + (facts?.scroll.y ?? 0)),
-          sensitive: read.sensitive,
-        } satisfies OffscreenElement;
-      }),
-    ),
-  ]);
+  const byPage = (role: string, box: Rect) =>
+    facts
+      ? secretBoxes.some((secret) => sameField(secret, box))
+      : TYPED_ROLES.has(role);
+  started = performance.now();
+  const typed = chosen.visible
+    .filter(({ element, box }) => box && TYPED_ROLES.has(element.role))
+    .slice(0, FACTS_LIMIT);
+  const asked = await measureWithin(
+    typed,
+    ({ element }) =>
+      page
+        .locator(`aria-ref=${element.ref}`)
+        .evaluate(elementFacts, SENSITIVE_FIELD_SELECTOR, {
+          timeout: PROBE_TIMEOUT_MS,
+        }),
+    {
+      concurrency: FACTS_CONCURRENCY,
+      deadline: Date.now() + FACTS_BUDGET_MS,
+    },
+  );
+  const answered = new Map(
+    typed.flatMap(({ element }, index) => {
+      const read = asked[index];
+      return read ? [[element.ref, read] as const] : [];
+    }),
+  );
+  since(started, "facts");
+  const visible = chosen.visible.flatMap(({ element, box }) => {
+    if (!box) return [];
+    const onScreen = clipRect(
+      pageRectToScreen(clipRect(box, placement.viewport), placement.offset),
+      placement.screen,
+    );
+    if (!(onScreen.width > 0 && onScreen.height > 0)) return [];
+    const read = answered.get(element.ref);
+    return [
+      {
+        ref: element.ref,
+        role: element.role,
+        name: element.name.slice(0, NAME_LIMIT),
+        rect: onScreen,
+        sensitive: read ? read.sensitive : byPage(element.role, box),
+        focused: read?.focused ?? false,
+      } satisfies ScreenElement,
+    ];
+  });
+  const offscreen = chosen.offscreen.map(
+    ({ element, box, offscreen: where }) =>
+      ({
+        ref: element.ref,
+        role: element.role,
+        name: element.name.slice(0, NAME_LIMIT),
+        offscreen: where,
+        y: Math.round(box.y + (facts?.scroll.y ?? 0)),
+        sensitive: byPage(element.role, box),
+      }) satisfies OffscreenElement,
+  );
+  // The browser's own address bar, which no snapshot of the page has, where a person would go.
+  const bar =
+    placement.mode === "desktop" && placement.view
+      ? addressBarRect(placement.view)
+      : null;
+  const barOnScreen = bar ? clipRect(bar, placement.screen) : null;
+  const addressBar: ScreenElement[] =
+    barOnScreen && barOnScreen.width > 0 && barOnScreen.height > 0
+      ? [
+          {
+            ref: ADDRESS_BAR_REF,
+            role: "addressbar",
+            name: "Address bar",
+            rect: barOnScreen,
+            sensitive: false,
+            focused: false,
+          },
+        ]
+      : [];
+  options.timing?.({
+    phases,
+    candidates: candidates.length,
+    visible: visible.length,
+    offscreen: offscreen.length,
+  });
   return {
     screen: placement.screen,
     mode: placement.mode,
     ...(placement.window ? { window: placement.window } : {}),
     url: page.url(),
     ...(title ? { title: title.slice(0, 200) } : {}),
-    elements: visible.filter(
-      (element): element is ScreenElement => element !== null,
-    ),
+    elements: [...addressBar, ...visible],
     offscreen,
     ...(facts ? { scroll: facts.scroll } : {}),
   };
 }
+
+/** The ref of the browser's address bar in `/elements`: not one of the page's own. */
+export const ADDRESS_BAR_REF = "addressbar";
 
 /** A promise's answer, or `fallback` once `ms` have passed. */
 async function withinMs<T>(work: Promise<T>, ms: number, fallback: T) {

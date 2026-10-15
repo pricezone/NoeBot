@@ -71,6 +71,45 @@ export function screenPointToPage(
   return { x, y };
 }
 
+/**
+ * Chrome's own strips above the page, in CSS pixels: the tab strip, then the toolbar the address
+ * bar sits in. Measured on the computer's Chromium (a maximized window's page starts 87 px below its
+ * top: 41 of tabs and 46 of toolbar); anything taller has a bookmarks bar or an infobar below them.
+ */
+export const TAB_STRIP_PX = 41;
+export const TOOLBAR_PX = 46;
+/** The address field's own height inside the toolbar. */
+export const OMNIBOX_PX = 34;
+
+/**
+ * Where the browser's address bar is on the screen, from what the page says about its window: in the
+ * toolbar under the tab strip, from about 12% to 88% of the window's width (the back, forward and
+ * reload buttons to its left, the profile and menu buttons to its right). Null when the window has
+ * no room above the page for one (an app or kiosk window, full screen).
+ *
+ * An estimate, never read from the screen: the picture Show me how's model sees blacks out
+ * everything but the page, so the bar is described to it rather than shown.
+ */
+export function addressBarRect(view: PageWindow): Rect | null {
+  const chrome = Math.max(0, view.outerHeight - view.innerHeight);
+  if (chrome < 30 || !(view.outerWidth >= 200)) return null;
+  const top = finite(view.screenY);
+  const left = finite(view.screenX);
+  // Under the tab strip when there is room for both; with no tab strip, the strip is the toolbar.
+  const toolbarTop =
+    chrome >= TAB_STRIP_PX + TOOLBAR_PX
+      ? top + TAB_STRIP_PX
+      : top + Math.max(0, chrome - TOOLBAR_PX);
+  const toolbarHeight = Math.min(TOOLBAR_PX, chrome);
+  const height = Math.min(OMNIBOX_PX, toolbarHeight);
+  return {
+    x: round(left + view.outerWidth * 0.12),
+    y: round(toolbarTop + (toolbarHeight - height) / 2),
+    width: round(view.outerWidth * 0.76),
+    height,
+  };
+}
+
 /** Whether a box shows any area at all inside the bounds. */
 export function visibleIn(rect: Rect, bounds: Size): boolean {
   if (!(rect.width > 0 && rect.height > 0)) return false;

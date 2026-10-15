@@ -411,10 +411,13 @@ function toExtra(
 export function parseAriaSnapshot(
   yaml: string,
   hints: SnapshotHints = {},
+  /** `limit`: how many to keep, {@link SNAPSHOT_ELEMENT_LIMIT} unless said (Clicky keeps more). */
+  options: { limit?: number } = {},
 ): {
   elements: SnapshotElement[];
   truncated: boolean;
 } {
+  const limit = options.limit ?? SNAPSHOT_ELEMENT_LIMIT;
   const candidates: Candidate[] = [];
   let order = 0;
   let overflow = false;
@@ -484,9 +487,70 @@ export function parseAriaSnapshot(
     .filter((candidate) => !candidate.dropped)
     .sort((a, b) => a.priority - b.priority || a.order - b.order);
   return {
-    elements: kept
-      .slice(0, SNAPSHOT_ELEMENT_LIMIT)
-      .map((candidate) => candidate.element),
-    truncated: overflow || kept.length > SNAPSHOT_ELEMENT_LIMIT,
+    elements: kept.slice(0, limit).map((candidate) => candidate.element),
+    truncated: overflow || kept.length > limit,
   };
+}
+
+/** A box in CSS pixels. */
+export type SnapshotBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Every element's box from a snapshot taken with `boxes: true`, by ref, in the main frame's
+ * viewport pixels: one call to the page instead of one per element.
+ *
+ * Playwright gives an element inside a frame its box in that frame's own viewport, so each frame's
+ * box is added to what is inside it, the way the snapshot nests them (the frame's border is not, so
+ * those are a pixel or two off). An entry with no box (not rendered) is left out.
+ */
+export function snapshotBoxes(yaml: string): Map<string, SnapshotBox> {
+  const boxes = new Map<string, SnapshotBox>();
+  let tree: unknown;
+  try {
+    tree = parseYaml(yaml, { schema: "failsafe" });
+  } catch {
+    return boxes;
+  }
+  const boxOf = (value: string | undefined): SnapshotBox | null => {
+    if (!value) return null;
+    const parts = value.split(",").map((part) => Number(part.trim()));
+    if (parts.length !== 4 || parts.some((part) => !Number.isFinite(part)))
+      return null;
+    const [x, y, width, height] = parts as [number, number, number, number];
+    return { x, y, width, height };
+  };
+  const walk = (node: unknown, dx: number, dy: number, depth: number) => {
+    if (depth > 200) return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, dx, dy, depth + 1);
+      return;
+    }
+    const entries: [string, unknown][] =
+      typeof node === "string"
+        ? [[node, undefined]]
+        : node && typeof node === "object"
+          ? Object.entries(node)
+          : [];
+    for (const [key, value] of entries) {
+      const descriptor = parseDescriptor(key);
+      const box = boxOf(descriptor?.flags.get("box"));
+      const ref = descriptor?.flags.get("ref");
+      const placed = box ? { ...box, x: box.x + dx, y: box.y + dy } : null;
+      if (ref && placed) boxes.set(ref, placed);
+      // What is inside a frame is measured from the frame's own corner.
+      const inside =
+        descriptor?.role === "iframe" && placed
+          ? { dx: placed.x, dy: placed.y }
+          : { dx, dy };
+      if (value && typeof value === "object")
+        walk(value, inside.dx, inside.dy, depth + 1);
+    }
+  };
+  walk(tree, 0, 0, 0);
+  return boxes;
 }
