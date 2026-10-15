@@ -360,6 +360,17 @@ function refOf(value: unknown): string | undefined {
 }
 
 /** A model's `{ref, point, box}` as where to point, or null when it named nowhere usable. */
+/**
+ * Roles a step is done in by typing, not by the click that starts it. Not `combobox`: a drop-down
+ * is one too, and it is done by choosing, which the viewer does not see as typing.
+ */
+const TYPED_INTO = new Set([
+  "textbox",
+  "searchbox",
+  "spinbutton",
+  "addressbar",
+]);
+
 function targetIn(
   value: Record<string, unknown>,
   placed: readonly PlacedElement[],
@@ -520,12 +531,16 @@ export function parseBrainAnswer(
         if (!title) return [];
         const target = targetIn(step, context.placed);
         const detail = stringOf(step.detail, 500);
+        const role = target?.ref
+          ? context.placed.find((element) => element.ref === target.ref)?.role
+          : undefined;
         return [
           {
             title,
             ...(detail ? { detail } : {}),
             overlays: target ? overlaysFor(target, context.newId) : [],
             ...(target?.ref ? { targetRef: target.ref } : {}),
+            ...(role && TYPED_INTO.has(role) ? { typing: true } : {}),
           },
         ];
       });

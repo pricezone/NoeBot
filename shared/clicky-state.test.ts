@@ -634,6 +634,33 @@ describe("walkthroughs", () => {
     expect(h.session.walkthrough?.steps[0]?.status).toBe("done");
   });
 
+  test("a click on a field to type into only starts its step; the typing's look finishes it", () => {
+    // Live: "Click the address bar and type gov.gr" was finished by the click, before any typing.
+    const h = harness();
+    h.command({ type: "ask", text: "how do I get to gov.gr?" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Three steps.",
+      plan: {
+        ...PLAN,
+        steps: PLAN.steps.map((step, index) =>
+          index === 0 ? { ...step, typing: true } : step,
+        ),
+      },
+    });
+    expect(h.session.walkthrough?.steps[0]?.typing).toBe(true);
+    expect(
+      h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } }).changed,
+    ).toBe(false);
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("current");
+    h.run({ type: "person.typed" });
+    const look = h.session.check;
+    expect(look?.stepId).toBe(h.session.walkthrough?.steps[0]?.id);
+    h.run({ type: "brain.check", checkId: look?.id ?? "", stepDone: true });
+    expect(h.session.walkthrough?.steps[0]?.status).toBe("done");
+  });
+
   test("the stuck nudge comes once, after a quiet spell", () => {
     const h = guided();
     h.advance(CLICKY_NUDGE_AFTER_MS - 1);

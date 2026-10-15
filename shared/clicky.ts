@@ -86,6 +86,11 @@ export type ClickyStep = {
   overlays: ClickyOverlay[];
   /** The element this step is about, when Clicky found it on the page (an aria ref). */
   targetRef?: string;
+  /**
+   * The step is done by typing into its target (a text field, the address bar): a click on it only
+   * starts it, and the look after the typing, Enter or the page changing says when it is done.
+   */
+  typing?: boolean;
 };
 
 /** A task broken into steps. Progress is kept, so a walkthrough resumes where it was. */

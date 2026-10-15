@@ -110,6 +110,26 @@ describe("parseBrainAnswer", () => {
     ]);
   });
 
+  test("a step on a field to type into says so; a step on a button does not", () => {
+    const answer = parseBrainAnswer(
+      JSON.stringify({
+        say: "Two steps.",
+        plan: {
+          goal: "Sign in",
+          steps: [
+            { title: "Type your password", ref: "e2" },
+            { title: "Press Continue", ref: "e1" },
+          ],
+        },
+      }),
+      context,
+    );
+    expect(answer.plan?.steps.map((step) => step.typing ?? false)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
   test("a guessed point near an element snaps onto it", () => {
     // 2% of the screen to the right of the button's edge.
     const answer = parseBrainAnswer(

@@ -77,6 +77,7 @@ export type ClickyPlan = {
     detail?: string;
     overlays: ClickyOverlay[];
     targetRef?: string;
+    typing?: boolean;
   }[];
 };
 
@@ -465,6 +466,7 @@ function buildWalkthrough(
     status: index === 0 ? "current" : "pending",
     overlays: step.overlays,
     ...(step.targetRef ? { targetRef: step.targetRef } : {}),
+    ...(step.typing ? { typing: true } : {}),
   }));
   return {
     id: context.newId(),
@@ -1311,6 +1313,8 @@ function reduceInternal(
       const step = currentStep(session);
       if (!step?.overlays.some((overlay) => hitsOverlay(event.at, overlay)))
         return unchanged(session);
+      // A field to type into is only started by a click; the typing's own look finishes it.
+      if (step.typing) return unchanged(session);
       const moved = advance({ ...session, ...NO_CHECK }, context);
       if (moved.finished) {
         const finished = finishWalkthrough(moved.session);
