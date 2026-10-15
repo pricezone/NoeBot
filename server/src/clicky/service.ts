@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type {
-  ClickyNotice,
-  ClickyOverlay,
-  ClickyPoint,
-  ClickyProposal,
-  ClickySession,
+import {
+  type ClickyNotice,
+  type ClickyOverlay,
+  type ClickyPoint,
+  type ClickyProposal,
+  type ClickySession,
+  currentStep,
 } from "../../../shared/clicky";
 import {
   type ClickyAuditEvent,
@@ -24,7 +25,12 @@ import type { ClickyBotVerb } from "../../../shared/clicky-state";
 import type { ComputerGateway } from "../computer/gateway";
 import type { PageState, ScreenElements } from "../computer/schema";
 import type { ActionOutcome, ClickyActions } from "./actions";
-import type { BrainCheck, ClickyBrain, ClickyPreferenceView } from "./brain";
+import {
+  type BrainCheck,
+  type ClickyBrain,
+  type ClickyPreferenceView,
+  namedSitesOf,
+} from "./brain";
 import type { ClickyHub } from "./hub";
 import { writeNotes } from "./notes";
 import type { ClickyGuideInput } from "./schema";
@@ -229,8 +235,17 @@ export type ClickyService = {
    * other typing. Only that it happened; never what.
    */
   personTyped(userId: string, botId: string, kind: "text" | "submit"): void;
-  /** The Bot is about to act on its page; shown to this person if they are watching it narrated. */
-  botAction(userId: string, botId: string, action: ClickyBotAction): void;
+  /**
+   * The Bot is about to act on its page; shown to this person if they are watching it narrated.
+   * `autoWatch`: they have its screen open, so narration starts by itself when Show me how is
+   * asleep, or awake with nothing on the screen and nobody needing them.
+   */
+  botAction(
+    userId: string,
+    botId: string,
+    action: ClickyBotAction,
+    options?: { autoWatch?: boolean },
+  ): void;
   preferences(userId: string): Promise<ClickyPreferences>;
   /** One pass of the clock over the sessions that are awake. */
   tick(): Promise<void>;
@@ -325,7 +340,10 @@ export function createClickyService(deps: {
   /** Sessions whose next look must start afresh: the page moved on since the running one looked. */
   const restartLook = new Set<Key>();
   /** Narration in flight per session; only the latest of the actions waiting behind it is shown. */
-  const narrations = new Map<Key, { next?: ClickyBotAction }>();
+  const narrations = new Map<
+    Key,
+    { next?: { action: ClickyBotAction; autoWatch: boolean } }
+  >();
   /** Sessions this process last saw awake and narrating: only theirs are read for the Bot's actions. */
   const narratingHere = new Set<Key>();
   /** What Clicky did in each session, for its notes. In memory: the audit trail is the record. */
@@ -667,6 +685,8 @@ export function createClickyService(deps: {
         ...(viaGrant && session.grant?.host
           ? { grantHost: session.grant.host }
           : {}),
+        // Opening a site is rated against the sites the person named, here as at the proposal.
+        namedSites: namedSitesOf(session),
       });
     } catch (error) {
       outcome = {
@@ -955,6 +975,24 @@ export function createClickyService(deps: {
     );
   }
 
+  /**
+   * Whether narration may start by itself on this session: asleep (or none yet), or awake with
+   * nothing on the screen, no walkthrough, nothing waiting on the person and the Bot not needing
+   * them. Never over Stop or Pause (the reducer refuses those too).
+   */
+  function mayStartWatching(session: ClickySession | null): boolean {
+    if (!session?.awake) return true;
+    return (
+      session.state === "idle" &&
+      !currentStep(session) &&
+      session.overlays.length === 0 &&
+      !session.proposal &&
+      (!session.trigger ||
+        session.trigger.kind === "person" ||
+        session.trigger.kind === "follow_up")
+    );
+  }
+
   /** The host a URL names, or nothing. */
   function hostOf(url: string | undefined): string | undefined {
     if (!url) return undefined;
@@ -973,10 +1011,20 @@ export function createClickyService(deps: {
     userId: string,
     botId: string,
     action: ClickyBotAction,
+    autoWatch: boolean,
   ) {
-    if (!narratingHere.has(keyOf(userId, botId))) return;
-    const session = await deps.store.load(userId, botId);
-    if (!session?.awake || !session.narrating) return;
+    if (!narratingHere.has(keyOf(userId, botId)) && !autoWatch) return;
+    let session = await deps.store.load(userId, botId);
+    if (!session?.awake || !session.narrating) {
+      // The person has the screen open and nothing else is going on: show them what the Bot does.
+      if (!autoWatch || !mayStartWatching(session)) return;
+      const watched = await dispatch(userId, botId, {
+        type: "command",
+        command: { type: "watch" },
+      });
+      session = watched?.session ?? null;
+      if (!session?.awake || !session.narrating) return;
+    }
     if (session.state !== "guiding" && session.state !== "idle") return;
     const found =
       action.ref && deps.gateway.elementRect
@@ -1137,21 +1185,28 @@ export function createClickyService(deps: {
       startWatch(userId, botId, true, pace.typingSettleMs);
     },
 
-    botAction(userId, botId, action) {
+    botAction(userId, botId, action, options) {
       const key = keyOf(userId, botId);
-      // Nobody here is watching this Bot narrated: nothing is read, not even the session.
-      if (!narratingHere.has(key)) return;
+      const autoWatch = options?.autoWatch === true;
+      // Nobody here is watching this Bot: nothing is read, not even the session.
+      if (!narratingHere.has(key) && !autoWatch) return;
       const running = narrations.get(key);
       if (running) {
-        running.next = action;
+        running.next = { action, autoWatch };
         return;
       }
-      const slot: { next?: ClickyBotAction } = {};
+      const slot: {
+        next?: { action: ClickyBotAction; autoWatch: boolean };
+      } = {};
       narrations.set(key, slot);
       void (async () => {
-        let current: ClickyBotAction | undefined = action;
+        let current:
+          | { action: ClickyBotAction; autoWatch: boolean }
+          | undefined = { action, autoWatch };
         while (current) {
-          await narrate(userId, botId, current).catch(() => undefined);
+          await narrate(userId, botId, current.action, current.autoWatch).catch(
+            () => undefined,
+          );
           current = slot.next;
           slot.next = undefined;
         }

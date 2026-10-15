@@ -53,6 +53,7 @@ import {
   notifyClickyActivity,
   startClickyActivityListener,
 } from "./hub";
+import { createClickyPresence } from "./presence";
 import { createClickyRoutes } from "./routes";
 import type { ClickyGuideInput } from "./schema";
 import { type ClickyPreferences, createClickyService } from "./service";
@@ -113,9 +114,12 @@ export type ClickyWiring = {
   }): void;
   /**
    * One of the Bot's page actions, about to be carried out (the gateway's `onBotAction`): shown to
-   * the person it acts for when they are watching it narrated.
+   * the person it acts for when they are watching it narrated, or when they have its screen open
+   * and Show me how is not busy with anything else (narration then starts by itself).
    */
   onBotAction(event: ComputerBotAction): void;
+  /** A live-screen socket of this person's on this Bot opened or closed (the `/stream` relay). */
+  viewerOpen(userId: string, botId: string, open: boolean): void;
   /**
    * A message the person's live viewer sent toward the computer (raw JSON as relayed), with the size
    * of the last frame that viewer was sent, so a click can be placed on Clicky's normalized screen.
@@ -276,21 +280,32 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
       clicky?.activation.onWaiting(input);
     },
     onRunBusy(input) {
+      clicky?.presence.runBusy(input);
       clicky?.activation.onRunBusy(input);
     },
     onBotAction(event) {
       if (!clicky || !event.userId || !NARRATED_TOOLS.has(event.tool)) return;
-      clicky.service.botAction(event.userId, event.botId, {
-        tool: event.tool,
-        ...(event.ref ? { ref: event.ref } : {}),
-        ...(event.snapshotId !== undefined
-          ? { snapshotId: event.snapshotId }
-          : {}),
-        ...(event.role ? { role: event.role } : {}),
-        ...(event.name ? { name: event.name } : {}),
-        ...(event.url ? { url: event.url } : {}),
-        ...(event.key ? { key: event.key } : {}),
-      });
+      clicky.presence.botActed(event.userId, event.botId);
+      clicky.service.botAction(
+        event.userId,
+        event.botId,
+        {
+          tool: event.tool,
+          ...(event.ref ? { ref: event.ref } : {}),
+          ...(event.snapshotId !== undefined
+            ? { snapshotId: event.snapshotId }
+            : {}),
+          ...(event.role ? { role: event.role } : {}),
+          ...(event.name ? { name: event.name } : {}),
+          ...(event.url ? { url: event.url } : {}),
+          ...(event.key ? { key: event.key } : {}),
+        },
+        // The person has the Bot's screen open: narration may start by itself.
+        { autoWatch: clicky.presence.viewing(event.userId, event.botId) },
+      );
+    },
+    viewerOpen(userId, botId, open) {
+      clicky?.presence.viewerOpen(userId, botId, open);
     },
     onViewerInput({ userId, botId, raw, frame }) {
       if (!clicky) return;
@@ -490,6 +505,7 @@ function buildClicky(
       ),
     );
   };
+  const presence = createClickyPresence();
   const activation = createClickyActivation({
     service,
     needsYou,
@@ -505,6 +521,7 @@ function buildClicky(
     activation,
     sessions,
     canUseComputer,
+    presence,
     holderOf: (botId: string) => holders.get(botId),
     routes() {
       routes ??= createClickyRoutes({
@@ -512,6 +529,8 @@ function buildClicky(
         hub,
         sessions,
         sessionTokenOf: (cookie) => mobile.sessionTokenOf(cookie),
+        // A client's watch counts only while the Bot is at work for that person.
+        watchAllowed: (userId, botId) => presence.botActive(userId, botId),
       });
       return routes;
     },

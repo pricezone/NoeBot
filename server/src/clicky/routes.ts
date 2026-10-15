@@ -29,6 +29,11 @@ export function createClickyRoutes(deps: {
   sessions?: SocketSessions;
   /** This deployment's session token in a Cookie header. */
   sessionTokenOf?: (cookie: string | undefined) => string | null;
+  /**
+   * Whether a client's `watch` counts: only while the Bot is at work for that person (a run holds
+   * its lock, or it acted just now). Otherwise the session is answered as it is. Absent, always.
+   */
+  watchAllowed?: (userId: string, botId: string) => boolean;
 }) {
   const routes = new Hono<{ Variables: AppVariables }>();
   const limit = bodyLimit({ maxSize: 64 * 1024 });
@@ -62,6 +67,18 @@ export function createClickyRoutes(deps: {
     );
     if (!parsed.ok) return context.json({ error: parsed.error }, 400);
     try {
+      // The viewer asks to watch whenever it opens; whether there is anything to watch is ours.
+      if (
+        parsed.value.type === "watch" &&
+        deps.watchAllowed &&
+        !deps.watchAllowed(context.var.actor.id, context.req.param("botId"))
+      )
+        return context.json({
+          session: await deps.service.open(
+            context.var.actor.id,
+            context.req.param("botId"),
+          ),
+        });
       const outcome = await deps.service.dispatch(
         context.var.actor.id,
         context.req.param("botId"),

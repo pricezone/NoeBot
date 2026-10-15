@@ -48,6 +48,7 @@ function harness(
     actions?: ClickyActions;
     brain?: ClickyBrain;
     audit?: (row: AuditEventInput) => Promise<void>;
+    watchAllowed?: () => boolean;
   } = {},
 ) {
   const store = createInMemoryClickyStore();
@@ -106,9 +107,14 @@ function harness(
     });
     await next();
   };
-  const app = new Hono<{ Variables: AppVariables }>()
-    .use("*", asActor)
-    .route("/api/computers", createClickyRoutes({ service, hub }));
+  const app = new Hono<{ Variables: AppVariables }>().use("*", asActor).route(
+    "/api/computers",
+    createClickyRoutes({
+      service,
+      hub,
+      ...(options.watchAllowed ? { watchAllowed: options.watchAllowed } : {}),
+    }),
+  );
   const command = async (body: unknown) => {
     const response = await app.request(
       "http://openbot.test/api/computers/bot-1/clicky/commands",
@@ -245,6 +251,25 @@ describe("POST /:botId/clicky/commands", () => {
       reply: { notice: "watching" },
     });
     expect((await command({ type: "watch", extra: 1 })).status).toBe(400);
+  });
+
+  test("a client's watch counts only while the Bot is at work for that person", async () => {
+    let active = false;
+    const { command } = harness({ watchAllowed: () => active });
+    const idle = await command({ type: "watch" });
+    expect(idle.status).toBe(200);
+    expect(idle.body.rejected).toBeUndefined();
+    expect(idle.body.session).toMatchObject({
+      awake: false,
+      narrating: false,
+      seq: 0,
+    });
+    active = true;
+    const working = await command({ type: "watch" });
+    expect(working.body.session).toMatchObject({
+      awake: true,
+      narrating: true,
+    });
   });
 
   test("asking looks at the screen and answers", async () => {

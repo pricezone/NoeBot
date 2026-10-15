@@ -3,6 +3,7 @@ import type { ClickySession } from "../../shared/clicky";
 import type { BrainCheck, ClickyBrain } from "../src/clicky/brain";
 import { createClickyHub } from "../src/clicky/hub";
 import { viewerTyping } from "../src/clicky/index";
+import { createClickyPresence } from "../src/clicky/presence";
 import {
   botVerbOf,
   type ClickyPreferences,
@@ -500,6 +501,91 @@ describe("narration", () => {
     expect(asked).toEqual(["e1", "e4"]);
   });
 
+  test("with the Bot's screen open, narration starts by itself on an asleep session", async () => {
+    const asked: string[] = [];
+    const { service, load } = harness({
+      elementRect: async (_botId, ref) => {
+        asked.push(ref);
+        return {
+          screen: { width: 1000, height: 500 },
+          rect: { x: 100, y: 100, width: 200, height: 50 },
+        };
+      },
+    });
+    // Nobody has opened anything: no session at all yet.
+    service.botAction(
+      "user-1",
+      "bot-1",
+      { tool: "computer_click", ref: "e7", name: "Login" },
+      { autoWatch: true },
+    );
+    await until(async () => (await load())?.reply?.notice === "narrate_click");
+    const session = await load();
+    expect(session).toMatchObject({
+      awake: true,
+      narrating: true,
+      trigger: { kind: "person" },
+    });
+    expect(asked).toEqual(["e7"]);
+  });
+
+  test("never over a walkthrough, a Stop or the Bot needing the person", async () => {
+    const guided = harness({
+      elementRect: async () => ({ rect: null }),
+    });
+    await guided.guiding();
+    const before = await guided.load();
+    guided.service.botAction(
+      "user-1",
+      "bot-1",
+      { tool: "computer_click", ref: "e1", name: "Search" },
+      { autoWatch: true },
+    );
+    await Bun.sleep(40);
+    expect((await guided.load()).seq).toBe(before.seq);
+    expect((await guided.load()).narrating).toBe(false);
+
+    const stopped = harness({ elementRect: async () => ({ rect: null }) });
+    await stopped.service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "stop" },
+    });
+    const halted = await stopped.load();
+    stopped.service.botAction(
+      "user-1",
+      "bot-1",
+      { tool: "computer_click", ref: "e1", name: "Search" },
+      { autoWatch: true },
+    );
+    await Bun.sleep(40);
+    expect((await stopped.load()).seq).toBe(halted.seq);
+
+    const needed = harness({ elementRect: async () => ({ rect: null }) });
+    await needed.service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "overlay.clear" },
+    });
+    await needed.store.save(
+      "user-1",
+      "bot-1",
+      {
+        ...(await needed.load()),
+        awake: true,
+        state: "idle",
+        trigger: { kind: "sign_in", requestId: "s1" },
+      },
+      (await needed.load()).seq,
+    );
+    needed.service.botAction(
+      "user-1",
+      "bot-1",
+      { tool: "computer_click", ref: "e1", name: "Search" },
+      { autoWatch: true },
+    );
+    await Bun.sleep(40);
+    expect((await needed.load()).narrating).toBe(false);
+  });
+
   test("the Bot's tools as narration names them", () => {
     expect(
       [
@@ -571,5 +657,43 @@ describe("what the viewer's keys say", () => {
       ),
     ).toBeNull();
     expect(viewerTyping('not json with a "key"')).toBeNull();
+  });
+});
+
+describe("who is watching, and whether the Bot is at work", () => {
+  test("a screen open twice is still open after one closes; closed, it is not", () => {
+    const presence = createClickyPresence();
+    presence.viewerOpen("user-1", "bot-1", true);
+    presence.viewerOpen("user-1", "bot-1", true);
+    presence.viewerOpen("user-1", "bot-1", false);
+    expect(presence.viewing("user-1", "bot-1")).toBe(true);
+    expect(presence.viewing("user-2", "bot-1")).toBe(false);
+    presence.viewerOpen("user-1", "bot-1", false);
+    expect(presence.viewing("user-1", "bot-1")).toBe(false);
+    // A close never heard opened does not go below nothing.
+    presence.viewerOpen("user-1", "bot-1", false);
+    presence.viewerOpen("user-1", "bot-1", true);
+    expect(presence.viewing("user-1", "bot-1")).toBe(true);
+  });
+
+  test("at work while a run holds its lock for that person, or for a few seconds after it acted", () => {
+    let now = 1_000;
+    const presence = createClickyPresence({ now: () => now });
+    expect(presence.botActive("user-1", "bot-1")).toBe(false);
+    presence.runBusy({
+      threadId: "t1",
+      busy: true,
+      userId: "user-1",
+      agentId: "bot-1",
+    });
+    expect(presence.botActive("user-1", "bot-1")).toBe(true);
+    expect(presence.botActive("user-2", "bot-1")).toBe(false);
+    presence.runBusy({ threadId: "t1", busy: false });
+    expect(presence.botActive("user-1", "bot-1")).toBe(false);
+    presence.botActed("user-1", "bot-1");
+    now += 14_000;
+    expect(presence.botActive("user-1", "bot-1")).toBe(true);
+    now += 2_000;
+    expect(presence.botActive("user-1", "bot-1")).toBe(false);
   });
 });
