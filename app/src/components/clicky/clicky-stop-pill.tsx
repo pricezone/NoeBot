@@ -50,10 +50,12 @@ const ClickyWatch = memo(function ClickyWatch({
     >
       <span>
         {stopFailed
-          ? t("Clicky couldn't be stopped. Try again.")
+          ? t("Couldn't stop. Try again.")
           : state === "acting"
-            ? t("Clicky is doing something on {{name}}'s computer.", { name })
-            : t("Clicky is waiting for your OK on {{name}}'s computer.", {
+            ? t("Show me how is doing something on {{name}}'s computer.", {
+                name,
+              })
+            : t("Show me how is waiting for your OK on {{name}}'s computer.", {
                 name,
               })}
       </span>

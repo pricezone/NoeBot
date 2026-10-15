@@ -22,8 +22,9 @@ function guided(result: string | undefined): boolean {
 }
 
 /**
- * `computer_guide_person` in the conversation: the Bot asked Clicky to show the person where to go
- * on its screen. One line with what it is about, and a way to the screen, where Clicky is pointing.
+ * `computer_guide_person` in the conversation: the Bot asked "Show me how" (Clicky) to show the
+ * person where to go on its screen. One line with what it is about, and a way to the screen, where
+ * it is pointing.
  */
 export const ClickyGuideCard = memo(function ClickyGuideCard({
   computerId,
@@ -39,7 +40,9 @@ export const ClickyGuideCard = memo(function ClickyGuideCard({
   const { t } = useTranslation();
   const { openScreen } = useBotScreen(computerId, false);
   if (running)
-    return <ToolLine detail={goal} label={t("Getting Clicky ready")} running />;
+    return (
+      <ToolLine detail={goal} label={t("Getting ready to show you")} running />
+    );
   if (!guided(result))
     return (
       <ToolLine detail={goal} failed label={t("Showing you on the screen")} />
@@ -55,7 +58,7 @@ export const ClickyGuideCard = memo(function ClickyGuideCard({
           className="size-4 shrink-0 text-muted-foreground"
         />
         <span className="min-w-0">
-          {t("Clicky is showing you where: {{goal}}", { goal })}
+          {t("Showing you where on the screen: {{goal}}", { goal })}
         </span>
       </span>
       <Button onClick={openScreen} size="sm" variant="outline">

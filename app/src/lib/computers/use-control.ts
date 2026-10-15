@@ -5,6 +5,7 @@ import {
   cancelControl,
   readControl,
   releaseControl,
+  type TakeControlOptions,
   takeControl,
 } from "./control";
 
@@ -18,7 +19,7 @@ const EMPTY: Snapshot = { control: null, busy: false, problem: null };
 type ControlStore = {
   getSnapshot: () => Snapshot;
   refresh: () => Promise<void>;
-  change: (action: Action) => Promise<boolean>;
+  change: (action: Action, options?: TakeControlOptions) => Promise<boolean>;
   subscribe: (listener: () => void) => () => void;
 };
 const stores = new Map<string, ControlStore>();
@@ -64,7 +65,10 @@ function createControlStore(computerId: string): ControlStore {
       if (!listeners.size && !snapshot.busy && stores.get(computerId) === store)
         stores.delete(computerId);
     });
-  const change = async (action: Action): Promise<boolean> => {
+  const change = async (
+    action: Action,
+    options?: TakeControlOptions,
+  ): Promise<boolean> => {
     if (snapshot.busy || snapshot.control?.transitioning) return false;
     const control = snapshot.control;
     const requestId = control?.request?.id;
@@ -86,6 +90,7 @@ function createControlStore(computerId: string): ControlStore {
           ? await takeControl(
               computerId,
               control?.requested ? requestId : undefined,
+              options,
             )
           : requestId
             ? action === "release"
@@ -142,6 +147,14 @@ function createControlStore(computerId: string): ControlStore {
   };
   return store;
 }
+/**
+ * Who holds the computer as the shared store last read it, outside React: for a decision made as a
+ * surface closes, when what it last drew may already be out of date. Null when nothing reads it.
+ */
+export function latestComputerControl(computerId: string): ControlState | null {
+  return stores.get(computerId)?.getSnapshot().control ?? null;
+}
+
 const noSubscription = () => () => undefined;
 const emptySnapshot = () => EMPTY;
 export function useComputerControl(computerId: string, enabled = true) {

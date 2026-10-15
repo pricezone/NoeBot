@@ -6,17 +6,8 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { ClickyPanelRow } from "@/components/clicky/clicky-launcher";
-import {
-  ClickyScreenOverlay,
-  containedFrame,
-} from "@/components/clicky/clicky-overlay";
-import { ClickyStateChip } from "@/components/clicky/clicky-state-chip";
 import { useClickyCapability } from "@/lib/clicky/queries";
-import {
-  selectClickyPresence,
-  useClickySession,
-} from "@/lib/clicky/use-clicky-session";
+import { sleepClickyNow } from "@/lib/clicky/stop";
 import { useClickyViewerRequest } from "@/lib/clicky/viewer-request";
 import {
   type Desktop,
@@ -32,6 +23,7 @@ import {
 import { useComputerControl } from "@/lib/computers/use-control";
 import { useTranslation } from "@/lib/i18n";
 import { useUiStrings } from "@/lib/i18n/strings";
+import { queryClient } from "@/query-client";
 import { ChannelAvatar } from "../channels/avatar";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
@@ -529,6 +521,8 @@ export function ComputerView({
    * just closes.
    */
   const minimize = useCallback(() => {
+    // "Show me how" lives in the viewer: minimizing puts it to sleep (not Stop), whatever else happens.
+    void sleepClickyNow(queryClient, computerId);
     if (holder !== "human" || keepControl) {
       setExpanded(false);
       return;
@@ -536,32 +530,15 @@ export function ComputerView({
     void changeControl?.("release").then((released) => {
       if (released) setExpanded(false);
     });
-  }, [holder, keepControl, changeControl]);
+  }, [holder, keepControl, changeControl, computerId]);
 
   /*
-   * Clicky on the preview: its pointer and boxes over the picture and a chip saying where it is, for
-   * a screen that is live and awake. The panel's card (the one that sleeps) also carries Clicky's
-   * switch, and opens the viewer when Clicky asks for it (the Bot needing the person).
+   * "Show me how" (Clicky) is NOT DRAWN ON THE SMALL PREVIEW: no pointer, no chip, no switch. At
+   * that size its words cannot be read and its pointer only hides the picture; it lives in the
+   * full-window viewer, beside the screen it points at. The panel's card (the one that sleeps) still
+   * opens that viewer when Clicky asks for it (the Bot needing the person), without drawing anything.
    */
   const clicky = useClickyCapability();
-  const clickyOn = clicky.enabled && !settled && !asleep;
-  const clickyPresence = useClickySession(
-    computerId,
-    clickyOn,
-    "preview",
-    selectClickyPresence,
-  );
-  const clickyAwake = clickyOn && clickyPresence?.awake === true;
-  /*
-   * The picture is fitted whole inside the card (`object-contain`), so a frame of another shape
-   * than the card is drawn with bands beside it; Clicky's layer covers the picture, not the bands.
-   */
-  const clickyFrame = containedFrame(
-    frameAspect,
-    shot && shot.width > 0 && shot.height > 0
-      ? shot.width / shot.height
-      : frameAspect,
-  );
   const openViewer = useCallback(() => setExpanded(true), []);
   useClickyViewerRequest(
     computerId,
@@ -608,22 +585,6 @@ export function ComputerView({
               aria-label={t("Open the assistant's screen full size")}
             >
               {polledScreen}
-
-              {clickyAwake && showScreen ? (
-                <span
-                  className="pointer-events-none absolute"
-                  data-slot="clicky-frame"
-                  style={clickyFrame}
-                >
-                  <ClickyScreenOverlay botId={computerId} compact />
-                </span>
-              ) : null}
-              {clickyAwake ? (
-                <ClickyStateChip
-                  className="absolute top-2 left-2 z-20 bg-black/60 text-white backdrop-blur-sm"
-                  session={clickyPresence}
-                />
-              ) : null}
 
               {/* Whose computer this is — and whose hands are on it — said on the picture itself. */}
               {name || wheelHere ? (
@@ -697,13 +658,6 @@ export function ComputerView({
               </span>
             </div>
           ) : null}
-          {sleeps && clickyOn ? (
-            <ClickyPanelRow
-              botId={computerId}
-              onOpenScreen={openViewer}
-              session={clickyPresence}
-            />
-          ) : null}
           {!settled && control?.transitioning ? (
             <p className="px-3 py-2 text-sm">{ui.finishingBeforeHandover}</p>
           ) : null}
@@ -769,6 +723,7 @@ export function ComputerView({
               problem={problem}
               settled={settled}
               showLiveScreen={showLiveScreen}
+              turnRunning={!sleeps && active && !settled}
             />,
             document.body,
           )

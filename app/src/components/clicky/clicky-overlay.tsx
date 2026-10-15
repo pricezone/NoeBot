@@ -1,11 +1,15 @@
-import { memo, useEffect, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
 import type { AnimationId } from "@/components/noe-bot/anim/catalog";
 import { NoeBotSprite } from "@/components/noe-bot/anim/noe-bot-sprite";
 import {
   THEMED_INK_CLASS,
   THEMED_PALETTE,
 } from "@/components/noe-bot/anim/palette";
-import { replyText } from "@/lib/clicky/notices";
+import {
+  CLICKY_NOTICE_KEYS,
+  CLICKY_NOTICES_BESIDE_STEP,
+  replyText,
+} from "@/lib/clicky/notices";
 import { usePrefersReducedMotion } from "@/lib/clicky/reduced-motion";
 import { useClickySessionView } from "@/lib/clicky/use-clicky-session";
 import { useTranslation } from "@/lib/i18n";
@@ -18,18 +22,26 @@ import {
   clampUnit,
   visibleOverlays,
 } from "../../../../shared/clicky";
+import { ClickyInstruction } from "./clicky-instruction";
 import { stepOf } from "./clicky-words";
 
 /**
- * What Clicky draws over the Bot's screen: its pointer, highlight boxes, numbered markers and
- * captions, from the session's normalized overlays (`visibleOverlays`).
+ * What "Show me how" (Clicky) draws over the Bot's screen in the full-window viewer: its pointer,
+ * highlight boxes, numbered markers and captions, from the session's normalized overlays
+ * (`visibleOverlays`), and beside the pointer the instruction typing in (`ClickyInstruction`): the
+ * step to do, the answer, or what the Bot is doing. With nothing to point at, the instruction sits
+ * along the bottom of the screen. Never on the panel's small preview, where it cannot be read.
  *
  * DRAWN HERE, NEVER ON THE DESKTOP. A point is a fraction of the computer's screen, so placing it is
  * a percentage of the element this layer fills, which must be exactly the frame as it is drawn: the
- * viewer wraps its canvas and this layer in one element, and the preview, whose picture is letterboxed
- * inside its card (`object-contain`), places this layer over the picture's own rectangle
- * (`containedFrame`). It is the inverse of `take-the-wheel.ts`'s click mapping. The model never sees
- * this pointer in a screenshot.
+ * viewer wraps its canvas and this layer in one element; a picture letterboxed inside a card
+ * (`object-contain`) would place this layer over the picture's own rectangle (`containedFrame`). It
+ * is the inverse of `take-the-wheel.ts`'s click mapping. The model never sees this pointer in a
+ * screenshot.
+ *
+ * NEVER STALE WITHOUT SAYING SO. While Clicky looks at the screen again after the person did
+ * something (`overlaysStale`), what it points at may have moved: the boxes, markers and pointer are
+ * drawn faded and still until the fresh look places them again.
  *
  * NOTHING HERE TAKES A CLICK (`pointer-events: none`), so the person's mouse reaches the screen
  * underneath exactly as it would without Clicky, and focus never lands in it.
@@ -108,6 +120,11 @@ export type ClickyOverlayView = {
   step: { number: number; total: number; title: string } | null;
   /** Clicky's last reply once it is whole, for the announcement. */
   reply: ClickySession["reply"];
+  /**
+   * Clicky is looking at the screen again after the person did something (`overlaysStale`): what it
+   * points at may have moved, so it is drawn faded until the look is back.
+   */
+  stale: boolean;
 };
 
 export function selectClickyOverlay(session: ClickySession): ClickyOverlayView {
@@ -120,8 +137,21 @@ export function selectClickyOverlay(session: ClickySession): ClickyOverlayView {
       ? { number: step.number, total: step.total, title: step.title }
       : null,
     reply: session.reply?.final ? session.reply : null,
+    stale: session.overlaysStale === true,
   };
 }
+
+/** How faded overlays are drawn while Clicky looks again. */
+export const CLICKY_STALE_OPACITY = 0.4;
+
+/**
+ * Draws the instruction beside the pointer (or, with no pointer, along the bottom of the screen).
+ * `label` is the pointer's own words, `approximate` whether its spot was guessed.
+ */
+export type ClickyInstructionSlot = (
+  label: string | null,
+  approximate: boolean,
+) => ReactNode;
 
 /** The arrow, tip at the origin. */
 function Arrow({ size }: { size: number }) {
@@ -171,13 +201,16 @@ function Bubble({
 export const ClickyOverlay = memo(function ClickyOverlay({
   view,
   colour = CLICKY_BLUE,
-  compact = false,
+  instruction,
 }: {
   view: ClickyOverlayView;
   /** The Bot's own colour, for Noë Bot beside the pointer. */
   colour?: string;
-  /** The panel's small preview: the pointer and boxes only, no words and no Noë Bot. */
-  compact?: boolean;
+  /**
+   * The instruction, typing in, in place of the pointer's own label (`ClickyInstruction`). Absent,
+   * the pointer shows its label as it is.
+   */
+  instruction?: ClickyInstructionSlot;
 }) {
   const { t } = useTranslation();
   const reduced = usePrefersReducedMotion();
@@ -204,23 +237,40 @@ export const ClickyOverlay = memo(function ClickyOverlay({
   const at = main?.at ?? rest;
   const given = main?.label?.trim();
   // A guessed spot says so, rather than claiming a precision it does not have.
-  const label =
-    compact || !main
-      ? null
-      : main.approximate
-        ? given
-          ? t("{{label}}, around here", { label: given })
-          : t("Around here")
-        : given || null;
+  const label = !main
+    ? null
+    : main.approximate
+      ? given
+        ? t("{{label}}, around here", { label: given })
+        : t("Around here")
+      : given || null;
   const flip = (at?.x ?? 0) > NEAR_RIGHT;
   const above = (at?.y ?? 0) > NEAR_BOTTOM;
   const glide = reduced ? "none" : `left ${GLIDE}, top ${GLIDE}, opacity 200ms`;
-  // What a screen reader hears: the step being worked on, or else Clicky's last whole reply.
+  const stale = view.stale;
+  // Faded while Clicky looks again, and still: a pulse would say "here" about a place that may be gone.
+  const fade = stale ? CLICKY_STALE_OPACITY : 1;
+  const pulse = reduced || stale ? undefined : "animate-pulse";
+  /*
+   * What a screen reader hears: the step being worked on, or else Clicky's last whole reply, with
+   * what the Bot did put into a narration. A line that must not hide behind a step (it is yours, it
+   * did not work) is said after the step.
+   */
+  const translate = (key: string, params?: Record<string, string>) =>
+    t(key, params);
+  const notice = view.reply?.notice;
   const announcement = !view.awake
     ? ""
     : view.step
-      ? t("Step {{number}} of {{total}} — {{title}}", view.step)
-      : replyText(view.reply, (key) => t(key));
+      ? [
+          t("Step {{number}} of {{total}} — {{title}}", view.step),
+          notice && CLICKY_NOTICES_BESIDE_STEP.includes(notice)
+            ? t(CLICKY_NOTICE_KEYS[notice], view.reply?.params ?? {})
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
+      : replyText(view.reply, translate);
 
   return (
     <div
@@ -235,14 +285,16 @@ export const ClickyOverlay = memo(function ClickyOverlay({
           {overlays.map((overlay) =>
             overlay.kind === "highlight" ? (
               <rect
-                className={reduced ? undefined : "animate-pulse"}
+                className={pulse}
                 data-clicky="highlight"
+                data-stale={stale ? "true" : undefined}
+                opacity={fade}
                 fill={`${CLICKY_BLUE}1f`}
                 height={percent(overlay.rect.height)}
                 key={overlay.id}
-                rx={compact ? 3 : 6}
+                rx={6}
                 stroke={CLICKY_BLUE}
-                strokeWidth={compact ? 1.5 : 2.5}
+                strokeWidth={2.5}
                 width={percent(overlay.rect.width)}
                 x={percent(overlay.rect.x)}
                 y={percent(overlay.rect.y)}
@@ -253,7 +305,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
 
         {overlays.map((overlay) => {
           // A box's own words sit just above its top-left corner, or under it near the top edge.
-          if (overlay.kind === "highlight" && overlay.label && !compact) {
+          if (overlay.kind === "highlight" && overlay.label) {
             const below = overlay.rect.y < NEAR_TOP;
             return (
               <span
@@ -284,25 +336,23 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                 style={{
                   left: percent(overlay.at.x),
                   top: percent(overlay.at.y),
+                  opacity: fade,
                 }}
               >
                 <span
-                  className={cn(
-                    "flex items-center justify-center rounded-full font-semibold text-white shadow-md ring-2 ring-white",
-                    compact ? "size-4 text-[9px]" : "size-6 text-xs",
-                  )}
+                  className="flex size-6 items-center justify-center rounded-full font-semibold text-white text-xs shadow-md ring-2 ring-white"
                   style={{ backgroundColor: CLICKY_BLUE }}
                 >
                   {overlay.index}
                 </span>
-                {overlay.label && !compact ? (
+                {overlay.label ? (
                   <Bubble flip={overlay.at.x > NEAR_RIGHT}>
                     {overlay.label}
                   </Bubble>
                 ) : null}
               </span>
             );
-          if (overlay.kind === "caption" && overlay.at && !compact)
+          if (overlay.kind === "caption" && overlay.at)
             return (
               <span
                 className="absolute"
@@ -329,9 +379,13 @@ export const ClickyOverlay = memo(function ClickyOverlay({
             className="absolute"
             data-clicky="pointer"
             key={pointer.id}
-            style={{ left: percent(pointer.at.x), top: percent(pointer.at.y) }}
+            style={{
+              left: percent(pointer.at.x),
+              top: percent(pointer.at.y),
+              opacity: fade,
+            }}
           >
-            <Arrow size={compact ? 9 : 14} />
+            <Arrow size={14} />
           </span>
         ))}
 
@@ -340,6 +394,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
             className="absolute"
             data-clicky="clicky-pointer"
             data-approximate={main?.approximate ? "true" : undefined}
+            data-stale={stale ? "true" : undefined}
             style={{
               left: percent(at.x),
               top: percent(at.y),
@@ -347,69 +402,83 @@ export const ClickyOverlay = memo(function ClickyOverlay({
               transition: glide,
             }}
           >
-            <Arrow size={compact ? 11 : 18} />
-            {compact ? null : (
+            <span className="block" style={{ opacity: fade }}>
+              <Arrow size={18} />
+            </span>
+            <span
+              className={cn(
+                "absolute flex items-start",
+                above ? "bottom-full mb-1" : "top-4",
+                flip ? "right-1 flex-row-reverse" : "left-3",
+              )}
+              data-placement={above ? "above" : "below"}
+            >
               <span
                 className={cn(
-                  "absolute flex items-start",
-                  above ? "bottom-full mb-1" : "top-4",
-                  flip ? "right-1 flex-row-reverse" : "left-3",
+                  "relative block size-7 shrink-0",
+                  THEMED_INK_CLASS,
                 )}
-                data-placement={above ? "above" : "below"}
+                style={{ color: colour }}
               >
-                <span
-                  className={cn(
-                    "relative block size-7 shrink-0",
-                    THEMED_INK_CLASS,
-                  )}
-                  style={{ color: colour }}
-                >
-                  <NoeBotSprite
-                    animation={SPRITE_FOR[view.state]}
-                    mode="terminal"
-                    palette={THEMED_PALETTE}
-                    props={false}
-                    size={28}
-                  />
-                </span>
-                {label ? (
-                  <span
-                    className="relative mt-1 w-max max-w-56 rounded-xl bg-white px-2.5 py-1.5 text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10"
-                    data-clicky="pointer-label"
-                  >
-                    {label}
-                  </span>
-                ) : null}
+                <NoeBotSprite
+                  animation={SPRITE_FOR[view.state]}
+                  mode="terminal"
+                  palette={THEMED_PALETTE}
+                  props={false}
+                  size={28}
+                />
               </span>
-            )}
+              {/* The instruction typing in, in place of the label; only the pointer that is showing. */}
+              {instruction && main ? (
+                <span className="relative mt-1 block">
+                  {instruction(label, main.approximate === true)}
+                </span>
+              ) : label ? (
+                <span
+                  className="relative mt-1 w-max max-w-56 rounded-xl bg-white px-2.5 py-1.5 text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10"
+                  data-clicky="pointer-label"
+                >
+                  {label}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        ) : null}
+
+        {/* With nothing to point at, the instruction sits along the bottom of the screen, centred. */}
+        {instruction && !main ? (
+          <span
+            className="absolute bottom-3 left-1/2 flex max-w-[80%] -translate-x-1/2 justify-center"
+            data-placement="bottom"
+            data-slot="clicky-instruction-bottom"
+          >
+            {instruction(null, false)}
           </span>
         ) : null}
 
         {/* Captions with no place of their own sit along the bottom of the screen, centred. */}
-        {compact
-          ? null
-          : overlays
-              .filter(
-                (overlay): overlay is Extract<Overlay, { kind: "caption" }> =>
-                  overlay.kind === "caption" && !overlay.at,
-              )
-              .slice(-2)
-              .map((overlay, index) => (
-                <span
-                  className="absolute left-1/2 w-max max-w-[80%] -translate-x-1/2 rounded-xl bg-white/95 px-3 py-1.5 text-center text-[13px] text-zinc-900 shadow-lg ring-1 ring-black/10"
-                  data-clicky="caption"
-                  key={overlay.id}
-                  style={{ bottom: `${12 + index * 40}px` }}
-                >
-                  {overlay.text}
-                </span>
-              ))}
+        {overlays
+          .filter(
+            (overlay): overlay is Extract<Overlay, { kind: "caption" }> =>
+              overlay.kind === "caption" && !overlay.at,
+          )
+          .slice(-2)
+          .map((overlay, index) => (
+            <span
+              className="absolute left-1/2 w-max max-w-[80%] -translate-x-1/2 rounded-xl bg-white/95 px-3 py-1.5 text-center text-[13px] text-zinc-900 shadow-lg ring-1 ring-black/10"
+              data-clicky="caption"
+              key={overlay.id}
+              style={{
+                bottom: `${(instruction && !main ? 60 : 12) + index * 40}px`,
+              }}
+            >
+              {overlay.text}
+            </span>
+          ))}
       </div>
-      {compact ? null : (
-        <p aria-live="polite" className="sr-only" data-clicky="announcement">
-          {announcement}
-        </p>
-      )}
+      <p aria-live="polite" className="sr-only" data-clicky="announcement">
+        {announcement}
+      </p>
     </div>
   );
 });
@@ -423,17 +492,25 @@ ClickyOverlay.displayName = "ClickyOverlay";
 export const ClickyScreenOverlay = memo(function ClickyScreenOverlay({
   botId,
   colour,
-  compact = false,
 }: {
   botId: string;
   colour?: string;
-  compact?: boolean;
 }) {
   const view = useClickySessionView(botId, selectClickyOverlay);
+  const instruction = useCallback<ClickyInstructionSlot>(
+    (label, approximate) => (
+      <ClickyInstruction
+        approximate={approximate}
+        botId={botId}
+        fallback={label}
+      />
+    ),
+    [botId],
+  );
   if (!view?.awake) return null;
   return (
     <ClickyOverlay
-      compact={compact}
+      instruction={instruction}
       view={view}
       {...(colour ? { colour } : {})}
     />

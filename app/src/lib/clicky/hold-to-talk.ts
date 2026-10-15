@@ -44,7 +44,7 @@ export type HoldToTalkOptions = {
 function plainMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === "NotAllowedError")
     return i18n.t(
-      "Clicky can't hear you. Allow the microphone for this site, then try again.",
+      "I can't hear you. Allow the microphone for this site, then try again.",
     );
   if (error instanceof DOMException && error.name === "NotFoundError")
     return i18n.t("No microphone was found. You can type instead.");

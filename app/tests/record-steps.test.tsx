@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RecordStepsButton } from "@/components/computer/record-steps-button";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { refreshDemonstrations } from "@/components/computer/demonstration-recorder";
 import { queryClient } from "@/query-client";
 import { settleReactWork } from "./settle-react-work";
@@ -77,7 +78,12 @@ beforeAll(() => {
       typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
     calls.push({ method, url, body });
     if (url.endsWith("/control/take")) holder = "human";
-    if (url.includes("/control")) return Response.json(control());
+    if (url.includes("/control"))
+      return Response.json({
+        ...control(),
+        // This one's current action never finishes, so nothing about the wheel can be pressed.
+        ...(url.includes("record-tooltip") ? { transitioning: true } : {}),
+      });
     if (url === "/api/demonstrations" && method === "POST") {
       const started: Recording = {
         id: "d1",
@@ -138,11 +144,13 @@ function draw(botId: string, driving: boolean) {
   const changes: number[] = [];
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <RecordStepsButton
-        botId={botId}
-        driving={driving}
-        onRecordingChange={() => changes.push(Date.now())}
-      />
+      <TooltipProvider>
+        <RecordStepsButton
+          botId={botId}
+          driving={driving}
+          onRecordingChange={() => changes.push(Date.now())}
+        />
+      </TooltipProvider>
     </QueryClientProvider>,
   );
   const user = userEvent.setup({ document: view.container.ownerDocument });
@@ -173,6 +181,13 @@ test("not driving, Record your steps takes control first, then starts under the 
   expect(
     calls.find((call) => call.url === "/api/demonstrations")?.body,
   ).toEqual({ botId: "record-take", title: "Untitled workflow" });
+  // The person's own take, said as such.
+  expect(
+    calls.find((call) => call.url.endsWith("/control/request"))?.body,
+  ).toEqual({
+    reason: "I want to take control of the browser.",
+    source: "manual",
+  });
   // The stream reconnects so the server attaches the new recording to it.
   expect(changes).toHaveLength(1);
   expect(view.getByText("0 steps")).toBeTruthy();
@@ -298,4 +313,29 @@ test("a recording the server stopped at its limit asks for the name too", async 
   expect(dialog.getByText(/4 steps recorded/)).toBeTruthy();
   expect(changes).toHaveLength(1);
   expect(writes()).toEqual([]);
+});
+
+test("hovering Record your steps explains teaching a browser workflow, even while it cannot be pressed", async () => {
+  const { view, user } = draw("record-tooltip", false);
+  const record = await view.findByRole("button", { name: "Record your steps" });
+  // While the Bot's current action finishes it cannot be pressed, and a disabled button hears no
+  // pointer: the explanation hangs on what is around it.
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.url.endsWith("/record-tooltip/control")),
+    ).toBe(true),
+  );
+  expect(record.hasAttribute("disabled")).toBe(true);
+  const around = record.closest('[data-slot="record-steps-tooltip"]');
+  expect(around).toBeTruthy();
+  expect(view.queryByText("Teach a browser workflow")).toBeNull();
+
+  await user.hover(around as HTMLElement);
+
+  expect(await view.findByText("Teach a browser workflow")).toBeTruthy();
+  expect(
+    view.getByText(
+      "Take control, record the steps, then review a skill draft. Typed values and images are omitted. Sensitive fields stay in your hands. Recording stops automatically after ten minutes.",
+    ),
+  ).toBeTruthy();
 });

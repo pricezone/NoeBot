@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -11,10 +12,14 @@ import {
 import { ComputerView } from "@/components/computer/computer-view";
 import { LiveScreen } from "@/components/computer/live-screen";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { mayWatch, selectGuidance } from "@/lib/clicky/viewer-control";
+import type { ControlState } from "@/lib/computers/control";
 import { computerSleep } from "@/lib/computers/use-computer-sleep";
+import { reportComputerActivity } from "@/lib/copilot/computer-activity";
 import { deploymentKeys } from "@/lib/deployment/queries";
 import { queryClient } from "@/query-client";
 import {
+  CLICKY_HELP_REASON,
   type ClickyCommand,
   type ClickySession,
   newClickySession,
@@ -53,21 +58,78 @@ class SocketDouble {
 
 const BOT = "clicky-viewer-bot";
 let awake = true;
+let narrating = false;
+let stopped = false;
 let commands: ClickyCommand[] = [];
+/** What the viewer asked of the computer's wheel, and of whom. */
+let controlCalls: { path: string; body: unknown }[] = [];
+let control: ControlState;
 const originalFetch = globalThis.fetch;
 let originalWebSocket: typeof WebSocket;
 
-function clickySession(): ClickySession {
+const SINCE = "2026-10-14T09:00:00Z";
+function botHolds(): ControlState {
   return {
-    ...newClickySession({ id: "s1", botId: BOT, now: 0 }),
+    holder: "bot",
+    since: SINCE,
+    requested: false,
+    transitioning: false,
+    resumeSnapshotRequired: false,
+  };
+}
+
+function clickySession(botId = BOT): ClickySession {
+  return {
+    ...newClickySession({ id: "s1", botId, now: 0 }),
     awake,
-    state: awake ? "guiding" : "idle",
-    reply: awake ? { text: "Click Sign in, top right.", final: true } : null,
-    overlays: awake
-      ? [{ kind: "pointer", id: "p1", at: { x: 0.9, y: 0.1 } }]
-      : [],
+    narrating: awake && narrating,
+    state: !awake ? "idle" : stopped ? "stopped" : "guiding",
+    reply: !awake
+      ? null
+      : narrating
+        ? { text: "", final: true, notice: "watching" }
+        : { text: "Click Sign in, top right.", final: true },
+    overlays:
+      awake && !narrating
+        ? [{ kind: "pointer", id: "p1", at: { x: 0.9, y: 0.1 } }]
+        : [],
     seq: commands.length + 1,
   };
+}
+
+/** The computer's wheel, as the server keeps it: asked for, taken, given back. */
+function answerControl(path: string, body: unknown): Response {
+  if (path.endsWith("/control/request")) {
+    const asked = body as { reason: string; source?: "manual" };
+    control = {
+      ...control,
+      requested: true,
+      reason: asked.reason,
+      request: {
+        id: `request-${controlCalls.length}`,
+        status: "waiting",
+        reason: asked.reason,
+        source: asked.source ?? "model",
+        createdAt: SINCE,
+        updatedAt: SINCE,
+      },
+    };
+  }
+  if (path.endsWith("/control/take") && control.request)
+    control = {
+      ...control,
+      holder: "human",
+      requested: false,
+      request: { ...control.request, status: "taken" },
+    };
+  if (path.endsWith("/control/release") && control.request)
+    control = {
+      ...control,
+      holder: "bot",
+      reason: undefined,
+      request: { ...control.request, status: "completed" },
+    };
+  return Response.json(control);
 }
 
 /** Every card is on screen at once, so the preview polls its picture straight away. */
@@ -88,6 +150,7 @@ let originalObserver: typeof IntersectionObserver | undefined;
 
 beforeAll(() => {
   GlobalRegistrator.register({ url: "http://localhost/" });
+  control = botHolds();
   originalObserver = globalThis.IntersectionObserver;
   globalThis.IntersectionObserver =
     SeenObserver as unknown as typeof IntersectionObserver;
@@ -105,22 +168,33 @@ beforeAll(() => {
         capturedAt: "2026-10-14T09:00:00Z",
         url: "https://example.com",
       });
-    if (url.endsWith("/control"))
-      return Response.json({
-        holder: "bot",
-        since: "2026-10-14T09:00:00Z",
-        requested: false,
-        transitioning: false,
-        resumeSnapshotRequired: false,
+    if (/\/control(\?|$)/.test(url)) return Response.json(control);
+    if (/\/control\/(request|take|release|cancel)$/.test(url)) {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      controlCalls.push({
+        path: url.replace(/^.*\/control/, "/control"),
+        body,
       });
-    if (url === `/api/computers/${BOT}/clicky`)
-      return Response.json({ session: clickySession() });
-    if (url === `/api/computers/${BOT}/clicky/commands`) {
+      return answerControl(url, body);
+    }
+    const clicky = /^\/api\/computers\/([^/]+)\/clicky(\/commands)?$/.exec(url);
+    if (clicky?.[1] && !clicky[2])
+      return Response.json({ session: clickySession(clicky[1]) });
+    if (clicky?.[1] && clicky[2]) {
       const command = JSON.parse(String(init?.body)) as ClickyCommand;
       commands.push(command);
       if (command.type === "wake") awake = true;
-      if (command.type === "sleep") awake = false;
-      return Response.json({ session: clickySession() });
+      if (command.type === "sleep") {
+        awake = false;
+        narrating = false;
+        stopped = false;
+      }
+      if (command.type === "stop") stopped = true;
+      if (command.type === "watch") {
+        awake = true;
+        narrating = true;
+      }
+      return Response.json({ session: clickySession(clicky[1]) });
     }
     if (url === "/api/me")
       return Response.json({ user: { id: "person-1", email: "p@x.test" } });
@@ -138,7 +212,11 @@ afterEach(() => {
   computerSleep.reset();
   SocketDouble.all = [];
   commands = [];
+  controlCalls = [];
+  control = botHolds();
   awake = true;
+  narrating = false;
+  stopped = false;
 });
 
 afterAll(async () => {
@@ -157,13 +235,13 @@ function offerClicky(enabled: boolean) {
   });
 }
 
-function preview() {
+function preview(botId = BOT) {
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ComputerView
           active
-          computerId={BOT}
+          computerId={botId}
           controls={false}
           minHeight={0}
           minWidth={0}
@@ -184,31 +262,36 @@ async function openViewer(view: ReturnType<typeof render>) {
   );
 }
 
-test("awake, Clicky shows on the preview, and the viewer has its switch and its bar", async () => {
+test("awake, the preview draws none of Clicky, and the viewer has its switch and its bar", async () => {
   offerClicky(true);
   const view = preview();
-  // The panel's card says where Clicky is.
-  const row = await waitFor(() => {
-    const found = view.container.querySelector(
-      '[data-slot="clicky-panel-row"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
+  // The picture arrives; nothing of Clicky is drawn over it or under it, however awake it is.
   await waitFor(() =>
-    expect(within(row).getByText("Showing you")).toBeTruthy(),
+    expect(
+      view.container.querySelector(
+        'img[alt="What the assistant is looking at"]',
+      ),
+    ).toBeTruthy(),
   );
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(view.container.querySelector("[data-clicky]")).toBeNull();
+  expect(view.container.querySelector("[data-clicky-state]")).toBeNull();
+  expect(
+    view.container.querySelector('[data-slot="clicky-overlay"]'),
+  ).toBeNull();
+  expect(view.queryByText("Showing you")).toBeNull();
 
   const viewer = await openViewer(view);
   // One name whatever its state; pressed means awake.
-  expect(
-    viewer.getByRole("button", { name: "Clicky" }).getAttribute("aria-pressed"),
-  ).toBe("true");
-  const bar = await viewer.findByRole("region", { name: "Clicky" });
+  const launcher = await viewer.findByRole("button", { name: "Show me how" });
+  await waitFor(() =>
+    expect(launcher.getAttribute("aria-pressed")).toBe("true"),
+  );
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
   expect(within(bar).getByText("Click Sign in, top right.")).toBeTruthy();
 
   fireEvent.click(within(bar).getByRole("button", { name: "Stop" }));
-  await waitFor(() => expect(commands).toEqual([{ type: "stop" }]));
+  await waitFor(() => expect(commands).toContainEqual({ type: "stop" }));
 });
 
 test("asleep, the switch wakes Clicky and the bar appears", async () => {
@@ -216,25 +299,24 @@ test("asleep, the switch wakes Clicky and the bar appears", async () => {
   awake = false;
   const view = preview();
   const viewer = await openViewer(view);
-  const wake = await viewer.findByRole("button", { name: "Clicky" });
+  const wake = await viewer.findByRole("button", { name: "Show me how" });
   await waitFor(() => expect(wake.hasAttribute("disabled")).toBe(false));
   expect(wake.getAttribute("aria-pressed")).toBe("false");
-  expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
+  expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
 
   fireEvent.click(wake);
   await waitFor(() => expect(commands).toEqual([{ type: "wake" }]));
-  expect(await viewer.findByRole("region", { name: "Clicky" })).toBeTruthy();
+  expect(
+    await viewer.findByRole("region", { name: "Show me how" }),
+  ).toBeTruthy();
 });
 
 test("without Clicky on the deployment there is no switch, no bar and no socket", async () => {
   offerClicky(false);
   const view = preview();
   const viewer = await openViewer(view);
-  expect(viewer.queryByRole("button", { name: "Clicky" })).toBeNull();
-  expect(viewer.queryByRole("region", { name: "Clicky" })).toBeNull();
-  expect(
-    view.container.querySelector('[data-slot="clicky-panel-row"]'),
-  ).toBeNull();
+  expect(viewer.queryByRole("button", { name: "Show me how" })).toBeNull();
+  expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
   expect(SocketDouble.all.some((socket) => socket.url.includes("clicky"))).toBe(
     false,
   );
@@ -253,6 +335,8 @@ async function drivingScreen(clicky?: { acting: boolean; onStop: () => void }) {
       view.container.querySelector('canvas[data-connected="true"]'),
     ).toBeTruthy(),
   );
+  // The keys are bound in an effect after that render; let it run before pressing anything.
+  await act(async () => {});
   return SocketDouble.all.at(-1) as SocketDouble;
 }
 
@@ -327,36 +411,12 @@ test("without Clicky awake, the same keys go to the computer as before", async (
   ]);
 });
 
-test("on the preview, Clicky covers a 16:9 picture letterboxed in its 1.6 card, not the bands", async () => {
-  offerClicky(true);
-  const view = preview();
-  const frame = await waitFor(() => {
-    const found = view.container.querySelector<HTMLElement>(
-      '[data-slot="clicky-frame"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
-  expect(frame.style.top).toBe("5%");
-  expect(frame.style.height).toBe("90%");
-  expect(frame.style.width).toBe("100%");
-  const arrow = await waitFor(() => {
-    const found = frame.querySelector<HTMLElement>(
-      '[data-clicky="clicky-pointer"]',
-    );
-    expect(found).toBeTruthy();
-    return found as HTMLElement;
-  });
-  expect(arrow.style.left).toBe("90%");
-  expect(arrow.style.top).toBe("10%");
-});
-
 test("Escape in Clicky's menu closes the menu, not the viewer", async () => {
   offerClicky(true);
   const view = preview();
   const viewer = await openViewer(view);
-  const bar = await viewer.findByRole("region", { name: "Clicky" });
-  fireEvent.click(within(bar).getByRole("button", { name: "More for Clicky" }));
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
+  fireEvent.click(within(bar).getByRole("button", { name: "More options" }));
   const menu = await view.findByRole("menu");
   fireEvent.keyDown(menu, { key: "Escape" });
   await waitFor(() => expect(view.queryByRole("menu")).toBeNull());
@@ -392,4 +452,217 @@ test("AltGr and S, which writes a letter on some keyboards, is not Stop and reac
   );
   expect(stops).toBe(0);
   expect(socket.sent).toHaveLength(1);
+});
+
+const requests = () =>
+  controlCalls.filter((call) => call.path === "/control/request");
+
+test("guiding the person, the viewer takes the computer for them with Show me how's reason, once", async () => {
+  offerClicky(true);
+  const view = preview();
+  const viewer = await openViewer(view);
+  await waitFor(() =>
+    expect(controlCalls.map((call) => call.path)).toEqual([
+      "/control/request",
+      "/control/take",
+    ]),
+  );
+  expect(requests()[0]?.body).toEqual({ reason: CLICKY_HELP_REASON });
+  // The status pill says why, in words of its own rather than the reason's English.
+  expect(
+    await viewer.findByText(
+      "You have control — click and type on the page. Show me how is helping you here.",
+    ),
+  ).toBeTruthy();
+
+  // Control drifts back to the Bot; the control poll draws the viewer again, and nothing is taken
+  // twice in one session.
+  control = botHolds();
+  await new Promise((resolve) => setTimeout(resolve, 2_300));
+  expect(requests()).toHaveLength(1);
+});
+
+test("stopped, Show me how gives back the computer it took", async () => {
+  offerClicky(true);
+  const view = preview();
+  const viewer = await openViewer(view);
+  await waitFor(() => expect(control.holder).toBe("human"));
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
+  fireEvent.click(within(bar).getByRole("button", { name: "Stop" }));
+  await waitFor(() =>
+    expect(controlCalls.map((call) => call.path)).toContain("/control/release"),
+  );
+  expect(control.holder).toBe("bot");
+});
+
+test("control the person took themselves is not given back when Show me how stops", async () => {
+  offerClicky(true);
+  control = {
+    ...botHolds(),
+    holder: "human",
+    reason: "I want to take control of the browser.",
+    request: {
+      id: "mine",
+      status: "taken",
+      reason: "I want to take control of the browser.",
+      source: "manual",
+      createdAt: SINCE,
+      updatedAt: SINCE,
+    },
+  };
+  const view = preview();
+  const viewer = await openViewer(view);
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
+  fireEvent.click(within(bar).getByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(commands).toContainEqual({ type: "stop" }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(controlCalls).toEqual([]);
+});
+
+test("narrating the Bot at work, the viewer never takes the computer", async () => {
+  offerClicky(true);
+  narrating = true;
+  const view = preview();
+  const viewer = await openViewer(view);
+  await viewer.findByRole("region", { name: "Show me how" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(controlCalls).toEqual([]);
+});
+
+test("minimizing puts Show me how to sleep, never Stop", async () => {
+  offerClicky(true);
+  const view = preview();
+  const viewer = await openViewer(view);
+  await viewer.findByRole("region", { name: "Show me how" });
+  fireEvent.click(viewer.getByRole("button", { name: "Minimize screen" }));
+  await waitFor(() => expect(commands).toContainEqual({ type: "sleep" }));
+  expect(commands).not.toContainEqual({ type: "stop" });
+  await waitFor(() =>
+    expect(
+      view.queryByRole("dialog", { name: "The assistant's screen" }),
+    ).toBeNull(),
+  );
+  // Once, though the viewer closing would also put it to sleep.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(commands.filter((command) => command.type === "sleep")).toHaveLength(
+    1,
+  );
+});
+
+test("the viewer going away (the page changed) puts Show me how to sleep too", async () => {
+  offerClicky(true);
+  const view = preview();
+  const viewer = await openViewer(view);
+  await viewer.findByRole("region", { name: "Show me how" });
+  view.unmount();
+  await waitFor(() => expect(commands).toContainEqual({ type: "sleep" }));
+});
+
+test("opened while the Bot is idle, nothing is narrated", async () => {
+  offerClicky(true);
+  awake = false;
+  const view = preview("clicky-viewer-idle-bot");
+  const viewer = await openViewer(view);
+  await viewer.findByRole("button", { name: "Show me how" });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(commands).not.toContainEqual({ type: "watch" });
+});
+
+test("opened while the Bot works on its computer, Show me how narrates it", async () => {
+  offerClicky(true);
+  awake = false;
+  const busy = "clicky-viewer-busy-bot";
+  reportComputerActivity(busy);
+  const view = preview(busy);
+  const viewer = await openViewer(view);
+  await waitFor(() => expect(commands).toEqual([{ type: "watch" }]));
+  const bar = await viewer.findByRole("region", { name: "Show me how" });
+  expect(
+    within(bar).getByText("I'll show you what Noë Bot is doing."),
+  ).toBeTruthy();
+  // Watching takes nothing.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(controlCalls).toEqual([]);
+});
+
+test("what counts as guiding the person, and as the end of it", () => {
+  const base = { ...newClickySession({ id: "s1", botId: BOT, now: 0 }) };
+  // Awake and guiding: take. Narrating: never.
+  expect(
+    selectGuidance({ ...base, awake: true, state: "guiding" }).guiding,
+  ).toBe(true);
+  expect(
+    selectGuidance({ ...base, awake: true, state: "guiding", narrating: true })
+      .guiding,
+  ).toBe(false);
+  // A sign-in or a secret is answered in the conversation's form, not on the screen.
+  expect(
+    selectGuidance({
+      ...base,
+      awake: true,
+      state: "guiding",
+      trigger: { kind: "sign_in" },
+    }).inForm,
+  ).toBe(true);
+  // Asleep, stopped, or the walkthrough done: give back.
+  expect(selectGuidance({ ...base, awake: false }).ended).toBe(true);
+  expect(selectGuidance({ ...base, awake: true, state: "stopped" }).ended).toBe(
+    true,
+  );
+  expect(
+    selectGuidance({
+      ...base,
+      awake: true,
+      state: "idle",
+      reply: { text: "", final: true, notice: "walkthrough_done" },
+    }).ended,
+  ).toBe(true);
+});
+
+test("narration only ever adds to a session nobody is using", () => {
+  expect(
+    mayWatch({ awake: false, narrating: false, state: "idle", trigger: null }),
+  ).toBe(true);
+  expect(
+    mayWatch({
+      awake: true,
+      narrating: false,
+      state: "idle",
+      trigger: "person",
+    }),
+  ).toBe(true);
+  // A person's walkthrough, a question in flight, the Bot asking for help: left alone.
+  expect(
+    mayWatch({
+      awake: true,
+      narrating: false,
+      state: "guiding",
+      trigger: "person",
+    }),
+  ).toBe(false);
+  expect(
+    mayWatch({
+      awake: true,
+      narrating: false,
+      state: "thinking",
+      trigger: "person",
+    }),
+  ).toBe(false);
+  expect(
+    mayWatch({
+      awake: true,
+      narrating: false,
+      state: "idle",
+      trigger: "takeover",
+    }),
+  ).toBe(false);
+  // Already narrating: nothing to ask.
+  expect(
+    mayWatch({
+      awake: true,
+      narrating: true,
+      state: "guiding",
+      trigger: "person",
+    }),
+  ).toBe(false);
 });

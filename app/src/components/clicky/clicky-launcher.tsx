@@ -8,12 +8,11 @@ import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/query-client";
 import type { ClickySession } from "../../../../shared/clicky";
-import { ClickyStateChip } from "./clicky-state-chip";
 
 /**
- * Clicky on and off: the viewer's header toggle, pressed while Clicky is awake.
+ * "Show me how" (Clicky) on and off: the viewer's header toggle, pressed while it is awake.
  *
- * One name, "Clicky", whatever its state: a toggle says on or off with `aria-pressed`, and a name
+ * One name, "Show me how", whatever its state: a toggle says on or off with `aria-pressed`, and a name
  * that changed with it would announce the opposite of what a press does. Waking it says hello and
  * shows the bar; putting it to sleep clears its pointer, drops anything it was asking, and stops it
  * acting (`sleep` in `shared/clicky-state.ts`).
@@ -25,6 +24,7 @@ export const ClickyLauncher = memo(function ClickyLauncher({
   botId: string;
   session: Pick<ClickySession, "awake" | "state"> | undefined;
 }) {
+  const { t } = useTranslation();
   const command = useMutation(
     clickyCommandMutationOptions(queryClient, botId),
     queryClient,
@@ -45,72 +45,9 @@ export const ClickyLauncher = memo(function ClickyLauncher({
       variant={awake ? "default" : "ghost"}
     >
       <IconPointer aria-hidden="true" />
-      {CLICKY_NAME}
+      {t(CLICKY_NAME)}
     </Button>
   );
 });
 
 ClickyLauncher.displayName = "ClickyLauncher";
-
-/**
- * Clicky under the panel's preview of the screen: where it is, and a way to wake it, which also opens
- * the screen full-window, where Clicky's bar is.
- */
-export const ClickyPanelRow = memo(function ClickyPanelRow({
-  botId,
-  session,
-  onOpenScreen,
-}: {
-  botId: string;
-  session: Pick<ClickySession, "awake" | "state"> | undefined;
-  onOpenScreen: () => void;
-}) {
-  const { t } = useTranslation();
-  const command = useMutation(
-    clickyCommandMutationOptions(queryClient, botId),
-    queryClient,
-  );
-  const awake = session?.awake === true;
-  return (
-    <div
-      className="flex items-center justify-between gap-2 border-t px-3 py-2"
-      data-slot="clicky-panel-row"
-    >
-      <span className="flex min-w-0 items-center gap-2 text-sm">
-        <span className="font-medium">{CLICKY_NAME}</span>
-        <ClickyStateChip className="bg-muted" session={session} />
-      </span>
-      <span className="flex shrink-0 items-center gap-1">
-        {awake ? (
-          <>
-            <Button onClick={onOpenScreen} size="sm" variant="ghost">
-              {t("Open screen")}
-            </Button>
-            <Button
-              disabled={command.isPending}
-              onClick={() => command.mutate({ type: "sleep" })}
-              size="sm"
-              variant="ghost"
-            >
-              {t("Sleep")}
-            </Button>
-          </>
-        ) : (
-          <Button
-            disabled={!session || command.isPending}
-            onClick={() => {
-              command.mutate({ type: "wake" });
-              onOpenScreen();
-            }}
-            size="sm"
-            variant="outline"
-          >
-            {t("Ask Clicky")}
-          </Button>
-        )}
-      </span>
-    </div>
-  );
-});
-
-ClickyPanelRow.displayName = "ClickyPanelRow";

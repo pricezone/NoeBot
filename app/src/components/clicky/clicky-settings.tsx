@@ -67,7 +67,7 @@ export function ClickySettingsSection() {
   });
   const disabled = !preferences.data || save.isPending;
   return (
-    <SettingsSection label={CLICKY_NAME}>
+    <SettingsSection label={t(CLICKY_NAME)}>
       <SettingsCard>
         <SettingsRow
           control={
@@ -81,7 +81,7 @@ export function ClickySettingsSection() {
             />
           }
           description={t(
-            "When a Bot needs you on its screen, the screen opens with Clicky pointing at where to act.",
+            "When a Bot needs you on its screen, the screen opens with Show me how pointing at where to act.",
           )}
           label={t("Open when Noë Bot needs you")}
         />
@@ -91,25 +91,25 @@ export function ClickySettingsSection() {
               disabled={disabled}
               onValueChange={(value) => {
                 if (
+                  value === "ask_once_per_session" ||
                   value === "ask_each" ||
-                  value === "ask_once_per_task" ||
                   value === "never"
                 )
                   save.mutate({ clickyActionPolicy: value });
               }}
               value={values.clickyActionPolicy}
             >
-              <SelectTrigger aria-label={t("How far Clicky may go")}>
+              <SelectTrigger aria-label={t("How far Show me how may go")}>
                 <SelectValue>
                   {t(POLICY_LABEL[values.clickyActionPolicy])}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="ask_once_per_session">
+                  {t(POLICY_LABEL.ask_once_per_session)}
+                </SelectItem>
                 <SelectItem value="ask_each">
                   {t(POLICY_LABEL.ask_each)}
-                </SelectItem>
-                <SelectItem value="ask_once_per_task">
-                  {t(POLICY_LABEL.ask_once_per_task)}
                 </SelectItem>
                 <SelectItem value="never">{t(POLICY_LABEL.never)}</SelectItem>
               </SelectContent>
@@ -117,14 +117,17 @@ export function ClickySettingsSection() {
           }
           description={
             values.clickyActionPolicy === "never"
-              ? t("Clicky points and explains, and never clicks or types.")
-              : values.clickyActionPolicy === "ask_once_per_task"
+              ? t("Show me how points and explains, and never clicks or types.")
+              : values.clickyActionPolicy === "ask_once_per_session" ||
+                  values.clickyActionPolicy === "ask_once_per_task"
                 ? t(
-                    "With Do it for me on, one yes covers the rest of a task. Anything hard to undo is still asked about.",
+                    "With Do it for me on, one yes covers the rest of the session. Anything hard to undo is still asked about.",
                   )
-                : t("With Do it for me on, Clicky asks before every action.")
+                : t(
+                    "With Do it for me on, Show me how asks before every action.",
+                  )
           }
-          label={t("How far Clicky may go")}
+          label={t("How far Show me how may go")}
         />
         <SettingsRow
           control={
@@ -136,7 +139,7 @@ export function ClickySettingsSection() {
               }}
               value={values.clickyGuidance}
             >
-              <SelectTrigger aria-label={t("How much Clicky says")}>
+              <SelectTrigger aria-label={t("How much Show me how says")}>
                 <SelectValue>
                   {t(GUIDANCE_LABEL[values.clickyGuidance])}
                 </SelectValue>
@@ -150,7 +153,7 @@ export function ClickySettingsSection() {
             </Select>
           }
           description={t("Brief is one short line a step. Detailed adds why.")}
-          label={t("How much Clicky says")}
+          label={t("How much Show me how says")}
         />
         <SettingsRow
           control={
@@ -164,7 +167,7 @@ export function ClickySettingsSection() {
             />
           }
           description={t(
-            "Clicky says its replies out loud on the device you are using, in your interface language.",
+            "Show me how says its replies out loud on the device you are using, in your interface language.",
           )}
           label={t("Read replies aloud")}
         />
@@ -218,7 +221,7 @@ export function ClickyPhonesSection() {
         <SettingsCard>
           <p className="px-4 py-3 text-[13px] text-muted-foreground">
             {t(
-              "No phones are linked. Sign in to the HyperNoesis app on your phone to talk to Clicky from it.",
+              "No phones are linked. Sign in to the HyperNoesis app on your phone to use Show me how from it.",
             )}
           </p>
         </SettingsCard>

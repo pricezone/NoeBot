@@ -8,7 +8,7 @@ import type {
 } from "../../../../shared/clicky";
 import { clickyKeys, newerSession } from "./queries";
 
-const FALLBACK = msg("Clicky could not do that just now");
+const FALLBACK = msg("I couldn't do that just now.");
 
 export type ClickyCommandResult = {
   session: ClickySession;
@@ -123,19 +123,19 @@ export async function postClickyGuide(
         return {
           ok: false,
           reason:
-            "Clicky could not show this right now; describe the steps in words.",
+            "Show me how could not show this right now; describe the steps in words.",
         };
       return {
         ok: true,
         shown:
-          "Clicky is now pointing at each step on the person's view of your screen. Tell them in one short line what to do; they may follow it or ignore it.",
+          "Show me how is now pointing at each step on the person's view of your screen. Tell them in one short line what to do; they may follow it or ignore it.",
       };
     }
     if (response.status === 404)
       return {
         ok: false,
         reason:
-          "Clicky is not available on this deployment. Describe the steps to the person in words instead.",
+          "Show me how is not available on this deployment. Describe the steps to the person in words instead.",
       };
     const body = (await response.json().catch(() => null)) as {
       error?: string;
@@ -145,13 +145,13 @@ export async function postClickyGuide(
       reason:
         typeof body?.error === "string"
           ? body.error
-          : "Clicky could not show those steps. Describe them to the person in words instead.",
+          : "Show me how could not show those steps. Describe them to the person in words instead.",
     };
   } catch {
     return {
       ok: false,
       reason:
-        "Clicky could not be reached. Describe the steps to the person in words instead.",
+        "Show me how could not be reached. Describe the steps to the person in words instead.",
     };
   }
 }

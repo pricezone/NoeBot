@@ -88,12 +88,12 @@ export const SETTINGS_NAV: ModalNavItem[] = [
 ];
 
 /**
- * Clicky Mode's section: its settings and the linked phones. Only where the deployment offers
- * Clicky, after Notifications, the other "where else can this reach me" page.
+ * "Show me how" (Clicky Mode)'s section: its settings and the linked phones. Only where the
+ * deployment offers it, after Notifications, the other "where else can this reach me" page.
  */
 const CLICKY_NAV: ModalNavItem = {
   id: "clicky",
-  // A product name, the same in every language.
+  // A key like every other row's label, drawn with `t()`: «Δείξε μου πώς» in Greek.
   label: CLICKY_NAME,
   icon: IconPointer,
   to: "/settings/clicky",

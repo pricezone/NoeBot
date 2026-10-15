@@ -19,7 +19,7 @@ const DOT: Record<ReturnType<typeof chipStateOf>, string> = {
 
 /**
  * Where Clicky is, in a word or two: Asleep, Ready, Listening, Thinking, Showing you, Needs your OK,
- * Doing it, Paused, Stopped. Drawn in the viewer's bar and on the panel's preview.
+ * Doing it, Paused, Stopped. Drawn in the viewer's bar (never on the panel's small preview).
  */
 export const ClickyStateChip = memo(function ClickyStateChip({
   session,
