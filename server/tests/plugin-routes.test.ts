@@ -2086,13 +2086,18 @@ describe("connecting a brokered app", () => {
      */
     const { authorized, connect } = brokeredApp();
 
+    /*
+     * The Origin is the request's own host here, which is the only Origin that reaches the route at
+     * all: a page elsewhere is refused by the same-site guard before any route runs (below). An
+     * own-host Origin is still not the configured address, so a route that read it fails too.
+     */
     const response = await connect(
       { returnUrl: "https://evil.test/harvest", returnTo: "https://evil.test" },
       "?returnUrl=https%3A%2F%2Fevil.test%2Fharvest&callbackUrl=https%3A%2F%2Fevil.test",
       {
         returnUrl: "https://evil.test/harvest",
         referer: "https://evil.test",
-        origin: "https://evil.test",
+        origin: "http://openbot.test",
         "x-forwarded-host": "evil.test",
       },
     );
@@ -2101,6 +2106,11 @@ describe("connecting a brokered app", () => {
     expect(authorized).toEqual([
       { userId: ADMIN.id, toolkit: "linear", returnUrl: RETURN_URL },
     ]);
+
+    // From another site, nothing is minted at all.
+    const foreign = await connect({}, "", { origin: "https://evil.test" });
+    expect(foreign.status).toBe(403);
+    expect(authorized).toHaveLength(1);
   });
 
   test("an administrator who started on the app's own page is sent back to it", async () => {

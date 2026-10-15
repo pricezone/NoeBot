@@ -67,7 +67,11 @@ import type { ComputerGateway } from "./computer/gateway";
 import type { PageFrameStore } from "./computer/page-frames";
 import type { PolicyStore } from "./computer/policy-store";
 import { createComputerRoutes } from "./computer/routes";
-import { deploymentOrigins, sameSiteGuard } from "./computer/same-site-guard";
+import {
+  apiSameSiteGuard,
+  deploymentOrigins,
+  sameSiteGuard,
+} from "./computer/same-site-guard";
 import { configuredAuthProviders, type DeploymentConfig } from "./config";
 import {
   type CredentialAdminService,
@@ -460,6 +464,11 @@ export function createApp(
   clicky?: ClickyWiring,
 ) {
   const app = new Hono<{ Variables: AppVariables }>();
+  /*
+   * Before every route: nothing under /api changes for a request from another site, a sibling
+   * instance on the same parent domain included. See computer/same-site-guard.ts.
+   */
+  app.use("*", apiSameSiteGuard(deploymentOrigins(config)));
   mountDesktopConnectionFailure(app, desktopHostToken);
   mountProviderOAuthProxy(app, modelProviderProxy);
 

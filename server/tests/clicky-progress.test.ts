@@ -1,0 +1,514 @@
+import { describe, expect, test } from "bun:test";
+import type { ClickySession } from "../../shared/clicky";
+import type { BrainCheck, ClickyBrain } from "../src/clicky/brain";
+import { createClickyHub } from "../src/clicky/hub";
+import { viewerTyping } from "../src/clicky/index";
+import {
+  botVerbOf,
+  type ClickyPreferences,
+  createClickyService,
+} from "../src/clicky/service";
+import { createInMemoryClickyStore } from "../src/clicky/store";
+import type {
+  ElementRect,
+  PageState,
+  ScreenElements,
+} from "../src/computer/schema";
+
+/*
+ * Show me how follows the person's progress: after they type, press Enter or click (and after it
+ * acts for them), it watches whether the page moved on and looks again, without leaving the step;
+ * the look's answer moves the walkthrough on and puts the pointer where the control is now. And
+ * while the person watches the Bot work, it narrates each action, asking only where that one
+ * element is.
+ */
+
+const screen: ScreenElements = {
+  screen: { width: 1000, height: 500 },
+  mode: "page",
+  url: "https://search.example/",
+  elements: [
+    {
+      ref: "e1",
+      role: "searchbox",
+      name: "Search",
+      rect: { x: 100, y: 100, width: 300, height: 40 },
+      sensitive: false,
+      focused: false,
+    },
+  ],
+};
+
+const preferences = async (): Promise<ClickyPreferences> => ({
+  locale: "en",
+  guidance: "brief",
+  actionPolicy: "ask_each",
+  autoActivate: true,
+});
+
+/** The page the watch reads: navigations are counted by hand. */
+function fakePage() {
+  const state: PageState = {
+    url: "https://search.example/",
+    title: "Search",
+    navigationId: 0,
+    settled: true,
+  };
+  const reads: number[] = [];
+  return {
+    state,
+    reads,
+    pageState: async () => {
+      reads.push(Date.now());
+      return { ...state };
+    },
+    navigate(url: string) {
+      state.url = url;
+      state.navigationId += 1;
+    },
+  };
+}
+
+function harness(
+  options: {
+    check?: (
+      input: Parameters<NonNullable<ClickyBrain["check"]>>[0],
+    ) => Promise<BrainCheck> | BrainCheck;
+    checks?: { burst?: number; perMinute?: number };
+    elementRect?: (
+      botId: string,
+      ref: string,
+      snapshotId?: number,
+    ) => Promise<ElementRect>;
+    released?: string[];
+  } = {},
+) {
+  const store = createInMemoryClickyStore();
+  const hub = createClickyHub({ load: (u, b) => store.load(u, b) });
+  const page = fakePage();
+  const looks: { stepId: string | null; signal: AbortSignal }[] = [];
+  const elementsCalls: string[] = [];
+  const brain: ClickyBrain = {
+    async think(input) {
+      return {
+        type: "brain.reply",
+        thinkId: input.thinkId,
+        say: "Two steps.",
+        plan: {
+          goal: "Search",
+          steps: [
+            {
+              title: "Type in the search box",
+              overlays: [
+                {
+                  kind: "pointer",
+                  id: "p-old",
+                  at: { x: 0.25, y: 0.24 },
+                },
+              ],
+              targetRef: "e1",
+            },
+            { title: "Open the first result", overlays: [] },
+          ],
+        },
+      };
+    },
+    async check(input) {
+      looks.push({ stepId: input.stepId, signal: input.signal });
+      return options.check
+        ? options.check(input)
+        : {
+            stepDone: true,
+            overlays: [
+              { kind: "pointer", id: "p-new", at: { x: 0.5, y: 0.6 } },
+            ],
+          };
+    },
+  };
+  const service = createClickyService({
+    store,
+    hub,
+    preferences,
+    brain,
+    gateway: {
+      elements: async () => {
+        elementsCalls.push("elements");
+        return screen;
+      },
+      writeFile: async () => ({ path: "", bytes: 0, appended: false }),
+      pageState: page.pageState,
+      ...(options.elementRect ? { elementRect: options.elementRect } : {}),
+    },
+    progress: {
+      pollMs: 20,
+      windowMs: 200,
+      extendMs: 100,
+      typingSettleMs: 40,
+      settleFloorMs: 5,
+    },
+    ...(options.checks ? { checks: options.checks } : {}),
+    ...(options.released
+      ? {
+          releaseOwnControl: async (userId: string, botId: string) => {
+            options.released?.push(`${userId}/${botId}`);
+          },
+        }
+      : {}),
+  });
+  const load = async () =>
+    (await store.load("user-1", "bot-1")) as ClickySession;
+  /** A walkthrough on the screen, the first step current. */
+  const guiding = async () => {
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "ask", text: "How do I search?" },
+    });
+    await until(async () => (await load())?.state === "guiding");
+  };
+  return { store, service, page, looks, elementsCalls, load, guiding };
+}
+
+async function until(check: () => boolean | Promise<boolean>, ms = 2000) {
+  const deadline = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting.");
+    await Bun.sleep(5);
+  }
+}
+
+describe("after the person types", () => {
+  test("Enter with no navigation: once typing has settled, it looks, finishes the step and points anew", async () => {
+    const { service, looks, load, guiding } = harness();
+    await guiding();
+    const step = (await load()).walkthrough?.currentStepId;
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => looks.length === 1);
+    expect(looks[0]?.stepId).toBe(step ?? null);
+    await until(async () => (await load()).check === null);
+    const session = await load();
+    expect(session.state).toBe("guiding");
+    expect(session.overlaysStale).toBe(false);
+    expect(session.walkthrough?.steps.map((s) => s.status)).toEqual([
+      "done",
+      "current",
+    ]);
+    expect(session.walkthrough?.steps[1]?.overlays).toEqual([
+      { kind: "pointer", id: "p-new", at: { x: 0.5, y: 0.6 } },
+    ]);
+  });
+
+  test("typing counts once it pauses, a burst of keys being one look", async () => {
+    const { service, looks, guiding } = harness();
+    await guiding();
+    for (let key = 0; key < 5; key += 1) {
+      service.personTyped("user-1", "bot-1", "text");
+      await Bun.sleep(10);
+    }
+    expect(looks).toHaveLength(0);
+    await until(() => looks.length === 1);
+    await Bun.sleep(80);
+    expect(looks).toHaveLength(1);
+  });
+
+  test("Enter that opens a page: the navigation is what is looked at, once", async () => {
+    const { service, looks, page, load, guiding } = harness();
+    await guiding();
+    // The page is still on its way: the look waits for it rather than looking at the old page.
+    page.state.settled = false;
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => page.reads.length >= 1);
+    page.navigate("https://search.example/results?q=declaration");
+    await Bun.sleep(30);
+    expect(looks).toHaveLength(0);
+    page.state.settled = true;
+    await until(() => looks.length >= 1);
+    await until(async () => (await load()).check === null);
+    await Bun.sleep(100);
+    expect(looks).toHaveLength(1);
+    expect((await load()).walkthrough?.steps[0]?.status).toBe("done");
+  });
+
+  test("nothing is watched while Clicky is not guiding", async () => {
+    const { service, looks, page } = harness();
+    service.personTyped("user-1", "bot-1", "submit");
+    service.personInput(
+      "user-1",
+      "bot-1",
+      { x: 0.1, y: 0.1 },
+      { driving: true },
+    );
+    await Bun.sleep(80);
+    expect(looks).toEqual([]);
+    expect(page.reads).toEqual([]);
+  });
+});
+
+describe("after the person clicks", () => {
+  test("a click that opens a page elsewhere is looked at, without the step being clicked", async () => {
+    const { service, looks, page, load, guiding } = harness({
+      check: () => ({ stepDone: false }),
+    });
+    await guiding();
+    // Not on the step's target: the step stays, and the page it opened is still looked at.
+    service.personInput(
+      "user-1",
+      "bot-1",
+      { x: 0.9, y: 0.9 },
+      { driving: true },
+    );
+    await until(() => page.reads.length >= 1);
+    expect(looks).toHaveLength(0);
+    page.navigate("https://search.example/elsewhere");
+    await until(() => looks.length === 1);
+    await until(async () => (await load()).check === null);
+    expect((await load()).walkthrough?.steps[0]?.status).toBe("current");
+  });
+
+  test("a click by somebody not driving the computer is never watched", async () => {
+    const { service, page, guiding } = harness();
+    await guiding();
+    const before = page.reads.length;
+    service.personInput(
+      "user-1",
+      "bot-1",
+      { x: 0.9, y: 0.9 },
+      { driving: false },
+    );
+    await Bun.sleep(60);
+    expect(page.reads.length).toBe(before);
+  });
+});
+
+describe("the look after a step", () => {
+  test("only the newest look's answer counts, and Stop aborts the one running", async () => {
+    let release: (() => void) | undefined;
+    const answers: BrainCheck[] = [
+      { stepDone: true },
+      {
+        stepDone: false,
+        overlays: [{ kind: "pointer", id: "p-2", at: { x: 0.2, y: 0.2 } }],
+      },
+    ];
+    let call = 0;
+    const { service, looks, load, guiding } = harness({
+      check: async () => {
+        const answer = answers[call++] as BrainCheck;
+        if (call === 1)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return answer;
+      },
+    });
+    await guiding();
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => looks.length === 1);
+    // A second look starts while the first is still out.
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => looks.length === 2);
+    await until(async () => (await load()).check === null);
+    // The first look's late "done" changes nothing: the step is still the first one.
+    release?.();
+    await Bun.sleep(50);
+    const session = await load();
+    expect(looks[0]?.signal.aborted).toBe(true);
+    expect(session.walkthrough?.steps[0]?.status).toBe("current");
+    expect(session.walkthrough?.steps[0]?.overlays).toEqual([
+      { kind: "pointer", id: "p-2", at: { x: 0.2, y: 0.2 } },
+    ]);
+
+    // Stop while a look is running aborts it.
+    let stopped: AbortSignal | undefined;
+    const second = harness({
+      check: (input) => {
+        stopped = input.signal;
+        return new Promise(() => {});
+      },
+    });
+    await second.guiding();
+    second.service.personTyped("user-1", "bot-1", "submit");
+    await until(() => stopped !== undefined);
+    await second.service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "stop" },
+    });
+    expect(stopped?.aborted).toBe(true);
+    expect((await second.load()).check).toBeNull();
+  });
+
+  test("past its own limit a look is not taken, and the overlays stop being dimmed", async () => {
+    const { service, looks, load, guiding } = harness({
+      checks: { burst: 1, perMinute: 0.001 },
+    });
+    await guiding();
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => looks.length === 1);
+    await until(async () => (await load()).check === null);
+    const before = await load();
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(async () => (await load()).seq > before.seq + 1);
+    await until(async () => (await load()).check === null);
+    expect(looks).toHaveLength(1);
+    expect((await load()).overlaysStale).toBe(false);
+  });
+});
+
+describe("narration", () => {
+  test("a person watching the Bot sees each action pointed at, by where the Bot's own element is", async () => {
+    const asked: { ref: string; snapshotId?: number }[] = [];
+    const { service, load, elementsCalls } = harness({
+      elementRect: async (_botId, ref, snapshotId) => {
+        asked.push({
+          ref,
+          ...(snapshotId !== undefined ? { snapshotId } : {}),
+        });
+        return {
+          screen: { width: 1000, height: 500 },
+          rect: { x: 100, y: 100, width: 200, height: 50 },
+        };
+      },
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "watch" },
+    });
+    service.botAction("user-1", "bot-1", {
+      tool: "computer_click",
+      ref: "e7",
+      snapshotId: 4,
+      role: "button",
+      name: "Αναζήτηση",
+      url: "https://gov.example/",
+    });
+    await until(async () => (await load()).reply?.notice === "narrate_click");
+    const session = await load();
+    expect(asked).toEqual([{ ref: "e7", snapshotId: 4 }]);
+    expect(session.reply?.params).toEqual({ label: "Αναζήτηση" });
+    expect(session.overlays.find((o) => o.kind === "highlight")).toMatchObject({
+      rect: { x: 0.1, y: 0.2, width: 0.2, height: 0.1 },
+    });
+    // Narrating never takes a look of its own: that would replace the Bot's refs.
+    expect(elementsCalls).toEqual([]);
+
+    service.botAction("user-1", "bot-1", {
+      tool: "computer_navigate",
+      url: "https://www.gov.gr/ipiresies",
+    });
+    await until(
+      async () => (await load()).reply?.notice === "narrate_navigate",
+    );
+    expect((await load()).reply?.params).toEqual({ host: "www.gov.gr" });
+  });
+
+  test("nobody watching, nothing asked: the element's place is read only for a narrating session", async () => {
+    const asked: string[] = [];
+    const { service, load, guiding } = harness({
+      elementRect: async (_botId, ref) => {
+        asked.push(ref);
+        return { rect: null };
+      },
+    });
+    service.botAction("user-1", "bot-1", { tool: "computer_click", ref: "e1" });
+    await guiding();
+    const before = await load();
+    service.botAction("user-1", "bot-1", { tool: "computer_click", ref: "e1" });
+    await Bun.sleep(40);
+    expect(asked).toEqual([]);
+    expect((await load()).seq).toBe(before.seq);
+  });
+
+  test("a burst of actions shows the latest, not a backlog", async () => {
+    let release: (() => void) | undefined;
+    const asked: string[] = [];
+    const { service, load } = harness({
+      elementRect: async (_botId, ref) => {
+        asked.push(ref);
+        if (asked.length === 1)
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        return { rect: null };
+      },
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "watch" },
+    });
+    for (const ref of ["e1", "e2", "e3", "e4"])
+      service.botAction("user-1", "bot-1", {
+        tool: "computer_type",
+        ref,
+        name: `Field ${ref}`,
+      });
+    await until(() => release !== undefined);
+    release?.();
+    await until(async () => (await load()).reply?.params?.label === "Field e4");
+    expect(asked).toEqual(["e1", "e4"]);
+  });
+
+  test("the Bot's tools as narration names them", () => {
+    expect(
+      [
+        "computer_click",
+        "computer_type",
+        "computer_fill",
+        "computer_navigate",
+        "computer_back",
+        "computer_scroll",
+        "computer_select",
+        "computer_check",
+        "computer_key",
+        "computer_hover",
+      ].map(botVerbOf),
+    ).toEqual([
+      "click",
+      "type",
+      "type",
+      "navigate",
+      "navigate",
+      "scroll",
+      "select",
+      "select",
+      "key",
+      "other",
+    ]);
+  });
+});
+
+describe("handing the computer back", () => {
+  test("Sleep and Stop hand back a computer the person holds only for Clicky", async () => {
+    const released: string[] = [];
+    const { service } = harness({ released });
+    for (const type of ["wake", "sleep", "wake", "stop"] as const)
+      await service.dispatch("user-1", "bot-1", {
+        type: "command",
+        command: { type },
+      });
+    await until(() => released.length === 2);
+    expect(released).toEqual(["user-1/bot-1", "user-1/bot-1"]);
+  });
+});
+
+describe("what the viewer's keys say", () => {
+  test("Enter and Tab are a submit, other typing is text, and nothing else counts", () => {
+    const key = (key: string, event = "down") =>
+      JSON.stringify({ type: "key", event, key, code: "KeyA", modifiers: 0 });
+    expect(viewerTyping(key("Enter"))).toBe("submit");
+    expect(viewerTyping(key("Tab"))).toBe("submit");
+    expect(viewerTyping(key("a"))).toBe("text");
+    expect(viewerTyping(key("ά"))).toBe("text");
+    expect(viewerTyping(key("Backspace"))).toBe("text");
+    expect(viewerTyping(key("Enter", "up"))).toBeNull();
+    expect(viewerTyping(key("Shift"))).toBeNull();
+    expect(viewerTyping(key("ArrowDown"))).toBeNull();
+    expect(viewerTyping(JSON.stringify({ type: "text", text: "paste" }))).toBe(
+      "text",
+    );
+    expect(
+      viewerTyping(
+        JSON.stringify({ type: "mouse", event: "moved", x: 1, y: 2 }),
+      ),
+    ).toBeNull();
+    expect(viewerTyping('not json with a "key"')).toBeNull();
+  });
+});

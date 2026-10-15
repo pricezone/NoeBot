@@ -230,4 +230,157 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
     expect(JSON.stringify(before.elements)).toContain("135790");
     expect(JSON.stringify(after.elements)).not.toContain("135790");
   }, 30000);
+
+  test("the whole page: off the screen, the scroll, the text, where the page is, and a ref's box", async () => {
+    const links = Array.from(
+      { length: 260 },
+      (_, index) =>
+        `<a href="#l${index}" style="position:absolute;left:10px;top:${index * 10}px;font-size:8px">Link ${index}</a>`,
+    ).join("");
+    const html = `<!doctype html><title>Long page</title><body style="margin:0;height:5000px">
+      ${links}
+      <form style="position:absolute;left:300px;top:2950px"><input aria-label="Search the site" name="q" style="width:200px;height:24px"></form>
+      <button style="position:absolute;left:300px;top:3050px;width:120px;height:30px">Visible A</button>
+      <input aria-label="Notes" style="position:absolute;left:600px;top:3050px;width:120px;height:24px">
+      <button style="position:absolute;left:300px;top:4500px;width:120px;height:30px">Bottom</button>
+      <script>addEventListener("load", () => scrollTo(0, 2900));</script>
+    </body>`;
+    const second = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: (request) =>
+        new URL(request.url).pathname === "/next"
+          ? new Response("<!doctype html><title>Next</title><p>Next page</p>", {
+              headers: { "content-type": "text/html" },
+            })
+          : new Response(html, { headers: { "content-type": "text/html" } }),
+    });
+    try {
+      await api("/navigate", { url: `http://127.0.0.1:${second.port}/` });
+      // The first 260 controls in the document are all above the screen; the visible ones are found.
+      const listed = (await api("/elements")) as Listed & {
+        title?: string;
+        scroll?: { y: number; height: number; viewport: number };
+        offscreen?: {
+          ref: string;
+          name: string;
+          offscreen: string;
+          y: number;
+        }[];
+      };
+      expect(listed.title).toBe("Long page");
+      expect(listed.scroll?.y).toBe(2900);
+      expect(listed.scroll?.height).toBeGreaterThanOrEqual(5000);
+      const visibleA = listed.elements.find((e) => e.name === "Visible A");
+      expect(visibleA?.rect).toEqual({
+        x: 300,
+        y: 150,
+        width: 120,
+        height: 30,
+      });
+      const search = listed.elements.find((e) => e.name === "Search the site");
+      // A text field that answers is judged by what it is: a search box is no secret.
+      expect(search?.sensitive).toBe(false);
+      const bottom = listed.offscreen?.find((e) => e.name === "Bottom");
+      expect(bottom).toMatchObject({ offscreen: "below", y: 4500 });
+      // Nearest first: the last links above the screen come before the first ones.
+      const above = (listed.offscreen ?? []).filter(
+        (e) => e.offscreen === "above",
+      );
+      expect(above[0]?.name).toBe("Link 259");
+
+      const text = await api("/elements/text");
+      expect(text.text).toContain("Visible A");
+      expect(text.url).toBe(`http://127.0.0.1:${second.port}/`);
+
+      // Just after a navigation the page is still settling; a moment later it has.
+      let state = await api("/elements/state");
+      for (let tries = 0; !state.settled && tries < 30; tries += 1) {
+        await Bun.sleep(100);
+        state = await api("/elements/state");
+      }
+      expect(state).toMatchObject({
+        url: `http://127.0.0.1:${second.port}/`,
+        title: "Long page",
+        settled: true,
+      });
+
+      // Where the Bot's own ref is, without taking a look of Clicky's own.
+      const snapshot = await api("/snapshot", {});
+      const ref = (snapshot.elements as { ref: string; name: string }[]).find(
+        (e) => e.name === "Visible A",
+      )?.ref;
+      const where = await api(
+        `/elements/ref?ref=${ref}&snapshotId=${snapshot.snapshotId}`,
+      );
+      expect(where.rect).toEqual({ x: 300, y: 150, width: 120, height: 30 });
+      expect(
+        (
+          await api(
+            `/elements/ref?ref=${ref}&snapshotId=${snapshot.snapshotId + 5}`,
+          )
+        ).rect,
+      ).toBeNull();
+
+      // The person's own Take control says so.
+      const asked = await api("/control/request", {
+        reason: "I want to take control of the browser.",
+        source: "manual",
+      });
+      expect(asked.request.source).toBe("manual");
+      await api("/control/take", { requestId: asked.request.id });
+      try {
+        // Typing through the page's keyboard, once the field clicked has it.
+        await api("/human/click", { x: 350, y: 62 });
+        await api("/human/type", {
+          text: "δήλωση",
+          keyboard: "page",
+          at: { x: 350, y: 62 },
+        });
+        const typed = await api("/snapshot", {});
+        expect(
+          (typed.elements as { name: string; value?: string }[]).find(
+            (e) => e.name === "Search the site",
+          )?.value,
+        ).toBe("δήλωση");
+        // A field that does not have the keyboard gets nothing.
+        await expect(
+          api("/human/type", {
+            text: "nope",
+            keyboard: "page",
+            at: { x: 650, y: 160 },
+          }),
+        ).rejects.toThrow("400");
+        // And off the screen is brought into view by its ref.
+        await api("/human/scroll-into-view", { ref: bottom?.ref });
+        const scrolled = (await api("/elements")) as {
+          scroll?: { y: number };
+          elements: { name: string }[];
+        };
+        expect(scrolled.elements.some((e) => e.name === "Bottom")).toBe(true);
+        expect(scrolled.scroll?.y ?? 0).toBeGreaterThan(2900);
+        await expect(
+          api("/human/scroll-into-view", { ref: "not a ref" }),
+        ).rejects.toThrow("400");
+      } finally {
+        await api("/control/release", { requestId: asked.request.id });
+      }
+
+      // A navigation counts once it has settled.
+      const navigated = state.navigationId as number;
+      // The Bot looks after a handback before it acts again.
+      await api("/snapshot", {});
+      await api("/navigate", { url: `http://127.0.0.1:${second.port}/next` });
+      const deadline = Date.now() + 5000;
+      let now = await api("/elements/state");
+      while (now.navigationId === navigated && Date.now() < deadline) {
+        await Bun.sleep(100);
+        now = await api("/elements/state");
+      }
+      expect(now.navigationId).toBeGreaterThan(navigated);
+      expect(now).toMatchObject({ title: "Next", settled: true });
+    } finally {
+      second.stop(true);
+    }
+  }, 40000);
 });

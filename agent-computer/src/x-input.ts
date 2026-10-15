@@ -39,18 +39,21 @@ export type XInput = {
  * One `xdotool` after another.
  *
  * Serialised, because input is ordered: a press that overtakes the move before it clicks the wrong
- * thing. Every failure is swallowed; the person sees the screen not react, and the next event is a
- * fresh try.
+ * thing. A failure (xdotool missing, or exiting with an error) rejects that one call, so whoever
+ * asked hears that nothing happened: the live screen tells the person, and Clicky reports the
+ * action as not done instead of done. The queue itself carries on, and the next event is a fresh
+ * try.
  */
 function xdotoolRunner(display: string) {
   let queue: Promise<void> = Promise.resolve();
   const env = xdotoolEnvironment(display, process.env);
   return (args: string[], stdin?: string): Promise<void> => {
-    queue = queue
-      .then(
-        () =>
-          new Promise<void>((resolve) => {
-            const child = spawn("xdotool", args, {
+    const run = queue.then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          let child: ReturnType<typeof spawn>;
+          try {
+            child = spawn("xdotool", args, {
               env,
               stdio: [
                 stdin === undefined ? "ignore" : "pipe",
@@ -58,14 +61,35 @@ function xdotoolRunner(display: string) {
                 "ignore",
               ],
             });
-            child.on("error", () => resolve());
-            child.on("close", () => resolve());
-            if (stdin !== undefined) child.stdin?.end(stdin);
-          }),
-      )
-      .catch(() => undefined);
-    return queue;
+          } catch (error) {
+            reject(xdotoolFailure(args, error));
+            return;
+          }
+          child.on("error", (error) => reject(xdotoolFailure(args, error)));
+          child.on("close", (code, signal) =>
+            code === 0
+              ? resolve()
+              : reject(
+                  xdotoolFailure(
+                    args,
+                    signal ? `stopped by ${signal}` : `exit code ${code}`,
+                  ),
+                ),
+          );
+          if (stdin !== undefined) child.stdin?.end(stdin);
+        }),
+    );
+    queue = run.catch(() => undefined);
+    return run;
   };
+}
+
+/** What failed, by the xdotool command alone: never the text it was typing. */
+export function xdotoolFailure(args: readonly string[], cause: unknown): Error {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  return new Error(
+    `The desktop's input did not go through (xdotool ${args[0] ?? ""}: ${reason}).`,
+  );
 }
 
 /**

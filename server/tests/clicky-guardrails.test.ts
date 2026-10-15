@@ -287,6 +287,112 @@ describe("assessAction", () => {
     ).toBe("low");
   });
 
+  test("typing that ends with Enter is rated as Enter on that field: a search stays everyday, a form asks", () => {
+    const typeAndEnter = (text: string): ClickyAction => ({
+      kind: "type",
+      text,
+      at,
+      label: "the field",
+      pressEnter: true,
+    });
+    // A search box, by its role or its name, even inside a form (Google's is in one).
+    for (const target of [
+      { role: "searchbox", name: "Find", sensitive: false, inForm: true },
+      { role: "combobox", name: "Αναζήτηση", sensitive: false, inForm: true },
+      { role: "textbox", name: "Search gov.gr", sensitive: false },
+    ])
+      expect(
+        assessAction(typeAndEnter("υπεύθυνη δήλωση"), { ...base, target }),
+      ).toEqual({ risk: "low" });
+    // A field in a form: Enter sends it.
+    expect(
+      assessAction(typeAndEnter("Maria"), {
+        ...base,
+        target: guardTargetOf({
+          role: "textbox",
+          name: "First name",
+          sensitive: false,
+          inForm: true,
+          inPage: true,
+          url: "https://gov.example/form",
+        }),
+      }),
+    ).toEqual({ risk: "confirm", reason: "Enter can send the form it is in." });
+    // A message box that sends on Enter, with no form around it.
+    expect(
+      assessAction(typeAndEnter("hello"), {
+        ...base,
+        target: { role: "textbox", name: "Message", sensitive: false },
+      }),
+    ).toEqual({ risk: "confirm", reason: "Enter can send what was typed." });
+    // The same text without Enter sends nothing.
+    expect(
+      assessAction(
+        { kind: "type", text: "Maria", at, label: "First name" },
+        {
+          ...base,
+          target: {
+            role: "textbox",
+            name: "First name",
+            sensitive: false,
+            inForm: true,
+          },
+        },
+      ),
+    ).toEqual({ risk: "low" });
+    // The stricter rules still come first: no Enter makes a secret field typeable.
+    expect(
+      assessAction(typeAndEnter("hunter2"), {
+        ...base,
+        target: { role: "textbox", name: "Password", sensitive: true },
+      }).risk,
+    ).toBe("blocked");
+    // And the key on its own reads the form the same way.
+    expect(
+      assessAction(key("Enter"), {
+        ...base,
+        focused: guardFocusOf({
+          window: "browser",
+          element: {
+            role: "textbox",
+            name: "Email",
+            sensitive: false,
+            inForm: true,
+          },
+          url: "",
+        }),
+      }),
+    ).toEqual({ risk: "confirm", reason: "Enter can send the form it is in." });
+  });
+
+  test("the reasons speak in the first person and never name Clicky", () => {
+    const reasons = [
+      assessAction(click(), { ...base, actionPolicy: "never" }),
+      assessAction(key("Control+Alt+Delete"), typing),
+      assessAction(type("a\tb"), { ...base, target: button("x") }),
+      assessAction(type("x".repeat(CLICKY_TYPE_LIMIT + 1)), {
+        ...base,
+        target: button("x"),
+      }),
+      assessAction(type("x"), {
+        ...base,
+        target: { role: "textbox", name: "Code", sensitive: true },
+      }),
+      assessAction(click(), base),
+      assessAction(key("Tab"), base),
+      assessAction(click(), {
+        ...base,
+        target: { role: "desktop", name: "", sensitive: false, inPage: false },
+      }),
+      assessAction(key("Control+l"), typing),
+    ].map((assessment) => assessment.reason ?? "");
+    for (const reason of reasons) {
+      expect(reason).not.toBe("");
+      expect(reason).not.toContain("Clicky");
+    }
+    expect(reasons[0]).toBe("I'm set to guide only, so I never click or type.");
+  });
+
   test("a click on something that commits asks every time, in English and Greek", () => {
     for (const name of [
       "Submit",

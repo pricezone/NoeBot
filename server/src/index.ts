@@ -742,6 +742,8 @@ const computerGateway = computerProvider
       token: config.computer?.token,
       // Every handover, whichever path asked for it, so Clicky opens when the Bot needs the person.
       onControlEvent: (event) => clickyWiring?.onControlEvent(event),
+      // Each page action the Bot takes, so Show me how can narrate it to a person watching.
+      onBotAction: (event) => clickyWiring?.onBotAction(event),
     })
   : undefined;
 

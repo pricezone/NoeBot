@@ -36,8 +36,44 @@ import { toScreenPixels } from "./screen";
  * Nothing runs on the strength of the approval alone. Just before acting, the page is asked again
  * what is at the point, the guardrails rate the action again on that, and the boundary's deny rules
  * are asked as for any action: a field that turned into a password box, a button that became "Pay",
- * or a rule an administrator wrote all stop it, and the person is told why.
+ * or a rule an administrator wrote all stop it, and the person is told why. That holds for an action
+ * run on "Allow for this session" too: the yes was for everyday actions on this session, not for one
+ * element, so what is there is rated afresh and anything that is no longer everyday is not done.
+ *
+ * Clicks and the wheel are the desktop's pointer (XTEST), with the window under it checked. Typing
+ * and the page's own keys go through the page's keyboard, once the field meant has the focus
+ * (agent-computer `page-keyboard.ts`): it cannot reach another window. A scroll to a control off the
+ * screen brings it into view by its ref, inside the page.
  */
+
+/**
+ * The keys the page itself takes, pressed through the page's keyboard. The rest of the everyday
+ * keys (the address bar, a new tab, find, a paste) are the browser's, and go through the desktop's
+ * keyboard as before.
+ */
+const PAGE_KEYS = new Set([
+  "Enter",
+  "Tab",
+  "Shift+Tab",
+  "Escape",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Backspace",
+  "Delete",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "Space",
+  "Control+a",
+  "Control+c",
+  "Control+x",
+  "Control+z",
+  "Control+y",
+  "Control+Shift+z",
+]);
 
 /** The words Clicky's own request for control carries, so its own handover does not reopen it. */
 export { CLICKY_HELP_REASON };
@@ -55,7 +91,7 @@ export type ClickyActions = {
     actionPolicy: ClickyActionPolicy;
     trigger: ClickyTriggerKind | null;
     signal: AbortSignal;
-    /** Run on a "for this task" grant rather than a yes for this proposal. */
+    /** Run on "Allow for this session" rather than a yes for this proposal. */
     viaGrant?: boolean;
   }): Promise<ActionOutcome>;
 };
@@ -182,8 +218,8 @@ export function createClickyActions(deps: {
       const holder = deps.holderOf?.(botId);
       if (holder === actor.userId) return null;
       return holder === undefined
-        ? "Clicky cannot tell who has the computer right now. Hand it back, then try again."
-        : "Someone else has the computer right now, so Clicky did nothing.";
+        ? "I can't tell who has the computer right now. Hand it back, then try again."
+        : "Someone else has the computer right now, so I did nothing.";
     }
     const waiting =
       state.request?.status === "waiting" ? state.request.id : undefined;
@@ -287,23 +323,9 @@ export function createClickyActions(deps: {
           botId,
           userId,
           proposal,
-          "The page changed since Clicky asked, so it did nothing. Ask again.",
+          "The page changed since I asked, so I did nothing. Ask again.",
           { reason: "changed" },
         );
-      // A grant covers the step's own element: the ref has to be the one the step points at.
-      const ref =
-        action.kind === "click" || action.kind === "type"
-          ? action.ref
-          : undefined;
-      if (viaGrant && (!ref || probe?.ref !== ref))
-        return refuse(
-          botId,
-          userId,
-          proposal,
-          "What is there now needs a fresh yes.",
-          { reason: "grant target" },
-        );
-
       // Rated again on what is there now. Worse than what the person said yes to is not done.
       const fresh = assessAction(action, {
         actionPolicy,
@@ -366,6 +388,12 @@ export function createClickyActions(deps: {
             ...(now?.inPage !== false ? { requireBrowser: true } : {}),
           }
         : {};
+      /*
+       * The page's keyboard for what lands on the page; the desktop's only for what the person
+       * approved off it knowingly (the browser's own bar), where the page's cannot reach.
+       */
+      const pageKeyboard = !desktop || now?.inPage !== false;
+      const typedAt = pixels ? { at: pixels } : {};
       switch (action.kind) {
         case "click": {
           if (!pixels)
@@ -388,27 +416,47 @@ export function createClickyActions(deps: {
             await input(botId, { kind: "click", ...pixels, ...space }, signal);
           await input(
             botId,
-            { kind: "type", text: action.text, ...space },
+            pageKeyboard
+              ? {
+                  kind: "type",
+                  text: action.text,
+                  keyboard: "page",
+                  ...typedAt,
+                }
+              : { kind: "type", text: action.text, ...space },
             signal,
           );
+          // Its own key after the text, rated as Enter on that field (guardrails.ts).
+          if (action.pressEnter)
+            await input(
+              botId,
+              pageKeyboard
+                ? { kind: "key", key: "Enter", keyboard: "page", ...typedAt }
+                : { kind: "key", key: "Enter", ...space },
+              signal,
+            );
           break;
         }
         case "key":
           await input(
             botId,
-            { kind: "key", key: action.keys, ...space },
+            pageKeyboard && PAGE_KEYS.has(action.keys)
+              ? { kind: "key", key: action.keys, keyboard: "page" }
+              : { kind: "key", key: action.keys, ...space },
             signal,
           );
           break;
         case "scroll":
           await input(
             botId,
-            {
-              kind: "scroll",
-              deltaY: action.deltaY,
-              ...(pixels ?? {}),
-              ...space,
-            },
+            action.ref
+              ? { kind: "scroll-into-view", ref: action.ref }
+              : {
+                  kind: "scroll",
+                  deltaY: action.deltaY,
+                  ...(pixels ?? {}),
+                  ...space,
+                },
             signal,
           );
           break;
@@ -423,8 +471,12 @@ export function createClickyActions(deps: {
           host: hostOf(url),
           // How much was typed, or which keys: never the text.
           ...(action.kind === "type" ? { characters: action.text.length } : {}),
+          ...(action.kind === "type" && action.pressEnter
+            ? { keys: "Enter" }
+            : {}),
           ...(action.kind === "key" ? { keys: action.keys } : {}),
-          ...(viaGrant ? { viaGrant: true } : {}),
+          ...(action.kind === "scroll" && action.ref ? { intoView: true } : {}),
+          ...(viaGrant ? { viaGrant: true, scope: "session" } : {}),
         },
       };
     },

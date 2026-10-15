@@ -262,6 +262,29 @@ describe("from the gateway's handover events", () => {
     expect(nobody.store.all()).toEqual([]);
     expect(await own.store.load("user-1", "bot-1")).toBeNull();
   });
+
+  test("a person's own Take control is not the Bot needing them, whatever words it carries", async () => {
+    const { store, activation, pushed, looks } = harness();
+    activation.onControlEvent(
+      helpRequested({
+        reason: "I want to take control of the browser.",
+        source: "manual",
+        state: {
+          ...waiting("m1"),
+          request: {
+            ...(waiting("m1").request as NonNullable<
+              ComputerControlState["request"]
+            >),
+            source: "manual",
+          },
+        },
+      }),
+    );
+    await Bun.sleep(40);
+    expect(await store.load("user-1", "bot-1")).toBeNull();
+    expect(pushed).toEqual([]);
+    expect(looks).toEqual([]);
+  });
 });
 
 describe("from a run waiting on the person", () => {
@@ -327,6 +350,100 @@ describe("from a run waiting on the person", () => {
         "approval",
     );
     expect(await plain.store.load("user-1", "bot-1")).toBeNull();
+  });
+});
+
+describe("a run that met a person at the wheel", () => {
+  const met = (handoff: Record<string, unknown>) => ({
+    threadId: "t1",
+    runId: "run-1",
+    toolCallId: "call-1",
+    toolName: "computer_click",
+    waiting: {
+      kind: "computer_handoff",
+      requestId: String(handoff.id),
+      handoff,
+    },
+    message: "A person has taken control of the browser. Waiting for them.",
+  });
+
+  test("waits for their own Take control, or Clicky's, without opening Clicky for it", async () => {
+    for (const handoff of [
+      { id: "m1", reason: "I want to take control.", source: "manual" },
+      { id: "c1", reason: CLICKY_HELP_REASON, source: "model" },
+    ]) {
+      const { store, activation, pushed } = harness();
+      activation.onWaiting({
+        userId: "user-1",
+        botId: "bot-1",
+        wait: met(handoff),
+      });
+      await Bun.sleep(30);
+      expect({ handoff, session: await store.load("user-1", "bot-1") }).toEqual(
+        { handoff, session: null },
+      );
+      expect(pushed).toEqual([]);
+    }
+    // The Bot's own request, met the same way, still opens it.
+    const bots = harness();
+    bots.activation.onWaiting({
+      userId: "user-1",
+      botId: "bot-1",
+      wait: met({ id: "b1", reason: "Please sign in", source: "model" }),
+    });
+    await until(
+      async () =>
+        (await bots.store.load("user-1", "bot-1"))?.trigger?.kind ===
+        "takeover",
+    );
+  });
+
+  test("a run that stopped to wait has not finished; when it ends for real, it has", async () => {
+    const { store, activation, service } = harness();
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "wake" },
+    });
+    activation.onRunBusy({
+      threadId: "th-9",
+      busy: true,
+      userId: "user-1",
+      agentId: "bot-1",
+    });
+    activation.onWaiting({
+      userId: "user-1",
+      botId: "bot-1",
+      wait: {
+        threadId: "th-9",
+        runId: "run-9",
+        toolCallId: "call-9",
+        toolName: "computer_click",
+        waiting: {
+          kind: "computer_handoff",
+          requestId: "m9",
+          handoff: { id: "m9", reason: "Mine", source: "manual" },
+        },
+        message: "Waiting for the person.",
+      },
+    });
+    // The lock is given back while it waits.
+    activation.onRunBusy({ threadId: "th-9", busy: false });
+    await Bun.sleep(40);
+    expect((await store.load("user-1", "bot-1"))?.reply?.notice).not.toBe(
+      "follow_up",
+    );
+    // Resumed, and then done.
+    activation.onRunBusy({
+      threadId: "th-9",
+      busy: true,
+      userId: "user-1",
+      agentId: "bot-1",
+    });
+    activation.onRunBusy({ threadId: "th-9", busy: false });
+    await until(
+      async () =>
+        (await store.load("user-1", "bot-1"))?.reply?.notice === "follow_up",
+    );
   });
 });
 

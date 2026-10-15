@@ -96,6 +96,43 @@ describe("createClickyStore", () => {
   });
 });
 
+describe("a session written by an older server", () => {
+  test("is read back in this version: new fields defaulted, a walkthrough-bound grant dropped", async () => {
+    const store = createClickyStore(database);
+    const current = (await store.open(userId, botId, Date.now())).session;
+    // As round 1 wrote it: a grant tied to a walkthrough, and none of round 2's fields.
+    const {
+      narrating: _narrating,
+      check: _check,
+      overlaysStale: _stale,
+      ...older
+    } = {
+      ...current,
+      awake: true,
+      grant: {
+        walkthroughId: "w1",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+    };
+    await database
+      .update(clickySessions)
+      .set({ session: older as never })
+      .where(eq(clickySessions.id, current.id));
+    for (const read of [
+      await store.load(userId, botId),
+      (await store.open(userId, botId, Date.now())).session,
+    ])
+      expect(read).toMatchObject({
+        id: current.id,
+        awake: true,
+        grant: null,
+        narrating: false,
+        check: null,
+        overlaysStale: false,
+      });
+  });
+});
+
 describe("the activity listener", () => {
   test("a change announced through Postgres reaches this replica's sockets", async () => {
     const store = createClickyStore(database);

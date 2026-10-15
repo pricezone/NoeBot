@@ -15,20 +15,22 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Hono, MiddlewareHandler } from "hono";
-import type {
-  ClickyNotice,
-  ClickySession,
-  ClickyTrigger,
-  ClickyTriggerKind,
+import {
+  CLICKY_HELP_REASON,
+  type ClickyNotice,
+  type ClickySession,
+  type ClickyTrigger,
+  type ClickyTriggerKind,
 } from "../../../shared/clicky";
 import type { Locale } from "../../../shared/i18n/locales";
 import { clickyPreferencesOf } from "../../../shared/user-preferences";
 import { computerAccessCheck } from "../agents/computer-access";
 import type { AgentProfileStore } from "../agents/profile-store";
-import type { AuditStore } from "../audit";
+import { type AuditStore, PERSON_INITIATOR } from "../audit";
 import { type AppVariables, createRoleRepository } from "../auth/guards";
 import type { MobileLinkedInput } from "../auth/signin-handoff";
 import type {
+  ComputerBotAction,
   ComputerControlEvent,
   ComputerGateway,
 } from "../computer/gateway";
@@ -110,6 +112,11 @@ export type ClickyWiring = {
     agentId?: string;
   }): void;
   /**
+   * One of the Bot's page actions, about to be carried out (the gateway's `onBotAction`): shown to
+   * the person it acts for when they are watching it narrated.
+   */
+  onBotAction(event: ComputerBotAction): void;
+  /**
    * A message the person's live viewer sent toward the computer (raw JSON as relayed), with the size
    * of the last frame that viewer was sent, so a click can be placed on Clicky's normalized screen.
    */
@@ -184,6 +191,34 @@ export function viewerClick(
   };
 }
 
+/**
+ * That the person typed on the live screen, from a viewer's raw input message: `submit` for Enter
+ * or Tab going down, `text` for any other key that types (or deletes) and for a paste. Only that it
+ * happened: the key and the text are never kept or passed on, since what a person types while they
+ * hold the computer may well be a password.
+ */
+export function viewerTyping(raw: string): "text" | "submit" | null {
+  // Cheap first: most of what a viewer sends is the pointer moving.
+  if (!raw.includes('"key"') && !raw.includes('"text"')) return null;
+  let message: unknown;
+  try {
+    message = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const value = message as Record<string, unknown> | null;
+  if (value?.type === "text")
+    return typeof value.text === "string" && value.text ? "text" : null;
+  if (value?.type !== "key" || value.event !== "down") return null;
+  const key = value.key;
+  if (typeof key !== "string") return null;
+  if (key === "Enter" || key === "NumpadEnter" || key === "Tab")
+    return "submit";
+  return [...key].length === 1 || key === "Backspace" || key === "Delete"
+    ? "text"
+    : null;
+}
+
 /** The fixed line a phone's lock screen shows: what kind of help, never the Bot's own words. */
 const NEEDS_YOU_BODY: Record<ClickyTriggerKind, string> = {
   takeover: "Noë Bot needs your help on its computer.",
@@ -191,8 +226,8 @@ const NEEDS_YOU_BODY: Record<ClickyTriggerKind, string> = {
   secret: "Noë Bot needs you to enter a password or a code.",
   challenge: "Noë Bot needs you to finish a check on a website.",
   approval: "Noë Bot needs you to do a step yourself.",
-  person: "Open Clicky to see what to do.",
-  follow_up: "Open Clicky to see what to do.",
+  person: "Noë Bot needs you",
+  follow_up: "Noë Bot needs you",
 };
 
 /**
@@ -243,17 +278,39 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
     onRunBusy(input) {
       clicky?.activation.onRunBusy(input);
     },
+    onBotAction(event) {
+      if (!clicky || !event.userId || !NARRATED_TOOLS.has(event.tool)) return;
+      clicky.service.botAction(event.userId, event.botId, {
+        tool: event.tool,
+        ...(event.ref ? { ref: event.ref } : {}),
+        ...(event.snapshotId !== undefined
+          ? { snapshotId: event.snapshotId }
+          : {}),
+        ...(event.role ? { role: event.role } : {}),
+        ...(event.name ? { name: event.name } : {}),
+        ...(event.url ? { url: event.url } : {}),
+        ...(event.key ? { key: event.key } : {}),
+      });
+    },
     onViewerInput({ userId, botId, raw, frame }) {
       if (!clicky) return;
+      // Only input that reached the computer counts: the person holds it.
+      const driving = clicky.holderOf(botId) === userId;
       const at = viewerClick(raw, frame);
-      if (at) clicky.service.personInput(userId, botId, at);
+      if (at) {
+        clicky.service.personInput(userId, botId, at, { driving });
+        return;
+      }
+      if (!driving) return;
+      const typing = viewerTyping(raw);
+      if (typing) clicky.service.personTyped(userId, botId, typing);
     },
     onMobileLinked(input) {
       return mobile.onMobileLinked(input);
     },
     async guide({ userId, botId, ...input }) {
       if (!clicky)
-        throw new Error("Clicky is not available on this deployment.");
+        throw new Error("Show me how is not available on this deployment.");
       // The run's person, on this Bot's computer: the same question the computer routes ask.
       if (!(await clicky.canUseComputer(userId, botId)))
         throw new Error("This person cannot use that Bot's computer.");
@@ -284,6 +341,26 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
     },
   };
 }
+
+/**
+ * The Bot's page tools narration shows. Shell and file calls never are: they are not on the screen,
+ * and what they name (a command, a path) is not the person's to watch go by.
+ */
+const NARRATED_TOOLS = new Set([
+  "computer_navigate",
+  "computer_click",
+  "computer_type",
+  "computer_key",
+  "computer_scroll",
+  "computer_select",
+  "computer_check",
+  "computer_upload",
+  "computer_hover",
+  "computer_dialog",
+  "computer_tabs",
+  "computer_back",
+  "computer_fill",
+]);
 
 /** Clicky itself: built only where it is switched on and there is a computer to guide on. */
 function buildClicky(
@@ -333,7 +410,11 @@ function buildClicky(
     });
   /**
    * Who holds each computer, by person, as the handover events said: Clicky acts only while the
-   * person it acts for is the one holding it.
+   * person it acts for is the one holding it, and counts a person's typing only then.
+   *
+   * Kept in this process. Hosted instances run one replica, which hears every handover; with more
+   * than one, a replica that did not hear the computer being taken does not know who holds it, and
+   * Clicky then refuses to act ("I can't tell who has the computer right now") rather than guess.
    */
   const holders = new Map<string, string | null>();
   const service = createClickyService({
@@ -358,6 +439,27 @@ function buildClicky(
       holderOf: (botId) => holders.get(botId),
     }),
     auditStore: deps.auditStore,
+    /*
+     * Sleep and Stop hand the computer back when the person holds it only because Clicky took it
+     * for them ("Do it for me", or guiding with control taken): the app does the same, and this is
+     * for an app that went away before it could.
+     */
+    releaseOwnControl: async (userId, botId) => {
+      if (holders.get(botId) !== userId) return;
+      const state = await gateway.control(botId);
+      const request = state.request;
+      if (
+        state.holder !== "human" ||
+        request?.status !== "taken" ||
+        request.reason !== CLICKY_HELP_REASON
+      )
+        return;
+      await gateway.releaseControl(
+        botId,
+        { id: userId, userId, initiator: PERSON_INITIATOR },
+        request.id,
+      );
+    },
   });
 
   /** "Noë Bot needs you" on the phones paired with this Bot's computer, or with none in particular. */
@@ -403,6 +505,7 @@ function buildClicky(
     activation,
     sessions,
     canUseComputer,
+    holderOf: (botId: string) => holders.get(botId),
     routes() {
       routes ??= createClickyRoutes({
         service,

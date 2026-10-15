@@ -21,8 +21,8 @@ import type { ElementAtResult, FocusResult } from "../computer/schema";
  *   CAPTCHA, a sign-in the Bot asked them for, typing into a part of the page that cannot be read.
  *   Clicky points and they act.
  * - `confirm`: hard to undo, or not known. A submit, a send, a delete, a form's button, closing a
- *   tab, Enter in a form, a paste, anything off the page or where nothing could be read. Asked about
- *   every time, never covered by a task grant.
+ *   tab, Enter in a form (or typing that ends with one), a paste, anything off the page or where
+ *   nothing could be read. Asked about every time, never covered by "Allow for this session".
  * - `low`: everything else.
  *
  * It fails closed: whatever cannot be read (what has the keyboard, what is under the point, which
@@ -41,6 +41,8 @@ export type GuardTarget = {
   opaque?: boolean;
   /** Inside a dialog on the page: its buttons answer "are you sure?". */
   inDialog?: boolean;
+  /** Inside a form on the page: Enter in one of its fields sends it. */
+  inForm?: boolean;
 };
 
 export type GuardContext = {
@@ -350,7 +352,7 @@ export function assessAction(
   if (context.actionPolicy === "never")
     return {
       risk: "blocked",
-      reason: "Clicky is set to guide only, so it never clicks or types.",
+      reason: "I'm set to guide only, so I never click or type.",
     };
 
   const keys = action.kind === "key" ? allowedKeys(action.keys) : null;
@@ -358,25 +360,26 @@ export function assessAction(
     return {
       risk: "blocked",
       reason:
-        "Clicky only presses everyday keys, such as Enter, Tab and the arrows. That one is yours to press.",
+        "I only press everyday keys, such as Enter, Tab and the arrows. That one is yours to press.",
     };
 
   /*
    * Text is text. A line break typed on a desktop is a Return, a tab is a Tab: "foo\n" would send a
    * form past the rule that asks about Enter, and "a\tb" would land in the next field unrated. Keys
-   * are pressed as keys, where they are rated.
+   * are pressed as keys, where they are rated: typing that ends in Enter is `pressEnter`, and the
+   * Enter is rated below exactly as the key would be.
    */
   if (action.kind === "type" && hasControlCharacter(action.text))
     return {
       risk: "blocked",
       reason:
-        "Clicky only types plain text, without line breaks or tabs. Those are keys it presses on their own.",
+        "I only type plain text, without line breaks or tabs. Those are keys I press on their own.",
     };
 
   if (action.kind === "type" && action.text.length > CLICKY_TYPE_LIMIT)
     return {
       risk: "blocked",
-      reason: `Clicky types at most ${CLICKY_TYPE_LIMIT} characters at a time.`,
+      reason: `I type at most ${CLICKY_TYPE_LIMIT} characters at a time.`,
     };
 
   // What receives the input: under the point, or what has the keyboard.
@@ -391,7 +394,7 @@ export function assessAction(
       return {
         risk: "blocked",
         reason:
-          "Clicky never types into a password, code or card field. That one is yours.",
+          "I never type into a password, code or card field. That one is yours.",
       };
     return {
       risk: "yours",
@@ -403,7 +406,7 @@ export function assessAction(
     return {
       risk: "yours",
       reason:
-        "That part of the page belongs to another site, and Clicky cannot see into it. That one is yours.",
+        "That part of the page belongs to another site, and I can't see into it. That one is yours.",
     };
 
   if (context.trigger && CLICKY_PERSON_ONLY_TRIGGERS.includes(context.trigger))
@@ -424,6 +427,9 @@ export function assessAction(
         label: action.label,
         ...(action.kind === "type" ? { text: action.text } : {}),
         ...(action.kind === "key" ? { key: action.keys } : {}),
+        ...(action.kind === "type" && action.pressEnter
+          ? { key: "Enter" }
+          : {}),
       },
       target: receiver ? { role: receiver.role, name: receiver.name } : {},
     });
@@ -434,15 +440,14 @@ export function assessAction(
     return {
       risk: "confirm",
       reason: pointed
-        ? "Clicky could not read what is there."
-        : "Clicky could not tell what has the keyboard.",
+        ? "I couldn't read what is there."
+        : "I couldn't tell what has the keyboard.",
     };
 
   if (receiver.inPage === false)
     return {
       risk: "confirm",
-      reason:
-        "That is outside the page, where Clicky cannot read what it does.",
+      reason: "That is outside the page, where I can't read what it does.",
     };
 
   if (keys) {
@@ -457,19 +462,14 @@ export function assessAction(
     if (keys === "Control+l" || keys === "Control+t")
       return {
         risk: "confirm",
-        reason:
-          "That goes to the browser's address bar, which Clicky cannot read.",
+        reason: "That goes to the browser's address bar, which I can't read.",
       };
     if (keys === "Control+r")
       return {
         risk: "confirm",
         reason: "That reloads the page, and anything typed on it may be lost.",
       };
-    if (keys === "Enter") {
-      if (receiver.role === "searchbox" || SEARCH.test(plain(receiver.name)))
-        return { risk: "low" };
-      return { risk: "confirm", reason: "Enter can send the form it is in." };
-    }
+    if (keys === "Enter") return enterOn(receiver);
     if (
       keys === "Space" &&
       (receiver.submits || receiver.inDialog || commits(receiver.name))
@@ -493,13 +493,31 @@ export function assessAction(
     if (receiver.opaque)
       return {
         risk: "confirm",
-        reason: "Clicky cannot see into that part of the page.",
+        reason: "I can't see into that part of the page.",
       };
     // Typing puts text in a field and sends nothing; a click on a committing control does.
     if (commits(receiver.name))
       return { risk: "confirm", reason: `“${receiver.name}” is hard to undo.` };
   }
+  // Typing that ends in Enter: the Enter, pressed on the field typed into, is rated as the key is.
+  if (action.kind === "type" && action.pressEnter) return enterOn(receiver);
   return { risk: "low" };
+}
+
+/**
+ * Enter on what has the keyboard. In a search box (by its role, or by its name, in English or
+ * Greek) it searches, which is everyday even inside a form; anywhere else it may send something:
+ * the form the field is in, or a message box that sends on Enter.
+ */
+function enterOn(receiver: GuardTarget): Assessment {
+  if (receiver.role === "searchbox" || SEARCH.test(plain(receiver.name)))
+    return { risk: "low" };
+  return {
+    risk: "confirm",
+    reason: receiver.inForm
+      ? "Enter can send the form it is in."
+      : "Enter can send what was typed.",
+  };
 }
 
 /** What the page said is under a point, as the guardrails read it. */
@@ -513,6 +531,7 @@ export function guardTargetOf(probe: ElementAtResult): GuardTarget {
     ...(probe.submits ? { submits: true } : {}),
     ...(probe.opaque ? { opaque: true } : {}),
     ...(probe.inDialog ? { inDialog: true } : {}),
+    ...(probe.inForm ? { inForm: true } : {}),
   };
 }
 
@@ -529,5 +548,6 @@ export function guardFocusOf(focus: FocusResult): GuardTarget | undefined {
     ...(focus.element.submits ? { submits: true } : {}),
     ...(focus.element.opaque ? { opaque: true } : {}),
     ...(focus.element.inDialog ? { inDialog: true } : {}),
+    ...(focus.element.inForm ? { inForm: true } : {}),
   };
 }

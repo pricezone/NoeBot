@@ -23,9 +23,11 @@ import { SECRET_ATTRIBUTE, SENSITIVE_FIELD_SELECTOR } from "./secret-masking";
  * of the screen that matters, and its model reads a list of the controls with their boxes beside a
  * picture of the screen. Three questions, all read-only:
  *
- * - `/elements`: the visible controls, each with its ref and its box in SCREEN pixels. On a desktop
- *   the page is a window under the browser's toolbar, so its boxes are moved by where its viewport
- *   starts (`element-geometry.ts`); on a page-only computer the screen is the viewport.
+ * - `/elements`: the visible controls, each with its ref and its box in SCREEN pixels, and the
+ *   ones above or below the screen by their place in the page, with the scroll position and the
+ *   title. On a desktop the page is a window under the browser's toolbar, so its boxes are moved by
+ *   where its viewport starts (`element-geometry.ts`); on a page-only computer the screen is the
+ *   viewport.
  * - `/elements/at`: what is under one screen point, asked of the page itself just before Clicky
  *   acts there, so a guardrail decides on what is really there rather than on what the model said.
  * - `/elements/frame`: the picture the model is shown, with every sensitive field masked first.
@@ -39,8 +41,14 @@ import { SECRET_ATTRIBUTE, SENSITIVE_FIELD_SELECTOR } from "./secret-masking";
 
 /** How many boxes Clicky is handed: enough for a busy form, few enough for a short prompt. */
 export const ELEMENT_LIMIT = 80;
-/** How many of the snapshot's controls are measured to find those, in priority order. */
-const CANDIDATE_LIMIT = 200;
+/** How many controls off the screen are named beside those, the nearest to the screen first. */
+export const OFFSCREEN_LIMIT = 40;
+/**
+ * How many of the snapshot's controls are measured, in its order. Every one of them, not the first
+ * few: on a page scrolled down, the first controls in the document are all above the screen, and
+ * measuring only those once found nothing at all on it.
+ */
+export const CANDIDATE_LIMIT = 400;
 const PROBE_TIMEOUT_MS = 500;
 const NAME_LIMIT = 120;
 
@@ -54,6 +62,20 @@ export type ScreenElement = {
   focused: boolean;
 };
 
+/** A control the page has but the screen does not show: scrolled past, or further down. */
+export type OffscreenElement = {
+  ref: string;
+  role: string;
+  name: string;
+  offscreen: "above" | "below";
+  /** Where its top is in the page, in CSS pixels from the top of the document. */
+  y: number;
+  sensitive: boolean;
+};
+
+/** How far down the page is scrolled: CSS pixels, of how tall a page, with how tall a window. */
+export type PageScroll = { y: number; height: number; viewport: number };
+
 export type ScreenElements = {
   screen: Size;
   mode: "desktop" | "page";
@@ -61,7 +83,13 @@ export type ScreenElements = {
   window?: { x: number; y: number; innerOffsetX: number; innerOffsetY: number };
   /** The page the boxes belong to; empty when no browser is open. */
   url: string;
+  /** The page's title, when it could be read. */
+  title?: string;
+  /** The visible controls. */
   elements: ScreenElement[];
+  /** Controls above or below the screen, so a step can say to scroll to them. */
+  offscreen?: OffscreenElement[];
+  scroll?: PageScroll;
 };
 
 export type ElementAt = PageTarget & {
@@ -181,54 +209,280 @@ export function elementFacts(
   return { sensitive, focused: active === element };
 }
 
-/** Roles whose contents are typed: unreadable, they are treated as holding a secret. */
-const TYPED_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton"]);
+/**
+ * In the page, the scroll position and the boxes of the fields whose ATTRIBUTES say they hold a
+ * secret (a password, a one-time code, a card number), for an element whose own probe ran out of
+ * time. Self-contained: Playwright serialises it.
+ */
+export function pageFacts(selector: string): {
+  scroll: PageScroll;
+  secrets: { x: number; y: number; width: number; height: number }[];
+} {
+  const scrolling = document.scrollingElement ?? document.documentElement;
+  const secrets = Array.from(
+    document.querySelectorAll(`${selector}, input[autocomplete^="cc-"]`),
+  )
+    .slice(0, 200)
+    .map((element) => {
+      const box = element.getBoundingClientRect();
+      return { x: box.x, y: box.y, width: box.width, height: box.height };
+    });
+  return {
+    scroll: {
+      y: Math.round(window.scrollY),
+      height: Math.round(scrolling?.scrollHeight ?? window.innerHeight),
+      viewport: Math.round(window.innerHeight),
+    },
+    secrets,
+  };
+}
 
-/** The visible controls of the page, with their boxes on the screen. */
+/** Whether two boxes are one field: either one's middle inside the other. */
+function sameField(a: Rect, b: Rect): boolean {
+  const inside = (outer: Rect, inner: Rect) => {
+    const x = inner.x + inner.width / 2;
+    const y = inner.y + inner.height / 2;
+    return (
+      x >= outer.x &&
+      x <= outer.x + outer.width &&
+      y >= outer.y &&
+      y <= outer.y + outer.height
+    );
+  };
+  return inside(a, b) || inside(b, a);
+}
+
+/** Where a measured control is: on the screen, above it, below it, or nowhere to show. */
+export function classifyBox(
+  box: Rect | null,
+  viewport: Size,
+): "visible" | "above" | "below" | null {
+  if (!box || !(box.width > 0 && box.height > 0)) return null;
+  if (visibleIn(box, viewport)) return "visible";
+  // Beside the screen (a carousel's next card) is not somewhere scrolling down reaches.
+  if (box.x + box.width <= 0 || box.x >= viewport.width) return null;
+  if (box.y + box.height <= 0) return "above";
+  if (box.y >= viewport.height) return "below";
+  return null;
+}
+
+/**
+ * Of the measured controls, what Clicky is handed: the visible ones in the snapshot's order (at
+ * most {@link ELEMENT_LIMIT}), and the ones off the screen nearest to it first, from above and
+ * below alike (at most {@link OFFSCREEN_LIMIT}). Pure, so the choice is a test.
+ */
+export function chooseElements<T extends { box: Rect | null }>(
+  measured: readonly T[],
+  viewport: Size,
+): {
+  visible: T[];
+  offscreen: (T & { box: Rect; offscreen: "above" | "below" })[];
+} {
+  const visible: T[] = [];
+  const offscreen: {
+    element: T & { box: Rect; offscreen: "above" | "below" };
+    distance: number;
+  }[] = [];
+  for (const element of measured) {
+    const where = classifyBox(element.box, viewport);
+    if (!where || !element.box) continue;
+    if (where === "visible") {
+      if (visible.length < ELEMENT_LIMIT) visible.push(element);
+      continue;
+    }
+    offscreen.push({
+      element: { ...element, box: element.box, offscreen: where },
+      distance:
+        where === "above"
+          ? -(element.box.y + element.box.height)
+          : element.box.y - viewport.height,
+    });
+  }
+  /*
+   * Half the room for each side, nearest first, so a page with a long list above the screen still
+   * names what is below it (the next step is usually further down); then whatever is left over, by
+   * how near it is.
+   */
+  offscreen.sort((a, b) => a.distance - b.distance);
+  const half = Math.floor(OFFSCREEN_LIMIT / 2);
+  const side = (where: "above" | "below") =>
+    offscreen.filter((entry) => entry.element.offscreen === where);
+  const chosen = new Set([
+    ...side("above").slice(0, half),
+    ...side("below").slice(0, half),
+  ]);
+  for (const entry of offscreen) {
+    if (chosen.size >= OFFSCREEN_LIMIT) break;
+    chosen.add(entry);
+  }
+  return {
+    visible,
+    offscreen: offscreen
+      .filter((entry) => chosen.has(entry))
+      .map((entry) => entry.element),
+  };
+}
+
+/**
+ * The page's controls with their boxes on the screen, the ones off it named beside them, the
+ * scroll position and the title. `dialogPending`: the page is paused on a JavaScript dialog, and
+ * nothing that runs in it (the title, the scroll position) is asked.
+ */
 export async function listScreenElements(
   page: Page,
   desktop: Size | null,
+  options: { dialogPending?: boolean } = {},
 ): Promise<ScreenElements> {
   const placement = await placementOf(page, desktop);
   const parsed = parseAriaSnapshot(await page.ariaSnapshot({ mode: "ai" }));
   const candidates = parsed.elements.slice(0, CANDIDATE_LIMIT);
-  const measured = await Promise.all(
-    candidates.map(async (element) => {
-      const locator = page.locator(`aria-ref=${element.ref}`);
-      const [box, facts] = await Promise.all([
-        locator.boundingBox({ timeout: PROBE_TIMEOUT_MS }).catch(() => null),
-        locator
-          .evaluate(elementFacts, SENSITIVE_FIELD_SELECTOR, {
-            timeout: PROBE_TIMEOUT_MS,
-          })
+  const [boxes, facts, title] = await Promise.all([
+    Promise.all(
+      candidates.map((element) =>
+        page
+          .locator(`aria-ref=${element.ref}`)
+          .boundingBox({ timeout: PROBE_TIMEOUT_MS })
           .catch(() => null),
-      ]);
-      if (!box || !visibleIn(box, placement.viewport)) return null;
-      const onScreen = clipRect(
-        pageRectToScreen(clipRect(box, placement.viewport), placement.offset),
-        placement.screen,
-      );
-      if (!(onScreen.width > 0 && onScreen.height > 0)) return null;
-      return {
-        ref: element.ref,
-        role: element.role,
-        name: element.name.slice(0, NAME_LIMIT),
-        rect: onScreen,
-        // A field that cannot be asked is treated as sensitive: see secret-masking.ts.
-        sensitive: facts ? facts.sensitive : TYPED_ROLES.has(element.role),
-        focused: facts?.focused ?? false,
-      } satisfies ScreenElement;
-    }),
+      ),
+    ),
+    options.dialogPending
+      ? Promise.resolve(null)
+      : withinMs(
+          page.evaluate(pageFacts, SENSITIVE_FIELD_SELECTOR).catch(() => null),
+          PROBE_TIMEOUT_MS * 2,
+          null,
+        ),
+    options.dialogPending
+      ? Promise.resolve("")
+      : withinMs(
+          page.title().catch(() => ""),
+          PROBE_TIMEOUT_MS,
+          "",
+        ),
+  ]);
+  const chosen = chooseElements(
+    candidates.map((element, index) => ({
+      element,
+      box: boxes[index] ?? null,
+    })),
+    placement.viewport,
   );
+  /*
+   * Whether each one holds a secret and has the keyboard, asked of the element itself. One that
+   * does not answer in time is judged by the attributes of the fields the page itself marks as
+   * secret, never "every text field": a search box that was slow to answer is a search box.
+   */
+  const secretBoxes = facts?.secrets ?? [];
+  const factsOf = async (ref: string, box: Rect) => {
+    const read = await page
+      .locator(`aria-ref=${ref}`)
+      .evaluate(elementFacts, SENSITIVE_FIELD_SELECTOR, {
+        timeout: PROBE_TIMEOUT_MS,
+      })
+      .catch(() => null);
+    return (
+      read ?? {
+        sensitive: secretBoxes.some((secret) => sameField(secret, box)),
+        focused: false,
+      }
+    );
+  };
+  const [visible, offscreen] = await Promise.all([
+    Promise.all(
+      chosen.visible.map(async ({ element, box }) => {
+        if (!box) return null;
+        const onScreen = clipRect(
+          pageRectToScreen(clipRect(box, placement.viewport), placement.offset),
+          placement.screen,
+        );
+        if (!(onScreen.width > 0 && onScreen.height > 0)) return null;
+        const read = await factsOf(element.ref, box);
+        return {
+          ref: element.ref,
+          role: element.role,
+          name: element.name.slice(0, NAME_LIMIT),
+          rect: onScreen,
+          sensitive: read.sensitive,
+          focused: read.focused,
+        } satisfies ScreenElement;
+      }),
+    ),
+    Promise.all(
+      chosen.offscreen.map(async ({ element, box, offscreen: where }) => {
+        const read = await factsOf(element.ref, box);
+        return {
+          ref: element.ref,
+          role: element.role,
+          name: element.name.slice(0, NAME_LIMIT),
+          offscreen: where,
+          y: Math.round(box.y + (facts?.scroll.y ?? 0)),
+          sensitive: read.sensitive,
+        } satisfies OffscreenElement;
+      }),
+    ),
+  ]);
   return {
     screen: placement.screen,
     mode: placement.mode,
     ...(placement.window ? { window: placement.window } : {}),
     url: page.url(),
-    elements: measured
-      .filter((element): element is ScreenElement => element !== null)
-      .slice(0, ELEMENT_LIMIT),
+    ...(title ? { title: title.slice(0, 200) } : {}),
+    elements: visible.filter(
+      (element): element is ScreenElement => element !== null,
+    ),
+    offscreen,
+    ...(facts ? { scroll: facts.scroll } : {}),
   };
+}
+
+/** A promise's answer, or `fallback` once `ms` have passed. */
+async function withinMs<T>(work: Promise<T>, ms: number, fallback: T) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Where one element the Bot named (an aria ref from its own snapshot) is on the screen now, for
+ * narrating what it does. Null when it cannot be found or is not on the screen. It takes no snapshot
+ * of its own, so the Bot's refs stay as they are.
+ */
+export async function refRectOnScreen(
+  page: Page,
+  desktop: Size | null,
+  ref: string,
+): Promise<{ screen: Size; rect: Rect } | null> {
+  const box = await page
+    .locator(`aria-ref=${ref}`)
+    .boundingBox({ timeout: PROBE_TIMEOUT_MS })
+    .catch(() => null);
+  if (!box) return null;
+  const placement = await placementOf(page, desktop);
+  if (!visibleIn(box, placement.viewport)) return null;
+  const rect = clipRect(
+    pageRectToScreen(clipRect(box, placement.viewport), placement.offset),
+    placement.screen,
+  );
+  if (!(rect.width > 0 && rect.height > 0)) return null;
+  return { screen: placement.screen, rect };
+}
+
+/** A screen point in the page's own pixels, or null when it is not on the page. */
+export async function screenPointInPage(
+  page: Page,
+  desktop: Size | null,
+  point: Point,
+): Promise<Point | null> {
+  const placement = await placementOf(page, desktop);
+  return screenPointToPage(point, placement.offset, placement.viewport);
 }
 
 /** What the page says about the element under a point, or the one with the keyboard. */
@@ -242,6 +496,8 @@ export type PageTarget = {
   opaque: boolean;
   /** Inside a dialog: its buttons are the "Yes", "OK" and "Continue" of a confirmation. */
   inDialog: boolean;
+  /** Inside a form: Enter in one of its fields sends it. */
+  inForm: boolean;
 };
 
 /**
@@ -288,6 +544,7 @@ export function pageTarget(input: {
           submits: false,
           opaque: false,
           inDialog: false,
+          inForm: false,
         }
       : null;
   const tag = element.tagName.toLowerCase();
@@ -299,6 +556,7 @@ export function pageTarget(input: {
       submits: false,
       opaque: true,
       inDialog: false,
+      inForm: false,
     };
   const inputType =
     element instanceof HTMLInputElement ? element.type.toLowerCase() : "";
@@ -372,6 +630,7 @@ export function pageTarget(input: {
     submits,
     opaque: false,
     inDialog,
+    inForm: Boolean(form),
   };
 }
 
@@ -428,6 +687,7 @@ export async function elementAtScreen(
     submits: false,
     opaque: false,
     inDialog: false,
+    inForm: false,
     inPage: false,
     url,
     ...(desktop ? { window: "other" as const } : {}),
@@ -455,6 +715,7 @@ export async function elementAtScreen(
     submits: false,
     opaque: false,
     inDialog: false,
+    inForm: false,
   };
   const ref =
     known && known.url === url

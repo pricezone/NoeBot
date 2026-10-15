@@ -1087,15 +1087,15 @@ export function createHeadlessComputerTools(options: {
             return {
               ok: false,
               reason:
-                "Clicky is busy carrying out a step for the person. Try again in a moment.",
+                "Show me how is busy carrying out a step for the person. Try again in a moment.",
             };
           return {
             ok: true,
-            shown: `Clicky is showing the person ${input.steps.length} step${input.steps.length === 1 ? "" : "s"} on your screen, pointing at ${shown.pointed}.`,
+            shown: `Show me how is showing the person ${input.steps.length} step${input.steps.length === 1 ? "" : "s"} on your screen, pointing at ${shown.pointed}.`,
             ...(shown.missing.length > 0
               ? {
                   notOnScreen: shown.missing,
-                  note: "Those refs are not on the screen now, so Clicky shows their steps without pointing. Take a snapshot if you want to point at them.",
+                  note: "Those refs are not on the screen now, so Show me how shows their steps without pointing. Take a snapshot if you want to point at them.",
                 }
               : {}),
           };

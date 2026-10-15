@@ -20,15 +20,17 @@ import {
   PERSON_INITIATOR,
   recordAuditEvent,
 } from "../audit";
+import type { ClickyBotVerb } from "../../../shared/clicky-state";
 import type { ComputerGateway } from "../computer/gateway";
-import type { ScreenElements } from "../computer/schema";
+import type { PageState, ScreenElements } from "../computer/schema";
 import type { ActionOutcome, ClickyActions } from "./actions";
-import type { ClickyBrain, ClickyPreferenceView } from "./brain";
+import type { BrainCheck, ClickyBrain, ClickyPreferenceView } from "./brain";
 import type { ClickyHub } from "./hub";
 import { writeNotes } from "./notes";
 import type { ClickyGuideInput } from "./schema";
 import {
   elementByRef,
+  normalizedRect,
   overlaysFor,
   type PlacedElement,
   placeElements,
@@ -54,6 +56,23 @@ import type { ClickyStore } from "./store";
  * A clock ticks the sessions that are awake every few seconds (a proposal lapsing, the "stuck?"
  * nudge), with the last time the person touched the screen, which is kept here and not in the
  * session: it changes with every click and is only ever a hint.
+ *
+ * Seeing progress: after the person clicks, types or presses Enter on the screen (and after Clicky
+ * acts), the page's state is asked every 700 ms for up to 4 s (`/elements/state`, cheap, no look):
+ * a navigation dispatches `page.changed`, and typing that has settled dispatches `person.typed`.
+ * The reducer answers both with a `check` effect, run here: the page is let settle, then the model
+ * looks once more ("was the step done; where is its control now") without proposing anything, and
+ * its answer comes back as `brain.check`. Checks have their own rate-limit bucket, and a check whose
+ * id is no longer the one waited on is dropped (the reducer drops it too).
+ *
+ * Narration: while a person watches the Bot work (`narrating`), each page action the Bot is about to
+ * take (`botAction`, from the gateway) is shown: the session is read first, and only for an open,
+ * narrating session of that person and Bot is the element's place asked (`/elements/ref`, which takes
+ * no snapshot of its own, so the Bot's refs stay as they are). `/elements` is never asked meanwhile.
+ *
+ * What is kept in memory here (who is typing, which looks are running) is per process. Hosted
+ * instances run one replica; with more, a look or a watch runs where its event arrived, and the
+ * reducer's ids keep a late or duplicate answer from counting.
  */
 
 /** The audit rows Clicky writes, by the reducer's names. Literal, so the trail's taxonomy can find them. */
@@ -76,6 +95,53 @@ export const CLICKY_TICK_MS = 5_000;
 
 /** The commands that ask the model to look. */
 const LOOKS = new Set(["ask", "show_me", "retry"]);
+
+/** How the watch after a person's input is paced. */
+export const CLICKY_PROGRESS = {
+  /** How often the page's state is asked while watching. */
+  pollMs: 700,
+  /** How long a watch lasts, and how much longer for a navigation still on its way. */
+  windowMs: 4_000,
+  extendMs: 4_000,
+  /** How long typing must pause before it counts as done. */
+  typingSettleMs: 1_200,
+  /** How long a look after a step waits before asking whether the page has settled. */
+  settleFloorMs: 300,
+};
+
+/** The verb narration says for each of the Bot's page tools. */
+export function botVerbOf(tool: string): ClickyBotVerb {
+  switch (tool) {
+    case "computer_click":
+      return "click";
+    case "computer_type":
+    case "computer_fill":
+      return "type";
+    case "computer_navigate":
+    case "computer_back":
+      return "navigate";
+    case "computer_scroll":
+      return "scroll";
+    case "computer_select":
+    case "computer_check":
+      return "select";
+    case "computer_key":
+      return "key";
+    default:
+      return "other";
+  }
+}
+
+/** One of the Bot's page actions, as narration hears it (`ComputerBotAction` without the ids). */
+export type ClickyBotAction = {
+  tool: string;
+  ref?: string;
+  snapshotId?: number;
+  role?: string;
+  name?: string;
+  url?: string;
+  key?: string;
+};
 
 /**
  * A bucket of looks per person and Bot: `burst` at once, refilled at `perMinute`. In memory: each
@@ -143,8 +209,23 @@ export type ClickyService = {
     /** Why the walkthrough was not installed: Clicky was busy acting. */
     rejected?: ClickyNotice;
   }>;
-  /** The person clicked on the live screen at this normalized point. */
-  personInput(userId: string, botId: string, at: ClickyPoint): void;
+  /**
+   * The person clicked on the live screen at this normalized point. `driving`: they hold the
+   * computer, so the click reached it, and the page is watched for what it did.
+   */
+  personInput(
+    userId: string,
+    botId: string,
+    at: ClickyPoint,
+    options?: { driving?: boolean },
+  ): void;
+  /**
+   * The person typed on the computer while holding it: `submit` for Enter or Tab, `text` for any
+   * other typing. Only that it happened; never what.
+   */
+  personTyped(userId: string, botId: string, kind: "text" | "submit"): void;
+  /** The Bot is about to act on its page; shown to this person if they are watching it narrated. */
+  botAction(userId: string, botId: string, action: ClickyBotAction): void;
   preferences(userId: string): Promise<ClickyPreferences>;
   /** One pass of the clock over the sessions that are awake. */
   tick(): Promise<void>;
@@ -165,7 +246,8 @@ export function createClickyService(deps: {
   store: ClickyStore;
   hub: ClickyHub;
   preferences: (userId: string) => Promise<ClickyPreferences>;
-  gateway: Pick<ComputerGateway, "elements" | "writeFile">;
+  gateway: Pick<ComputerGateway, "elements" | "writeFile"> &
+    Partial<Pick<ComputerGateway, "pageState" | "elementRect">>;
   brain?: ClickyBrain;
   actions?: ClickyActions;
   auditStore?: AuditStore;
@@ -174,10 +256,21 @@ export function createClickyService(deps: {
   tickMs?: number;
   /** How many looks a person may ask for in a row, and how fast they come back. */
   looks?: { burst?: number; perMinute?: number };
+  /** The same for the looks after a step, which the person does not ask for. */
+  checks?: { burst?: number; perMinute?: number };
+  /** The pace of the watch after a person's input; `CLICKY_PROGRESS` unless a test says. */
+  progress?: Partial<typeof CLICKY_PROGRESS>;
+  /**
+   * On sleep and Stop: hand back the computer if this person holds it under Clicky's own request
+   * (the client hands it back too; this is for one that went away first).
+   */
+  releaseOwnControl?: (userId: string, botId: string) => Promise<void>;
 }): ClickyService {
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? randomUUID;
   const looks = createLookLimiter(deps.looks);
+  const checks = createLookLimiter(deps.checks ?? { burst: 4, perMinute: 12 });
+  const pace = { ...CLICKY_PROGRESS, ...deps.progress };
 
   /** Each session's events, one after another. */
   const queues = new Map<Key, Promise<unknown>>();
@@ -205,6 +298,26 @@ export function createClickyService(deps: {
   const lastInput = new Map<Key, number>();
   const thinking = new Map<Key, AbortController>();
   const acting = new Map<Key, AbortController>();
+  /** The look after a step running per session: settling (waiting on the page) or looking. */
+  const checking = new Map<
+    Key,
+    {
+      checkId: string;
+      controller: AbortController;
+      phase: "settling" | "looking";
+      navigationId?: number;
+    }
+  >();
+  /** The navigation each session last looked at, so one page is not looked at twice. */
+  const lookedAt = new Map<Key, number>();
+  /** The watch after a person's input, per session, and whether it was typing. */
+  const watchers = new Map<
+    Key,
+    { controller: AbortController; typed: boolean }
+  >();
+  const typingTimers = new Map<Key, ReturnType<typeof setTimeout>>();
+  /** Narration in flight per session; only the latest of the actions waiting behind it is shown. */
+  const narrations = new Map<Key, { next?: ClickyBotAction }>();
   /** What Clicky did in each session, for its notes. In memory: the audit trail is the record. */
   const done = new Map<
     string,
@@ -262,7 +375,7 @@ export function createClickyService(deps: {
       }
       return { result, preferences };
     }
-    throw new Error("Clicky's session kept changing under it. Try again.");
+    throw new Error("The session kept changing under it. Try again.");
   }
 
   async function dispatch(
@@ -289,6 +402,21 @@ export function createClickyService(deps: {
     const settled = await queued(keyOf(userId, botId), () =>
       settle(userId, botId, event, options.onlyIfOpen === true),
     );
+    if (
+      event.type === "command" &&
+      (event.command.type === "sleep" || event.command.type === "stop")
+    ) {
+      quietWatch(keyOf(userId, botId));
+      if (deps.releaseOwnControl)
+        void deps.releaseOwnControl(userId, botId).catch((error: unknown) =>
+          console.warn(
+            JSON.stringify({
+              type: "clicky-release-failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          ),
+        );
+    }
     if (!settled) return null;
     const { result, preferences } = settled;
     // After the save and outside the queue. `save_notes` arrives with `changed: false`, so effects
@@ -349,6 +477,13 @@ export function createClickyService(deps: {
         acting.get(key)?.abort();
         acting.delete(key);
         return;
+      case "check":
+        void runCheck(userId, botId, session, effect, preferences);
+        return;
+      case "cancel_check":
+        checking.get(key)?.controller.abort();
+        checking.delete(key);
+        return;
       case "save_notes":
         void saveNotes(userId, botId, session);
         return;
@@ -389,7 +524,7 @@ export function createClickyService(deps: {
     const controller = new AbortController();
     thinking.set(key, controller);
     try {
-      if (!deps.brain) throw new Error("Clicky has no model to look with.");
+      if (!deps.brain) throw new Error("There is no model to look with here.");
       let screen: ScreenElements | undefined;
       /*
        * A Bot asking for the person named the element to use first: point at it at once, before the
@@ -411,6 +546,9 @@ export function createClickyService(deps: {
             },
           });
       }
+      // After Clicky acted, the page it acted on may still be moving: let a navigation land first.
+      if (effect.reason === "continue")
+        await settlePage(botId, controller.signal);
       const reply = await deps.brain.think({
         userId,
         botId,
@@ -473,7 +611,7 @@ export function createClickyService(deps: {
     let outcome: ActionOutcome;
     try {
       if (!deps.actions)
-        throw new Error("Clicky cannot act on this deployment.");
+        throw new Error("Acting is not available on this deployment.");
       // The approval's row first. If the trail cannot hold it, the action is not done.
       const trail = await recorded.then(
         () => true,
@@ -532,6 +670,285 @@ export function createClickyService(deps: {
             detail: outcome.detail,
           },
     ).catch(() => undefined);
+    // What Clicky did may take the page somewhere: watched like the person's own click.
+    if (outcome.ok && lastState.get(key) === "guiding")
+      startWatch(userId, botId, false, 0);
+  }
+
+  /** `ms`, or less when `signal` aborts (which then throws). */
+  function wait(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", stopped);
+        resolve();
+      }, ms);
+      const stopped = () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      };
+      signal.addEventListener("abort", stopped, { once: true });
+    });
+  }
+
+  /**
+   * Waits for the Bot's page to settle (a navigation on its way has landed and stayed put), at most
+   * the watch's window and a little more, and answers the navigation it settled on. Without a way to
+   * ask, a moment's pause.
+   */
+  async function settlePage(
+    botId: string,
+    signal: AbortSignal,
+  ): Promise<number | undefined> {
+    const read = deps.gateway.pageState;
+    await wait(pace.settleFloorMs, signal);
+    if (!read) return undefined;
+    const started = Date.now();
+    for (;;) {
+      const state = await read(botId).catch(() => null);
+      signal.throwIfAborted();
+      if (!state) return undefined;
+      if (
+        state.settled ||
+        Date.now() - started >= pace.windowMs + pace.extendMs
+      )
+        return state.navigationId;
+      await wait(Math.max(50, Math.round(pace.pollMs / 2)), signal);
+    }
+  }
+
+  /**
+   * The look after a step: the page let settle, then one model look without proposals, answered as
+   * `brain.check`. Over the checks' own limit, or with nothing to look with, it is answered at once
+   * with nothing done, so the overlays stop being drawn dimmed.
+   */
+  async function runCheck(
+    userId: string,
+    botId: string,
+    session: ClickySession,
+    effect: Extract<ClickyEffect, { type: "check" }>,
+    preferences: ClickyPreferences,
+  ) {
+    const key = keyOf(userId, botId);
+    checking.get(key)?.controller.abort();
+    const controller = new AbortController();
+    const entry: {
+      checkId: string;
+      controller: AbortController;
+      phase: "settling" | "looking";
+      navigationId?: number;
+    } = { checkId: effect.checkId, controller, phase: "settling" };
+    checking.set(key, entry);
+    // Only the look still waited on is answered: a newer one, or Stop, has moved on from this one.
+    const answer = async (result: BrainCheck) => {
+      if (controller.signal.aborted || checking.get(key) !== entry) return;
+      await dispatch(
+        userId,
+        botId,
+        {
+          type: "brain.check",
+          checkId: effect.checkId,
+          stepDone: result.stepDone,
+          ...(result.overlays ? { overlays: result.overlays } : {}),
+          ...(result.say ? { say: result.say } : {}),
+        },
+        { onlyIfOpen: true },
+      );
+    };
+    try {
+      const brain = deps.brain;
+      if (!brain?.check || !checks.take(key, now())) {
+        await answer({ stepDone: false });
+        return;
+      }
+      const navigationId = await settlePage(botId, controller.signal);
+      entry.phase = "looking";
+      if (navigationId !== undefined) {
+        entry.navigationId = navigationId;
+        lookedAt.set(key, navigationId);
+      }
+      const result = await brain.check({
+        userId,
+        botId,
+        session,
+        stepId: effect.stepId,
+        preferences,
+        signal: controller.signal,
+      });
+      await answer(result);
+    } catch {
+      if (!controller.signal.aborted)
+        await answer({ stepDone: false }).catch(() => undefined);
+    } finally {
+      if (checking.get(key) === entry) checking.delete(key);
+    }
+  }
+
+  /** Stops watching a session's page and forgets its typing: it slept, or was stopped. */
+  function quietWatch(key: Key) {
+    const timer = typingTimers.get(key);
+    if (timer) clearTimeout(timer);
+    typingTimers.delete(key);
+    watchers.get(key)?.controller.abort();
+    watchers.delete(key);
+  }
+
+  /**
+   * Watch the page after the person (or Clicky) did something. `typed`: they typed, so once the
+   * page is settled and `typedAfterMs` has passed, that alone is worth a look.
+   */
+  function startWatch(
+    userId: string,
+    botId: string,
+    typed: boolean,
+    typedAfterMs: number,
+  ) {
+    const key = keyOf(userId, botId);
+    const previous = watchers.get(key);
+    previous?.controller.abort();
+    const entry = {
+      controller: new AbortController(),
+      typed: typed || (previous?.typed ?? false),
+    };
+    watchers.set(key, entry);
+    void watch(userId, botId, entry, typedAfterMs);
+  }
+
+  async function watch(
+    userId: string,
+    botId: string,
+    entry: { controller: AbortController; typed: boolean },
+    typedAfterMs: number,
+  ) {
+    const key = keyOf(userId, botId);
+    const { signal } = entry.controller;
+    const typedDone = async () => {
+      if (!entry.typed || signal.aborted) return;
+      await dispatch(
+        userId,
+        botId,
+        { type: "person.typed" },
+        { onlyIfOpen: true },
+      );
+    };
+    try {
+      const read = deps.gateway.pageState;
+      const base = read ? await read(botId).catch(() => null) : null;
+      signal.throwIfAborted();
+      if (!read || !base) {
+        await wait(typedAfterMs, signal);
+        await typedDone();
+        return;
+      }
+      const started = Date.now();
+      let state: PageState = base;
+      for (;;) {
+        if (state.navigationId !== base.navigationId) {
+          await pageChanged(userId, botId, state);
+          return;
+        }
+        const elapsed = Date.now() - started;
+        if (entry.typed && state.settled && elapsed >= typedAfterMs) {
+          await typedDone();
+          return;
+        }
+        // The window is up; a navigation still on its way is given a little longer.
+        if (
+          elapsed >= pace.windowMs &&
+          (state.settled || elapsed >= pace.windowMs + pace.extendMs)
+        ) {
+          await typedDone();
+          return;
+        }
+        await wait(pace.pollMs, signal);
+        const next = await read(botId).catch(() => null);
+        signal.throwIfAborted();
+        if (!next) {
+          await typedDone();
+          return;
+        }
+        state = next;
+      }
+    } catch {
+      // Stopped, or a newer watch took over: nothing to say.
+    } finally {
+      if (watchers.get(key) === entry) watchers.delete(key);
+    }
+  }
+
+  /**
+   * The page moved on under the person. Looked at, unless a look already will: one still waiting
+   * for the page to settle sees this page anyway, and a page already looked at is not looked at twice.
+   */
+  async function pageChanged(userId: string, botId: string, state: PageState) {
+    const key = keyOf(userId, botId);
+    const inFlight = checking.get(key);
+    if (
+      inFlight &&
+      (inFlight.phase === "settling" ||
+        inFlight.navigationId === state.navigationId)
+    )
+      return;
+    if (!inFlight && lookedAt.get(key) === state.navigationId) return;
+    await dispatch(
+      userId,
+      botId,
+      { type: "page.changed", url: state.url },
+      { onlyIfOpen: true },
+    );
+  }
+
+  /** The host a URL names, or nothing. */
+  function hostOf(url: string | undefined): string | undefined {
+    if (!url) return undefined;
+    try {
+      return new URL(url).host || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * One of the Bot's actions shown to a person watching it: the session read first, and only for an
+   * open, narrating one is the element's place asked of the computer.
+   */
+  async function narrate(
+    userId: string,
+    botId: string,
+    action: ClickyBotAction,
+  ) {
+    const session = await deps.store.load(userId, botId);
+    if (!session?.awake || !session.narrating) return;
+    if (session.state !== "guiding" && session.state !== "idle") return;
+    const found =
+      action.ref && deps.gateway.elementRect
+        ? await deps.gateway
+            .elementRect(botId, action.ref, action.snapshotId)
+            .catch(() => null)
+        : null;
+    const rect =
+      found?.rect && "screen" in found
+        ? normalizedRect(found.rect, found.screen)
+        : undefined;
+    const verb = botVerbOf(action.tool);
+    const label = action.name?.trim();
+    const host = verb === "navigate" ? hostOf(action.url) : undefined;
+    await dispatch(
+      userId,
+      botId,
+      {
+        type: "bot.action",
+        verb,
+        ...(label ? { label } : {}),
+        ...(host ? { host } : {}),
+        ...(verb === "key" && action.key ? { key: action.key } : {}),
+        ...(rect && rect.width > 0 && rect.height > 0 ? { rect } : {}),
+      },
+      { onlyIfOpen: true },
+    );
   }
 
   async function saveNotes(
@@ -618,7 +1035,7 @@ export function createClickyService(deps: {
         },
       );
       const outcome = (answered ? await answered : null) ?? asked;
-      if (!outcome) throw new Error("Clicky could not open a session.");
+      if (!outcome) throw new Error("Show me how could not open a session.");
       if (answered && deps.auditStore)
         await recordAuditEvent(deps.auditStore, {
           eventType: "clicky.guide_installed",
@@ -642,7 +1059,7 @@ export function createClickyService(deps: {
       };
     },
 
-    personInput(userId, botId, at) {
+    personInput(userId, botId, at, options) {
       const key = keyOf(userId, botId);
       lastInput.set(key, now());
       // Only a walkthrough moves on a click, and only one this process knows is showing.
@@ -653,6 +1070,49 @@ export function createClickyService(deps: {
         { type: "person.input", at },
         { onlyIfOpen: true },
       ).catch(() => undefined);
+      // The click reached the computer: it may have opened something.
+      if (options?.driving) startWatch(userId, botId, false, 0);
+    },
+
+    personTyped(userId, botId, kind) {
+      const key = keyOf(userId, botId);
+      lastInput.set(key, now());
+      if (lastState.get(key) !== "guiding") return;
+      const timer = typingTimers.get(key);
+      if (timer) clearTimeout(timer);
+      typingTimers.delete(key);
+      // Enter or Tab: what was typed is done; watch what it did.
+      if (kind === "submit") {
+        startWatch(userId, botId, true, pace.typingSettleMs);
+        return;
+      }
+      // Anything else: once the typing has paused.
+      const settled = setTimeout(() => {
+        typingTimers.delete(key);
+        startWatch(userId, botId, true, 0);
+      }, pace.typingSettleMs);
+      (settled as { unref?: () => void }).unref?.();
+      typingTimers.set(key, settled);
+    },
+
+    botAction(userId, botId, action) {
+      const key = keyOf(userId, botId);
+      const running = narrations.get(key);
+      if (running) {
+        running.next = action;
+        return;
+      }
+      const slot: { next?: ClickyBotAction } = {};
+      narrations.set(key, slot);
+      void (async () => {
+        let current: ClickyBotAction | undefined = action;
+        while (current) {
+          await narrate(userId, botId, current).catch(() => undefined);
+          current = slot.next;
+          slot.next = undefined;
+        }
+        narrations.delete(key);
+      })();
     },
 
     preferences: deps.preferences,
@@ -687,10 +1147,19 @@ export function createClickyService(deps: {
     stop() {
       if (timer) clearInterval(timer);
       timer = undefined;
-      for (const controller of [...thinking.values(), ...acting.values()])
+      for (const controller of [
+        ...thinking.values(),
+        ...acting.values(),
+        ...[...checking.values()].map((entry) => entry.controller),
+        ...[...watchers.values()].map((entry) => entry.controller),
+      ])
         controller.abort();
+      for (const typing of typingTimers.values()) clearTimeout(typing);
       thinking.clear();
       acting.clear();
+      checking.clear();
+      watchers.clear();
+      typingTimers.clear();
     },
   };
   return service;
