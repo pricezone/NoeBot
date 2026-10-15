@@ -18,6 +18,8 @@ import userEvent from "@testing-library/user-event";
 import { ClickyBar } from "@/components/clicky/clicky-bar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { clickyKeys } from "@/lib/clicky/queries";
+import { resetClickyReplays } from "@/lib/clicky/replay";
+import { speak } from "@/lib/clicky/speech";
 import { resetClickyStopFailures } from "@/lib/clicky/stop";
 import { deploymentKeys } from "@/lib/deployment/queries";
 import { queryClient } from "@/query-client";
@@ -51,6 +53,26 @@ let preferencesHang = false;
 let drawn: ClickySession;
 const originalFetch = globalThis.fetch;
 const originalMediaRecorder = globalThis.MediaRecorder;
+
+/** The browser's voice: what it was asked to say, and whether it is still saying something. */
+const voice = {
+  said: [] as string[],
+  cancels: 0,
+  speaking: false,
+  pending: false,
+  speak(utterance: { text: string }) {
+    voice.said.push(utterance.text);
+  },
+  cancel() {
+    voice.cancels += 1;
+  },
+  resume() {},
+};
+class UtteranceDouble {
+  lang = "";
+  onend: (() => void) | null = null;
+  constructor(readonly text: string) {}
+}
 
 /** A recorder that has a little audio to give whenever it is stopped. */
 class RecorderDouble {
@@ -100,6 +122,13 @@ beforeAll(() => {
   // Whatever an earlier file left in the shared cache (a signed-out person, say) is not ours.
   queryClient.clear();
   globalThis.MediaRecorder = RecorderDouble as unknown as typeof MediaRecorder;
+  Object.defineProperty(window, "speechSynthesis", {
+    configurable: true,
+    value: voice,
+  });
+  (
+    globalThis as { SpeechSynthesisUtterance?: unknown }
+  ).SpeechSynthesisUtterance = UtteranceDouble;
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
@@ -155,6 +184,10 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   resetClickyStopFailures();
+  resetClickyReplays();
+  voice.said = [];
+  voice.cancels = 0;
+  voice.speaking = false;
   commands = [];
   transcriptions = 0;
   rejectNext = null;
@@ -417,19 +450,100 @@ test("a refused command says why, in Clicky's words", async () => {
   ).toBeTruthy();
 });
 
-test("a long reply can be read whole", async () => {
+test("a long reply is one line under the screen, whole in its title", async () => {
   const long =
     "Open the menu at the top right, choose Account, then Security, then scroll to the bottom of the page where the two-step settings are, and press Change.";
   const view = draw(sessionAt(1, { reply: { text: long, final: true } }));
-  const more = view.getByRole("button", { name: "Show more" });
-  expect(more.getAttribute("aria-expanded")).toBe("false");
-  expect(view.getByText(long).getAttribute("title")).toBe(long);
-  fireEvent.click(more);
-  expect(
-    view
-      .getByRole("button", { name: "Show less" })
-      .getAttribute("aria-expanded"),
-  ).toBe("true");
+  const line = view.getByText(long);
+  expect(line.getAttribute("data-clicky")).toBe("status");
+  expect(line.className).toContain("truncate");
+  expect(line.getAttribute("title")).toBe(long);
+  // No second copy of it, and nothing to expand: the instruction over the screen has it whole.
+  expect(view.queryByRole("button", { name: "Show more" })).toBeNull();
+});
+
+test("Say that again speaks the line at once, with reading aloud off, and tells the server", async () => {
+  const shown = sessionAt(1, {
+    state: "guiding",
+    overlays: [{ kind: "pointer", id: "p1", at: { x: 0.5, y: 0.5 } }],
+    reply: { text: "Press the green button.", final: true },
+  });
+  const view = draw(shown);
+  // The server answers the repeat with the same session, one `seq` on.
+  drawn = { ...shown, seq: 2 };
+  await settingsIn();
+  fireEvent.click(view.getByRole("button", { name: "More options" }));
+  fireEvent.click(
+    await view.findByRole("menuitem", { name: "Say that again" }),
+  );
+  // Said in the press itself, not when the server's answer arrives.
+  expect(voice.said).toEqual(["Press the green button."]);
+  await waitFor(() => expect(commands).toEqual([{ type: "repeat" }]));
+  await waitFor(() =>
+    expect(
+      queryClient.getQueryData<ClickySession>(clickyKeys.session(BOT))?.seq,
+    ).toBe(2),
+  );
+  // The server's answer is the press's echo: not said a second time.
+  await hold(30);
+  expect(voice.said).toEqual(["Press the green button."]);
+});
+
+test("in a walkthrough, Say that again says the step, not words about a step that is over", async () => {
+  const view = draw(
+    sessionAt(1, {
+      state: "guiding",
+      reply: { text: "Let's sign in. First open the menu.", final: true },
+      walkthrough: {
+        id: "w1",
+        goal: "Sign in",
+        startedAt: "",
+        updatedAt: "",
+        currentStepId: "b",
+        steps: [
+          { id: "a", title: "Open the menu", status: "done", overlays: [] },
+          { id: "b", title: "Click Sign in", status: "current", overlays: [] },
+        ],
+      },
+    }),
+  );
+  await settingsIn();
+  fireEvent.click(view.getByRole("button", { name: "More options" }));
+  fireEvent.click(
+    await view.findByRole("menuitem", { name: "Say that again" }),
+  );
+  expect(voice.said).toEqual(["Click Sign in"]);
+});
+
+test("with reading aloud on, a repeat asked for on the phone is said here too", async () => {
+  preferences = {
+    messageListEmphasis: "agent",
+    clickyOnboarded: true,
+    clickySpeakReplies: true,
+  };
+  const shown = sessionAt(1, {
+    state: "idle",
+    reply: { text: "That is the Sign in button.", final: true },
+  });
+  draw(shown);
+  await settingsIn();
+  await hold(20);
+  act(() => {
+    queryClient.setQueryData(clickyKeys.session(BOT), { ...shown, seq: 2 });
+  });
+  await waitFor(() =>
+    expect(voice.said).toEqual(["That is the Sign in button."]),
+  );
+});
+
+test("a line said over another one waits a moment after the cut, or Chrome drops it", async () => {
+  voice.speaking = true;
+  speak("Second line", "en");
+  expect(voice.cancels).toBe(1);
+  // Not in the same task as the cancel.
+  expect(voice.said).toEqual([]);
+  await hold(120);
+  expect(voice.said).toEqual(["Second line"]);
 });
 
 test("the reply shows Clicky's line and a failed look offers Retry", async () => {
