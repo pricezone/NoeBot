@@ -28,7 +28,7 @@ const button = (name: string) => ({ role: "button", name, sensitive: false });
 /** A context where something on the page has the keyboard, for the key rules. */
 const typing = {
   ...base,
-  focused: { role: "textbox", name: "Notes", sensitive: false },
+  focused: { role: "textbox", name: "Notes", sensitive: false, editable: true },
 };
 const at = { x: 0.5, y: 0.5 };
 const click = (label = "it"): ClickyAction => ({ kind: "click", at, label });
@@ -363,6 +363,111 @@ describe("assessAction", () => {
         }),
       }),
     ).toEqual({ risk: "confirm", reason: "Enter can send the form it is in." });
+  });
+
+  test("a search is a search by what the page says, or by a name that is one, never by a word inside another", () => {
+    const enterIn = (target: Record<string, unknown>) =>
+      assessAction(
+        { kind: "type", text: "q", at, label: "it", pressEnter: true },
+        {
+          ...base,
+          target: { role: "textbox", name: "", sensitive: false, ...target },
+        },
+      ).risk;
+    expect(enterIn({ name: "Query", search: true })).toBe("low");
+    expect(enterIn({ name: "Site search" })).toBe("low");
+    expect(enterIn({ name: "#research notes" })).toBe("confirm");
+    expect(enterIn({ name: "Research" })).toBe("confirm");
+    // Never in a textarea or a rich editor, nor in a field named like something hard to undo.
+    expect(enterIn({ name: "Search", multiline: true })).toBe("confirm");
+    expect(enterIn({ name: "Search and delete", search: true })).toBe(
+      "confirm",
+    );
+  });
+
+  test("on the session's yes, deleting and leaving the site are not everyday", () => {
+    const outsideAField = {
+      ...base,
+      focused: {
+        role: "listitem",
+        name: "Invoice from Bank",
+        sensitive: false,
+      },
+    };
+    for (const keys of ["Delete", "Backspace"]) {
+      expect(assessAction(key(keys), outsideAField)).toEqual({
+        risk: "confirm",
+        reason: "Outside a text field, that key can delete what is selected.",
+      });
+      expect(assessAction(key(keys), typing).risk).toBe("low");
+    }
+    const link = (linkHost: string) =>
+      assessAction(click(), {
+        ...base,
+        pageHost: "www.google.com",
+        target: {
+          role: "link",
+          name: "Υπεύθυνη δήλωση",
+          sensitive: false,
+          linkHost,
+        },
+      });
+    expect(link("www.gov.gr")).toEqual({
+      risk: "confirm",
+      reason: "That link opens another site.",
+    });
+    expect(link("www.google.com").risk).toBe("low");
+    // The everyday words that are not everyday after all.
+    for (const name of [
+      "Archive",
+      "Move to trash",
+      "Discard draft",
+      "Block user",
+      "Report",
+      "Mute",
+      "Apply",
+      "Book now",
+      "Reserve a table",
+      "I agree",
+      "Update",
+      "Clear all",
+      "Empty bin",
+      "End call",
+      "Close",
+      "Closing",
+      "Unfollow",
+      "Move",
+      "Mark as spam",
+      "Αρχειοθέτηση",
+      "Μετακίνηση στον κάδο",
+      "Απόρριψη",
+      "Αποκλεισμός",
+      "Αναφορά",
+      "Σίγαση",
+      "Εφαρμογή",
+      "Κράτηση",
+      "Συμφωνώ",
+      "Ενημέρωση",
+      "Εκκαθάριση",
+      "Άδειασμα",
+      "Τέλος",
+      "Κλείσιμο",
+      "Μετακίνηση",
+      "Ανεπιθύμητο",
+    ])
+      expect({ name, commits: commits(name) }).toEqual({ name, commits: true });
+    for (const name of [
+      "Facebook",
+      "Research",
+      "Weekend",
+      "Αποτελέσματα",
+      "Ακαδημία",
+      "Address",
+    ])
+      expect({ name, commits: commits(name) }).toEqual({
+        name,
+        commits: false,
+      });
   });
 
   test("the reasons speak in the first person and never name Clicky", () => {

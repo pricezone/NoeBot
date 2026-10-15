@@ -12,9 +12,13 @@ import {
 } from "../src/navigation-state";
 import {
   KEYBOARD_ELSEWHERE,
+  KEYBOARD_IN_FRAME,
+  KEYBOARD_MOVED,
   KEYBOARD_OFF_PAGE,
+  KEYBOARD_SECRET,
   performPageKeyboard,
 } from "../src/page-keyboard";
+import { SENSITIVE_FIELD_SELECTOR } from "../src/secret-masking";
 import { xdotoolFailure } from "../src/x-input";
 
 /*
@@ -193,20 +197,27 @@ describe("whether the page moved on", () => {
 });
 
 /** A page whose answer to "who has the keyboard" is scripted, recording what was typed. */
-function keyboardPage(answers: { ready: boolean; reason: string | null }[]) {
+function keyboardPage(
+  answers: { ready: boolean; reason: string | null }[],
+  options: { sameElement?: boolean } = {},
+) {
   const typed: string[] = [];
   const pressed: string[] = [];
   const asked: unknown[] = [];
   let index = 0;
+  const handle = { dispose: async () => undefined };
   const page = {
     url: () => "https://gov.example/search",
     viewportSize: () => ({ width: 1000, height: 600 }),
     evaluate: async (_fn: unknown, argument: unknown) => {
+      // The Enter's question: is the field typed into still the one with the keyboard?
+      if (argument === handle) return options.sameElement ?? true;
       asked.push(argument);
       const answer = answers[Math.min(index, answers.length - 1)];
       index += 1;
       return answer;
     },
+    evaluateHandle: async () => handle,
     keyboard: {
       insertText: async (text: string) => {
         typed.push(text);
@@ -234,7 +245,11 @@ describe("typing through the page's keyboard", () => {
     );
     expect(typed).toEqual(["υπεύθυνη δήλωση"]);
     // Asked about the point in the page's own pixels.
-    expect(asked[0]).toEqual({ point: { x: 300, y: 200 }, page: false });
+    expect(asked[0]).toEqual({
+      point: { x: 300, y: 200 },
+      page: false,
+      selector: SENSITIVE_FIELD_SELECTOR,
+    });
     // A length, never the text.
     expect(result).toEqual({
       action: "human_type",
@@ -279,6 +294,78 @@ describe("typing through the page's keyboard", () => {
         async () => undefined,
       ),
     ).rejects.toThrow(KEYBOARD_OFF_PAGE);
+  });
+});
+
+describe("what the page's keyboard never does", () => {
+  test("types into a frame or a field that holds a secret, at once and without retrying", async () => {
+    for (const [reason, message] of [
+      ["frame", KEYBOARD_IN_FRAME],
+      ["secret", KEYBOARD_SECRET],
+    ] as const) {
+      const { page, typed, asked } = keyboardPage([{ ready: false, reason }]);
+      await expect(
+        performPageKeyboard(
+          page as never,
+          "/human/type",
+          { text: "hunter2", at: { x: 10, y: 10 } },
+          null,
+          async () => undefined,
+        ),
+      ).rejects.toThrow(message);
+      expect(typed).toEqual([]);
+      expect(asked).toHaveLength(1);
+    }
+  });
+
+  test("presses the Enter after typing anywhere but the field typed into", async () => {
+    const moved = keyboardPage([{ ready: true, reason: null }], {
+      sameElement: false,
+    });
+    await performPageKeyboard(
+      moved.page as never,
+      "/human/type",
+      { text: "δήλωση" },
+      null,
+      async () => undefined,
+    );
+    await expect(
+      performPageKeyboard(
+        moved.page as never,
+        "/human/key",
+        { key: "Enter", sameField: true },
+        null,
+        async () => undefined,
+      ),
+    ).rejects.toThrow(KEYBOARD_MOVED);
+    expect(moved.pressed).toEqual([]);
+    const same = keyboardPage([{ ready: true, reason: null }]);
+    await performPageKeyboard(
+      same.page as never,
+      "/human/type",
+      { text: "δήλωση" },
+      null,
+      async () => undefined,
+    );
+    await performPageKeyboard(
+      same.page as never,
+      "/human/key",
+      { key: "Enter", sameField: true },
+      null,
+      async () => undefined,
+    );
+    expect(same.pressed).toEqual(["Enter"]);
+    // Nothing typed on this page yet: there is no field to send.
+    const fresh = keyboardPage([{ ready: true, reason: null }]);
+    await expect(
+      performPageKeyboard(
+        fresh.page as never,
+        "/human/key",
+        { key: "Enter", sameField: true },
+        null,
+        async () => undefined,
+      ),
+    ).rejects.toThrow(KEYBOARD_MOVED);
   });
 });
 

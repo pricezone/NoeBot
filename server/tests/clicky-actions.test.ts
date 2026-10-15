@@ -157,6 +157,8 @@ const run = (
     audits?: AuditEventInput[];
     holder?: string | null;
     viaGrant?: boolean;
+    grantHost?: string;
+    actionPolicy?: "ask_each" | "ask_once_per_session" | "never";
   } = {},
 ) =>
   createClickyActions({
@@ -175,10 +177,13 @@ const run = (
     userId: "user-1",
     botId: "bot-1",
     proposal: proposalOf(action, extra.risk, extra.seen),
-    actionPolicy: "ask_each",
+    actionPolicy:
+      extra.actionPolicy ??
+      (extra.viaGrant ? "ask_once_per_session" : "ask_each"),
     trigger: null,
     signal: extra.signal ?? new AbortController().signal,
     ...(extra.viaGrant ? { viaGrant: true } : {}),
+    ...(extra.grantHost ? { grantHost: extra.grantHost } : {}),
   });
 
 const clickContinue: ClickyAction = {
@@ -385,6 +390,41 @@ describe("createClickyActions", () => {
     expect(denied.inputs).toEqual([]);
   });
 
+  test("the session's yes holds only on its own site, and only while the setting still allows it", async () => {
+    const elsewhere = fakeGateway({});
+    expect(
+      await run(elsewhere.gateway, clickContinue, {
+        viaGrant: true,
+        grantHost: "bank.example",
+        seen: { url: "https://shop.example/cart" },
+      }),
+    ).toEqual({ ok: false, detail: "What is there now needs a fresh yes." });
+    expect(elsewhere.inputs).toEqual([]);
+    const home = fakeGateway({});
+    expect(
+      (
+        await run(home.gateway, clickContinue, {
+          viaGrant: true,
+          grantHost: "shop.example",
+          seen: { url: "https://shop.example/cart" },
+        })
+      ).ok,
+    ).toBe(true);
+    // The person switched to asking every time since: the session's yes no longer counts.
+    const switched = fakeGateway({});
+    expect(
+      (
+        await run(switched.gateway, clickContinue, {
+          viaGrant: true,
+          actionPolicy: "ask_each",
+        })
+      ).ok,
+    ).toBe(false);
+    expect(switched.inputs).toEqual([]);
+    // Nothing was taken or probed for a yes that does not fit.
+    expect(switched.calls).toEqual([]);
+  });
+
   test("another window over the page makes a yes for the page no yes at all", async () => {
     const covered = fakeGateway({ at: { window: "other" } });
     const outcome = await run(covered.gateway, clickContinue);
@@ -515,7 +555,13 @@ describe("createClickyActions", () => {
         keyboard: "page",
         at: { x: 720, y: 450 },
       },
-      { kind: "key", key: "Enter", keyboard: "page", at: { x: 720, y: 450 } },
+      {
+        kind: "key",
+        key: "Enter",
+        keyboard: "page",
+        sameField: true,
+        at: { x: 720, y: 450 },
+      },
     ]);
   });
 

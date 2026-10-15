@@ -197,17 +197,18 @@ describe("after the person types", () => {
     ]);
   });
 
-  test("typing counts once it pauses, a burst of keys being one look", async () => {
-    const { service, looks, guiding } = harness();
+  test("plain typing is never looked at, however long it pauses; Enter is", async () => {
+    const { service, looks, page, guiding } = harness();
     await guiding();
     for (let key = 0; key < 5; key += 1) {
       service.personTyped("user-1", "bot-1", "text");
-      await Bun.sleep(10);
+      await Bun.sleep(30);
     }
+    await Bun.sleep(100);
     expect(looks).toHaveLength(0);
+    expect(page.reads).toEqual([]);
+    service.personTyped("user-1", "bot-1", "submit");
     await until(() => looks.length === 1);
-    await Bun.sleep(80);
-    expect(looks).toHaveLength(1);
   });
 
   test("Enter that opens a page: the navigation is what is looked at, once", async () => {
@@ -280,42 +281,68 @@ describe("after the person clicks", () => {
 });
 
 describe("the look after a step", () => {
-  test("only the newest look's answer counts, and Stop aborts the one running", async () => {
+  test("a look asked for again about the same step is the one already running, answered under the new id", async () => {
     let release: (() => void) | undefined;
-    const answers: BrainCheck[] = [
-      { stepDone: true },
-      {
-        stepDone: false,
-        overlays: [{ kind: "pointer", id: "p-2", at: { x: 0.2, y: 0.2 } }],
-      },
-    ];
-    let call = 0;
     const { service, looks, load, guiding } = harness({
       check: async () => {
-        const answer = answers[call++] as BrainCheck;
-        if (call === 1)
-          await new Promise<void>((resolve) => {
-            release = resolve;
-          });
-        return answer;
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          stepDone: true,
+          overlays: [{ kind: "pointer", id: "p-2", at: { x: 0.2, y: 0.2 } }],
+        };
       },
     });
     await guiding();
     service.personTyped("user-1", "bot-1", "submit");
     await until(() => looks.length === 1);
-    // A second look starts while the first is still out.
+    const first = (await load()).check?.id;
+    // Enter again while the look is out: the reducer asks again, the same look answers.
     service.personTyped("user-1", "bot-1", "submit");
-    await until(() => looks.length === 2);
-    await until(async () => (await load()).check === null);
-    // The first look's late "done" changes nothing: the step is still the first one.
+    await until(async () => (await load()).check?.id !== first);
+    await Bun.sleep(40);
+    expect(looks).toHaveLength(1);
+    expect(looks[0]?.signal.aborted).toBe(false);
     release?.();
-    await Bun.sleep(50);
+    await until(async () => (await load()).check === null);
     const session = await load();
-    expect(looks[0]?.signal.aborted).toBe(true);
-    expect(session.walkthrough?.steps[0]?.status).toBe("current");
-    expect(session.walkthrough?.steps[0]?.overlays).toEqual([
+    expect(session.walkthrough?.steps.map((step) => step.status)).toEqual([
+      "done",
+      "current",
+    ]);
+    expect(session.walkthrough?.steps[1]?.overlays).toEqual([
       { kind: "pointer", id: "p-2", at: { x: 0.2, y: 0.2 } },
     ]);
+  });
+
+  test("a page that moved on since the running look looked is looked at afresh; Stop aborts the one running", async () => {
+    let call = 0;
+    const { service, looks, page, load, guiding } = harness({
+      check: () => {
+        call += 1;
+        // The first look never answers: it is looking at the page before the navigation.
+        return call === 1
+          ? new Promise<BrainCheck>(() => {})
+          : { stepDone: false };
+      },
+    });
+    await guiding();
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(() => looks.length === 1);
+    // A click that reached the computer, and the page it opened.
+    const reads = page.reads.length;
+    service.personInput(
+      "user-1",
+      "bot-1",
+      { x: 0.9, y: 0.9 },
+      { driving: true },
+    );
+    await until(() => page.reads.length > reads);
+    page.navigate("https://search.example/results");
+    await until(() => looks.length === 2);
+    expect(looks[0]?.signal.aborted).toBe(true);
+    await until(async () => (await load()).check === null);
 
     // Stop while a look is running aborts it.
     let stopped: AbortSignal | undefined;
@@ -336,20 +363,38 @@ describe("the look after a step", () => {
     expect((await second.load()).check).toBeNull();
   });
 
-  test("past its own limit a look is not taken, and the overlays stop being dimmed", async () => {
+  test("past its own limit a look is not taken, and says so: the marks stay dimmed, not shown as current", async () => {
     const { service, looks, load, guiding } = harness({
       checks: { burst: 1, perMinute: 0.001 },
+      check: () => ({ stepDone: false }),
     });
     await guiding();
     service.personTyped("user-1", "bot-1", "submit");
     await until(() => looks.length === 1);
     await until(async () => (await load()).check === null);
     const before = await load();
+    expect(before.overlaysStale).toBe(false);
     service.personTyped("user-1", "bot-1", "submit");
     await until(async () => (await load()).seq > before.seq + 1);
     await until(async () => (await load()).check === null);
     expect(looks).toHaveLength(1);
-    expect((await load()).overlaysStale).toBe(false);
+    expect((await load()).overlaysStale).toBe(true);
+  });
+
+  test("a look whose model call fails says so too", async () => {
+    const { service, load, guiding } = harness({
+      check: () => {
+        throw new Error("model down");
+      },
+    });
+    await guiding();
+    const marks = (await load()).walkthrough?.steps[0]?.overlays;
+    service.personTyped("user-1", "bot-1", "submit");
+    await until(async () => (await load()).overlaysStale === true);
+    await until(async () => (await load()).check === null);
+    const session = await load();
+    expect(session.overlaysStale).toBe(true);
+    expect(session.walkthrough?.steps[0]?.overlays).toEqual(marks ?? []);
   });
 });
 
@@ -400,15 +445,24 @@ describe("narration", () => {
     expect((await load()).reply?.params).toEqual({ host: "www.gov.gr" });
   });
 
-  test("nobody watching, nothing asked: the element's place is read only for a narrating session", async () => {
+  test("nobody watching, nothing asked: not the session, and not the element's place", async () => {
     const asked: string[] = [];
-    const { service, load, guiding } = harness({
+    const { service, store, load, guiding } = harness({
       elementRect: async (_botId, ref) => {
         asked.push(ref);
         return { rect: null };
       },
     });
+    const loads: string[] = [];
+    const load0 = store.load.bind(store);
+    store.load = async (userId, botId) => {
+      loads.push(`${userId}/${botId}`);
+      return load0(userId, botId);
+    };
     service.botAction("user-1", "bot-1", { tool: "computer_click", ref: "e1" });
+    service.botAction("user-2", "bot-1", { tool: "computer_click", ref: "e1" });
+    await Bun.sleep(20);
+    expect(loads).toEqual([]);
     await guiding();
     const before = await load();
     service.botAction("user-1", "bot-1", { tool: "computer_click", ref: "e1" });
@@ -476,16 +530,23 @@ describe("narration", () => {
 });
 
 describe("handing the computer back", () => {
-  test("Sleep and Stop hand back a computer the person holds only for Clicky", async () => {
+  test("Stop hands back a computer the person holds only for Clicky; sleep leaves it to the app", async () => {
     const released: string[] = [];
     const { service } = harness({ released });
-    for (const type of ["wake", "sleep", "wake", "stop"] as const)
+    for (const type of ["wake", "sleep", "wake", "sleep"] as const)
       await service.dispatch("user-1", "bot-1", {
         type: "command",
         command: { type },
       });
-    await until(() => released.length === 2);
-    expect(released).toEqual(["user-1/bot-1", "user-1/bot-1"]);
+    await Bun.sleep(30);
+    // The app releases on sleep itself, unless the person chose to keep control.
+    expect(released).toEqual([]);
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "stop" },
+    });
+    await until(() => released.length === 1);
+    expect(released).toEqual(["user-1/bot-1"]);
   });
 });
 

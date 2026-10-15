@@ -239,9 +239,11 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
     ).join("");
     const html = `<!doctype html><title>Long page</title><body style="margin:0;height:5000px">
       ${links}
-      <form style="position:absolute;left:300px;top:2950px"><input aria-label="Search the site" name="q" style="width:200px;height:24px"></form>
+      <form style="position:absolute;left:300px;top:2950px" onsubmit="event.preventDefault(); document.title = 'Sent'"><input aria-label="Search the site" name="q" style="width:200px;height:24px"></form>
       <button style="position:absolute;left:300px;top:3050px;width:120px;height:30px">Visible A</button>
       <input aria-label="Notes" style="position:absolute;left:600px;top:3050px;width:120px;height:24px">
+      <input type="password" aria-label="Password" style="position:absolute;left:800px;top:3050px;width:120px;height:24px">
+      <div contenteditable="true" data-openbot-secret="true" style="position:absolute;left:300px;top:3100px">TOPSECRET123</div>
       <button style="position:absolute;left:300px;top:4500px;width:120px;height:30px">Bottom</button>
       <script>addEventListener("load", () => scrollTo(0, 2900));</script>
     </body>`;
@@ -291,6 +293,8 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
 
       const text = await api("/elements/text");
       expect(text.text).toContain("Visible A");
+      // What holds a secret is never read.
+      expect(text.text).not.toContain("TOPSECRET123");
       expect(text.url).toBe(`http://127.0.0.1:${second.port}/`);
 
       // Just after a navigation the page is still settling; a moment later it has.
@@ -304,6 +308,20 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
         title: "Long page",
         settled: true,
       });
+
+      // What the guardrails read about a field: in a form, typed into, one line or several.
+      expect(await api("/elements/at", { x: 350, y: 62 })).toMatchObject({
+        inForm: true,
+        editable: true,
+        multiline: false,
+      });
+      expect(await api("/elements/at", { x: 310, y: 210 })).toMatchObject({
+        multiline: true,
+        sensitive: true,
+      });
+      expect((await api("/elements/at", { x: 330, y: 160 })).editable).toBe(
+        false,
+      );
 
       // Where the Bot's own ref is, without taking a look of Clicky's own.
       const snapshot = await api("/snapshot", {});
@@ -343,6 +361,32 @@ describe.skipIf(!asked)("Clicky's view of a real page", () => {
             (e) => e.name === "Search the site",
           )?.value,
         ).toBe("δήλωση");
+        // Its Enter goes to the field typed into, and sends its form.
+        await api("/human/key", {
+          key: "Enter",
+          keyboard: "page",
+          sameField: true,
+          at: { x: 350, y: 62 },
+        });
+        expect((await api("/elements/state")).title).toBe("Sent");
+        // An Enter after the keyboard moved to another field is not pressed.
+        await api("/human/click", { x: 650, y: 160 });
+        await expect(
+          api("/human/key", {
+            key: "Enter",
+            keyboard: "page",
+            sameField: true,
+          }),
+        ).rejects.toThrow("Enter was not pressed");
+        // A password field is never typed into, whatever was asked.
+        await api("/human/click", { x: 850, y: 160 });
+        await expect(
+          api("/human/type", {
+            text: "hunter2",
+            keyboard: "page",
+            at: { x: 850, y: 160 },
+          }),
+        ).rejects.toThrow("password");
         // A field that does not have the keyboard gets nothing.
         await expect(
           api("/human/type", {

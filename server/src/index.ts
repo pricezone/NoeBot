@@ -143,7 +143,13 @@ import {
   createComputerProvider,
   describeComputerIsolation,
 } from "./computer/provider";
-import { checkSameSite, deploymentOrigins } from "./computer/same-site-guard";
+import {
+  apiSameSiteVerdict,
+  checkSameSite,
+  deploymentOrigins,
+  isWebSocketUpgrade,
+  trustedOriginsOf,
+} from "./computer/same-site-guard";
 import { createSnapshotStore } from "./computer/snapshot-store";
 import { streamPathBotId } from "./computer/stream-path";
 import { loadConfig } from "./config";
@@ -3625,7 +3631,7 @@ type StreamData = {
 };
 
 /** The origins the live screen's socket accepts besides this deployment's own host. */
-const streamTrustedOrigins = new Set(deploymentOrigins(config));
+const streamTrustedOrigins = trustedOriginsOf(deploymentOrigins(config));
 
 /**
  * The size a frame message names, read from its tail without parsing it: `"width":N,"height":N}` is
@@ -3701,16 +3707,19 @@ serve<SocketData>({
     if (url.pathname === "/api/voice/calls") server.timeout(request, 30);
     if (url.pathname === "/api/voice/sessions") server.timeout(request, 30);
     const streamBotId = streamPathBotId(url.pathname);
-    if (
-      streamBotId !== null &&
-      request.headers.get("upgrade")?.toLowerCase() === "websocket"
-    ) {
+    if (streamBotId !== null && isWebSocketUpgrade(request.headers)) {
       if (!config.computer) {
         return new Response("No computer is configured.", { status: 503 });
       }
-      // Only this deployment's own pages may watch and drive a screen (same-site-guard.ts).
-      const sameSite = checkSameSite(request, streamTrustedOrigins);
-      if (!sameSite.ok)
+      /*
+       * Only this deployment's own pages may watch and drive a screen (same-site-guard.ts): the
+       * computer routes' rules, and the global guard's, since this upgrade never reaches Hono.
+       */
+      const sameSite = [
+        checkSameSite(request, streamTrustedOrigins),
+        apiSameSiteVerdict(request, streamTrustedOrigins),
+      ].find((verdict) => !verdict.ok);
+      if (sameSite && !sameSite.ok)
         return new Response(sameSite.error, { status: sameSite.status });
       // The session guard, applied by hand because middleware does not run on an upgrade. An
       // unauthenticated socket here would be the whole point of the proxy defeated.
