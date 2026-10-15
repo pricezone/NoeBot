@@ -6,6 +6,8 @@ import {
   containedFrame,
   percent,
   selectClickyOverlay,
+  wordsGoLeft,
+  wordsRoom,
 } from "@/components/clicky/clicky-overlay";
 import {
   type ClickyOverlay as Overlay,
@@ -281,4 +283,28 @@ test("asleep, nothing is drawn", () => {
     <Drawn of={session([pointer(0.5, 0.5)], { awake: false })} />,
   );
   expect(clickyPointer(asleep.container)).toBeNull();
+});
+
+test("the pointer's words go where they fit: right when there is room, left when not", () => {
+  // The middle of a small viewer (700 px): 350 px to the right is room enough.
+  expect(wordsGoLeft(0.5, 700, 304)).toBe(false);
+  // The address bar's middle on a 560 px viewer: 280 px to the right is not, and the left has more.
+  expect(wordsGoLeft(0.5, 560, 304)).toBe(false);
+  expect(wordsGoLeft(0.55, 560, 304)).toBe(true);
+  // A wide viewer keeps the words on the right of a point well past the middle.
+  expect(wordsGoLeft(0.7, 1400, 304)).toBe(false);
+  // Without a measured width, the fixed share decides.
+  expect(wordsGoLeft(0.7, null, 304)).toBe(true);
+  expect(wordsGoLeft(0.5, null, 304)).toBe(false);
+});
+
+test("the pointer's words narrow to the room on their side rather than run off the screen", () => {
+  // Measured live: a 422 px viewer, the address bar's middle. Both sides have 211 px.
+  expect(wordsGoLeft(0.5, 422, 304)).toBe(false);
+  expect(wordsRoom(0.5, 422, false)).toBe(163);
+  // Never narrower than a readable minimum, and unknown without a width.
+  expect(wordsRoom(0.95, 422, false)).toBe(140);
+  expect(wordsRoom(0.5, null, false)).toBeNull();
+  // On the left, the room is what lies left of the point.
+  expect(wordsRoom(0.9, 1000, true)).toBe(852);
 });

@@ -1,4 +1,12 @@
-import { memo, type ReactNode, useCallback, useEffect, useState } from "react";
+import {
+  type CSSProperties,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { AnimationId } from "@/components/noe-bot/anim/catalog";
 import { NoeBotSprite } from "@/components/noe-bot/anim/noe-bot-sprite";
 import {
@@ -60,8 +68,45 @@ const GLIDE = "350ms cubic-bezier(0.23, 1, 0.32, 1)";
 const NEAR_TOP = 0.08;
 /** Nearer than this to the bottom edge, the pointer's words and Noë Bot go above it. */
 const NEAR_BOTTOM = 0.8;
-/** Nearer than this to the right edge, words go to the left. */
+/** Nearer than this to the right edge, words go to the left, when the screen's width is not known. */
 const NEAR_RIGHT = 0.62;
+/** The room the pointer's words need to its right: Noë Bot, the gap and the widest bubble (256 px). */
+const POINTER_WORDS_ROOM = 304;
+/** The room a marker's or a caption's words need beside it: the widest bubble (224 px) and the gap. */
+const BUBBLE_ROOM = 236;
+/** Noë Bot and the gaps between the pointer and its words. */
+const POINTER_WORDS_OFFSET = 48;
+/** The narrowest the pointer's words are made; past that they wrap rather than shrink further. */
+const POINTER_WORDS_MIN = 140;
+
+/**
+ * How wide the pointer's words may be on the side they go (`left` or right of a point at `x`), so a
+ * small viewer narrows them rather than cutting them off at its edge. Unknown without a width.
+ */
+export function wordsRoom(
+  x: number,
+  width: number | null,
+  left: boolean,
+): number | null {
+  if (!width) return null;
+  const side = left ? x * width : (1 - x) * width;
+  return Math.max(POINTER_WORDS_MIN, Math.floor(side - POINTER_WORDS_OFFSET));
+}
+
+/**
+ * Whether the words beside a point at `x` go to its left: when the screen, `width` pixels wide, has
+ * less than `room` to the point's right and more to its left. Measured rather than a fixed share,
+ * since the same point has room on a full-size viewer and none on a small one.
+ */
+export function wordsGoLeft(
+  x: number,
+  width: number | null,
+  room: number,
+): boolean {
+  if (!width) return x > NEAR_RIGHT;
+  const right = (1 - x) * width;
+  return right < room && x * width > right;
+}
 
 /** Noë Bot beside the pointer, acting out the state (`docs/noe-bot-animations.md`). */
 const SPRITE_FOR: Record<ClickyState, AnimationId> = {
@@ -244,7 +289,20 @@ export const ClickyOverlay = memo(function ClickyOverlay({
         ? t("{{label}}, around here", { label: given })
         : t("Around here")
       : given || null;
-  const flip = (at?.x ?? 0) > NEAR_RIGHT;
+  // The layer's width in pixels, for which side of a point its words fit on.
+  const layer = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const element = layer.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(entry.contentRect.width);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const flip = wordsGoLeft(at?.x ?? 0, width, POINTER_WORDS_ROOM);
+  const room = wordsRoom(at?.x ?? 0, width, flip);
   const above = (at?.y ?? 0) > NEAR_BOTTOM;
   const glide = reduced ? "none" : `left ${GLIDE}, top ${GLIDE}, opacity 200ms`;
   const stale = view.stale;
@@ -276,6 +334,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
     <div
       className="pointer-events-none absolute inset-0 z-10 select-none"
       data-slot="clicky-overlay"
+      ref={layer}
     >
       <div aria-hidden="true" className="absolute inset-0">
         <svg
@@ -346,7 +405,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                   {overlay.index}
                 </span>
                 {overlay.label ? (
-                  <Bubble flip={overlay.at.x > NEAR_RIGHT}>
+                  <Bubble flip={wordsGoLeft(overlay.at.x, width, BUBBLE_ROOM)}>
                     {overlay.label}
                   </Bubble>
                 ) : null}
@@ -365,7 +424,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
               >
                 <Bubble
                   className="-translate-y-1/2"
-                  flip={overlay.at.x > NEAR_RIGHT}
+                  flip={wordsGoLeft(overlay.at.x, width, BUBBLE_ROOM)}
                 >
                   {overlay.text}
                 </Bubble>
@@ -412,6 +471,11 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                 flip ? "right-1 flex-row-reverse" : "left-3",
               )}
               data-placement={above ? "above" : "below"}
+              style={
+                room === null
+                  ? undefined
+                  : ({ "--clicky-words-max": `${room}px` } as CSSProperties)
+              }
             >
               <span
                 className={cn(
@@ -435,7 +499,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                 </span>
               ) : label ? (
                 <span
-                  className="relative mt-1 w-max max-w-56 rounded-xl bg-white px-2.5 py-1.5 text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10"
+                  className="relative mt-1 w-max max-w-[min(14rem,var(--clicky-words-max,14rem))] rounded-xl bg-white px-2.5 py-1.5 text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10"
                   data-clicky="pointer-label"
                 >
                   {label}

@@ -94,7 +94,7 @@ export const ClickyInstruction = memo(function ClickyInstruction({
     <span
       aria-hidden="true"
       className={cn(
-        "relative block w-max max-w-64 rounded-xl bg-white px-2.5 py-1.5 text-left text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10",
+        "relative block w-max max-w-[min(16rem,var(--clicky-words-max,16rem))] rounded-xl bg-white px-2.5 py-1.5 text-left text-[13px] leading-snug text-zinc-900 shadow-lg ring-1 ring-black/10",
         className,
       )}
       data-clicky="instruction"
