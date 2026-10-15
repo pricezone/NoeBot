@@ -56,6 +56,7 @@ export {
   WorkspaceTooLargeError,
 } from "./client";
 
+import type { HandoffSource } from "../../../shared/computer-control";
 import type { PageFrameStore } from "./page-frames";
 import {
   type ActionPolicy,
@@ -75,6 +76,7 @@ import type {
   DialogInput,
   DownloadFileInput,
   ElementAtResult,
+  ElementRect,
   FillInput,
   FocusResult,
   FillResult,
@@ -86,6 +88,8 @@ import type {
   ListFilesResult,
   NavigateResult,
   PageReport,
+  PageState,
+  PageText,
   ReadFileInput,
   ReadFileResult,
   ReadResult,
@@ -179,6 +183,33 @@ export type ComputerGatewayOptions = {
    * listener that fails must not cost the person their control of the computer.
    */
   onControlEvent?: (event: ComputerControlEvent) => void;
+  /**
+   * Told about each page action the Bot is about to carry out, once it has been decided, recorded and
+   * approved, just before it is sent: what kind, on which element (its ref and the role and name its
+   * snapshot gave it), on which page, which key, how many characters. Never for an action answered
+   * from an approval's replay, never for shell or file calls, and never with the text typed. Clicky
+   * listens here to show what the Bot is doing while a person watches. Never awaited and never
+   * allowed to throw into the action.
+   */
+  onBotAction?: (event: ComputerBotAction) => void;
+};
+
+/** One of the Bot's page actions, as `onBotAction` hears it. */
+export type ComputerBotAction = {
+  botId: string;
+  /** The person the run acts for, when there is one. */
+  userId?: string;
+  tool: string;
+  ref?: string;
+  /** The snapshot the ref came from. */
+  snapshotId?: number;
+  role?: string;
+  name?: string;
+  /** The page acted on, or the page being opened for a navigation. */
+  url?: string;
+  key?: string;
+  /** How many characters are being typed. Never the text. */
+  characters?: number;
 };
 
 /** One handover moment, as `onControlEvent` hears it. */
@@ -202,6 +233,11 @@ export type ComputerControlEvent = {
    * from its latest snapshot, so Clicky can point at it. Only on `help_requested`.
    */
   pointAt?: string;
+  /**
+   * Who asked, on `help_requested`: "manual" when a person pressed Take control themselves, rather
+   * than the Bot needing them. The request in `state` may be an older one still open.
+   */
+  source?: HandoffSource;
   /** The computer's control state right after it, including the request it is about. */
   state: ControlState;
 };
@@ -247,6 +283,19 @@ export interface ComputerGateway {
   focus(botId: string): Promise<FocusResult>;
   /** Clicky Mode: the masked picture its model is shown, no wider than `width`. */
   clickyFrame(botId: string, width: number): Promise<ClickyFrame>;
+  /** Clicky Mode: the page's readable text, for its model. */
+  pageText(botId: string): Promise<PageText>;
+  /** Clicky Mode: whether the Bot's page has moved on, cheaply, for watching a person's progress. */
+  pageState(botId: string): Promise<PageState>;
+  /**
+   * Clicky Mode: where one of the Bot's own refs is on the screen now (null when it is not, or when
+   * `snapshotId` is not the computer's latest). Takes no snapshot, so the Bot's refs stay as they are.
+   */
+  elementRect(
+    botId: string,
+    ref: string,
+    snapshotId?: number,
+  ): Promise<ElementRect>;
   /**
    * The boundary in force for a Bot, as the gateway reads it for every action. Clicky checks a
    * person's approved action against its deny rules before carrying it out.
@@ -385,8 +434,11 @@ export interface ComputerGateway {
     actor: ActionActor,
     reason: string,
     toolCallId?: string,
-    /** The element the person should use first, for Clicky to point at. */
-    options?: { pointAt?: string },
+    /**
+     * `pointAt`: the element the person should use first, for Clicky to point at. `source`:
+     * "manual" for a person's own Take control.
+     */
+    options?: { pointAt?: string; source?: "manual" },
   ): Promise<ControlState>;
   takeControl(
     botId: string,
@@ -879,6 +931,8 @@ export function createComputerGateway(
       page?: boolean;
     },
     run: (address: string | undefined, context: GovernedRun) => Promise<T>,
+    /** What `onBotAction` hears about it beyond the subject: how many characters are typed. */
+    narration: { characters?: number } = {},
   ): Promise<T> {
     const { ref, filePath, snapshotId } = subject;
     /*
@@ -1023,12 +1077,28 @@ export function createComputerGateway(
         );
       }
       const approval = await gating;
-      result =
-        approval && "replay" in approval
-          ? (approval.replay as T)
-          : await run(address, {
-              session: async () => (await asked).session,
-            });
+      if (approval && "replay" in approval) {
+        result = approval.replay as T;
+      } else {
+        // Decided, recorded and approved, and about to happen: whoever is watching may be shown it.
+        if (browser)
+          narrate({
+            botId,
+            actor,
+            tool: toolName,
+            ...(ref ? { ref } : {}),
+            ...(snapshotId !== undefined ? { snapshotId } : {}),
+            ...(element ? { role: element.role, name: element.name } : {}),
+            ...(pageUrl ? { url: pageUrl } : {}),
+            ...(subject.key ? { key: subject.key } : {}),
+            ...(narration.characters !== undefined
+              ? { characters: narration.characters }
+              : {}),
+          });
+        result = await run(address, {
+          session: async () => (await asked).session,
+        });
+      }
       await approval?.complete(result);
     } catch (error) {
       if (error instanceof HeadlessToolSuspension) throw error;
@@ -1123,6 +1193,10 @@ export function createComputerGateway(
     payload: unknown,
     signal?: AbortSignal,
   ): Promise<R> {
+    const text =
+      payload && typeof payload === "object"
+        ? (payload as { text?: unknown }).text
+        : undefined;
     return govern(
       toolName,
       botId,
@@ -1134,7 +1208,22 @@ export function createComputerGateway(
           await post<R>(botId, path, payload, signal, undefined, address),
           context,
         ),
+      typeof text === "string" ? { characters: text.length } : {},
     ).then((result) => markPage(result));
+  }
+
+  /** Tells `onBotAction` without waiting on it, and never lets it throw into the action. */
+  function narrate(
+    event: Omit<ComputerBotAction, "userId"> & { actor: ActionActor },
+  ) {
+    const listener = options.onBotAction;
+    if (!listener) return;
+    const { actor, ...rest } = event;
+    try {
+      listener({ ...rest, ...(actor.userId ? { userId: actor.userId } : {}) });
+    } catch (error) {
+      console.warn("computer action listener failed", error);
+    }
   }
 
   /**
@@ -1298,6 +1387,20 @@ export function createComputerGateway(
         // biome-ignore lint/suspicious/noThenProperty: `then` is the tool contract's field name.
         ...(thenSent && input.then ? { then: input.then } : {}),
       };
+      // The form being filled in, by its first field, for whoever is watching. Never on a replay.
+      const first = allowed[0];
+      if (!(approval && "replay" in approval) && first)
+        narrate({
+          botId,
+          actor,
+          tool: "computer_fill",
+          ref: first.step.ref,
+          snapshotId: input.snapshotId,
+          ...(first.element
+            ? { role: first.element.role, name: first.element.name }
+            : {}),
+          ...(pageUrl ? { url: pageUrl } : {}),
+        });
       raw =
         approval && "replay" in approval
           ? (approval.replay as FillResult)
@@ -1405,6 +1508,24 @@ export function createComputerGateway(
         `/elements/frame?width=${Math.round(width)}`,
       );
     },
+    pageText(botId: string) {
+      return get<PageText>(botId, "/elements/text");
+    },
+    pageState(botId: string) {
+      return get<PageState>(botId, "/elements/state");
+    },
+    elementRect(botId: string, ref: string, snapshotId?: number) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(ref))
+        return Promise.resolve({ rect: null });
+      return get<ElementRect>(
+        botId,
+        `/elements/ref?ref=${encodeURIComponent(ref)}${
+          snapshotId !== undefined && Number.isInteger(snapshotId)
+            ? `&snapshotId=${snapshotId}`
+            : ""
+        }`,
+      );
+    },
     actionPolicy(botId: string) {
       return policyFor(botId);
     },
@@ -1433,11 +1554,12 @@ export function createComputerGateway(
       actor: ActionActor,
       reason: string,
       toolCallId?: string,
-      requestOptions?: { pointAt?: string },
+      requestOptions?: { pointAt?: string; source?: "manual" },
     ) {
       const state = await post<ControlState>(botId, "/control/request", {
         reason,
         ...(toolCallId ? { toolCallId } : {}),
+        ...(requestOptions?.source === "manual" ? { source: "manual" } : {}),
       });
       await writeControlEvent(auditStore, "computer.help_requested", {
         botId,
@@ -1451,6 +1573,7 @@ export function createComputerGateway(
         reason,
         toolCallId,
         ...(requestOptions?.pointAt ? { pointAt: requestOptions.pointAt } : {}),
+        ...(requestOptions?.source ? { source: requestOptions.source } : {}),
         state,
       });
       return state;
@@ -1728,6 +1851,13 @@ export function createComputerGateway(
           `A person's input is one of ${[...HUMAN_GESTURES].join(", ")}, not ${JSON.stringify(kind)}.`,
         );
       }
+      if (
+        kind === "scroll-into-view" &&
+        !/^[A-Za-z0-9_-]{1,64}$/.test(
+          String((payload as { ref?: unknown }).ref ?? ""),
+        )
+      )
+        throw new Error("Scrolling to an element needs its ref.");
       return post<HumanInputResult>(botId, `/human/${kind}`, payload);
     },
 
@@ -2240,7 +2370,14 @@ const ACTIVATING_KEYS = new Set(["Enter", "NumpadEnter", "Space", " "]);
  * route parses a JSON body and casts it to the input shape, so the check has to exist at runtime on
  * the side that builds the path.
  */
-const HUMAN_GESTURES = new Set(["click", "type", "key", "scroll"]);
+const HUMAN_GESTURES = new Set([
+  "click",
+  "type",
+  "key",
+  "scroll",
+  // Clicky bringing a step's element into view, by ref, inside the page.
+  "scroll-into-view",
+]);
 
 /**
  * The roles an element takes a value in. Anything else a "type" lands on is pressed instead: a

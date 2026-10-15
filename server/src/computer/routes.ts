@@ -591,6 +591,12 @@ export function createComputerRoutes(
         /^[A-Za-z0-9_-]{1,64}$/.test(body.pointAt)
           ? body.pointAt
           : undefined;
+      /*
+       * `source: "manual"`: a person pressing Take control themselves, which Show me how must not
+       * mistake for the Bot needing them. It is the only source a client may name; any other value
+       * is ignored, since a challenge is something the computer finds, not something it is told.
+       */
+      const manual = body?.source === "manual";
       return gateway.requestHelp(
         botId,
         actor,
@@ -598,7 +604,12 @@ export function createComputerRoutes(
           ? body.reason.trim()
           : "The assistant needs a person to continue.",
         typeof body?.toolCallId === "string" ? body.toolCallId : undefined,
-        pointAt ? { pointAt } : undefined,
+        pointAt || manual
+          ? {
+              ...(pointAt ? { pointAt } : {}),
+              ...(manual ? { source: "manual" as const } : {}),
+            }
+          : undefined,
       );
     }),
   );

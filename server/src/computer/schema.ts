@@ -561,10 +561,22 @@ export type HumanInput = {
       button?: "left" | "right";
       double?: boolean;
     }
-  | { kind: "type"; text: string }
-  | { kind: "key"; key: string }
+  | ({ kind: "type"; text: string } & PageKeyboard)
+  | ({ kind: "key"; key: string } & PageKeyboard)
   | { kind: "scroll"; deltaY?: number; x?: number; y?: number }
+  /** Bring the element a ref names into view, inside the page (Clicky's scroll to a step). */
+  | { kind: "scroll-into-view"; ref: string }
 );
+
+/**
+ * Typing or a key through the page's own keyboard rather than the desktop's, once the page has the
+ * focus and what has it is the field at `at` (screen pixels; the field Clicky just clicked), or
+ * anything on the page without one. It cannot reach another window.
+ */
+type PageKeyboard = {
+  keyboard?: "page";
+  at?: { x: number; y: number };
+};
 
 /**
  * Clicky Mode: what is on the computer's screen and where (`/elements`).
@@ -590,8 +602,50 @@ export type ScreenElements = {
   window?: { x: number; y: number; innerOffsetX: number; innerOffsetY: number };
   /** The page the boxes are on; empty when no browser is open on a desktop. */
   url: string;
+  /** The page's title. Absent from older computers. */
+  title?: string;
+  /** The visible controls. */
   elements: ScreenElement[];
+  /**
+   * Controls above or below the screen, nearest first, by where their top is in the page (CSS
+   * pixels from the top of the document). Absent from older computers.
+   */
+  offscreen?: OffscreenElement[];
+  /** How far the page is scrolled, how tall it is, and how tall its window. CSS pixels. */
+  scroll?: { y: number; height: number; viewport: number };
 };
+
+export type OffscreenElement = {
+  ref: string;
+  role: string;
+  name: string;
+  offscreen: "above" | "below";
+  y: number;
+  sensitive: boolean;
+};
+
+/** The page's readable text, for Clicky's model (inside the untrusted envelope). */
+export type PageText = { text: string; truncated: boolean; url: string };
+
+/**
+ * Whether the Bot's page has moved on: `navigationId` goes up once per settled navigation (a
+ * redirect chain is one) and when another tab comes to the front; `settled` is false while one is
+ * on its way.
+ */
+export type PageState = {
+  url: string;
+  title: string;
+  navigationId: number;
+  settled: boolean;
+};
+
+/** Where one of the Bot's refs is on the screen now, or null when it is not on it. */
+export type ElementRect =
+  | {
+      screen: { width: number; height: number };
+      rect: { x: number; y: number; width: number; height: number };
+    }
+  | { rect: null };
 
 /** What is under one screen point, asked of the page just before Clicky acts there. */
 export type ElementAtResult = {
@@ -604,6 +658,8 @@ export type ElementAtResult = {
   opaque?: boolean;
   /** Inside a dialog on the page, where buttons answer "are you sure?". */
   inDialog?: boolean;
+  /** Inside a form, where Enter in a field sends it. Absent from older computers. */
+  inForm?: boolean;
   ref?: string;
   /** False for a point outside the page: the toolbar, another window, the dock. */
   inPage: boolean;
@@ -622,6 +678,7 @@ export type FocusResult = {
     submits?: boolean;
     opaque?: boolean;
     inDialog?: boolean;
+    inForm?: boolean;
   } | null;
   url: string;
 };
