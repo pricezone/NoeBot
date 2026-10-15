@@ -40,7 +40,7 @@ import {
   toGrid,
   toScreenPixels,
 } from "./screen";
-import { siteOfUrl } from "./site";
+import { openableUrl, siteOfUrl, sitesNamedIn } from "./site";
 
 /**
  * Clicky looking at the screen: one model call per question, with one masked frame and the list of
@@ -92,6 +92,8 @@ export type BrainPromptInput = {
   placed: readonly PlacedElement[];
   /** The page's readable text, when it could be read. */
   pageText?: PageText;
+  /** What could not be read this time, said to the model so it does not guess. */
+  notes?: readonly string[];
 };
 
 /**
@@ -216,13 +218,17 @@ export function buildBrainPrompt(input: BrainPromptInput): {
   const act = session.mode === "act";
   const system = [
     ...persona(input),
-    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h]}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "label": "...", "why": "..."}, "done": true}',
+    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h]}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true}',
     '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true when the task is finished.',
     act
       ? 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, propose scrolling to it first: {"action": "scroll", "ref": "e40"}.'
       : 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, make the step before it "Scroll down" (or up) to it, and point at where to scroll.',
     act
-      ? 'You may include one "proposal": the single next action you would take for the person, as a click, typing ("text", into the control at "ref" or "point"; add "pressEnter": true to press Enter after it, as a search does), a key ("keys", such as "Enter" or "Control+L") or a scroll ("ref" of a control to bring into view, or "deltaY" in pixels, negative is up). The person approves it before anything happens. Never propose typing a password, a code, a card number or another secret, paying or buying, changing a security setting, or solving a CAPTCHA: point at those instead and say they are the person\'s to do.'
+      ? 'When the site the task needs is not the page that is open, propose opening it: {"action": "open", "url": "https://www.gov.gr/"} (https only). It goes there in the current tab, as typing it into the address bar would. Never tell the person to type an address you could open.'
+      : 'When the site the task needs is not the page that is open, make the first step "Click the address bar and type gov.gr" (with that site\'s name), pointing at the control "addressbar" when the list has it.',
+    'The control "addressbar", when the list has it, is the browser\'s address bar above the page: it is not drawn in the picture, but you may point at it.',
+    act
+      ? 'You may include one "proposal": the single next action you would take for the person, as a click, typing ("text", into the control at "ref" or "point"; add "pressEnter": true to press Enter after it, as a search does), a key ("keys", such as "Enter" or "Control+L"), a scroll ("ref" of a control to bring into view, or "deltaY" in pixels, negative is up) or opening a site ("url"). The person approves it before anything happens. Never propose typing a password, a code, a card number or another secret, paying or buying, changing a security setting, or solving a CAPTCHA: point at those instead and say they are the person\'s to do.'
       : 'You are in guide mode: never include "proposal". The person does every step themselves.',
   ].join("\n\n");
 
@@ -270,6 +276,7 @@ export function buildBrainPrompt(input: BrainPromptInput): {
       `The person says: ${input.text.trim().slice(0, CLICKY_TEXT_LIMIT)}`,
     );
   parts.push(...screenParts(input.screen, input.placed, input.pageText));
+  parts.push(...(input.notes ?? []));
   return { system, text: parts.join("\n\n") };
 }
 
@@ -432,6 +439,19 @@ function readProposal(
         ...(ref ? { ref } : {}),
         label,
         ...(typed.pressEnter ? { pressEnter: true } : {}),
+      },
+      why,
+    };
+  }
+  if (kind === "open") {
+    // An https address only; anything else is not a proposal at all.
+    const url = typeof value.url === "string" ? openableUrl(value.url) : null;
+    if (!url) return undefined;
+    return {
+      action: {
+        kind: "open",
+        url,
+        label: stringOf(value.label, 120) ?? new URL(url).host,
       },
       why,
     };
@@ -693,6 +713,19 @@ export function createSayExtractor(): {
   return { push, emitted: () => all };
 }
 
+/** The sites the person named this session: their turns so far, and their words for this look. */
+export function namedSitesOf(
+  session: Pick<ClickySession, "transcript">,
+  text?: string,
+): string[] {
+  return sitesNamedIn([
+    ...session.transcript
+      .filter((turn) => turn.role === "person")
+      .map((turn) => turn.text),
+    ...(text ? [text] : []),
+  ]);
+}
+
 export type ClickyPreferenceView = {
   locale: Locale;
   guidance: ClickyGuidance;
@@ -755,6 +788,7 @@ export function buildCheckPrompt(input: {
   screen: ScreenElements;
   placed: readonly PlacedElement[];
   pageText?: PageText;
+  notes?: readonly string[];
 }): { system: string; text: string } {
   const system = [
     ...persona(input),
@@ -789,6 +823,7 @@ export function buildCheckPrompt(input: {
       : 'There is no step to check: point again at what you last pointed at, where it is now, and answer "stepDone": false.',
   );
   parts.push(...screenParts(input.screen, input.placed, input.pageText));
+  parts.push(...(input.notes ?? []));
   return { system, text: parts.join("\n\n") };
 }
 
@@ -815,22 +850,86 @@ export function parseCheckAnswer(
 }
 
 /**
- * How long reading the screen may take before the look is given up. The person is waiting, and the
- * model's own deadline only starts once it has something to look at.
+ * How long each part of reading the screen may take before the look goes on without it. They run
+ * side by side, so a look waits for the slowest of them at most: the controls, the masked picture
+ * and the page's text. One that is late or fails is left out and the model is told; only when both
+ * the controls and the picture are missing is there nothing to look at.
  */
-const SCREEN_READ_MS = 15_000;
+export const LOOK_BUDGETS = { elements: 3_000, frame: 4_000, text: 1_500 };
 
-function withinTime<T>(work: Promise<T>, ms: number): Promise<T> {
+/** How much of the page's text a look reads: enough to know the page, read on every look. */
+export const LOOK_TEXT_LIMIT = 3_000;
+
+function withinTime<T>(work: Promise<T>, ms: number, said: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     work,
     new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("The screen took too long to read.")),
-        ms,
-      );
+      timer = setTimeout(() => reject(new Error(said)), ms);
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+function messageOf(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, " ")
+    .slice(0, 200);
+}
+
+/** An error that names the part of the look it came from: "model: …", "parse: …". */
+function staged(stage: string, error: unknown): Error {
+  return new Error(`${stage}: ${messageOf(error)}`);
+}
+
+/**
+ * Where one look's time went, written as one line in the run timing's shape, so a slow or failed
+ * look on an instance says which part it was:
+ *
+ *   [timing] clicky.look bot=… reason=ask total=… phases=elements:…,frame:…,text:…,model.ttft:…,model:… failed=frame:…
+ */
+type LookTiming = {
+  started: number;
+  phases: [string, number][];
+  failed: string[];
+};
+
+function newLookTiming(): LookTiming {
+  return { started: performance.now(), phases: [], failed: [] };
+}
+
+function lookLine(
+  kind: "look" | "check",
+  botId: string,
+  reason: string,
+  timing: LookTiming,
+  error?: unknown,
+): string {
+  const phases = timing.phases.map(([name, ms]) => `${name}:${ms}`).join(",");
+  const failed = timing.failed.length
+    ? ` failed=${timing.failed.map((entry) => entry.replace(/\s/g, "_")).join(";")}`
+    : "";
+  const errored =
+    error !== undefined ? ` error=${messageOf(error).replace(/\s/g, "_")}` : "";
+  return `[timing] clicky.${kind} bot=${botId} reason=${reason} total=${Math.round(performance.now() - timing.started)} phases=${phases}${failed}${errored}`;
+}
+
+/** What a look tells the model about a part of the screen it could not read this time. */
+function missingNotes(read: {
+  screen?: ScreenElements;
+  frame?: { image: string };
+}): string[] {
+  return [
+    ...(read.screen
+      ? []
+      : [
+          "The list of controls could not be read in time this once: point by the picture, with points or boxes, and propose nothing.",
+        ]),
+    ...(read.frame
+      ? []
+      : [
+          "The picture of the screen could not be taken in time this once: answer from the list of controls and the page's text.",
+        ]),
+  ];
 }
 
 function hostOf(url: string): string {
@@ -849,157 +948,293 @@ export function createClickyBrain(deps: {
     Partial<Pick<ComputerGateway, "pageText">>;
   complete: (request: VisionRequest) => Promise<string>;
   newId: () => string;
+  /** How long each part of the screen may take; `LOOK_BUDGETS` unless a test says. */
+  budgets?: Partial<typeof LOOK_BUDGETS>;
+  /** Where each look's `[timing]` line goes. The console unless said. */
+  log?: (line: string) => void;
 }): ClickyBrain {
+  const budgets = { ...LOOK_BUDGETS, ...deps.budgets };
+  const log = deps.log ?? ((line: string) => console.info(line));
+
   /**
    * The screen as a look reads it: the controls, the masked picture and the page's text, side by
-   * side. The text is a help, not a need: a page that will not give it is looked at without it.
+   * side, each within its own budget. A part that is late or fails is left out (and named in the
+   * timing line); without both the controls and the picture there is nothing to look at.
    */
-  const readScreen = (botId: string, known?: ScreenElements) =>
-    withinTime(
-      Promise.all([
-        known ?? deps.gateway.elements(botId),
+  async function readScreen(
+    botId: string,
+    timing: LookTiming,
+    known?: ScreenElements,
+  ) {
+    const part = async <T>(
+      name: string,
+      budget: number,
+      work: () => Promise<T>,
+    ): Promise<T | undefined> => {
+      const started = performance.now();
+      try {
+        return await withinTime(
+          work(),
+          budget,
+          `took longer than ${budget} ms`,
+        );
+      } catch (error) {
+        timing.failed.push(`${name}:${messageOf(error)}`);
+        return undefined;
+      } finally {
+        timing.phases.push([name, Math.round(performance.now() - started)]);
+      }
+    };
+    const [screen, frame, pageText] = await Promise.all([
+      known
+        ? Promise.resolve(known)
+        : part("elements", budgets.elements, () =>
+            deps.gateway.elements(botId),
+          ),
+      part("frame", budgets.frame, () =>
         deps.gateway.clickyFrame(botId, BRAIN_FRAME_WIDTH),
-        deps.gateway.pageText
-          ? deps.gateway.pageText(botId).catch(() => undefined)
-          : Promise.resolve(undefined),
-      ]),
-      SCREEN_READ_MS,
-    );
+      ),
+      deps.gateway.pageText
+        ? part("text", budgets.text, () =>
+            (deps.gateway.pageText as ComputerGateway["pageText"])(
+              botId,
+              LOOK_TEXT_LIMIT,
+            ),
+          )
+        : Promise.resolve(undefined),
+    ]);
+    if (!screen && !frame)
+      throw new Error(
+        `screen: nothing could be read (${timing.failed.join("; ")})`,
+      );
+    return {
+      screen,
+      frame,
+      pageText,
+      // Without the controls, the picture's own size stands in for the screen's.
+      placedScreen: screen ?? {
+        screen: {
+          width: frame?.width ?? 1000,
+          height: frame?.height ?? 1000,
+        },
+        mode: "page" as const,
+        url: "",
+        elements: [],
+      },
+    };
+  }
+
+  /** The model's answer, timed to its first word and to its end. */
+  async function ask(
+    timing: LookTiming,
+    request: VisionRequest,
+  ): Promise<string> {
+    const started = performance.now();
+    let first: number | undefined;
+    try {
+      return await deps.complete({
+        ...request,
+        onText: (chunk) => {
+          if (first === undefined) {
+            first = performance.now() - started;
+            timing.phases.push(["model.ttft", Math.round(first)]);
+          }
+          request.onText?.(chunk);
+        },
+      });
+    } catch (error) {
+      throw staged("model", error);
+    } finally {
+      timing.phases.push(["model", Math.round(performance.now() - started)]);
+    }
+  }
 
   return {
     async check(input) {
       const { botId, session, signal } = input;
-      const [screen, frame, pageText] = await readScreen(botId);
-      signal.throwIfAborted();
-      const placed = placeElements(screen);
-      const prompt = buildCheckPrompt({
-        session,
-        stepId: input.stepId,
-        locale: input.preferences.locale,
-        guidance: input.preferences.guidance,
-        screen,
-        placed,
-        ...(pageText ? { pageText } : {}),
-      });
-      const raw = await deps.complete({
-        system: prompt.system,
-        text: prompt.text,
-        image: frame.image,
-        signal,
-      });
-      return parseCheckAnswer(raw, { placed, newId: deps.newId });
+      const timing = newLookTiming();
+      let failure: unknown;
+      try {
+        const read = await readScreen(botId, timing);
+        signal.throwIfAborted();
+        const placed = placeElements(read.placedScreen);
+        const prompt = buildCheckPrompt({
+          session,
+          stepId: input.stepId,
+          locale: input.preferences.locale,
+          guidance: input.preferences.guidance,
+          screen: read.placedScreen,
+          placed,
+          ...(read.pageText ? { pageText: read.pageText } : {}),
+          notes: missingNotes(read),
+        });
+        const raw = await ask(timing, {
+          system: prompt.system,
+          text: prompt.text,
+          ...(read.frame ? { image: read.frame.image } : {}),
+          signal,
+        });
+        try {
+          return parseCheckAnswer(raw, { placed, newId: deps.newId });
+        } catch (error) {
+          throw staged("parse", error);
+        }
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        if (!signal.aborted)
+          log(lookLine("check", botId, "check", timing, failure));
+      }
     },
 
     async think(input) {
-      const { botId, session, signal } = input;
-      const [screen, frame, pageText] = await readScreen(botId, input.screen);
-      signal.throwIfAborted();
-      const placed = placeElements(screen);
-      const prompt = buildBrainPrompt({
-        session,
-        reason: input.reason,
-        ...(input.text ? { text: input.text } : {}),
-        locale: input.preferences.locale,
-        guidance: input.preferences.guidance,
-        screen,
-        placed,
-        ...(pageText ? { pageText } : {}),
-      });
-      const say = createSayExtractor();
-      const raw = await deps.complete({
-        system: prompt.system,
-        text: prompt.text,
-        image: frame.image,
-        signal,
-        onText: (chunk) => {
-          const piece = say.push(chunk);
-          if (piece) input.onDelta(piece);
-        },
-      });
-      const answer = parseBrainAnswer(raw, {
+      const { botId, signal } = input;
+      const timing = newLookTiming();
+      let failure: unknown;
+      try {
+        return await thinkOnce(input, timing);
+      } catch (error) {
+        failure = error;
+        throw error;
+      } finally {
+        if (!signal.aborted)
+          log(lookLine("look", botId, input.reason, timing, failure));
+      }
+    },
+  };
+
+  async function thinkOnce(
+    input: Parameters<ClickyBrain["think"]>[0],
+    timing: LookTiming,
+  ): Promise<BrainReply> {
+    const { botId, session, signal } = input;
+    const read = await readScreen(botId, timing, input.screen);
+    signal.throwIfAborted();
+    const screen = read.placedScreen;
+    const placed = placeElements(screen);
+    const prompt = buildBrainPrompt({
+      session,
+      reason: input.reason,
+      ...(input.text ? { text: input.text } : {}),
+      locale: input.preferences.locale,
+      guidance: input.preferences.guidance,
+      screen,
+      placed,
+      ...(read.pageText ? { pageText: read.pageText } : {}),
+      notes: missingNotes(read),
+    });
+    const say = createSayExtractor();
+    const raw = await ask(timing, {
+      system: prompt.system,
+      text: prompt.text,
+      ...(read.frame ? { image: read.frame.image } : {}),
+      signal,
+      onText: (chunk) => {
+        const piece = say.push(chunk);
+        if (piece) input.onDelta(piece);
+      },
+    });
+    let answer: BrainAnswer;
+    try {
+      answer = parseBrainAnswer(raw, {
         placed,
         mode: session.mode,
         newId: deps.newId,
         offscreen: screen.offscreen ?? [],
       });
-      if (!say.emitted()) input.onDelta(answer.say);
+    } catch (error) {
+      throw staged("parse", error);
+    }
+    if (!say.emitted()) input.onDelta(answer.say);
 
-      let proposal: ClickyRatedAction | undefined;
-      if (answer.proposal) {
-        const { why } = answer.proposal;
-        let action = answer.proposal.action;
-        const at = action.kind === "key" ? undefined : action.at;
-        const pointed =
-          action.kind !== "key" && action.kind !== "type" ? true : Boolean(at);
-        // What is really there: under the point, or with the keyboard.
-        const probe = at
-          ? await deps.gateway
-              .elementAt(botId, toScreenPixels(at, screen.screen))
-              .catch(() => undefined)
-          : undefined;
-        const focus = pointed
+    let proposal: ClickyRatedAction | undefined;
+    // Without the controls nothing can be rated where it lands: no proposal this time.
+    if (answer.proposal && read.screen) {
+      const probeStarted = performance.now();
+      const { why } = answer.proposal;
+      let action = answer.proposal.action;
+      const opens = action.kind === "open";
+      const at = "at" in action ? action.at : undefined;
+      const pointed =
+        action.kind === "click" ||
+        action.kind === "scroll" ||
+        (action.kind === "type" && Boolean(at));
+      // What is really there: under the point, or with the keyboard. Opening a site asks neither.
+      const probe = at
+        ? await deps.gateway
+            .elementAt(botId, toScreenPixels(at, screen.screen))
+            .catch(() => undefined)
+        : undefined;
+      const focus =
+        pointed || opens
           ? undefined
           : await deps.gateway.focus(botId).catch(() => undefined);
-        const target = probe ? guardTargetOf(probe) : undefined;
-        const focused = focus ? guardFocusOf(focus) : undefined;
-        const seenOn = pointed ? target : focused;
-        /*
-         * The person reads what the page calls the element, not what the model called it: a model
-         * that says "the Back button" about "Delete account" is shown as "Delete account (button)".
-         * The model's words are kept for the audit trail.
-         */
-        if (
-          // A scroll's label is where it goes, not what happens to be under the wheel.
-          action.kind !== "key" &&
-          action.kind !== "scroll" &&
-          seenOn &&
-          seenOn.inPage !== false &&
-          !seenOn.sensitive &&
-          seenOn.name &&
-          seenOn.role !== "page"
-        ) {
-          const probed = `${seenOn.name} (${seenOn.role})`.slice(0, 120);
-          if (probed !== action.label)
-            action = { ...action, label: probed, modelLabel: action.label };
-        }
-        const assessed = assessAction(action, {
-          actionPolicy: input.preferences.actionPolicy,
-          ...(target ? { target } : {}),
-          ...(focused ? { focused } : {}),
-          trigger: session.trigger?.kind ?? null,
-          botId,
-          actorId: input.userId,
-          pageHost: hostOf(probe?.url || focus?.url || screen.url),
-        });
-        const seenUrl = probe?.url || focus?.url || screen.url;
-        proposal = {
-          action,
-          why,
-          risk: assessed.risk,
-          ...(assessed.reason ? { riskReason: assessed.reason } : {}),
-          /*
-           * The page, always: an action is refused if the page has changed by the time the person
-           * says yes. The element too, when the place was on the page and something was read there.
-           */
-          seen: {
-            url: seenUrl,
-            ...(siteOfUrl(seenUrl) ? { site: siteOfUrl(seenUrl) } : {}),
-            ...(seenOn && seenOn.inPage !== false
-              ? { role: seenOn.role, name: seenOn.name }
-              : {}),
-            ...(probe?.ref ? { ref: probe.ref } : {}),
-          },
-        };
+      const target = probe ? guardTargetOf(probe) : undefined;
+      const focused = focus ? guardFocusOf(focus) : undefined;
+      const seenOn = pointed ? target : focused;
+      /*
+       * The person reads what the page calls the element, not what the model called it: a model
+       * that says "the Back button" about "Delete account" is shown as "Delete account (button)".
+       * The model's words are kept for the audit trail.
+       */
+      if (
+        // A scroll's label is where it goes, not what happens to be under the wheel.
+        action.kind !== "key" &&
+        action.kind !== "scroll" &&
+        action.kind !== "open" &&
+        seenOn &&
+        seenOn.inPage !== false &&
+        !seenOn.sensitive &&
+        seenOn.name &&
+        seenOn.role !== "page"
+      ) {
+        const probed = `${seenOn.name} (${seenOn.role})`.slice(0, 120);
+        if (probed !== action.label)
+          action = { ...action, label: probed, modelLabel: action.label };
       }
-      return {
-        type: "brain.reply",
-        thinkId: input.thinkId,
-        say: answer.say,
-        ...(answer.plan ? { plan: answer.plan } : {}),
-        ...(answer.overlays ? { overlays: answer.overlays } : {}),
-        ...(proposal ? { proposal } : {}),
-        ...(answer.done ? { done: true } : {}),
+      const assessed = assessAction(action, {
+        actionPolicy: input.preferences.actionPolicy,
+        ...(target ? { target } : {}),
+        ...(focused ? { focused } : {}),
+        trigger: session.trigger?.kind ?? null,
+        botId,
+        actorId: input.userId,
+        pageHost: hostOf(probe?.url || focus?.url || screen.url),
+        namedSites: namedSitesOf(session, input.text),
+      });
+      const seenUrl = probe?.url || focus?.url || screen.url;
+      proposal = {
+        action,
+        why,
+        risk: assessed.risk,
+        ...(assessed.reason ? { riskReason: assessed.reason } : {}),
+        /*
+         * The page, always: an action is refused if the page has changed by the time the person
+         * says yes. The element too, when the place was on the page and something was read there.
+         */
+        seen: {
+          url: seenUrl,
+          ...(siteOfUrl(seenUrl) ? { site: siteOfUrl(seenUrl) } : {}),
+          ...(seenOn && seenOn.inPage !== false
+            ? { role: seenOn.role, name: seenOn.name }
+            : {}),
+          ...(probe?.ref ? { ref: probe.ref } : {}),
+        },
       };
-    },
-  };
+      timing.phases.push([
+        "probe",
+        Math.round(performance.now() - probeStarted),
+      ]);
+    }
+    return {
+      type: "brain.reply",
+      thinkId: input.thinkId,
+      say: answer.say,
+      ...(answer.plan ? { plan: answer.plan } : {}),
+      ...(answer.overlays ? { overlays: answer.overlays } : {}),
+      ...(proposal ? { proposal } : {}),
+      ...(answer.done ? { done: true } : {}),
+    };
+  }
 }

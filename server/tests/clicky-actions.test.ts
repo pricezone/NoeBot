@@ -159,6 +159,7 @@ const run = (
     viaGrant?: boolean;
     grantHost?: string;
     actionPolicy?: "ask_each" | "ask_once_per_session" | "never";
+    namedSites?: string[];
   } = {},
 ) =>
   createClickyActions({
@@ -184,6 +185,7 @@ const run = (
     signal: extra.signal ?? new AbortController().signal,
     ...(extra.viaGrant ? { viaGrant: true } : {}),
     ...(extra.grantHost ? { grantHost: extra.grantHost } : {}),
+    ...(extra.namedSites ? { namedSites: extra.namedSites } : {}),
   });
 
 const clickContinue: ClickyAction = {
@@ -577,6 +579,68 @@ describe("createClickyActions", () => {
         at: { x: 720, y: 450 },
       },
     ]);
+  });
+
+  test("opening a site is the person's going there: no probe, the deny rules on where it goes, the host on the trail", async () => {
+    const fake = fakeGateway({ holder: "human" });
+    const opened = await run(
+      fake.gateway,
+      { kind: "open", url: "https://www.gov.gr/ipiresies", label: "gov.gr" },
+      { seen: { url: "https://shop.example/cart" }, namedSites: ["gov.gr"] },
+    );
+    expect(opened).toMatchObject({
+      ok: true,
+      audit: { opened: "www.gov.gr" },
+    });
+    expect(fake.inputs).toEqual([
+      { kind: "open", url: "https://www.gov.gr/ipiresies" },
+    ]);
+    expect(fake.calls).not.toContain("focus");
+    expect(fake.calls.some((call) => call.startsWith("elementAt"))).toBe(false);
+    const denied = fakeGateway({
+      holder: "human",
+      policy: {
+        mode: "enforce",
+        deny: ['page.host == "www.gov.gr"'],
+        allow: [],
+      },
+    });
+    expect(
+      (
+        await run(
+          denied.gateway,
+          { kind: "open", url: "https://www.gov.gr/", label: "gov.gr" },
+          { namedSites: ["gov.gr"] },
+        )
+      ).ok,
+    ).toBe(false);
+    // A site the person did not name is not done on a yes given for an everyday one.
+    const unnamed = fakeGateway({ holder: "human" });
+    expect(
+      (
+        await run(unnamed.gateway, {
+          kind: "open",
+          url: "https://www.gov.gr/",
+          label: "gov.gr",
+        })
+      ).ok,
+    ).toBe(false);
+    expect(unnamed.inputs).toEqual([]);
+    expect(denied.inputs).toEqual([]);
+    // Asked about on another page than the one open now: the page changed, nothing is done.
+    const moved = fakeGateway({ holder: "human" });
+    expect(
+      (
+        await run(
+          moved.gateway,
+          { kind: "open", url: "https://www.gov.gr/", label: "gov.gr" },
+          {
+            seen: { url: "https://shop.example/elsewhere" },
+            namedSites: ["gov.gr"],
+          },
+        )
+      ).ok,
+    ).toBe(false);
   });
 
   test("the browser's own keys stay on the desktop's keyboard; a scroll to a step goes by its ref", async () => {

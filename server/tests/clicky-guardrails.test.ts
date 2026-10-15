@@ -11,6 +11,7 @@ import {
   guardTargetOf,
   hasControlCharacter,
 } from "../src/clicky/guardrails";
+import { namedSite, openableUrl, sitesNamedIn } from "../src/clicky/site";
 
 /*
  * Clicky's guardrails decide how risky an action is from what is really on the page, never from the
@@ -472,6 +473,54 @@ describe("assessAction", () => {
       });
   });
 
+  test("opening a site: everyday only when the person named it; https only; never over a handover", () => {
+    const open = (url: string): ClickyAction => ({
+      kind: "open",
+      url,
+      label: "gov.gr",
+    });
+    const named = { ...base, namedSites: ["gov.gr"] };
+    expect(assessAction(open("https://www.gov.gr/"), named)).toEqual({
+      risk: "low",
+    });
+    expect(
+      assessAction(open("https://dilosi.services.gov.gr/"), named).risk,
+    ).toBe("low");
+    expect(assessAction(open("https://evil.example/"), named)).toEqual({
+      risk: "confirm",
+      reason: "You didn't name that site, so I'm asking first.",
+    });
+    for (const url of [
+      "http://www.gov.gr/",
+      "javascript:alert(1)",
+      "https://user:pw@www.gov.gr/",
+    ])
+      expect(assessAction(open(url), named)).toEqual({
+        risk: "blocked",
+        reason:
+          "I only open secure web addresses (https), with no name or password in them.",
+      });
+    expect(
+      assessAction(open("https://www.gov.gr/"), {
+        ...named,
+        trigger: "sign_in",
+      }).risk,
+    ).toBe("yours");
+    expect(
+      assessAction(open("https://www.gov.gr/"), {
+        ...named,
+        actionPolicy: "never",
+      }).risk,
+    ).toBe("blocked");
+    // Nothing on the page receives it, whatever has the keyboard.
+    expect(
+      assessAction(open("https://www.gov.gr/"), {
+        ...named,
+        focused: { role: "textbox", name: "Password", sensitive: true },
+      }).risk,
+    ).toBe("low");
+  });
+
   test("the reasons speak in the first person and never name Clicky", () => {
     const reasons = [
       assessAction(click(), { ...base, actionPolicy: "never" }),
@@ -697,5 +746,42 @@ describe("assessAction", () => {
         }),
       }).risk,
     ).toBe("confirm");
+  });
+});
+
+describe("sites a person named, and addresses that may be opened", () => {
+  test("only https, with a host and no credentials; a bare name is read as https", () => {
+    expect(openableUrl("gov.gr")).toBe("https://gov.gr/");
+    expect(openableUrl(" https://www.gov.gr/ipiresies ")).toBe(
+      "https://www.gov.gr/ipiresies",
+    );
+    for (const raw of [
+      "http://gov.gr",
+      "javascript:alert(1)",
+      "data:text/html,x",
+      "file:///etc/passwd",
+      "https://u:p@gov.gr",
+      "https://localhost",
+      "ftp://gov.gr",
+      "gov gr",
+      "",
+    ])
+      expect({ raw, url: openableUrl(raw) }).toEqual({ raw, url: null });
+  });
+
+  test("a name the person gave covers that site and its hosts, and nothing that merely ends alike", () => {
+    expect(
+      sitesNamedIn([
+        "Θέλω να εκδώσω υπεύθυνη δήλωση στο gov.gr",
+        "then go to https://www.Example.com/x, and weather.com.",
+      ]),
+    ).toEqual(["gov.gr", "example.com", "weather.com"]);
+    expect(namedSite(["gov.gr"], "https://www.gov.gr/")).toBe(true);
+    expect(namedSite(["gov.gr"], "https://dilosi.services.gov.gr/x")).toBe(
+      true,
+    );
+    expect(namedSite(["gov.gr"], "https://evilgov.gr/")).toBe(false);
+    expect(namedSite(["example.com"], "https://www.example.com/")).toBe(true);
+    expect(namedSite([], "https://www.gov.gr/")).toBe(false);
   });
 });

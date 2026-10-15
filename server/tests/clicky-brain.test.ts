@@ -6,6 +6,7 @@ import {
   createClickyBrain,
   createSayExtractor,
   describeScroll,
+  namedSitesOf,
   parseBrainAnswer,
   parseCheckAnswer,
   readBox,
@@ -15,7 +16,12 @@ import {
 } from "../src/clicky/brain";
 import { placeElements } from "../src/clicky/screen";
 import type { ScreenElements } from "../src/computer/schema";
-import { readChatStream } from "../src/routing/model";
+import {
+  createVisionCompleter,
+  readChatStream,
+  type VisionRequest,
+  visionDeadline,
+} from "../src/routing/model";
 import { UNTRUSTED_TAG } from "../src/untrusted-content";
 
 /*
@@ -929,5 +935,334 @@ describe("readChatStream", () => {
       Response.json({ choices: [{ message: { content: '{"say":"ok"}' } }] }),
     );
     expect(text).toBe('{"say":"ok"}');
+  });
+});
+
+describe("a look on a slow screen", () => {
+  const fast = {
+    elements: async () => screen,
+    clickyFrame: async () => ({ image: "AAAA", width: 1280, height: 640 }),
+    pageText: async () => ({
+      text: "Welcome",
+      truncated: false,
+      url: screen.url,
+    }),
+    elementAt: async () => ({
+      role: "button",
+      name: "Continue",
+      sensitive: false,
+      inPage: true,
+      url: screen.url,
+    }),
+    focus: async () => ({
+      window: "browser" as const,
+      element: null,
+      url: screen.url,
+    }),
+  };
+  const never = () => new Promise<never>(() => {});
+  const look = (
+    gateway: Partial<typeof fast>,
+    complete: (request: VisionRequest) => Promise<string> = async () =>
+      JSON.stringify({
+        say: "Press Continue.",
+        proposal: { action: "click", ref: "e1", label: "Continue" },
+      }),
+  ) => {
+    const lines: string[] = [];
+    const asked: VisionRequest[] = [];
+    const brain = createClickyBrain({
+      gateway: { ...fast, ...gateway },
+      newId,
+      budgets: { elements: 40, frame: 40, text: 40 },
+      log: (line) => lines.push(line),
+      complete: async (request) => {
+        asked.push(request);
+        return complete(request);
+      },
+    });
+    const reply = brain.think({
+      userId: "user-1",
+      botId: "bot-1",
+      session: {
+        ...newClickySession({ id: "s1", botId: "bot-1", now: 0 }),
+        mode: "act",
+        state: "thinking",
+        thinkId: "t1",
+      },
+      thinkId: "t1",
+      reason: "ask",
+      text: "what now?",
+      preferences: {
+        locale: "en",
+        guidance: "brief",
+        actionPolicy: "ask_each",
+      },
+      signal: new AbortController().signal,
+      onDelta: () => {},
+    });
+    return { reply, lines, asked };
+  };
+
+  test("controls that are late: the look goes on with the picture, says so, and proposes nothing", async () => {
+    const { reply, lines, asked } = look({ elements: never });
+    const answered = await reply;
+    expect(answered.say).toBe("Press Continue.");
+    expect(answered.proposal).toBeUndefined();
+    expect(asked[0]?.image).toBe("AAAA");
+    expect(asked[0]?.text).toContain(
+      "The list of controls could not be read in time this once",
+    );
+    expect(lines[0]).toMatch(
+      /^\[timing\] clicky\.look bot=bot-1 reason=ask total=\d+ phases=.*elements:\d+.*model:\d+ failed=elements:took_longer_than_40_ms$/,
+    );
+  });
+
+  test("a picture that is late: the look goes on with the controls and the page's words, without an image", async () => {
+    const { reply, lines, asked } = look({ clickyFrame: never });
+    expect((await reply).say).toBe("Press Continue.");
+    expect(asked[0]?.image).toBeUndefined();
+    expect(asked[0]?.text).toContain(
+      "The picture of the screen could not be taken in time this once",
+    );
+    expect(lines[0]).toContain("failed=frame:took_longer_than_40_ms");
+  });
+
+  test("a page whose words are late is looked at without them", async () => {
+    const { reply, asked, lines } = look({ pageText: never });
+    expect((await reply).proposal?.action.kind).toBe("click");
+    expect(asked[0]?.text).not.toContain("What the page says");
+    expect(lines[0]).toContain("failed=text:");
+  });
+
+  test("with neither the controls nor the picture there is nothing to look at, and the line says why", async () => {
+    const { reply, lines } = look({ elements: never, clickyFrame: never });
+    await expect(reply).rejects.toThrow(/^screen: nothing could be read/);
+    expect(lines[0]).toContain("error=screen:");
+  });
+
+  test("a model that fails, or answers what cannot be read, is named as the stage that failed", async () => {
+    const failing = look({}, async () => {
+      throw new Error("vision model answered 400: bad image");
+    });
+    await expect(failing.reply).rejects.toThrow(
+      "model: vision model answered 400: bad image",
+    );
+    expect(failing.lines[0]).toContain("error=model:");
+    const garbled = look({}, async () => "I think you should press it");
+    await expect(garbled.reply).rejects.toThrow(/^parse: /);
+  });
+
+  test("the first word and the whole answer are timed", async () => {
+    const { reply, lines } = look({}, async (request) => {
+      request.onText?.('{"say": "Here');
+      await Bun.sleep(5);
+      request.onText?.('."}');
+      return '{"say": "Here."}';
+    });
+    await reply;
+    expect(lines[0]).toMatch(/model\.ttft:\d+,model:\d+/);
+  });
+});
+
+describe("going to a site", () => {
+  test("an https address is a proposal; http, a script, a file or one with a password in it is not", () => {
+    const proposed = (url: string) =>
+      parseBrainAnswer(
+        JSON.stringify({
+          say: "Opening it.",
+          proposal: { action: "open", url },
+        }),
+        { placed, mode: "act", newId },
+      ).proposal?.action;
+    expect(proposed("https://www.gov.gr/ipiresies")).toEqual({
+      kind: "open",
+      url: "https://www.gov.gr/ipiresies",
+      label: "www.gov.gr",
+    });
+    expect(proposed("gov.gr")).toEqual({
+      kind: "open",
+      url: "https://gov.gr/",
+      label: "gov.gr",
+    });
+    for (const url of [
+      "http://www.gov.gr/",
+      "javascript:alert(1)",
+      "data:text/html,<script>x</script>",
+      "file:///etc/passwd",
+      "https://user:secret@www.gov.gr/",
+      "https://localhost/",
+    ])
+      expect({ url, action: proposed(url) }).toEqual({
+        url,
+        action: undefined,
+      });
+  });
+
+  test("Do it for me proposes opening the site; guide mode points at the address bar", () => {
+    const base = newClickySession({ id: "s1", botId: "bot-1", now: 0 });
+    const act = buildBrainPrompt({
+      session: { ...base, mode: "act" },
+      reason: "ask",
+      locale: "en",
+      guidance: "brief",
+      screen,
+      placed,
+    }).system;
+    expect(act).toContain('{"action": "open", "url": "https://www.gov.gr/"}');
+    const guide = buildBrainPrompt({
+      session: base,
+      reason: "ask",
+      locale: "en",
+      guidance: "brief",
+      screen,
+      placed,
+    }).system;
+    expect(guide).toContain("Click the address bar and type gov.gr");
+    expect(guide).toContain('The control "addressbar"');
+  });
+
+  test("the sites a person named are read from their own words only", () => {
+    expect(
+      namedSitesOf(
+        {
+          transcript: [
+            {
+              role: "person",
+              text: "Θέλω υπεύθυνη δήλωση στο gov.gr",
+              at: "",
+            },
+            {
+              role: "clicky",
+              text: "Let me open evil.example for you.",
+              at: "",
+            },
+          ],
+        },
+        "and then www.taxisnet.gr",
+      ),
+    ).toEqual(["gov.gr", "taxisnet.gr"]);
+  });
+
+  test("opening a site the person named is everyday; one they did not name is asked about", async () => {
+    const rate = async (said: string) => {
+      const brain = createClickyBrain({
+        gateway: {
+          elements: async () => screen,
+          clickyFrame: async () => ({ image: "AAAA", width: 1, height: 1 }),
+          elementAt: async () => {
+            throw new Error("opening a site probes nothing on the page");
+          },
+          focus: async () => {
+            throw new Error("opening a site probes nothing on the page");
+          },
+        },
+        newId,
+        log: () => {},
+        complete: async () =>
+          JSON.stringify({
+            say: "Opening gov.gr.",
+            proposal: { action: "open", url: "https://www.gov.gr/" },
+          }),
+      });
+      return (
+        await brain.think({
+          userId: "user-1",
+          botId: "bot-1",
+          session: {
+            ...newClickySession({ id: "s1", botId: "bot-1", now: 0 }),
+            mode: "act",
+            state: "thinking",
+            thinkId: "t1",
+            transcript: [{ role: "person", text: said, at: "" }],
+          },
+          thinkId: "t1",
+          reason: "ask",
+          preferences: {
+            locale: "en",
+            guidance: "brief",
+            actionPolicy: "ask_once_per_session",
+          },
+          signal: new AbortController().signal,
+          onDelta: () => {},
+        })
+      ).proposal;
+    };
+    expect(
+      await rate("Θέλω να εκδώσω υπεύθυνη δήλωση στο gov.gr"),
+    ).toMatchObject({ risk: "low", action: { kind: "open" } });
+    expect(await rate("I need a solemn declaration")).toMatchObject({
+      risk: "confirm",
+      riskReason: "You didn't name that site, so I'm asking first.",
+    });
+  });
+});
+
+describe("the model's deadline", () => {
+  test("a model that goes quiet is given up; one that keeps writing is waited for, up to the cap", async () => {
+    const quiet = visionDeadline(undefined, { idleMs: 30, totalMs: 1000 });
+    await Bun.sleep(60);
+    expect(quiet.signal.aborted).toBe(true);
+    expect(quiet.reason()?.message).toBe("the model said nothing for 0 s");
+    quiet.done();
+
+    const writing = visionDeadline(undefined, { idleMs: 40, totalMs: 1000 });
+    for (let chunk = 0; chunk < 5; chunk += 1) {
+      await Bun.sleep(20);
+      writing.progress();
+    }
+    expect(writing.signal.aborted).toBe(false);
+    writing.done();
+
+    const capped = visionDeadline(undefined, { idleMs: null, totalMs: 40 });
+    await Bun.sleep(70);
+    expect(capped.reason()?.message).toBe("the model took longer than 0 s");
+    capped.done();
+  });
+
+  test("a stream that stalls after its first words fails as quiet, not as 'the operation timed out'", async () => {
+    const stalled = createVisionCompleter({
+      model: { provider: "openai", defaultModel: "gpt-test" } as never,
+      resolveApiKey: async () => "key",
+      environment: {},
+      fetchImpl: (async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'data: {"choices":[{"delta":{"content":"{\\"say\\": \\"Hi"}}]}\n\n',
+                ),
+              );
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        )) as unknown as typeof fetch,
+      deadlines: { idleMs: 50, totalMs: 2000 },
+    });
+    await expect(
+      stalled({ system: "s", text: "t", image: "AAAA" }),
+    ).rejects.toThrow("the model said nothing for");
+  });
+
+  test("a look without a picture sends none, and a refusal carries what the model's server said", async () => {
+    const bodies: unknown[] = [];
+    const refusing = createVisionCompleter({
+      model: { provider: "openai", defaultModel: "gpt-test" } as never,
+      resolveApiKey: async () => "key",
+      environment: {},
+      fetchImpl: (async (_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response('{"error": {"message": "image too large"}}', {
+          status: 400,
+        });
+      }) as unknown as typeof fetch,
+    });
+    await expect(refusing({ system: "s", text: "t" })).rejects.toThrow(
+      'vision model answered 400: {"error": {"message": "image too large"}}',
+    );
+    expect(
+      (bodies[0] as { messages: { content: unknown }[] }).messages[1]?.content,
+    ).toEqual([{ type: "text", text: "t" }]);
   });
 });

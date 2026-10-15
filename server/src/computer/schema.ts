@@ -566,6 +566,8 @@ export type HumanInput = {
   | { kind: "scroll"; deltaY?: number; x?: number; y?: number }
   /** Bring the element a ref names into view, inside the page (Clicky's scroll to a step). */
   | { kind: "scroll-into-view"; ref: string }
+  /** Go to an https address in the live tab, as the person typing it into the address bar. */
+  | { kind: "open"; url: string }
 );
 
 /**
@@ -708,7 +710,12 @@ export type ClickyFrame = { image: string; width: number; height: number };
  * here, not written to the audit trail, and not on any path the model can read.
  */
 export type HumanInputResult = {
-  action: "human_click" | "human_type" | "human_key" | "human_scroll";
+  action:
+    | "human_click"
+    | "human_type"
+    | "human_key"
+    | "human_scroll"
+    | "human_open";
   characters?: number;
   key?: string;
   deltaY?: number;

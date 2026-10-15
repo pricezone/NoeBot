@@ -283,8 +283,8 @@ export interface ComputerGateway {
   focus(botId: string): Promise<FocusResult>;
   /** Clicky Mode: the masked picture its model is shown, no wider than `width`. */
   clickyFrame(botId: string, width: number): Promise<ClickyFrame>;
-  /** Clicky Mode: the page's readable text, for its model. */
-  pageText(botId: string): Promise<PageText>;
+  /** Clicky Mode: the page's readable text, for its model, at most `limit` characters. */
+  pageText(botId: string, limit?: number): Promise<PageText>;
   /** Clicky Mode: whether the Bot's page has moved on, cheaply, for watching a person's progress. */
   pageState(botId: string): Promise<PageState>;
   /**
@@ -1508,8 +1508,15 @@ export function createComputerGateway(
         `/elements/frame?width=${Math.round(width)}`,
       );
     },
-    pageText(botId: string) {
-      return get<PageText>(botId, "/elements/text");
+    pageText(botId: string, limit?: number) {
+      return get<PageText>(
+        botId,
+        `/elements/text${
+          limit !== undefined && Number.isInteger(limit) && limit > 0
+            ? `?limit=${limit}`
+            : ""
+        }`,
+      );
     },
     pageState(botId: string) {
       return get<PageState>(botId, "/elements/state");
@@ -1858,6 +1865,28 @@ export function createComputerGateway(
         )
       )
         throw new Error("Scrolling to an element needs its ref.");
+      /*
+       * Going to a site, as the person: an https address with no credentials in it, and one the
+       * same target guard a Bot's navigation meets would let through (no private address on a hosted
+       * deployment). The computer checks the scheme again.
+       */
+      if (kind === "open") {
+        const raw = String((payload as { url?: unknown }).url ?? "");
+        let url: URL | undefined;
+        try {
+          url = new URL(raw);
+        } catch {
+          url = undefined;
+        }
+        if (url?.protocol !== "https:" || url.username || url.password)
+          throw new NavigationRefusedError(
+            "Only a secure web address (https), with no name or password in it, can be opened.",
+          );
+        const verdict = checkNavigationTarget(url.toString(), {
+          allowPrivateHosts: options.allowPrivateHosts,
+        });
+        if (!verdict.allowed) throw new NavigationRefusedError(verdict.reason);
+      }
       return post<HumanInputResult>(botId, `/human/${kind}`, payload);
     },
 
@@ -2377,6 +2406,8 @@ const HUMAN_GESTURES = new Set([
   "scroll",
   // Clicky bringing a step's element into view, by ref, inside the page.
   "scroll-into-view",
+  // Clicky going to a site the person asked for, in the live tab.
+  "open",
 ]);
 
 /**
