@@ -63,6 +63,7 @@ import {
   listScreenElements,
   maskedFrame,
   pageWindowRect,
+  refRectOnScreen,
   type ScreenElements,
 } from "./elements";
 import { startDesktop } from "./desktop";
@@ -89,7 +90,12 @@ import {
   type PagePurpose,
   siteFailureOf,
 } from "./navigation";
+import {
+  createNavigationTracker,
+  type FollowedContext,
+} from "./navigation-state";
 import { observeAction } from "./observe";
+import { performPageKeyboard } from "./page-keyboard";
 import { pageLines } from "./page-lines";
 import { clickableHints, readablePageText, settlePage } from "./page-text";
 import { readWait, waitForPageText } from "./page-wait";
@@ -347,6 +353,8 @@ const downloads = createDownloadKeeper(workspace, {
   },
   partialDir: partialDownloadsDir,
 });
+/** Each Bot's page moving on, for Clicky's `/elements/state`. See navigation-state.ts. */
+const navigations = createNavigationTracker();
 
 /**
  * Who has the wheel, as a state machine in its own module.
@@ -384,12 +392,15 @@ const profiles = createProfiles(
     if (sessions.get(botId)) sessions.renewRun(botId);
     dialogs.forget(botId);
     downloads.forget(botId);
+    navigations.forget(botId);
     await sessions.get(botId)?.viewer.releaseAll(COMPUTER_STOPPED);
   },
   // Before any page is used, so no dialog is auto-dismissed and no download lost. See dialogs.ts.
   (botId, context) => {
     dialogs.attach(botId, context);
     downloads.attach(botId, context);
+    // Every navigation, for Clicky's `/elements/state`. See navigation-state.ts.
+    navigations.attach(botId, context as unknown as FollowedContext);
   },
 );
 /*
@@ -473,6 +484,10 @@ const BROWSER_NOT_OPEN =
  * without measuring the whole page again. Only a name: what is there is asked of the page each time.
  */
 const knownElements = new Map<string, ScreenElements>();
+
+/** How much of the page's text Clicky's model reads, and how long reading it may take. */
+const CLICKY_TEXT_LIMIT = 6_000;
+const CLICKY_READ_MS = 2_500;
 
 /**
  * The desktop's pointer and keyboard for input Clicky carries out in screen space, opened on first
@@ -1161,14 +1176,24 @@ serve<StreamData>({
         const body = (await request.json().catch(() => null)) as {
           reason?: unknown;
           toolCallId?: unknown;
+          source?: unknown;
         } | null;
         if (
           body?.toolCallId !== undefined &&
           typeof body.toolCallId !== "string"
         )
           return json({ error: "toolCallId must be a string." }, 400);
+        /*
+         * A person pressing Take control says so, so the server can tell their own takeover from
+         * the Bot needing them. Only "manual" is taken from a caller: the challenge sources are this
+         * process's own findings.
+         */
         return json(
-          session.control.requestHelp(body?.reason, body?.toolCallId),
+          session.control.requestHelp(
+            body?.reason,
+            body?.toolCallId,
+            body?.source === "manual" ? "manual" : undefined,
+          ),
         );
       }
 
@@ -1330,6 +1355,57 @@ serve<StreamData>({
           const parsed = parseScrollDelta(body?.deltaY);
           if (!parsed.ok) {
             return json({ error: parsed.error }, 400);
+          }
+        }
+        /*
+         * Bring an element into view, for Clicky scrolling a person to what a step is about when it
+         * is above or below the screen. By the ref its look found, inside the page, so on a desktop
+         * nothing outside the Bot's page can be moved by it.
+         */
+        if (url.pathname === "/human/scroll-into-view") {
+          const ref = typeof body?.ref === "string" ? body.ref : "";
+          if (!/^[A-Za-z0-9_-]{1,64}$/.test(ref))
+            return json(
+              { error: "Scrolling to an element needs its ref." },
+              400,
+            );
+          try {
+            const target = await currentPage(botId);
+            await target
+              .locator(`aria-ref=${ref}`)
+              .scrollIntoViewIfNeeded({ timeout: 2_000 });
+            return json({ action: "human_scroll", ref, url: target.url() });
+          } catch (error) {
+            return json(
+              { error: describe(error, "That could not be scrolled to.") },
+              502,
+            );
+          }
+        }
+        /*
+         * Clicky typing, or pressing one of the page's own keys, through the page's keyboard once
+         * the field it meant has it (page-keyboard.ts): on a desktop the X keyboard goes wherever
+         * the window manager says, and this cannot leave the Bot's page.
+         */
+        if (
+          body?.keyboard === "page" &&
+          (url.pathname === "/human/type" || url.pathname === "/human/key")
+        ) {
+          try {
+            const target = await currentPage(botId);
+            return json(
+              await performPageKeyboard(
+                target,
+                url.pathname,
+                body,
+                DESKTOP ? DISPLAY_SIZE : null,
+              ),
+            );
+          } catch (error) {
+            return json(
+              { error: describe(error, "That did not work.") },
+              isRequestError(error) ? 400 : 502,
+            );
           }
         }
         /*
@@ -1695,6 +1771,7 @@ serve<StreamData>({
           const found = await listScreenElements(
             page,
             DESKTOP ? DISPLAY_SIZE : null,
+            { dialogPending: Boolean(dialogs.pending(botId)) },
           );
           knownElements.set(botId, found);
           return json(found);
@@ -1704,6 +1781,77 @@ serve<StreamData>({
             502,
           );
         }
+      }
+
+      /*
+       * Three more reads for Clicky, cheaper than `/elements` and safe while the Bot works: the
+       * page's text, whether it has moved on, and where one element the Bot named is. All three ask
+       * for the page the Bot is on as it is (`profiles.tabs`), never `currentPage`, which counts as
+       * the Bot's own look (it retires the Bot's refs when the tab changed) and would start a browser
+       * nobody asked for; none of them takes a snapshot or looks for a challenge, and none runs
+       * anything in a page paused on a dialog, which would wait until the dialog was answered.
+       */
+      if (url.pathname === "/elements/text" && request.method === "GET") {
+        const { live } = profiles.tabs(botId);
+        if (!live) return json({ text: "", truncated: false, url: "" });
+        try {
+          assertPageAccess(RUNTIME.backend, live.url(), "read");
+        } catch {
+          return json({ text: "", truncated: false, url: live.url() });
+        }
+        if (dialogs.pending(botId))
+          return json({ text: "", truncated: false, url: live.url() });
+        const read = await Promise.race([
+          readablePageText(live, CLICKY_TEXT_LIMIT).catch(() => ({
+            text: "",
+            truncated: false,
+          })),
+          Bun.sleep(CLICKY_READ_MS).then(() => ({
+            text: "",
+            truncated: false,
+          })),
+        ]);
+        return json({ ...read, url: live.url() });
+      }
+
+      if (url.pathname === "/elements/state" && request.method === "GET") {
+        const { live } = profiles.tabs(botId);
+        if (!live)
+          return json({
+            url: "",
+            title: "",
+            navigationId: navigations.navigationId(botId),
+            settled: true,
+          });
+        const state = navigations.state(botId, live);
+        const title = dialogs.pending(botId) ? "" : await titleWithin(live);
+        return json({ ...state, title });
+      }
+
+      if (url.pathname === "/elements/ref" && request.method === "GET") {
+        const ref = url.searchParams.get("ref") ?? "";
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(ref))
+          return json({ error: "That is not a ref." }, 400);
+        const rawSnapshot = url.searchParams.get("snapshotId");
+        const snapshotId =
+          rawSnapshot === null || rawSnapshot === ""
+            ? undefined
+            : Number(rawSnapshot);
+        const { live } = profiles.tabs(botId);
+        // A ref from another snapshot names another page's element, or nothing.
+        if (
+          !live ||
+          dialogs.pending(botId) ||
+          (snapshotId !== undefined &&
+            sessions.get(botId)?.snapshotId !== snapshotId)
+        )
+          return json({ rect: null });
+        const found = await refRectOnScreen(
+          live,
+          DESKTOP ? DISPLAY_SIZE : null,
+          ref,
+        ).catch(() => null);
+        return json(found ? { ...found } : { rect: null });
       }
 
       if (url.pathname === "/elements/at" && request.method === "POST") {
@@ -2238,6 +2386,7 @@ const HUMAN_INPUT = new Set([
   "/human/type",
   "/human/key",
   "/human/scroll",
+  "/human/scroll-into-view",
 ]);
 
 /**
