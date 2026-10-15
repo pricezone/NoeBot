@@ -147,6 +147,8 @@ export type ClickyEvent =
       stepDone: boolean;
       overlays?: ClickyOverlay[];
       say?: string;
+      /** The look could not be made (model failure, rate limit): keep the marks dimmed. */
+      failed?: boolean;
     }
   /** The clock. `lastInputAt` is the person's last input on the screen, kept outside the session. */
   | { type: "tick"; lastInputAt?: number }
@@ -345,10 +347,39 @@ function modeAudit(
   };
 }
 
-function grantActive(session: ClickySession, context: ClickyContext): boolean {
+/** Whether the person's setting lets one yes cover the session (read at every use, not only at the yes). */
+function sessionGrantsAllowed(context: ClickyContext): boolean {
+  return (
+    context.actionPolicy === "ask_once_per_session" ||
+    context.actionPolicy === "ask_once_per_task"
+  );
+}
+
+/** The host of a page address, or nothing. */
+function hostOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).host.toLowerCase() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether the session's yes covers an action: still allowed by the setting, not lapsed, and on the
+ * site it was given on. An action whose page is unknown is only covered by a yes given without one.
+ */
+function grantActive(
+  session: ClickySession,
+  context: ClickyContext,
+  seenUrl?: string,
+): boolean {
   const grant = session.grant;
   if (grant?.scope !== "session") return false;
-  return Date.parse(grant.expiresAt) > context.now;
+  if (!sessionGrantsAllowed(context)) return false;
+  if (Date.parse(grant.expiresAt) <= context.now) return false;
+  if (!grant.host) return true;
+  return hostOf(seenUrl) === grant.host;
 }
 
 /** A pointer at where an action would happen, so the person can do it themselves. */
@@ -581,13 +612,17 @@ function reduceCommand(
       if (session.state === "acting" || session.state === "thinking")
         return refuse(session, "busy");
       if (!currentStep(session)) return refuse(session, "no_step");
-      const moved = advance({ ...session, proposal: null }, context);
+      const moved = advance(
+        { ...session, proposal: null, ...NO_CHECK },
+        context,
+      );
       const next = moved.finished
         ? finishWalkthrough(moved.session)
         : moved.session;
       return changed({
         session: { ...next, state: restingState(next), resumeState: null },
-        effects: [],
+        // A look about the step just left would point at the wrong one.
+        effects: session.check ? [{ type: "cancel_check" }] : [],
       });
     }
     case "back": {
@@ -613,6 +648,7 @@ function reduceCommand(
           proposal: null,
           state: "guiding",
           resumeState: null,
+          ...NO_CHECK,
           walkthrough: {
             ...walkthrough,
             steps,
@@ -621,12 +657,13 @@ function reduceCommand(
           },
           nudgedAt: null,
         },
-        effects: [],
+        effects: session.check ? [{ type: "cancel_check" }] : [],
       });
     }
     case "repeat":
-      // Nothing changes but the sequence number, which is what makes the clients say it again.
-      if (!session.reply) return unchanged(session);
+      // Nothing changes but the sequence number, which is what makes the clients say it again: the
+      // reply, or the current step when that is what is shown.
+      if (!session.reply && !currentStep(session)) return unchanged(session);
       return changed({ session: { ...session }, effects: [] });
     case "approve": {
       const proposal = session.proposal;
@@ -645,9 +682,10 @@ function reduceCommand(
       // "For this session" covers everyday actions only, and only when the person's setting allows
       // it; anything hard to undo is a yes for this one action.
       const sessionWide =
-        (command.scope === "session" || command.scope === "task") &&
+        command.scope === "session" &&
         proposal.risk === "low" &&
-        context.actionPolicy !== "ask_each";
+        sessionGrantsAllowed(context);
+      const host = hostOf(proposal.seen?.url);
       return changed({
         session: {
           ...session,
@@ -661,6 +699,7 @@ function reduceCommand(
                 scope: "session",
                 grantedAt: iso(context),
                 expiresAt: iso(context, CLICKY_SESSION_GRANT_TTL_MS),
+                ...(host ? { host } : {}),
               }
             : session.grant,
         },
@@ -892,12 +931,15 @@ function reduceCommand(
     }
     case "watch": {
       if (session.awake && session.narrating) return unchanged(session);
-      // Never over something the person is in the middle of: a question, an action, a yes to give.
+      // Never over something the person is in the middle of (a question, an action, a yes to give),
+      // nor after Stop or Pause, which wait for the person.
       if (
         session.state === "thinking" ||
         session.state === "acting" ||
         session.state === "awaiting_permission" ||
-        session.state === "listening"
+        session.state === "listening" ||
+        session.state === "paused" ||
+        session.state === "stopped"
       )
         return unchanged(session);
       return changed({
@@ -910,6 +952,8 @@ function reduceCommand(
           state: "guiding",
           resumeState: null,
           overlays: [],
+          // An earlier walkthrough is about something else; narration draws only the Bot's actions.
+          walkthrough: null,
           proposal: null,
           grant: null,
           ...NO_CHECK,
@@ -1071,7 +1115,7 @@ function reduceInternal(
         // The session's yes covers everyday actions; anything hard to undo waits for its own.
         if (
           rated.risk === "low" &&
-          grantActive(next, context) &&
+          grantActive(next, context, rated.seen?.url) &&
           next.autoSteps < CLICKY_AUTO_STEP_LIMIT
         ) {
           effects.push(
@@ -1151,7 +1195,20 @@ function reduceInternal(
           effects: [...effects, ...look.effects],
         });
       };
-      // A scroll only brings something into view; it never finishes a step.
+      // A scroll only brings something into view; it never finishes a step. Doing it for the
+      // person, Clicky carries on to the step it scrolled for.
+      if (
+        proposal.action.kind === "scroll" &&
+        currentStep(done) &&
+        done.mode === "act" &&
+        done.autoSteps < CLICKY_AUTO_STEP_LIMIT
+      ) {
+        const draft = startThinking(done, "continue", context);
+        return changed({
+          session: draft.session,
+          effects: [...effects, ...draft.effects],
+        });
+      }
       if (!currentStep(done) || proposal.action.kind === "scroll") {
         return restAndLook({ ...done, reply: notice("action_done") });
       }
@@ -1207,7 +1264,7 @@ function reduceInternal(
       });
     }
     case "person.input": {
-      if (!session.awake || session.state !== "guiding")
+      if (!session.awake || session.narrating || session.state !== "guiding")
         return unchanged(session);
       const step = currentStep(session);
       if (!step?.overlays.some((overlay) => hitsOverlay(event.at, overlay)))
@@ -1222,6 +1279,11 @@ function reduceInternal(
       }
       // The click may have changed the page: look again to place the next step where it is now.
       const resting = { ...moved.session, state: restingState(moved.session) };
+      if (!mayCheck(resting))
+        return changed({
+          session: resting,
+          effects: session.check ? [{ type: "cancel_check" }] : [],
+        });
       const look = startCheck(resting, context);
       return changed({
         session: look.session,
@@ -1246,10 +1308,20 @@ function reduceInternal(
           session: { ...session, ...NO_CHECK },
           effects: [],
         });
+      // The look did not happen (the model failed, or looks are rate-limited): nothing new is known,
+      // so the marks stay dimmed rather than being shown as if they were still right.
+      if (event.failed)
+        return changed({
+          session: { ...session, check: null, overlaysStale: true },
+          effects: [],
+        });
       let next: ClickySession = { ...session, ...NO_CHECK };
       const step = currentStep(next);
-      // Only for the step it was asked about: a step finished meanwhile by a click is not finished twice.
-      if (event.stepDone && step && step.id === pending.stepId) {
+      // Only about the step it was asked about: one the person moved to meanwhile is not finished,
+      // nor given marks that were found for another.
+      const aboutThisStep = (step?.id ?? null) === pending.stepId;
+      if (!aboutThisStep) return changed({ session: next, effects: [] });
+      if (event.stepDone && step) {
         const moved = advance(next, context);
         if (moved.finished) {
           const finished = finishWalkthrough(moved.session);
@@ -1260,7 +1332,9 @@ function reduceInternal(
         }
         next = moved.session;
       }
-      if (event.overlays) next = placeOverlays(next, event.overlays);
+      // What the look found is where things are now; nothing found means the target is not on the
+      // screen, and an old mark drawn where the page used to be is worse than none.
+      next = placeOverlays(next, event.overlays ?? []);
       if (event.say?.trim())
         next = {
           ...next,
@@ -1366,6 +1440,12 @@ function reduceInternal(
           ...session,
           narrating: false,
           overlays: session.narrating ? [] : session.overlays,
+          // Narration rested on `guiding`; with nothing on screen now it is just awake.
+          state: restingState({
+            ...session,
+            narrating: false,
+            overlays: session.narrating ? [] : session.overlays,
+          }),
           trigger: { kind: "follow_up" },
           reply: { text: summary, final: true, notice: "follow_up" },
           transcript: appendTurn(session, "clicky", summary, context),

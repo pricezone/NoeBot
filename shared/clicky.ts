@@ -228,6 +228,8 @@ export type ClickyTaskGrant = {
   scope: "session";
   grantedAt: string;
   expiresAt: string;
+  /** The site the yes was given on; actions elsewhere are asked about again. */
+  host?: string;
 };
 
 export type ClickySession = {
@@ -376,7 +378,10 @@ export type ClickyCommand =
   | { type: "back" }
   /** Say the last line again; clients read it aloud when speaking is on. */
   | { type: "repeat" }
-  /** `task` is how phones built before "Allow for this session" say `session`. */
+  /**
+   * `task` is what phones built before "Allow for this session" send for their "Allow for this task"
+   * button. It is read as `once`: those phones promised less than a session, so it grants nothing more.
+   */
   | { type: "approve"; proposalId: string; scope: "once" | "session" | "task" }
   | { type: "deny"; proposalId: string }
   | { type: "stop" }

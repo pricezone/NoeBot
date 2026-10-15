@@ -392,14 +392,53 @@ describe("approvals", () => {
     expect(h.session.grant).toBeNull();
   });
 
-  test("a phone that says 'task' gets the session's yes, and needs no walkthrough", () => {
+  test("a phone that says 'task' (built before sessions) gets a yes for this one only", () => {
     const h = proposing("ask_once_per_session");
     h.command({
       type: "approve",
       proposalId: h.session.proposal?.id ?? "",
       scope: "task",
     });
-    expect(h.session.grant?.scope).toBe("session");
+    expect(h.session.state).toBe("acting");
+    expect(h.session.grant).toBeNull();
+  });
+
+  test("the session's yes stays on the site it was given on, and ends with the setting", () => {
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.session = {
+      ...h.session,
+      proposal: h.session.proposal
+        ? { ...h.session.proposal, seen: { url: "https://www.gov.gr/a" } }
+        : null,
+    };
+    h.command({ type: "approve", proposalId: id, scope: "session" });
+    expect(h.session.grant?.host).toBe("www.gov.gr");
+    h.run({ type: "action.done", proposalId: id });
+    // Another site: asked about.
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "There.",
+      proposal: { ...onStep("e2"), seen: { url: "https://evil.example/x" } },
+    });
+    expect(h.session.state).toBe("awaiting_permission");
+  });
+
+  test("switching the setting to 'ask every time' stops the session's yes from covering anything", () => {
+    const strict = harness("ask_each");
+    const h = walking();
+    const id = h.session.proposal?.id ?? "";
+    h.command({ type: "approve", proposalId: id, scope: "session" });
+    h.run({ type: "action.done", proposalId: id });
+    strict.session = h.session;
+    strict.run({
+      type: "brain.reply",
+      thinkId: strict.session.thinkId ?? "",
+      say: "Next.",
+      proposal: onStep("e2"),
+    });
+    expect(strict.session.state).toBe("awaiting_permission");
   });
 
   test("the session's yes survives a new question, Show me again, Retry and a new plan", () => {
@@ -829,6 +868,27 @@ describe("showing what the Bot does", () => {
     ).toBe(false);
   });
 
+  test("narration starts clean: an earlier walkthrough is put away, and the person's clicks are not steps", () => {
+    const h = harness();
+    h.command({ type: "ask", text: "how?" });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "Steps.",
+      plan: PLAN,
+    });
+    h.command({ type: "sleep" });
+    h.command({ type: "watch" });
+    expect(h.session.walkthrough).toBeNull();
+    expect(
+      h.run({ type: "person.input", at: { x: 0.15, y: 0.12 } }).changed,
+    ).toBe(false);
+    const stopped = harness();
+    stopped.command({ type: "wake" });
+    stopped.command({ type: "stop" });
+    expect(stopped.command({ type: "watch" }).changed).toBe(false);
+  });
+
   test("a question while narrating is the person's own", () => {
     const h = harness();
     h.command({ type: "watch" });
@@ -840,9 +900,13 @@ describe("showing what the Bot does", () => {
   test("the Bot finishing ends narration with the follow-up; a person's walkthrough keeps going", () => {
     const h = harness();
     h.command({ type: "watch" });
+    h.run({ type: "bot.action", verb: "click", label: "Go", rect: RECT });
     h.run({ type: "bot.finished", summary: "" });
     expect(h.session.narrating).toBe(false);
     expect(h.session.reply?.notice).toBe("follow_up");
+    // Nothing left to guide: awake, not guiding, so no screen takes control for it.
+    expect(h.session.state).toBe("idle");
+    expect(h.session.overlays).toEqual([]);
 
     const g = harness();
     g.command({ type: "ask", text: "how?" });
@@ -881,9 +945,6 @@ describe("seeing the person's progress", () => {
     expect(check).toMatchObject({ type: "check", stepId: first });
     expect(h.session.state).toBe("guiding");
     expect(h.session.overlaysStale).toBe(true);
-    // Next still works while it looks.
-    expect(h.command({ type: "next" }).rejected).toBeUndefined();
-    h.command({ type: "back" });
     const fresh = [
       { kind: "pointer", id: "fresh", at: { x: 0.7, y: 0.2 } },
     ] as const;
@@ -922,7 +983,7 @@ describe("seeing the person's progress", () => {
     expect(h.session.check?.stepId).toBe(h.session.walkthrough?.currentStepId);
   });
 
-  test("a scroll Clicky made never finishes a step, and is followed by a look", () => {
+  test("a scroll Clicky made never finishes a step, and doing it for the person carries on", () => {
     const h = harness("ask_once_per_session");
     h.command({ type: "set_mode", mode: "act" });
     h.command({ type: "ask", text: "scroll" });
@@ -946,7 +1007,52 @@ describe("seeing the person's progress", () => {
     h.command({ type: "approve", proposalId: id, scope: "once" });
     const done = h.run({ type: "action.done", proposalId: id });
     expect(h.session.walkthrough?.steps[0]?.status).toBe("current");
-    expect(done.effects.some((effect) => effect.type === "check")).toBe(true);
+    expect(done.effects).toContainEqual(
+      expect.objectContaining({ type: "think", reason: "continue" }),
+    );
+  });
+
+  test("Next and Back while a look runs put it away, so its marks never land on another step", () => {
+    const h = guided();
+    h.run({ type: "page.changed", url: "x" });
+    const pending = h.session.check?.id ?? "";
+    const moved = h.command({ type: "next" });
+    expect(moved.rejected).toBeUndefined();
+    expect(moved.effects).toContainEqual({ type: "cancel_check" });
+    expect(h.session.check).toBeNull();
+    expect(
+      h.run({ type: "brain.check", checkId: pending, stepDone: false }).changed,
+    ).toBe(false);
+  });
+
+  test("a look that finds nothing clears the old marks; a look that failed keeps them dimmed", () => {
+    const h = guided();
+    h.run({ type: "page.changed", url: "x" });
+    h.run({
+      type: "brain.check",
+      checkId: h.session.check?.id ?? "",
+      stepDone: false,
+    });
+    expect(visibleOverlays(h.session)).toEqual([]);
+    expect(h.session.overlaysStale).toBe(false);
+
+    const g = guided();
+    g.run({ type: "page.changed", url: "x" });
+    g.run({
+      type: "brain.check",
+      checkId: g.session.check?.id ?? "",
+      stepDone: false,
+      failed: true,
+    });
+    expect(g.session.check).toBeNull();
+    expect(g.session.overlaysStale).toBe(true);
+    expect(visibleOverlays(g.session).length).toBeGreaterThan(0);
+  });
+
+  test("Say that again works for a step that is shown without a reply", () => {
+    const h = guided();
+    h.session = { ...h.session, reply: null };
+    expect(h.command({ type: "repeat" }).changed).toBe(true);
   });
 
   test("pausing puts a pending look away, so nothing stays dimmed after resume", () => {
