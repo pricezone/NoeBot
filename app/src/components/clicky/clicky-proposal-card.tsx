@@ -72,6 +72,20 @@ function useServerSentence(english: string | undefined): string {
   return english ? localizeServerMessage(english) : "";
 }
 
+/**
+ * The site an address goes to, as the person should read it: parsed from the address itself, never
+ * taken from the model's label, which could name one site and go to another. The URL parser gives a
+ * look-alike name in its `xn--` form, as a browser's address bar does. An address that does not
+ * parse is shown whole.
+ */
+export function siteOfAddress(url: string): string {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+}
+
 /** What the action is, as a short instruction: "Click: the Search box". */
 function useActionWords(action: ClickyAction): string {
   const { t } = useTranslation();
@@ -97,6 +111,8 @@ function useActionWords(action: ClickyAction): string {
       return t("Press: {{target}}", { target: action.label || action.keys });
     case "scroll":
       return t("Scroll: {{target}}", { target: action.label });
+    case "open":
+      return t("Open {{host}}", { host: siteOfAddress(action.url) });
   }
 }
 
@@ -155,6 +171,15 @@ export const ClickyProposalCard = memo(function ClickyProposalCard({
         <div className="min-w-0">
           <p className="text-xs text-zinc-500">{t("I'd like to")}</p>
           <p className="font-medium text-[15px] leading-snug">{words}</p>
+          {proposal.action.kind === "open" ? (
+            // The whole address, smaller: the site above is what to check, this is where exactly.
+            <p
+              className="break-all text-xs text-zinc-500"
+              data-clicky="open-address"
+            >
+              {proposal.action.url}
+            </p>
+          ) : null}
           {proposal.why ? (
             <p className="mt-0.5 text-sm text-zinc-600">{proposal.why}</p>
           ) : null}

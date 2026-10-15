@@ -183,11 +183,6 @@ type Props = {
   onWake?: () => void;
   /** A click or a key anywhere in the viewer, which keeps a sleeping computer's timer from running out. */
   onActivity?: () => void;
-  /**
-   * The turn this screen belongs to is still running: opened now, "Show me how" narrates what the
-   * Bot does (as it does when the Bot used its computer in the last few seconds).
-   */
-  turnRunning?: boolean;
 };
 
 /**
@@ -223,7 +218,6 @@ export function ScreenViewer({
   asleep = false,
   onWake,
   onActivity,
-  turnRunning = false,
 }: Props) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -251,7 +245,7 @@ export function ScreenViewer({
   // On closing only: a chat card's turn finishing under the open viewer is not the person leaving.
   useClickySleepOnClose(queryClient, computerId, clickyOn);
   useClickyAutoControl(computerId, clickyLive, keepControl);
-  useClickyWatchOnOpen(computerId, clickyLive, turnRunning);
+  useClickyWatchOnOpen(computerId, clickyLive);
   // Only whether it is awake and where it is: the overlay and the bar read the rest themselves.
   const clickyPresence = useClickySession(
     computerId,

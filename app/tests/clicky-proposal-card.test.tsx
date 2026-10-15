@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import {
   CLICKY_ALLOW_ARM_MS,
   ClickyProposalCard,
+  siteOfAddress,
 } from "@/components/clicky/clicky-proposal-card";
 import type { ClickyCommand, ClickyProposal } from "../../shared/clicky";
 import type { ClickyActionPolicy } from "../../shared/user-preferences";
@@ -227,4 +228,32 @@ test("typing that ends with Enter says so, whatever is offered", () => {
     }),
   });
   expect(view.getByText("Type “hello” into: the Name field")).toBeTruthy();
+});
+
+test("opening a site names the site from the address itself, never from the label, with the address under it", () => {
+  const { view, sent } = draw({
+    proposal: proposal({
+      action: {
+        kind: "open",
+        url: "https://www.gov.gr/ipiresies/polites-kai-kathemerinoteta",
+        // A label that names another site must not be what the person reads.
+        label: "your bank",
+      },
+    }),
+  });
+  expect(view.getByText("Open www.gov.gr")).toBeTruthy();
+  expect(view.queryByText(/your bank/)).toBeNull();
+  expect(
+    view.container.querySelector('[data-clicky="open-address"]')?.textContent,
+  ).toBe("https://www.gov.gr/ipiresies/polites-kai-kathemerinoteta");
+  fireEvent.click(view.getByRole("button", { name: "Allow for this session" }));
+  expect(sent).toEqual([
+    { type: "approve", proposalId: "proposal-1", scope: "session" },
+  ]);
+});
+
+test("a look-alike site is named as the address bar would, and a broken address is shown whole", () => {
+  expect(siteOfAddress("https://gοv.gr/")).toBe("xn--gv-jbc.gr");
+  expect(siteOfAddress("https://example.com:8443/a")).toBe("example.com:8443");
+  expect(siteOfAddress("not an address")).toBe("not an address");
 });

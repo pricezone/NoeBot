@@ -723,7 +723,6 @@ export function ComputerView({
               problem={problem}
               settled={settled}
               showLiveScreen={showLiveScreen}
-              turnRunning={!sleeps && active && !settled}
             />,
             document.body,
           )

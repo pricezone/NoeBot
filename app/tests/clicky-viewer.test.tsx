@@ -15,7 +15,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { mayWatch, selectGuidance } from "@/lib/clicky/viewer-control";
 import type { ControlState } from "@/lib/computers/control";
 import { computerSleep } from "@/lib/computers/use-computer-sleep";
-import { reportComputerActivity } from "@/lib/copilot/computer-activity";
 import { deploymentKeys } from "@/lib/deployment/queries";
 import { queryClient } from "@/query-client";
 import {
@@ -60,6 +59,8 @@ const BOT = "clicky-viewer-bot";
 let awake = true;
 let narrating = false;
 let stopped = false;
+/** Whether the Bot is at work, as the server knows it: `watch` is taken only then. */
+let botActive = false;
 /** Awake, but nothing drawn on the screen: no step, no pointer. */
 let bare = false;
 let commands: ClickyCommand[] = [];
@@ -192,7 +193,7 @@ beforeAll(() => {
         stopped = false;
       }
       if (command.type === "stop") stopped = true;
-      if (command.type === "watch") {
+      if (command.type === "watch" && botActive) {
         awake = true;
         narrating = true;
       }
@@ -220,6 +221,7 @@ afterEach(() => {
   narrating = false;
   stopped = false;
   bare = false;
+  botActive = false;
 });
 
 afterAll(async () => {
@@ -326,7 +328,10 @@ test("asleep, the switch wakes Clicky and the bar appears", async () => {
   expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
 
   fireEvent.click(wake);
-  await waitFor(() => expect(commands).toEqual([{ type: "wake" }]));
+  // Opening asked to narrate, which the server refused with the Bot idle; then the switch woke it.
+  await waitFor(() =>
+    expect(commands).toEqual([{ type: "watch" }, { type: "wake" }]),
+  );
   expect(
     await viewer.findByRole("region", { name: "Show me how" }),
   ).toBeTruthy();
@@ -579,22 +584,23 @@ test("the viewer going away (the page changed) puts Show me how to sleep too", a
   await waitFor(() => expect(commands).toContainEqual({ type: "sleep" }));
 });
 
-test("opened while the Bot is idle, nothing is narrated", async () => {
+test("opened on a sleeping session, the viewer asks to narrate; with the Bot idle, the server says no", async () => {
   offerClicky(true);
   awake = false;
   const view = preview("clicky-viewer-idle-bot");
   const viewer = await openViewer(view);
-  await viewer.findByRole("button", { name: "Show me how" });
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  expect(commands).not.toContainEqual({ type: "watch" });
+  await waitFor(() => expect(commands).toEqual([{ type: "watch" }]));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Asked once, and nothing drawn: the session is asleep as it was.
+  expect(commands).toEqual([{ type: "watch" }]);
+  expect(viewer.queryByRole("region", { name: "Show me how" })).toBeNull();
 });
 
-test("opened while the Bot works on its computer, Show me how narrates it", async () => {
+test("opened while the Bot works, Show me how narrates it, and takes nothing", async () => {
   offerClicky(true);
   awake = false;
-  const busy = "clicky-viewer-busy-bot";
-  reportComputerActivity(busy);
-  const view = preview(busy);
+  botActive = true;
+  const view = preview("clicky-viewer-busy-bot");
   const viewer = await openViewer(view);
   await waitFor(() => expect(commands).toEqual([{ type: "watch" }]));
   const bar = await viewer.findByRole("region", { name: "Show me how" });
@@ -604,6 +610,39 @@ test("opened while the Bot works on its computer, Show me how narrates it", asyn
   // Watching takes nothing.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(controlCalls).toEqual([]);
+});
+
+test("opened on an awake session, or while somebody drives, nothing asks to narrate", async () => {
+  offerClicky(true);
+  botActive = true;
+  // A walkthrough under way.
+  const awakeView = preview("clicky-viewer-guiding-bot");
+  const awakeViewer = await openViewer(awakeView);
+  await awakeViewer.findByRole("region", { name: "Show me how" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(commands).not.toContainEqual({ type: "watch" });
+  awakeView.unmount();
+
+  // Asleep, but the person holds the computer.
+  awake = false;
+  commands = [];
+  control = {
+    ...botHolds(),
+    holder: "human",
+    request: {
+      id: "mine",
+      status: "taken",
+      reason: "I want to take control of the browser.",
+      source: "manual",
+      createdAt: SINCE,
+      updatedAt: SINCE,
+    },
+  };
+  const drivenView = preview("clicky-viewer-driven-bot");
+  const drivenViewer = await openViewer(drivenView);
+  await drivenViewer.findByRole("button", { name: "Show me how" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(commands).not.toContainEqual({ type: "watch" });
 });
 
 test("what counts as guiding the person, and as the end of it", () => {
@@ -648,52 +687,23 @@ test("what counts as guiding the person, and as the end of it", () => {
   ).toBe(true);
 });
 
-test("narration only ever adds to a session nobody is using", () => {
+test("narration is only ever asked for over a session nobody is using", () => {
   expect(
     mayWatch({ awake: false, narrating: false, state: "idle", trigger: null }),
   ).toBe(true);
-  expect(
-    mayWatch({
-      awake: true,
+  // Awake, it shows something already: a walkthrough, an answer, the Bot asking, narration itself.
+  for (const view of [
+    { state: "idle" as const, trigger: "person" as const, narrating: false },
+    { state: "guiding" as const, trigger: "person" as const, narrating: false },
+    {
+      state: "thinking" as const,
+      trigger: "person" as const,
       narrating: false,
-      state: "idle",
-      trigger: "person",
-    }),
-  ).toBe(true);
-  // A person's walkthrough, a question in flight, the Bot asking for help: left alone.
-  expect(
-    mayWatch({
-      awake: true,
-      narrating: false,
-      state: "guiding",
-      trigger: "person",
-    }),
-  ).toBe(false);
-  expect(
-    mayWatch({
-      awake: true,
-      narrating: false,
-      state: "thinking",
-      trigger: "person",
-    }),
-  ).toBe(false);
-  expect(
-    mayWatch({
-      awake: true,
-      narrating: false,
-      state: "idle",
-      trigger: "takeover",
-    }),
-  ).toBe(false);
-  // Already narrating: nothing to ask.
-  expect(
-    mayWatch({
-      awake: true,
-      narrating: true,
-      state: "guiding",
-      trigger: "person",
-    }),
-  ).toBe(false);
+    },
+    { state: "idle" as const, trigger: "takeover" as const, narrating: false },
+    { state: "guiding" as const, trigger: "person" as const, narrating: true },
+  ])
+    expect(mayWatch({ awake: true, ...view })).toBe(false);
 });
 
 test("awake with nothing on the screen to guide, the viewer takes nothing", async () => {

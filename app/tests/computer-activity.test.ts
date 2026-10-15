@@ -4,10 +4,6 @@ import {
   clearActivity,
   recordActivity,
 } from "../src/lib/computers/activity";
-import {
-  lastActivityFor,
-  reportComputerActivity,
-} from "../src/lib/copilot/computer-activity";
 import { outputOf } from "../src/lib/copilot/computer-tools";
 
 /**
@@ -140,18 +136,5 @@ describe("the activity a pane shows", () => {
 
     const [first, second] = activityFor("bot-1");
     expect(first?.id).not.toBe(second?.id);
-  });
-});
-
-describe("when a Bot last reached its computer", () => {
-  test("is kept per Bot, for the screen to tell a Bot at work from an idle one", () => {
-    const before = Date.now();
-    expect(lastActivityFor("activity-never")).toBeNull();
-    reportComputerActivity("activity-a");
-    const a = lastActivityFor("activity-a");
-    expect(a).not.toBeNull();
-    expect(a ?? 0).toBeGreaterThanOrEqual(before);
-    // Another Bot reaching its computer does not make this one look busy.
-    expect(lastActivityFor("activity-b")).toBeNull();
   });
 });

@@ -1576,5 +1576,6 @@
   "Show me how": "Δείξε μου πώς",
   "Allow": "Να επιτραπεί",
   "Use the computer yourself.": "Χρησιμοποίησε τον υπολογιστή μόνος σου.",
-  "Type “{{text}}” into: {{target}}, then press Enter": "Πληκτρολόγηση «{{text}}» σε: {{target}}, και μετά πάτημα Enter"
+  "Type “{{text}}” into: {{target}}, then press Enter": "Πληκτρολόγηση «{{text}}» σε: {{target}}, και μετά πάτημα Enter",
+  "Open {{host}}": "Άνοιγμα {{host}}"
 }

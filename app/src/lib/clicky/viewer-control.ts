@@ -3,7 +3,6 @@ import {
   latestComputerControl,
   useComputerControl,
 } from "@/lib/computers/use-control";
-import { lastActivityFor } from "@/lib/copilot/computer-activity";
 import { queryClient } from "@/query-client";
 import {
   CLICKY_HELP_REASON,
@@ -31,20 +30,19 @@ import { useClickySessionView } from "./use-clicky-session";
  * switched on Keep control. Control the person took themselves, or the Bot's own request for help,
  * is theirs and is never handed back from here.
  *
- * OPENED WHILE THE BOT WORKS, IT NARRATES (`useClickyWatchOnOpen`). When the viewer opens and the Bot
- * reached its computer in the last ten seconds, or the turn this screen belongs to is still running,
- * Clicky is asked to `watch`: it points at what the Bot acts on and says what it does. Only over a
- * session that is asleep or idle on nobody's need; a person's walkthrough, a question in flight or
- * the Bot asking for help is never replaced by it. A question asked while narrating is the server's
- * to answer: the session turns to guiding the person, and the take above follows.
+ * OPENED WHILE THE BOT WORKS, IT NARRATES (`useClickyWatchOnOpen`). The viewer opening on a session
+ * that is asleep asks Clicky to `watch`, and THE SERVER DECIDES whether the Bot is at work: it takes
+ * the `watch` only then (and starts narrating by itself when the Bot acts while this viewer's live
+ * stream is open). This tab cannot tell: a Bot's computer tools that run inside its turn never pass
+ * through the browser. Narrating, Clicky points at what the Bot acts on and says what it does. Never
+ * over a session that is awake (a person's walkthrough, a question in flight, the Bot asking for
+ * help), nor while somebody drives or the Bot waits on the person. A question asked while narrating
+ * is the server's to answer: the session turns to guiding the person, and the take above follows.
  */
 
 /** Retries of a take that failed: two seconds, then twice as long each time, up to thirty. */
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 30_000;
-
-/** How recently the Bot must have used its computer for opening the screen to narrate it. */
-export const CLICKY_WATCH_RECENT_MS = 10_000;
 
 /** What deciding to take or give back control needs from the session. */
 type Guidance = {
@@ -218,32 +216,16 @@ function selectWatchable(session: ClickySession): Watchable {
   };
 }
 
-/** Whether `watch` would only add narration, never replace something the person is in. */
+/**
+ * Whether `watch` would only add narration, never replace something the person is in: only over a
+ * session that is asleep. Awake, it is showing something already (a walkthrough, an answer, the Bot
+ * asking for help, or narration itself).
+ */
 export function mayWatch(view: Watchable): boolean {
-  if (!view.awake) return true;
-  if (view.narrating) return false;
-  return (
-    view.state === "idle" &&
-    (view.trigger === null ||
-      view.trigger === "person" ||
-      view.trigger === "follow_up")
-  );
+  return !view.awake;
 }
 
-export function useClickyWatchOnOpen(
-  botId: string,
-  enabled: boolean,
-  /** The turn this screen belongs to is still running. */
-  turnRunning: boolean,
-): void {
-  // Decided as the viewer opens, not later: this is about what was happening when it was opened.
-  const [botAtWork] = useState(() => {
-    const last = lastActivityFor(botId);
-    return (
-      turnRunning ||
-      (last !== null && Date.now() - last <= CLICKY_WATCH_RECENT_MS)
-    );
-  });
+export function useClickyWatchOnOpen(botId: string, enabled: boolean): void {
   const view = useClickySessionView(botId, selectWatchable);
   const { control } = useComputerControl(botId, enabled);
   const decided = useRef(false);
@@ -251,7 +233,7 @@ export function useClickyWatchOnOpen(
   useEffect(() => {
     if (decided.current || !enabled || !view || !control) return;
     decided.current = true;
-    if (!botAtWork || !mayWatch(view)) return;
+    if (!mayWatch(view)) return;
     // The person drives, or the Bot is waiting on them: it is not working, there is nothing to narrate.
     if (
       control.holder === "human" ||
@@ -262,7 +244,7 @@ export function useClickyWatchOnOpen(
     void sendClickyCommand(botId, { type: "watch" })
       .then((result) => keepClickySession(queryClient, botId, result.session))
       .catch(() => {
-        // Narration is a courtesy; the screen is there either way.
+        // Narration is a courtesy (and refused while the Bot is idle); the screen is there either way.
       });
-  }, [enabled, view, control, botAtWork, botId]);
+  }, [enabled, view, control, botId]);
 }
