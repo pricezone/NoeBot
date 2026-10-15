@@ -63,11 +63,12 @@ import type { ClickyStore } from "./store";
  * nudge), with the last time the person touched the screen, which is kept here and not in the
  * session: it changes with every click and is only ever a hint.
  *
- * Seeing progress: after the person clicks or presses Enter or Tab on the screen (and after Clicky
- * acts), the page's state is asked every 700 ms for up to 4 s (`/elements/state`, cheap, no look):
- * a navigation dispatches `page.changed`, and an Enter or Tab that took the page nowhere dispatches
- * `person.typed`. Plain typing is not looked at: a look per pause in typing cost a model call each
- * time and crowded out the looks that matter. The reducer answers both with a `check` effect, run
+ * Seeing progress: after the person clicks, types or turns the wheel on the screen (and after
+ * Clicky acts), the page's state is asked every 700 ms for up to 4 s (`/elements/state`, cheap, no
+ * look): a navigation dispatches `page.changed`, and typing or a scroll that took the page nowhere
+ * dispatches `person.typed` once it pauses (each key or turn starts the wait again, so a burst is
+ * one look). A field typed into and left, or a "scroll down" done, is a step no Enter ever says is
+ * finished. The reducer answers both with a `check` effect, run
  * here: the page is let settle, then the model looks once more ("was the step done; where is its
  * control now") without proposing anything, and its answer comes back as `brain.check`. A look
  * already running for the same step is kept rather than started again, unless the page has moved on
@@ -114,8 +115,10 @@ export const CLICKY_PROGRESS = {
   /** How long a watch lasts, and how much longer for a navigation still on its way. */
   windowMs: 4_000,
   extendMs: 4_000,
-  /** How long after Enter or Tab a page that has not moved counts as typed into. */
+  /** How long after Enter or Tab (or the last key typed) a page that has not moved counts as typed into. */
   typingSettleMs: 1_200,
+  /** How long after the person's last turn of the wheel the page counts as scrolled. */
+  scrollSettleMs: 700,
   /** How long a look after a step waits before asking whether the page has settled. */
   settleFloorMs: 300,
 };
@@ -237,6 +240,8 @@ export type ClickyService = {
    * other typing. Only that it happened; never what.
    */
   personTyped(userId: string, botId: string, kind: "text" | "submit"): void;
+  /** The person scrolled the computer's screen while holding it. */
+  personScrolled(userId: string, botId: string): void;
   /**
    * The Bot is about to act on its page; shown to this person if they are watching it narrated.
    * `autoWatch`: they have its screen open, so narration starts by itself when Show me how is
@@ -1182,12 +1187,25 @@ export function createClickyService(deps: {
       if (options?.driving) startWatch(userId, botId, false, 0);
     },
 
-    personTyped(userId, botId, kind) {
+    personTyped(userId, botId) {
       const key = keyOf(userId, botId);
       lastInput.set(key, now());
-      // Plain typing is the person at work, not a step done: only Enter and Tab are looked into.
-      if (kind !== "submit" || lastState.get(key) !== "guiding") return;
+      if (lastState.get(key) !== "guiding") return;
+      /*
+       * Enter and Tab, and plain typing once it pauses: each key starts the watch again, so it is
+       * looked into once, after the last key. A field typed into and left (the next one clicked)
+       * is a step done that no Enter ever says; the checks' own limit keeps the looks few.
+       */
       startWatch(userId, botId, true, pace.typingSettleMs);
+    },
+
+    personScrolled(userId, botId) {
+      const key = keyOf(userId, botId);
+      lastInput.set(key, now());
+      // "Scroll down" done, and the next step's control now on the screen: looked into once the
+      // wheel stops, as typing is.
+      if (lastState.get(key) !== "guiding") return;
+      startWatch(userId, botId, true, pace.scrollSettleMs);
     },
 
     botAction(userId, botId, action, options) {

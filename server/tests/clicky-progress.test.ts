@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ClickySession } from "../../shared/clicky";
 import type { BrainCheck, ClickyBrain } from "../src/clicky/brain";
 import { createClickyHub } from "../src/clicky/hub";
-import { viewerTyping } from "../src/clicky/index";
+import { viewerScrolled, viewerTyping } from "../src/clicky/index";
 import { createClickyPresence } from "../src/clicky/presence";
 import {
   botVerbOf,
@@ -145,6 +145,7 @@ function harness(
       windowMs: 200,
       extendMs: 100,
       typingSettleMs: 40,
+      scrollSettleMs: 40,
       settleFloorMs: 5,
     },
     ...(options.checks ? { checks: options.checks } : {}),
@@ -198,18 +199,32 @@ describe("after the person types", () => {
     ]);
   });
 
-  test("plain typing is never looked at, however long it pauses; Enter is", async () => {
-    const { service, looks, page, guiding } = harness();
+  test("plain typing is looked at once, after it pauses: a field typed into and left is a step done", async () => {
+    const { service, looks, guiding } = harness();
     await guiding();
+    // Keys closer together than the pause are one burst, and one look.
     for (let key = 0; key < 5; key += 1) {
       service.personTyped("user-1", "bot-1", "text");
-      await Bun.sleep(30);
+      await Bun.sleep(10);
     }
-    await Bun.sleep(100);
     expect(looks).toHaveLength(0);
-    expect(page.reads).toEqual([]);
-    service.personTyped("user-1", "bot-1", "submit");
     await until(() => looks.length === 1);
+    await Bun.sleep(150);
+    expect(looks).toHaveLength(1);
+  });
+
+  test("the person's scroll is looked at once the wheel stops: 'scroll down' done, the control placed", async () => {
+    const { service, looks, load, guiding } = harness();
+    await guiding();
+    const step = (await load()).walkthrough?.currentStepId;
+    for (let turn = 0; turn < 4; turn += 1) {
+      service.personScrolled("user-1", "bot-1");
+      await Bun.sleep(10);
+    }
+    await until(() => looks.length === 1);
+    expect(looks[0]?.stepId).toBe(step ?? null);
+    await Bun.sleep(150);
+    expect(looks).toHaveLength(1);
   });
 
   test("Enter that opens a page: the navigation is what is looked at, once", async () => {
@@ -657,6 +672,25 @@ describe("what the viewer's keys say", () => {
       ),
     ).toBeNull();
     expect(viewerTyping('not json with a "key"')).toBeNull();
+  });
+
+  test("a turn of the wheel is a scroll; a wheel that did not move, or anything else, is not", () => {
+    const wheel = (deltaY: number, deltaX = 0) =>
+      JSON.stringify({
+        type: "wheel",
+        x: 1,
+        y: 2,
+        deltaX,
+        deltaY,
+        modifiers: 0,
+      });
+    expect(viewerScrolled(wheel(120))).toBe(true);
+    expect(viewerScrolled(wheel(0, -40))).toBe(true);
+    expect(viewerScrolled(wheel(0))).toBe(false);
+    expect(viewerScrolled(JSON.stringify({ type: "key", key: "wheel" }))).toBe(
+      false,
+    );
+    expect(viewerScrolled('not json "wheel"')).toBe(false);
   });
 });
 

@@ -223,6 +223,20 @@ export function viewerTyping(raw: string): "text" | "submit" | null {
     : null;
 }
 
+/** That the person turned the wheel on the live screen, from a viewer's raw input message. */
+export function viewerScrolled(raw: string): boolean {
+  if (!raw.includes('"wheel"')) return false;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown> | null;
+    return (
+      value?.type === "wheel" &&
+      (Number(value.deltaY) !== 0 || Number(value.deltaX) !== 0)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** The fixed line a phone's lock screen shows: what kind of help, never the Bot's own words. */
 const NEEDS_YOU_BODY: Record<ClickyTriggerKind, string> = {
   takeover: "Noë Bot needs your help on its computer.",
@@ -318,6 +332,10 @@ export function createClickyWiring(deps: ClickyDependencies): ClickyWiring {
         return;
       }
       if (!driving) return;
+      if (viewerScrolled(raw)) {
+        clicky.service.personScrolled(userId, botId);
+        return;
+      }
       const typing = viewerTyping(raw);
       if (typing) clicky.service.personTyped(userId, botId, typing);
     },
