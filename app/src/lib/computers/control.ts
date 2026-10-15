@@ -14,7 +14,10 @@ import { tryClient } from "@/lib/client";
 export type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
 
 import { i18n } from "@/lib/i18n";
-import type { ComputerControlState as ControlState } from "../../../../shared/computer-control";
+import type {
+  ComputerControlState as ControlState,
+  HandoffSource,
+} from "../../../../shared/computer-control";
 
 async function callControl(
   computerId: string,
@@ -46,12 +49,28 @@ export function readControl(
   );
 }
 
-export async function takeControl(computerId: string, requestId?: string) {
+/**
+ * Why control is being taken, for the request a take makes when the Bot has not asked for anybody.
+ *
+ * - `reason`: what the request says. A person's own press says nothing of its own; "Show me how"
+ *   taking control to guide the person says `CLICKY_HELP_REASON`, which the server knows as its own.
+ * - `source`: `manual` for a person's own Take control (the button, Record your steps, a chat
+ *   card's Take over), so the server never mistakes it for the Bot asking for help and opens "Show
+ *   me how" over it. A server that predates it ignores the field.
+ */
+export type TakeControlOptions = { reason?: string; source?: HandoffSource };
+
+export async function takeControl(
+  computerId: string,
+  requestId?: string,
+  options: TakeControlOptions = {},
+) {
   const id =
     requestId ??
     (
       await callControl(computerId, "/control/request", {
-        reason: "I want to take control of the browser.",
+        reason: options.reason ?? "I want to take control of the browser.",
+        ...(options.source ? { source: options.source } : {}),
       })
     )?.request?.id;
   return id

@@ -172,9 +172,14 @@ test("chat and sidebar always show controls and update together using the exact 
       )
       .map((call) => call.body),
   ).toEqual([{ requestId: "request-1" }, { requestId: "request-1" }]);
+  // A person's own press says so, so the server never takes it for the Bot asking for help.
   expect(
-    backend.calls.filter((call) => call.path.endsWith("/control/request")),
-  ).toHaveLength(1);
+    backend.calls
+      .filter((call) => call.path.endsWith("/control/request"))
+      .map((call) => call.body),
+  ).toEqual([
+    { reason: "I want to take control of the browser.", source: "manual" },
+  ]);
 });
 
 test("an in-flight takeover disables both controls and prevents duplicate requests", async () => {

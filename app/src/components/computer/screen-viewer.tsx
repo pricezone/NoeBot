@@ -10,11 +10,15 @@ import { Button } from "@/components/ui/button";
 import { agentQueryOptions } from "@/lib/agents/queries";
 import { brand } from "@/lib/brand";
 import { useClickyCapability } from "@/lib/clicky/queries";
-import { stopClickyNow } from "@/lib/clicky/stop";
+import { stopClickyNow, useClickySleepOnClose } from "@/lib/clicky/stop";
 import {
   selectClickyPresence,
   useClickySession,
 } from "@/lib/clicky/use-clicky-session";
+import {
+  useClickyAutoControl,
+  useClickyWatchOnOpen,
+} from "@/lib/clicky/viewer-control";
 import type { ControlState } from "@/lib/computers/control";
 import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
@@ -179,6 +183,11 @@ type Props = {
   onWake?: () => void;
   /** A click or a key anywhere in the viewer, which keeps a sleeping computer's timer from running out. */
   onActivity?: () => void;
+  /**
+   * The turn this screen belongs to is still running: opened now, "Show me how" narrates what the
+   * Bot does (as it does when the Bot used its computer in the last few seconds).
+   */
+  turnRunning?: boolean;
 };
 
 /**
@@ -214,6 +223,7 @@ export function ScreenViewer({
   asleep = false,
   onWake,
   onActivity,
+  turnRunning = false,
 }: Props) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -228,11 +238,19 @@ export function ScreenViewer({
   dialogOpenRef.current = dialogOpen;
 
   /*
-   * Clicky Mode: its pointer over the screen, its bar under it and its switch in the header, for a
-   * screen that is live. A record of a finished turn has nothing for Clicky to point at.
+   * "Show me how" (Clicky Mode): its pointer over the screen, its bar under it and its switch in the
+   * header, for a screen that is live. A record of a finished turn has nothing for it to point at.
+   *
+   * Minimizing or closing the viewer puts it to sleep: it lives here, beside the screen it points
+   * at, and nowhere else. While it guides the person it holds the computer for them; opened while the
+   * Bot works, it narrates the Bot (`viewer-control.ts`).
    */
   const clicky = useClickyCapability();
   const clickyOn = clicky.enabled && !settled;
+  const clickyLive = clickyOn && !asleep;
+  useClickySleepOnClose(queryClient, computerId, clickyOn);
+  useClickyAutoControl(computerId, clickyLive, keepControl);
+  useClickyWatchOnOpen(computerId, clickyLive, turnRunning);
   // Only whether it is awake and where it is: the overlay and the bar read the rest themselves.
   const clickyPresence = useClickySession(
     computerId,

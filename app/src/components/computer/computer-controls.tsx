@@ -59,7 +59,7 @@ export function ComputerControlButton({
       disabled={disabled}
       aria-busy={busy || control?.transitioning}
       onClick={async () => {
-        if (await change?.("take")) onTakeControl?.();
+        if (await change?.("take", { source: "manual" })) onTakeControl?.();
       }}
     >
       {t("Take control")}

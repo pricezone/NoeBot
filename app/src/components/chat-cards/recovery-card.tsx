@@ -359,7 +359,7 @@ export function useBotScreen(
   const takeOver = useCallback(async () => {
     setTaking(true);
     try {
-      await change?.("take");
+      await change?.("take", { source: "manual" });
     } finally {
       setTaking(false);
       openScreen();

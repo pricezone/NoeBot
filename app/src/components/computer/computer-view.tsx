@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useClickyCapability } from "@/lib/clicky/queries";
+import { sleepClickyNow } from "@/lib/clicky/stop";
 import { useClickyViewerRequest } from "@/lib/clicky/viewer-request";
 import {
   type Desktop,
@@ -22,6 +23,7 @@ import {
 import { useComputerControl } from "@/lib/computers/use-control";
 import { useTranslation } from "@/lib/i18n";
 import { useUiStrings } from "@/lib/i18n/strings";
+import { queryClient } from "@/query-client";
 import { ChannelAvatar } from "../channels/avatar";
 import { ComputerAsleep } from "./computer-asleep";
 import { ComputerControlButton } from "./computer-controls";
@@ -519,6 +521,8 @@ export function ComputerView({
    * just closes.
    */
   const minimize = useCallback(() => {
+    // "Show me how" lives in the viewer: minimizing puts it to sleep (not Stop), whatever else happens.
+    void sleepClickyNow(queryClient, computerId);
     if (holder !== "human" || keepControl) {
       setExpanded(false);
       return;
@@ -526,7 +530,7 @@ export function ComputerView({
     void changeControl?.("release").then((released) => {
       if (released) setExpanded(false);
     });
-  }, [holder, keepControl, changeControl]);
+  }, [holder, keepControl, changeControl, computerId]);
 
   /*
    * "Show me how" (Clicky) is NOT DRAWN ON THE SMALL PREVIEW: no pointer, no chip, no switch. At
@@ -719,6 +723,7 @@ export function ComputerView({
               problem={problem}
               settled={settled}
               showLiveScreen={showLiveScreen}
+              turnRunning={!sleeps && active && !settled}
             />,
             document.body,
           )

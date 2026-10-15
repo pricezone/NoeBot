@@ -78,7 +78,8 @@ export function RecordStepsButton({
   const start = useMutation({
     mutationFn: async () => {
       // A failed takeover says why on Take control, from the same shared store.
-      if (!driving && !(await change?.("take"))) return null;
+      if (!driving && !(await change?.("take", { source: "manual" })))
+        return null;
       return startDemonstration(botId, UNTITLED_WORKFLOW);
     },
     onSuccess: async (started) => {
