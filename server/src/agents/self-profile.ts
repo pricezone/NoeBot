@@ -64,10 +64,23 @@ function refusalFor(error: unknown): string {
   );
 }
 
+/** A name folded for comparing: no case, no accents, single spaces. */
+const folded = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+/** The app's own name, in the spellings a Bot reaches for: a Bot called that reads as the app. */
+const APP_NAMES = new Set(["noe", "noe bot", "noebot"]);
+
 export function selfProfileTool(options: {
   /** The run doing the renaming, as this deployment resolved it: the Bot and the person it runs as. */
   run: Pick<RunAssertion, "botId" | "actorId" | "runId" | "initiator">;
-  store: Pick<AgentProfileStore, "get" | "update">;
+  store: Pick<AgentProfileStore, "get" | "update"> &
+    Partial<Pick<AgentProfileStore, "list">>;
   actorFor: (actorId: string) => Promise<AgentActor>;
   auditStore?: AuditStore;
 }): GrantedTool {
@@ -109,11 +122,28 @@ export function selfProfileTool(options: {
           `Nothing was changed: "${shortened}" is a shortened word, and a name is made of whole words. Write the word out in full (or choose a shorter whole word) and call ${SELF_PROFILE_TOOL} again.`,
         );
 
+      if (name && APP_NAMES.has(folded(name)))
+        return refuse(
+          `Nothing was changed: "${name}" is the app's own name, and a Bot called that reads as the app. Choose another name and call ${SELF_PROFILE_TOOL} again.`,
+        );
+
       let actor: AgentActor;
       try {
         actor = await actorFor(run.actorId);
       } catch (error) {
         return refusalFor(error);
+      }
+      if (name && store.list) {
+        // Another of the person's Bots by that name is two Bots they cannot tell apart.
+        const others = await store.list(actor).catch(() => []);
+        const taken = others.find(
+          (other) =>
+            other.id !== run.botId && folded(other.name) === folded(name),
+        );
+        if (taken)
+          return refuse(
+            `Nothing was changed: the person already has a Bot called "${taken.name}". Choose a name of your own and call ${SELF_PROFILE_TOOL} again.`,
+          );
       }
       const profile = await store.get(actor, run.botId).catch(() => null);
       if (!profile)

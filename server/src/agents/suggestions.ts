@@ -855,6 +855,7 @@ export async function marketplaceItem(
 export const SUGGESTION_GUIDANCE = [
   `When a Bot template or a Marketplace item would clearly help with your role or the task in front of you, you can find one with ${FIND_BOT_TEMPLATES_TOOL} or ${FIND_MARKETPLACE_ITEMS_TOOL} and offer it with ${OFFER_BOT_TEMPLATE_TOOL} or ${OFFER_MARKETPLACE_ITEM_TOOL}; the person decides on a card.`,
   "This applies to later tasks too, not only when you are being set up: writing code is a reason to look for Superpowers, for instance.",
+  "Find first, then offer: wait for the finder's result, and offer only an id it returned, in a later step, never in the same step as the search.",
   "Offer only what clearly fits, offer once per need, and never offer again something the person declined in this conversation. Say that configuring the item later, such as connecting an account in the Marketplace, unlocks more.",
 ].join(" ");
 

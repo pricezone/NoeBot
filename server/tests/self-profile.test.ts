@@ -45,6 +45,7 @@ function harness(
     profile?: AgentProfile | null;
     updateFails?: Error;
     auditFails?: boolean;
+    others?: AgentProfile[];
   } = {},
 ) {
   let stored = options.profile === undefined ? { ...NEW_BOT } : options.profile;
@@ -68,6 +69,10 @@ function harness(
         stored = { ...stored, ...input };
         return stored;
       },
+      list: async () => [
+        ...(stored ? [stored] : []),
+        ...(options.others ?? []),
+      ],
     },
     auditStore: {
       insert: async (event) => {
@@ -191,6 +196,34 @@ describe(SELF_PROFILE_TOOL, () => {
     );
     expect(await tool.execute({ name: "Q".repeat(81) })).toContain("80");
     expect(updates).toEqual([]);
+  });
+
+  test("refuses the app's own name, however it is spelled, and changes nothing", async () => {
+    for (const name of ["Noë", "noe", "Noë Bot", "NOE  BOT"]) {
+      const { tool, updates } = harness();
+      const said = await tool.execute({
+        name,
+        role: "Researches energy markets",
+      });
+      expect(String(said)).toContain("the app's own name");
+      expect(updates).toEqual([]);
+    }
+  });
+
+  test("refuses the name of another of the person's Bots, but not its own", async () => {
+    const other: AgentProfile = {
+      ...NEW_BOT,
+      id: "agent_other",
+      name: "Noé Research",
+    };
+    const taken = harness({ others: [other] });
+    const said = await taken.tool.execute({ name: "noe research" });
+    expect(String(said)).toContain('already has a Bot called "Noé Research"');
+    expect(taken.updates).toEqual([]);
+
+    const same = harness();
+    await same.tool.execute({ name: "New Bot", role: "Writes reports" });
+    expect(same.updates).toHaveLength(1);
   });
 
   test("refuses a call with nothing in it", async () => {
