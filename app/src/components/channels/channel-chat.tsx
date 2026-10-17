@@ -84,7 +84,7 @@ import {
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import {
   askChannelAgent,
-  messageText,
+  spokenTurn,
   voiceContext,
   withVoiceContext,
 } from "@/lib/voice/agent-bridge";
@@ -1118,14 +1118,8 @@ export function ChannelChat({
     if (turnFailure.current !== null) {
       throw new Error(turnFailure.current);
     }
-    return target.messages
-      .filter(
-        (message) =>
-          message.role === "assistant" && !existingMessageIds.has(message.id),
-      )
-      .map(messageText)
-      .filter(Boolean)
-      .join("\n\n");
+    // What a voice caller hears: the new words, and a question the turn ended on (agent-bridge.ts).
+    return spokenTurn(target.messages, existingMessageIds);
   };
 
   /**

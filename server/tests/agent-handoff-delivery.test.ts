@@ -513,7 +513,13 @@ describe("the working indicator", () => {
 describe("what comes back for the relay", () => {
   /** An agent whose run emits the given events through the delivery's own onEvent hook. */
   function talkingAgent(
-    events: Array<{ type: string; delta?: string }>,
+    events: Array<{
+      type: string;
+      delta?: string;
+      toolCallId?: string;
+      toolCallName?: string;
+      content?: string;
+    }>,
   ): AbstractAgent {
     const agent = {
       threadId: "",
@@ -647,6 +653,40 @@ describe("what comes back for the relay", () => {
     expect(announced).toEqual([
       { threadId: "thread-1", agentId: WORK.toBotId, text: "Tuesday." },
     ]);
+  });
+
+  test("a question the Bot put to the person is carried back, since nothing follows it", async () => {
+    const asking = (result: string) =>
+      talkingAgent([
+        { type: "TEXT_MESSAGE_START" },
+        { type: "TEXT_MESSAGE_CONTENT", delta: "I found two accounts." },
+        { type: "TEXT_MESSAGE_END" },
+        {
+          type: "TOOL_CALL_START",
+          toolCallId: "q1",
+          toolCallName: "ask_person",
+        },
+        { type: "TOOL_CALL_ARGS", toolCallId: "q1", delta: '{"question":' },
+        { type: "TOOL_CALL_ARGS", toolCallId: "q1", delta: '"Which one?"}' },
+        { type: "TOOL_CALL_END", toolCallId: "q1" },
+        { type: "TOOL_CALL_RESULT", toolCallId: "q1", content: result },
+      ]);
+    const deliver = (agent: AbstractAgent) =>
+      throughTheAgent(agent).deliver({
+        work: WORK,
+        message: "m",
+        shown: "s",
+        assertion: "s",
+      });
+
+    expect(
+      (await deliver(asking(JSON.stringify("Put to the person.")))).answer,
+    ).toBe("I found two accounts.\n\nWhich one?");
+    // A question that reached nobody was not asked, so it is not relayed as if it had been.
+    expect(
+      (await deliver(asking(JSON.stringify("That did not reach anybody."))))
+        .answer,
+    ).toBe("I found two accounts.");
   });
 
   test("a turn of nothing but tool calls has nothing to carry", async () => {

@@ -248,7 +248,8 @@ export function createRoutineRunner(options: {
      * order can lose the run row — this one is the browser's order: what was said lands in the
      * channel, and then the firing is closed.
      */
-    await say(replyText);
+    // A turn that only asked a question has no words of its own; its question was already said.
+    if (replyText) await say(replyText);
     await routineStore.finishRun(routineRunId, "succeeded");
   }
 

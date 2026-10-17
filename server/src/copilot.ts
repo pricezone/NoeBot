@@ -1055,7 +1055,7 @@ async function buildAgent(
       ),
       loadAttachment,
       markAttachmentsSent,
-      { botId: agent.id, inRun },
+      { botId: agent.id, inRun, ...(initiator ? { initiator } : {}) },
     );
 
   const whole = withTools(granted);
@@ -1675,6 +1675,8 @@ type BuiltInRunOptions = {
   /** For the prompt cache key and the timing line. */
   botId?: string;
   inRun?: InRunExecutor;
+  /** What started the run, for the model's calls; absent is a person's request. */
+  initiator?: AuditInitiator;
 };
 
 /**
@@ -1812,6 +1814,9 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
           botId: this.runOptions.botId ?? this.agentId ?? "",
           threadId: input.threadId,
           runId: input.runId,
+          ...(this.runOptions.initiator
+            ? { initiator: this.runOptions.initiator }
+            : {}),
         },
         () =>
           stream

@@ -59,6 +59,7 @@ import { NOT_SHOWN } from "../../../shared/component-markers";
 import { PUT_TO } from "../../../shared/handoff-markers";
 import { frameFiring } from "../../../shared/routine-firing";
 import { headlessTurnRefusal } from "../admin/controls";
+import { endsOnAskedQuestion } from "../agents/asked-question";
 import { ESCALATE_TOOL } from "../agents/escalation";
 import { sanitizeSeededHistory } from "../agents/history-sanitize";
 import { guardBotTurn } from "../agents/lifecycle";
@@ -794,22 +795,24 @@ export function createTurnRunner(options: {
     }
     /*
      * A turn that put a question to the person ends on it, with nothing said after
-     * (`agents/question-turn.ts`). The conversation draws the question as a card; a surface that
-     * reads only the reply (Slack, a phone notification, the roster) would get what led up to it and
-     * not the question, so the question is said in the reply too when the Bot did not say it.
+     * (`agents/question-turn.ts`), so no words is not a failure when a question is waiting. The
+     * question travels as `asked` and not in the reply: the conversation draws it as a card and the
+     * question's route notifies it (`index.ts`), so only a surface with neither adds it
+     * (`sayingTheQuestion`). Read from the conversation's end as well as from what the turn added: a
+     * resumed turn whose paused step had already put the question ends at once, adding nothing.
      */
-    const asked = askedQuestion(added);
-    const reply =
-      asked && !replyText.includes(asked)
-        ? [replyText, asked].filter((part) => part.length > 0).join("\n\n")
-        : replyText;
-    if (reply.length === 0) {
+    const asked =
+      askedQuestion(added) ??
+      (endsOnAskedQuestion(agent.messages)
+        ? askedQuestion(agent.messages)
+        : undefined);
+    if (replyText.length === 0 && !asked) {
       throw new Error("The turn finished without saying anything.");
     }
 
     const drawn = drawnComponents(added);
     return {
-      replyText: reply,
+      replyText,
       ...(drawn.length > 0 ? { components: drawn } : {}),
       ...(asked ? { asked } : {}),
     };

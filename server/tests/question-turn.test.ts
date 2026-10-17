@@ -6,15 +6,24 @@ import {
   type Message,
 } from "@ag-ui/client";
 import { LLMock } from "@copilotkit/aimock";
+import { frameFirstTurn } from "../../shared/first-turn";
 import { PUT_TO } from "../../shared/handoff-markers";
 import { ANSWERED_IN_CHAT } from "../../shared/question-tools";
-import { endsOnAskedQuestion } from "../src/agents/asked-question";
+import { buildResponsibilityTurn } from "../../shared/responsibility-turn";
+import { frameFiring } from "../../shared/routine-firing";
+import {
+  endsOnAskedQuestion,
+  sayingTheQuestion,
+} from "../src/agents/asked-question";
 import { askTheirOwnPerson, escalationTool } from "../src/agents/escalation";
 import {
   answerNote,
   endsOnQuestion,
   noteAnswers,
+  personStarted,
 } from "../src/agents/question-turn";
+import type { AuditInitiator } from "../src/audit";
+import { groupTurnMessage } from "../src/channels/group";
 import type { HeadlessTool } from "../src/computer/headless-tools";
 import { buildAgents, type ComputerInRun } from "../src/copilot";
 
@@ -242,6 +251,111 @@ describe("a reply to an open question", () => {
   });
 });
 
+describe("a question that is not waiting", () => {
+  const BACKUPS = "Shall I delete the old backups?";
+  const askedThen = (answer: string): Prompt => [
+    user("Clean up the server"),
+    {
+      role: "assistant",
+      content: [call("q1", "ask_person", { question: BACKUPS })],
+    },
+    result("q1", "ask_person", answer),
+  ];
+
+  test("held for the owner's permission, is not answered by the next message", () => {
+    // The person never saw the question, so their "ok" consents to nothing.
+    const prompt: Prompt = [
+      ...askedThen(
+        "That was not put to anybody yet: it needs your permission. Tell the person you are waiting for their permission in Approvals.",
+      ),
+      said("I'm waiting for your permission in Approvals."),
+      user("ok"),
+    ];
+    expect(noteAnswers(prompt)).toBe(prompt);
+  });
+
+  test("refused, is not answered by the next message", () => {
+    const prompt: Prompt = [
+      ...askedThen(JSON.stringify("That did not reach anybody.")),
+      user("ok"),
+    ];
+    expect(noteAnswers(prompt)).toBe(prompt);
+  });
+
+  test("already answered on resume, is not answered again by the next message", () => {
+    const prompt: Prompt = [
+      ...askedThen("The person answered: yes"),
+      said("Deleted."),
+      user("What's the status of the build?"),
+    ];
+    expect(noteAnswers(prompt)).toBe(prompt);
+  });
+});
+
+describe("a message that is not the person's own words", () => {
+  const INVOICE = "Shall I send the invoice to the client?";
+  const open: Prompt = [
+    user("Invoice ACME"),
+    {
+      role: "assistant",
+      content: [call("q1", "ask_person", { question: INVOICE })],
+    },
+    result("q1", "ask_person", PUT),
+  ];
+  const groupText = (() => {
+    const message = groupTurnMessage("g1", "yes", [
+      { id: "m1", agentId: "bot_peer", text: "I can send it." },
+    ]);
+    return typeof message.content === "string" ? message.content : "";
+  })();
+
+  test.each([
+    ["a routine firing", frameFiring("Send me the daily summary.")],
+    [
+      "a responsibility turn",
+      buildResponsibilityTurn({
+        instruction: "Watch the build",
+        successCriteria: "Green",
+        progress: "",
+        trigger: { source: "github", type: "push" },
+        eventData: "{}",
+        responsibilityId: "resp_1",
+      }),
+    ],
+    ["a new Bot's first-turn frame", frameFirstTurn()],
+    ["a group turn quoting other participants", groupText],
+  ])("%s is not an answer, and leaves the question open", (_kind, text) => {
+    const prompt: Prompt = [...open, user(text), user("Yes, send it")];
+    const noted = noteAnswers(prompt);
+    expect(noted.at(-2)).toEqual(user(text));
+    expect(noted.at(-1)).toEqual(user(`${answerNote([INVOICE])}Yes, send it`));
+  });
+
+  test("only a turn the person started has its answers noted", () => {
+    expect(personStarted(undefined)).toBe(true);
+    expect(personStarted({ kind: "person" })).toBe(true);
+    for (const initiator of [
+      { kind: "routine", id: "r1" },
+      { kind: "responsibility", id: "x1" },
+      { kind: "handoff", id: "bot_peer" },
+      { kind: "memory", id: "m1" },
+      { kind: "deployment" },
+    ] as const)
+      expect(personStarted(initiator)).toBe(false);
+  });
+});
+
+describe("a group conversation's row", () => {
+  test("says the question the Bot ended on, once", () => {
+    expect(sayingTheQuestion("Two accounts match.", "Which one?")).toBe(
+      "Two accounts match.\n\nWhich one?",
+    );
+    expect(sayingTheQuestion("", "Which one?")).toBe("Which one?");
+    expect(sayingTheQuestion("Which one?", "Which one?")).toBe("Which one?");
+    expect(sayingTheQuestion("Done.")).toBe("Done.");
+  });
+});
+
 /* A built-in Bot, end to end, with a fake model. */
 
 const llm = new LLMock();
@@ -276,7 +390,7 @@ const ASK = {
   arguments: JSON.stringify({ question: QUESTION, options: OPTIONS }),
 };
 
-async function bot(computerInRun?: ComputerInRun) {
+async function bot(computerInRun?: ComputerInRun, initiator?: AuditInitiator) {
   const agents = await buildAgents(
     [
       {
@@ -303,8 +417,10 @@ async function bot(computerInRun?: ComputerInRun) {
         route: askTheirOwnPerson,
       }),
     ],
-    // loadInstructions through loadPersonalMemory: six more.
-    ...Array.from({ length: 6 }, () => undefined),
+    // loadInstructions, then what started the run, then four more this test does not need.
+    undefined,
+    initiator,
+    ...Array.from({ length: 4 }, () => undefined),
     computerInRun,
   );
   const agent = agents.bot?.clone();
@@ -401,6 +517,38 @@ describe("a person's run that asks a question", () => {
       role: "user",
       content: "Research and writing",
     });
+  });
+
+  test("a routine's run does not take its own instruction for the person's answer", async () => {
+    llm.clearFixtures();
+    llm.reset?.();
+    llm.onMessage(/.*/, () => ({ content: "Here is the summary." }));
+    const agent = await bot(undefined, { kind: "routine", id: "routine_1" });
+    agent.setMessages([
+      { id: "u1", role: "user", content: "Invoice ACME." },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call-ask",
+            type: "function",
+            function: { name: "ask_person", arguments: ASK.arguments },
+          },
+        ],
+      },
+      { id: "t1", role: "tool", toolCallId: "call-ask", content: PUT },
+      { id: "u2", role: "user", content: "Send me the daily summary." },
+    ]);
+    const before = llm.getRequests().length;
+
+    await run(agent);
+
+    expect(llm.getRequests().length - before).toBe(1);
+    const sent = JSON.stringify(llm.getRequests().at(-1)?.body ?? {});
+    expect(sent).toContain("Send me the daily summary.");
+    expect(sent).not.toContain("[Answer to your question");
   });
 });
 

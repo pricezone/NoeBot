@@ -50,3 +50,13 @@ export function endsOnAskedQuestion(messages: readonly Message[]): boolean {
   }
   return false;
 }
+
+/**
+ * A headless turn's reply with the question it ended on, for a surface that shows neither the
+ * question's card nor its notification (a group conversation's message row). The turn runner keeps
+ * the question out of `replyText` because most surfaces already show it.
+ */
+export function sayingTheQuestion(reply: string, asked?: string): string {
+  if (!asked || reply.includes(asked)) return reply;
+  return [reply, asked].filter((part) => part.length > 0).join("\n\n");
+}

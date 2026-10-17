@@ -123,8 +123,8 @@ export function escalationTool(options: {
       "they can make, a fact only they know, permission you do not hold. Prefer this to guessing, " +
       "and prefer it to asking another Bot when no other Bot could settle it either. Say what you " +
       "need and why. Every question that can be answered with yes or no sets yesNo: true, so the " +
-      "person is offered Yes and No. The call ends your turn: their answer arrives as their next " +
-      "message.",
+      "person is offered Yes and No. Call it on its own, after any other tools have returned: the " +
+      "call ends your turn, and their answer arrives as their next message.",
     parameters,
     execute: async (args: unknown) => {
       const parsed = parameters.safeParse(args);
