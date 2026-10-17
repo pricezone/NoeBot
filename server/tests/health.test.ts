@@ -57,6 +57,8 @@ describe("runtime capabilities", () => {
       usage: false,
       // No billing page on an unmetered deployment; null so the browser can tell it from an older server.
       billingUrl: null,
+      // No platform to route share links through; the app then shares its own address.
+      shareBaseUrl: null,
       // Names only. The sign-in screen reads this to know which buttons to draw.
       authProviders: ["google"],
       // The platform that signs people in through the handoff, when one is configured; this
@@ -93,6 +95,7 @@ describe("runtime capabilities", () => {
       "computerToolsInRun",
       "usage",
       "billingUrl",
+      "shareBaseUrl",
       "authProviders",
       "signInHandoff",
       "ssoConfigured",
@@ -102,6 +105,22 @@ describe("runtime capabilities", () => {
     ]);
     // The provider list is names, never the clients and secrets behind them.
     expect(body).not.toContain("google-client-secret");
+  });
+
+  test("names the platform share links go through, as an origin", async () => {
+    const shared = createApp(
+      loadConfig(
+        testEnvironment({
+          OPENBOT_SHARE_BASE_URL: "https://www.hypernoesis.ai/noebot",
+        }),
+      ),
+    );
+    const response = await shared.request(
+      "http://openbot.local/api/capabilities",
+    );
+    expect(
+      ((await response.json()) as { shareBaseUrl: unknown }).shareBaseUrl,
+    ).toBe("https://www.hypernoesis.ai");
   });
 
   /*

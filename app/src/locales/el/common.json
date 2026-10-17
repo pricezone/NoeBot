@@ -1580,5 +1580,8 @@
   "Type “{{text}}” into: {{target}}, then press Enter": "Πληκτρολόγηση «{{text}}» σε: {{target}}, και μετά πάτημα Enter",
   "Open {{host}}": "Άνοιγμα {{host}}",
   "Advanced Settings": "Σύνθετες ρυθμίσεις",
-  "Bot Settings": "Ρυθμίσεις Bot"
+  "Bot Settings": "Ρυθμίσεις Bot",
+  "Categories": "Κατηγορίες",
+  "Composio did not list this app's tools just now.": "Το Composio δεν εμφάνισε τα εργαλεία αυτής της εφαρμογής αυτή τη στιγμή.",
+  "Other": "Άλλα"
 }

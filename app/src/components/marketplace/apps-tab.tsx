@@ -100,11 +100,14 @@ function titleFor(app: ConnectableApp, title: string): React.ReactNode {
 export function AppsTab({
   query,
   category,
+  featured,
   onSearchChange,
 }: {
   query: string;
   /** One category shown in full, from `?category`; absent draws every category's preview. */
   category?: string;
+  /** One Composio category under "Featured plugins", from `?featured`; absent previews them. */
+  featured?: string;
   onSearchChange: SetMarketplaceSearch;
 }) {
   const { t } = useTranslation();
@@ -160,6 +163,24 @@ export function AppsTab({
       tab: "apps",
       q: query === "" ? undefined : query,
       ...(key === undefined ? {} : { category: key }),
+      ...(featured === undefined ? {} : { featured }),
+    });
+  /* The Featured pills and "View all" keep the Cursor category, and the other way round. */
+  const showFeaturedCategory = (key: string | undefined) =>
+    onSearchChange({
+      tab: "apps",
+      q: query === "" ? undefined : query,
+      ...(category === undefined ? {} : { category }),
+      ...(key === undefined ? {} : { featured: key }),
+    });
+  /* A Composio app's page, in place of the list, the way a Cursor plugin's opens. */
+  const openComposioApp = (slug: string) =>
+    onSearchChange({
+      tab: "apps",
+      q: query === "" ? undefined : query,
+      ...(category === undefined ? {} : { category }),
+      ...(featured === undefined ? {} : { featured }),
+      app: slug,
     });
   /* The plugin's page, in place of the list; the term and the category are kept for the way back. */
   const openPlugin = (plugin: MarketplacePlugin) =>
@@ -167,6 +188,7 @@ export function AppsTab({
       tab: "apps",
       q: query === "" ? undefined : query,
       ...(category === undefined ? {} : { category }),
+      ...(featured === undefined ? {} : { featured }),
       plugin: plugin.id,
     });
 
@@ -369,7 +391,13 @@ export function AppsTab({
           }
           title={t("Featured plugins")}
         >
-          <ComposioAppList appearance="marketplace" search={query} />
+          <ComposioAppList
+            appearance="marketplace"
+            category={featured}
+            onCategoryChange={showFeaturedCategory}
+            onOpen={openComposioApp}
+            search={query}
+          />
         </MarketplaceSection>
       ) : null}
 

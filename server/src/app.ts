@@ -533,6 +533,12 @@ export function createApp(
        */
       billingUrl: config.billingUrl ?? null,
       /*
+       * Where share links go through so they open on any instance: the platform's origin, from
+       * OPENBOT_SHARE_BASE_URL. Null where none is set; the app then falls back to the sign-in
+       * handoff's return address below, and then to its own address.
+       */
+      shareBaseUrl: config.shareBaseUrl ?? null,
+      /*
        * Which identity providers this deployment can sign somebody in with.
        *
        * Ids only, never the credentials: `configuredAuthProviders` returns names, and the clients
