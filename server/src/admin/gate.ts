@@ -92,6 +92,12 @@ export const GATED_ROUTES: Rule[] = [
     path: /^\/api\/bot-templates\/[^/]+\/add$/,
     needs: async () => ["useBots"],
   },
+  // Applying one rewrites a Bot's job, the same act as editing it.
+  {
+    method: "POST",
+    path: /^\/api\/bot-templates\/[^/]+\/apply\/[^/]+$/,
+    needs: async () => ["useBots"],
+  },
   {
     method: "POST",
     path: /^\/api\/host-access\/grants$/,

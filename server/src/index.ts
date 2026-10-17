@@ -49,6 +49,11 @@ import { createAgentProfileStore } from "./agents/profile-store";
 import type { AgentActor } from "./agents/profile-types";
 import { agentDto } from "./agents/routes";
 import { createRuntimeAgentLoader } from "./agents/runtime-agents";
+import {
+  createSuggestionRoutes,
+  marketplaceViewerOf,
+} from "./agents/suggestion-routes";
+import { type MarketplaceSources, suggestionTools } from "./agents/suggestions";
 import { createTemplateRoutes } from "./agents/templates";
 import {
   createWakeUpRunner,
@@ -214,11 +219,13 @@ import { createPasswordStore } from "./passwords/store";
 import { createOnboardingStore } from "./people/onboarding";
 import { createPeopleStore } from "./people/store";
 import { useRoutineTools } from "./plugins/builtin-routines";
+import { CATALOGUE } from "./plugins/catalogue";
 import { useComposioClient } from "./plugins/composio";
 import { createComposioClient } from "./plugins/composio-adapter";
 import { offerDefaultConnectors } from "./plugins/default-connectors";
 import { backfillComposioLogos } from "./plugins/logos";
 import { redirectUriFor, registerDynamicClient } from "./plugins/oauth";
+import { listablePlugins } from "./plugins/plugin-index";
 import { createPluginStore } from "./plugins/store";
 import {
   grantedSkills,
@@ -1803,6 +1810,51 @@ const coordinationForActor =
     }));
   };
 
+/*
+ * Suggesting a Bot template or a Marketplace item, read from the stores the Agents tab and the
+ * Marketplace read, so what a Bot offers and what the page shows agree. See agents/suggestions.ts.
+ */
+const marketplaceSources: MarketplaceSources = {
+  plugins: listablePlugins(),
+  catalogue: CATALOGUE,
+  installed: () => pluginStore.listPlugins(),
+  servers: () => pluginStore.listServers(),
+  held: (botId) => pluginStore.listForAgent(botId),
+  skills: (actor) => pluginStore.listSkills(actor),
+  connected: async (userId) => {
+    const [held, brokered] = await Promise.all([
+      pluginStore.connectionsFor(userId),
+      pluginStore.brokeredConnectionsFor(userId),
+    ]);
+    return new Set([...held, ...brokered].map((row) => row.serverId));
+  },
+};
+
+/**
+ * A person's run reaches past itself (coordination) and, where the browser offered the cards that
+ * offer them, may look for a template or a Marketplace item. The finders are added only beside their
+ * cards, so a hop or a routine built through the same seam is offered none.
+ */
+const coordinationWithSuggestions =
+  (actorId: string) =>
+  async (botId: string, input: import("@ag-ui/client").RunAgentInput) => [
+    ...(await coordinationForActor(actorId)(botId, input)),
+    ...suggestionTools({
+      templates: tenantPackage.templates,
+      marketplace: marketplaceSources,
+      offered: (input.tools ?? []).map((tool) => tool.name),
+      viewer: async () => {
+        try {
+          const actor = await actorFor(actorId);
+          const bot = await agentProfileStore.get(actor, botId);
+          return bot ? marketplaceViewerOf(actor, bot) : null;
+        } catch {
+          return null;
+        }
+      },
+    }),
+  ];
+
 /**
  * One Bot, built for a routine's turn, as its owner.
  *
@@ -1968,9 +2020,10 @@ const copilotRuntime = mountCopilotRuntime(
    * see: a Bot must never be able to address one they cannot, or this becomes a way around agent
    * visibility. Per run because the caps need to know how deep the chain already is and where an
    * answer belongs, and both of those are the deployment's own statement about the run rather than
-   * anything the model can edit.
+   * anything the model can edit. And, beside the cards that offer them, the template and
+   * Marketplace finders.
    */
-  coordinationForActor,
+  coordinationWithSuggestions,
   // A run started or ended on a thread; light the channel it belongs to. Fire-and-forget, keyed by
   // thread, and a scratch thread maps to no channel and signals nowhere.
   (input) => {
@@ -3298,6 +3351,14 @@ const botTemplateRoutes = createTemplateRoutes({
   auditStore: createAuditStore(database),
 });
 
+// The finders over HTTP, for the offer cards. Mounted through `createApp` like the templates.
+const suggestionRoutes = createSuggestionRoutes({
+  templates: tenantPackage.templates,
+  marketplace: marketplaceSources,
+  store: agentProfileStore,
+  requireUser: standaloneRequireUser,
+});
+
 /*
  * The Keys page's read of the model key: which key is in force and where it comes from, never
  * the secret. Mounted through `createApp` like the templates. The key id is the package's
@@ -3511,6 +3572,7 @@ const app = createApp(
     teamBots,
     firstTurn,
     botTemplates: botTemplateRoutes,
+    suggestions: suggestionRoutes,
     modelKey: modelKeyRoutes,
     // Where the open tab finds and claims an in-run computer wait. See runs/waits.ts.
     runWaits: (requireUser) =>
