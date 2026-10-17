@@ -72,7 +72,11 @@ test("the Marketplace card reads the item for the Bot it was given, whatever age
   const router = createRouter({
     history: createMemoryHistory({ initialEntries: ["/"] }),
     routeTree: createRootRoute({
-      component: () => <ItemCard {...(renderProps as never)} />,
+      component: () => (
+        <ItemCard
+          {...(renderProps as unknown as Parameters<typeof ItemCard>[0])}
+        />
+      ),
     }),
   });
   const view = render(
