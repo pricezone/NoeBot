@@ -23,6 +23,7 @@ import { useClickySessionView } from "@/lib/clicky/use-clicky-session";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
+  CLICKY_NARRATION_HIGHLIGHT_MS,
   type ClickyOverlay as Overlay,
   type ClickyPoint,
   type ClickySession,
@@ -170,6 +171,8 @@ export type ClickyOverlayView = {
    * points at may have moved, so it is drawn faded until the look is back.
    */
   stale: boolean;
+  /** Showing what the Bot does: its boxes fade a moment after each action (`useFadedHighlights`). */
+  narrating: boolean;
 };
 
 export function selectClickyOverlay(session: ClickySession): ClickyOverlayView {
@@ -183,7 +186,34 @@ export function selectClickyOverlay(session: ClickySession): ClickyOverlayView {
       : null,
     reply: session.reply?.final ? session.reply : null,
     stale: session.overlaysStale === true,
+    narrating: session.narrating === true,
   };
+}
+
+/** How long a narration box takes to fade, once its time is up. */
+const NARRATION_FADE = "opacity 600ms ease-out";
+
+/**
+ * The boxes narration drew that have been shown long enough. What the Bot acted on is boxed for a
+ * moment and then fades, even if the Bot stays on the page; its next action draws a new box (a new
+ * id), shown in full again.
+ */
+function useFadedHighlights(
+  overlays: readonly Overlay[],
+  narrating: boolean,
+  afterMs: number,
+): ReadonlySet<string> {
+  const [faded, setFaded] = useState<ReadonlySet<string>>(() => new Set());
+  const ids = overlays
+    .filter((overlay) => overlay.kind === "highlight")
+    .map((overlay) => overlay.id)
+    .join(" ");
+  useEffect(() => {
+    if (!narrating || !ids) return;
+    const timer = setTimeout(() => setFaded(new Set(ids.split(" "))), afterMs);
+    return () => clearTimeout(timer);
+  }, [narrating, ids, afterMs]);
+  return faded;
 }
 
 /** How faded overlays are drawn while Clicky looks again. */
@@ -247,8 +277,11 @@ export const ClickyOverlay = memo(function ClickyOverlay({
   view,
   colour = CLICKY_BLUE,
   instruction,
+  narrationFadeAfterMs = CLICKY_NARRATION_HIGHLIGHT_MS,
 }: {
   view: ClickyOverlayView;
+  /** How long a narration box stays before it fades; shorter in a test. */
+  narrationFadeAfterMs?: number;
   /** The Bot's own colour, for Noë Bot beside the pointer. */
   colour?: string;
   /**
@@ -308,7 +341,22 @@ export const ClickyOverlay = memo(function ClickyOverlay({
   const stale = view.stale;
   // Faded while Clicky looks again, and still: a pulse would say "here" about a place that may be gone.
   const fade = stale ? CLICKY_STALE_OPACITY : 1;
-  const pulse = reduced || stale ? undefined : "animate-pulse";
+  // A narration box does not pulse: it is there for a moment, then fades.
+  const pulse =
+    reduced || stale || view.narrating ? undefined : "animate-pulse";
+  const faded = useFadedHighlights(
+    overlays,
+    view.narrating,
+    narrationFadeAfterMs,
+  );
+  /** A box's opacity: faded once narration's moment for it is over, dimmed while stale. */
+  const boxStyle = (id: string): CSSProperties => {
+    const gone = view.narrating && faded.has(id);
+    return {
+      opacity: gone ? 0 : fade,
+      ...(view.narrating && !reduced ? { transition: NARRATION_FADE } : {}),
+    };
+  };
   /*
    * What a screen reader hears: the step being worked on, or else Clicky's last whole reply, with
    * what the Bot did put into a narration. A line that must not hide behind a step (it is yours, it
@@ -346,8 +394,11 @@ export const ClickyOverlay = memo(function ClickyOverlay({
               <rect
                 className={pulse}
                 data-clicky="highlight"
+                data-faded={
+                  view.narrating && faded.has(overlay.id) ? "true" : undefined
+                }
                 data-stale={stale ? "true" : undefined}
-                opacity={fade}
+                style={boxStyle(overlay.id)}
                 fill={`${CLICKY_BLUE}1f`}
                 height={percent(overlay.rect.height)}
                 key={overlay.id}
@@ -380,6 +431,7 @@ export const ClickyOverlay = memo(function ClickyOverlay({
                   top: below
                     ? percent(overlay.rect.y + overlay.rect.height)
                     : `calc(${percent(overlay.rect.y)} - 4px)`,
+                  ...boxStyle(overlay.id),
                 }}
               >
                 {overlay.label}

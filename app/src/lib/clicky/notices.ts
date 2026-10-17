@@ -37,17 +37,17 @@ export const CLICKY_NOTICE_KEYS: Record<ClickyNotice, string> = {
   no_step: msg("There's no step to move to."),
   follow_up: msg("Noë Bot finished."),
   notes_saved: msg("Notes saved."),
-  watching: msg("I'll show you what Noë Bot is doing."),
-  narrate_click: msg("Noë Bot is clicking “{{label}}”."),
-  narrate_type: msg("Noë Bot is typing in “{{label}}”."),
-  narrate_navigate: msg("Noë Bot is opening {{host}}."),
-  narrate_scroll: msg("Noë Bot is scrolling the page."),
-  narrate_select: msg("Noë Bot is choosing in “{{label}}”."),
-  narrate_key: msg("Noë Bot is pressing {{key}}."),
-  narrate_working: msg("Noë Bot is working on the page."),
-  narrate_choose: msg("Noë Bot is choosing “{{option}}”."),
-  narrate_click_here: msg("Noë Bot is clicking here."),
-  narrate_type_here: msg("Noë Bot is typing here."),
+  watching: msg("I'll show you what I'm doing."),
+  narrate_click: msg("I'm clicking “{{label}}”."),
+  narrate_type: msg("I'm typing in “{{label}}”."),
+  narrate_navigate: msg("I'm opening {{host}}."),
+  narrate_scroll: msg("I'm scrolling the page."),
+  narrate_select: msg("I'm choosing in “{{label}}”."),
+  narrate_key: msg("I'm pressing {{key}}."),
+  narrate_working: msg("I'm working on the page."),
+  narrate_choose: msg("I'm choosing “{{option}}”."),
+  narrate_click_here: msg("I'm clicking here."),
+  narrate_type_here: msg("I'm typing here."),
 };
 
 /** What the state chip says. `asleep` is a session that is not awake, whatever its state. */
@@ -116,7 +116,7 @@ export const CLICKY_NOTICES_BESIDE_STEP: readonly ClickyNotice[] = [
 /**
  * What the instruction beside Clicky's pointer says, and what "Say that again" says aloud.
  *
- * - Narrating the Bot: what the Bot is doing ("Noë Bot is clicking “Search”.").
+ * - Narrating the Bot: what the Bot is doing ("I'm clicking “Search”.").
  * - A walkthrough under way: the current step's title, with its detail when the person asked for
  *   detailed guidance, and under it any of Clicky's lines that must not hide behind the step. The
  *   model's own words are left out: they were said when the plan was made, and after Next or a click

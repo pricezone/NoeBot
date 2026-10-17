@@ -376,18 +376,18 @@ export const CLICKY_NOTICE_TEXT: Record<ClickyNotice, string> = {
   no_step: "There's no step to move to.",
   follow_up: "Noë Bot finished.",
   notes_saved: "Notes saved.",
-  watching: "I'll show you what Noë Bot is doing.",
-  narrate_click: "Noë Bot is clicking “{{label}}”.",
-  narrate_type: "Noë Bot is typing in “{{label}}”.",
-  narrate_navigate: "Noë Bot is opening {{host}}.",
-  narrate_scroll: "Noë Bot is scrolling the page.",
-  narrate_select: "Noë Bot is choosing in “{{label}}”.",
-  narrate_key: "Noë Bot is pressing {{key}}.",
-  narrate_working: "Noë Bot is working on the page.",
+  watching: "I'll show you what I'm doing.",
+  narrate_click: "I'm clicking “{{label}}”.",
+  narrate_type: "I'm typing in “{{label}}”.",
+  narrate_navigate: "I'm opening {{host}}.",
+  narrate_scroll: "I'm scrolling the page.",
+  narrate_select: "I'm choosing in “{{label}}”.",
+  narrate_key: "I'm pressing {{key}}.",
+  narrate_working: "I'm working on the page.",
   // For a control the page gave no name: the option chosen, or "here" beside the pointer.
-  narrate_choose: "Noë Bot is choosing “{{option}}”.",
-  narrate_click_here: "Noë Bot is clicking here.",
-  narrate_type_here: "Noë Bot is typing here.",
+  narrate_choose: "I'm choosing “{{option}}”.",
+  narrate_click_here: "I'm clicking here.",
+  narrate_type_here: "I'm typing here.",
 };
 
 /** What a client may send: the web app's bar, the phone, and the bridge for overlays. */
@@ -458,6 +458,11 @@ export const CLICKY_NUDGE_AFTER_MS = 45_000;
 /** A session the person comes back to within this long resumes where it was. */
 export const CLICKY_RESUME_WINDOW_MS = 30 * 60_000;
 export const CLICKY_AUTO_STEP_LIMIT = 12;
+/**
+ * While Clicky shows what the Bot does, how long the box around what it acted on stays before it
+ * fades, even when the Bot stays on the page: each action draws a box of its own.
+ */
+export const CLICKY_NARRATION_HIGHLIGHT_MS = 4_000;
 /** How close to a point a click counts as "on it", normalized. */
 export const CLICKY_TARGET_RADIUS = 0.03;
 

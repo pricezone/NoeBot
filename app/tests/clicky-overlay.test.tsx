@@ -308,3 +308,61 @@ test("the pointer's words narrow to the room on their side rather than run off t
   // On the left, the room is what lies left of the point.
   expect(wordsRoom(0.9, 1000, true)).toBe(852);
 });
+
+test("showing what the Bot does, a box fades a moment after it is drawn, and the next action's box shows in full", async () => {
+  const box = (id: string): Overlay => ({
+    kind: "highlight",
+    id,
+    rect: { x: 0.2, y: 0.2, width: 0.2, height: 0.05 },
+    label: "Search",
+  });
+  const narrating = (id: string) =>
+    selectClickyOverlay(session([box(id)], { narrating: true }));
+  const view = render(
+    <ClickyOverlay narrationFadeAfterMs={40} view={narrating("h1")} />,
+  );
+  const drawn = () =>
+    view.container.querySelector<SVGRectElement>('[data-clicky="highlight"]');
+  const label = () =>
+    view.container.querySelector<HTMLElement>(
+      '[data-clicky="highlight-label"]',
+    );
+  // Shown in full, and still: a narration box does not pulse.
+  expect(drawn()?.style.opacity).toBe("1");
+  expect(drawn()?.getAttribute("class") ?? "").not.toContain("animate-pulse");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  await settleReactWork();
+  expect(drawn()?.dataset.faded).toBe("true");
+  expect(drawn()?.style.opacity).toBe("0");
+  expect(label()?.style.opacity).toBe("0");
+  // The Bot's next action is a new box, shown in full again.
+  view.rerender(
+    <ClickyOverlay narrationFadeAfterMs={40} view={narrating("h2")} />,
+  );
+  expect(drawn()?.dataset.faded).toBeUndefined();
+  expect(drawn()?.style.opacity).toBe("1");
+});
+
+test("a walkthrough's box never fades by itself", async () => {
+  const view = render(
+    <ClickyOverlay
+      narrationFadeAfterMs={20}
+      view={selectClickyOverlay(
+        session([
+          {
+            kind: "highlight",
+            id: "h1",
+            rect: { x: 0.2, y: 0.2, width: 0.2, height: 0.05 },
+          },
+        ]),
+      )}
+    />,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  await settleReactWork();
+  const drawn = view.container.querySelector<SVGRectElement>(
+    '[data-clicky="highlight"]',
+  );
+  expect(drawn?.dataset.faded).toBeUndefined();
+  expect(drawn?.style.opacity).toBe("1");
+});

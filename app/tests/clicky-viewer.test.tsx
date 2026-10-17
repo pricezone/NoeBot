@@ -604,9 +604,7 @@ test("opened while the Bot works, Show me how narrates it, and takes nothing", a
   const viewer = await openViewer(view);
   await waitFor(() => expect(commands).toEqual([{ type: "watch" }]));
   const bar = await viewer.findByRole("region", { name: "Show me how" });
-  expect(
-    within(bar).getByText("I'll show you what Noë Bot is doing."),
-  ).toBeTruthy();
+  expect(within(bar).getByText("I'll show you what I'm doing.")).toBeTruthy();
   // Watching takes nothing.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(controlCalls).toEqual([]);

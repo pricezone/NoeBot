@@ -291,11 +291,11 @@ test("narrating the Bot, what it does is said with the words it names", async ()
     }),
   );
   await waitFor(() =>
-    expect(typedText(view.container)).toBe("Noë Bot is clicking “Search”."),
+    expect(typedText(view.container)).toBe("I'm clicking “Search”."),
   );
   expect(
     view.container.querySelector('[aria-live="polite"]')?.textContent,
-  ).toBe("Noë Bot is clicking “Search”.");
+  ).toBe("I'm clicking “Search”.");
 });
 
 test("while Clicky looks again, what it points at is faded and still", async () => {
@@ -317,7 +317,7 @@ test("while Clicky looks again, what it points at is faded and still", async () 
     expect(found).toBeTruthy();
     return found as Element;
   });
-  expect(box.getAttribute("opacity")).toBe("0.4");
+  expect((box as SVGElement).style.opacity).toBe("0.4");
   expect(box.getAttribute("data-stale")).toBe("true");
   expect(box.getAttribute("class") ?? "").not.toContain("animate-pulse");
   const arrow = view.container.querySelector<HTMLElement>(
@@ -344,9 +344,8 @@ test("while Clicky looks again, what it points at is faded and still", async () 
   });
   await waitFor(() =>
     expect(
-      view.container
-        .querySelector('[data-clicky="highlight"]')
-        ?.getAttribute("opacity"),
+      view.container.querySelector<SVGElement>('[data-clicky="highlight"]')
+        ?.style.opacity,
     ).toBe("1"),
   );
 });

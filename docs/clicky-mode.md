@@ -51,8 +51,10 @@ stops, finishes the walkthrough or the viewer closes. Minimizing the viewer puts
 
 **Showing what the Bot does.** Opening the viewer while the Bot is working, or the Bot starting work
 while the viewer is open, shows what it is doing instead (the server decides, from the open screen
-and the Bot's activity): Clicky points at each element the Bot clicks or types into and says so ("Noë Bot is clicking
-“Sign in”"). It only watches and never takes control. A question asked meanwhile makes it guide the
+and the Bot's activity): Clicky points at each element the Bot clicks or types into and says so in
+the first person, as if it were doing it ("I'm clicking “Sign in”"). The box around each element fades
+after four seconds (`CLICKY_NARRATION_HIGHLIGHT_MS`), even if the Bot stays on the page. It only
+watches and never takes control. A question asked meanwhile makes it guide the
 person again, and the Bot waits.
 
 **When Clicky wants to act.** A card says what it will do and why. For everyday actions: Allow for

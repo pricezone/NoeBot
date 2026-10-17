@@ -17,6 +17,8 @@ viewer is minimized; opening the viewer while the Bot works shows what the Bot i
 a site (a guide step points at the address bar; in Do it for me it proposes opening an https address,
 everyday only for a site the person named). A look reads the page's parts side by side and never
 waits on the slowest; each look logs a `[timing] clicky.look` line.
+Showing what the Bot does now speaks in the first person ("I'm typing in “Surname”."), and each box
+around what the Bot acted on fades after four seconds, even if the Bot stays on the page.
 - **Behaviour change:** the whole API now refuses state-changing requests and WebSocket upgrades from
   other sites, including sibling instances on the same parent domain (see docs/clicky-mode-safety.md
   rule 11). A page on another origin that called the API from a browser must be in `TRUSTED_ORIGINS`.
