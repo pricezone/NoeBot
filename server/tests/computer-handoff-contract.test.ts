@@ -119,10 +119,13 @@ test("request/rejoin and exact polling/take/release/cancel identities reach the 
     reason: "Sign in",
     toolCallId: "call-1",
   });
+  // The take also names who takes it, so every server process can tell who holds the computer.
   for (const request of requests.slice(2))
-    expect(JSON.parse(String(request.init?.body))).toEqual({
-      requestId: "request-1",
-    });
+    expect(JSON.parse(String(request.init?.body))).toEqual(
+      request.path === "/control/take"
+        ? { requestId: "request-1", takenBy: "user-1" }
+        : { requestId: "request-1" },
+    );
   const count = requests.length;
   expect((await post("/control/take", {})).status).toBe(400);
   expect(requests).toHaveLength(count);
