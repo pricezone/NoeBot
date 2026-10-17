@@ -41,3 +41,27 @@ export function readsAsYesNo(question: string): boolean {
     /[;?]$/.test(plain) && GREEK.some((opening) => plain.startsWith(opening))
   );
 }
+
+/**
+ * The yes-or-no question a reply ends on, if it ends on one: the first question in its last
+ * paragraph, when that reads as yes-or-no. "Would you like me to set up a reminder? If so, which
+ * day suits you?" ends on "Would you like me to set up a reminder?", which Yes or No answers first.
+ *
+ * For a Bot that asked in its own words instead of with `ask_person`: the person still gets Yes and
+ * No to tap, and their own words in the composer.
+ */
+export function trailingYesNoQuestion(reply: string): string | null {
+  const paragraphs = reply
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const last = paragraphs.at(-1);
+  if (!last) return null;
+  // Only a reply that ends by asking: a question mark, Greek or Latin, at its very end.
+  if (!/[?;\u037e]\s*$/.test(last)) return null;
+  const sentences = last.match(/[^.!?;\u037e\n]+[.!?;\u037e]+/g) ?? [];
+  const first = sentences
+    .map((sentence) => sentence.trim())
+    .find((sentence) => /[?;\u037e]$/.test(sentence));
+  return first && readsAsYesNo(first) ? first : null;
+}

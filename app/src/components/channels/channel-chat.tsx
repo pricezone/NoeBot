@@ -29,6 +29,7 @@ import {
   type ShownCalls,
 } from "@/components/chat-cards/pending-requests";
 import { ChatNotice } from "@/components/chat-cards/recovery-card";
+import { YesNoReply } from "@/components/chat-cards/yes-no-reply";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
@@ -1442,13 +1443,21 @@ export function ChannelChat({
           />
           <ConversationView
             pendingRequests={(shown: ShownCalls) => (
-              <PendingRequests
-                botId={runtimeAgentId}
-                channelId={channel.id}
-                live={liveCalls(agent.messages)}
-                shown={shown}
-                threadId={channel.threadId}
-              />
+              <>
+                <PendingRequests
+                  botId={runtimeAgentId}
+                  channelId={channel.id}
+                  live={liveCalls(agent.messages)}
+                  shown={shown}
+                  threadId={channel.threadId}
+                />
+                <YesNoReply
+                  busy={
+                    agent.isRunning || turnsInFlight > 0 || runsInFlight > 0
+                  }
+                  messages={agent.messages}
+                />
+              </>
             )}
             voiceCall={
               call.available

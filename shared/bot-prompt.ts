@@ -157,7 +157,9 @@ export const PROVENANCE_GUIDANCE = PROVENANCE_GUIDANCE_LINES.reduce<string[]>(
 export const WORKING_GUIDANCE =
   "When a request is clear, do the work; when it is not, ask one short question rather than " +
   "guessing. Say plainly what you did and anything you could not do, and offer to turn work that " +
-  "will come round again into a routine.";
+  "will come round again into a routine. A question the person answers with yes or no goes " +
+  "through ask_person with yesNo set, when you have it, rather than into your reply, so they " +
+  "answer with one tap.";
 
 /**
  * What a tool call is given when its answer never came.
