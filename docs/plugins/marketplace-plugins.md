@@ -1,6 +1,6 @@
 # Marketplace plugins
 
-Noë Bot's Marketplace lists the plugins Grok Bot lists: the [Cursor Marketplace](https://cursor.com/marketplace). A plugin is a public GitHub repository pinned to a commit, with remote MCP servers in its `mcp.json` and skills under `skills/<name>/SKILL.md`. Any signed-in person presses **Add** on one from **Connect apps → Apps**, and its servers and skills are offered to every Bot on the deployment — the same thing connecting a catalogue app does. The tab is laid out like Grok Bot's: a row of category pills under the search (the biggest categories, the rest behind **More**), Cursor's curated set first as **Recommended for you**, and a row that opens the plugin's own page — its source at the pinned commit, each connector and what it asks of you, each skill and what it does, and **Remove plugin** for whoever added it or an administrator.
+Noë Bot's Marketplace lists the plugins of the [Cursor Marketplace](https://cursor.com/marketplace). A plugin is a public GitHub repository pinned to a commit, with remote MCP servers in its `mcp.json` and skills under `skills/<name>/SKILL.md`. Any signed-in person presses **Add** on one from **Connect apps → Apps**, and its servers and skills are offered to every Bot on the deployment — the same thing connecting a catalogue app does. The tab has a row of category pills under the search (the biggest categories, the rest behind **More**), Cursor's curated set first as **Recommended for you**, and a row that opens the plugin's own page — its source at the pinned commit, each connector and what it asks of you, each skill and what it does, and **Remove plugin** for whoever added it or an administrator.
 
 ## Where the list comes from
 
@@ -13,6 +13,8 @@ cd server && bun scripts/sync-plugin-index.ts
 The script asks Cursor's index for the plugin list, reads each plugin's `mcp.json` out of GitHub at the pinned commit, reads every dialect of it into one shape, probes each remote server once without a credential to learn whether it is open or wants a sign-in, and mints the ids the parts take here. The result is committed and reviewed in a diff; a running deployment never calls cursor.com. The only fetch a deployment makes is each `SKILL.md`, out of GitHub, at the commit the index names, when somebody presses Add.
 
 Run the script again to pick up new plugins; `--no-probe` keeps the auth classification from the committed file, and `--only <id>` prints one plugin without writing. Each skill's `description` is Cursor's own (its `SKILL.md` frontmatter, as the index reports it), kept so a plugin's page can say what a skill does before anybody installs it.
+
+Cursor's index is read by another client too, and a few authors name it in their descriptions. Every sweep rewrites that name to Noë Bot in the text a person reads — display names and the plugin, skill and variable descriptions, never names, slugs, URLs or ids (`server/src/plugins/rebrand.ts`). `--rebrand` applies the same rewrite to the committed file offline and changes nothing else, and `app/tests/product-name.test.ts` fails if the old name turns up in the index or anywhere else in the repository.
 
 ## What installs, and what does not
 
