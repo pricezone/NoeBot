@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { botDesktopDirectories, desktopEnvironment } from "../src/desktop";
+import { createSessions } from "../src/sessions";
 import { startDesktopCast } from "../src/desktop-cast";
 import {
   chooseDesktopToClose,
@@ -12,6 +13,7 @@ import {
   type DesktopUse,
   DesktopNotRunningError,
   DesktopsFullError,
+  blankFrames,
   defaultDesktopCap,
   memoryBytes,
 } from "../src/desktop-sessions";
@@ -31,7 +33,16 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
     die: (code: number) => void;
   }[] = [];
   const sessions: { botId: string; display: string; stopped: boolean }[] = [];
-  const inputs: { display: string; calls: string[]; closed: boolean }[] = [];
+  const inputs: {
+    display: string;
+    calls: string[];
+    closed: boolean;
+    abandoned: boolean;
+  }[] = [];
+  /** What happened, in order, where the order is the point. */
+  const events: string[] = [];
+  const hints: { quick: boolean }[] = [];
+  const blanks: DisplaySize[] = [];
   const docks: { dir: string; closed: boolean; open: () => Promise<void> }[] =
     [];
   const captures: string[] = [];
@@ -59,7 +70,12 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
   }) as unknown as typeof import("node:child_process").spawn;
 
   const openInput = async (display: string): Promise<XInput> => {
-    const seen = { display, calls: [] as string[], closed: false };
+    const seen = {
+      display,
+      calls: [] as string[],
+      closed: false,
+      abandoned: false,
+    };
     inputs.push(seen);
     return {
       move: async (x, y) => void seen.calls.push(`move ${x},${y}`),
@@ -70,6 +86,11 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
       type: async (text) => void seen.calls.push(`type ${text}`),
       close: () => {
         seen.closed = true;
+        events.push(`input closed ${display}`);
+      },
+      abandon: () => {
+        seen.abandoned = true;
+        events.push(`input abandoned ${display}`);
       },
     };
   };
@@ -106,14 +127,16 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
         },
       };
     },
-    startDesktop: async (botId, display) => {
+    startDesktop: async (botId, display, hint) => {
       const record = { botId, display, stopped: false };
       sessions.push(record);
+      hints.push(hint);
       return {
         ready: true,
         browserRequestDir: `/run/desktops/${botId}/openbot-desktop`,
         stop: async () => {
           record.stopped = true;
+          events.push(`session stopped ${display}`);
         },
       };
     },
@@ -138,6 +161,11 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
     inUse: (botId) => use.get(botId) ?? { browser: false, watched: false },
     vacate: async (botId, message) => {
       vacated.push({ botId, message });
+      events.push(`vacated ${botId}`);
+    },
+    blank: async (size) => {
+      blanks.push(size);
+      return Buffer.from(`black ${size.width}x${size.height}`);
     },
     ...overrides,
   };
@@ -153,6 +181,9 @@ function fakeComputer(overrides: Partial<DesktopSessionsOptions> = {}) {
     opened,
     use,
     grabbers,
+    events,
+    hints,
+    blanks,
     tick: (ms: number) => {
       clock += ms;
     },
@@ -551,8 +582,308 @@ describe("where each Bot's desktop lives", () => {
     });
   });
 
+  test("a computer for one Bot keeps that Bot's desktop where its one desktop always was", () => {
+    const source = { XDG_RUNTIME_DIR: "/run/user/1001" };
+    expect(
+      botDesktopDirectories("only-bot", {
+        home: "/home/pwuser",
+        source,
+        own: true,
+      }),
+    ).toEqual({ home: "/home/pwuser", runtimeDir: "/run/user/1001" });
+  });
+
   test("refuses an id that is not a plain name, since it becomes a path", () => {
     expect(() => botDesktopDirectories("../escape")).toThrow();
     expect(() => botDesktopDirectories("a/b")).toThrow();
+  });
+});
+
+describe("which desktop gives way at the cap", () => {
+  test("not one whose browser is still launching, over one whose browser has been quiet for an hour", async () => {
+    const fake = fakeComputer({ max: 2 });
+    await fake.desktops.use("old-browser");
+    fake.use.set("old-browser", {
+      browser: true,
+      watched: false,
+      usedAt: 1_000,
+    });
+    fake.tick(60 * 60_000);
+    // Its browser's launch asked for the desktop (displayFor) and is still running: not live yet,
+    // but launching, which index.ts reports as a browser (profiles.isLaunching).
+    await fake.desktops.use("launching");
+    fake.use.set("launching", { browser: true, watched: false, usedAt: null });
+    fake.tick(1);
+
+    await fake.desktops.use("newcomer");
+    expect(fake.desktops.list().map((d) => d.botId)).toEqual([
+      "launching",
+      "newcomer",
+    ]);
+    expect(fake.vacated).toEqual([
+      { botId: "old-browser", message: DESKTOP_MADE_ROOM },
+    ]);
+    await fake.desktops.stopAll();
+  });
+
+  test("among desktops with browsers, the Bot that used its browser least recently, whatever the sweep stamped", async () => {
+    const fake = fakeComputer({ max: 2 });
+    await fake.desktops.use("busy");
+    await fake.desktops.use("quiet");
+    fake.use.set("busy", { browser: true, watched: false, usedAt: 1_000 });
+    fake.use.set("quiet", { browser: true, watched: false, usedAt: 1_000 });
+    fake.tick(1_000);
+    // The sweep finds both in use at the same instant; that must not decide which is busier.
+    await fake.desktops.sweepIdleNow();
+    fake.tick(25 * 60_000);
+    // "busy" goes on acting through its browser; "quiet" has done nothing since.
+    fake.use.set("busy", {
+      browser: true,
+      watched: false,
+      usedAt: 1_000 + 25 * 60_000,
+    });
+
+    await fake.desktops.use("newcomer");
+    expect(fake.desktops.list().map((d) => d.botId)).toEqual([
+      "busy",
+      "newcomer",
+    ]);
+    expect(fake.vacated.map((v) => v.botId)).toEqual(["quiet"]);
+    await fake.desktops.stopAll();
+  });
+
+  test("says whether a display is still the Bot's, so a browser launched onto one that went is launched again", async () => {
+    const fake = fakeComputer({ max: 1 });
+    const first = await fake.desktops.use("bot-a");
+    expect(fake.desktops.current("bot-a", first.display)).toBe(true);
+    // Closed to make room while bot-a's browser was still launching onto it.
+    await fake.desktops.use("bot-b");
+    expect(fake.desktops.current("bot-a", first.display)).toBe(false);
+    // Numbers are not handed out again, so the display bot-a's browser was given is nobody's now.
+    expect(fake.desktops.get("bot-b")?.display).not.toBe(first.display);
+    await fake.desktops.stopAll();
+  });
+});
+
+describe("a desktop somebody is on", () => {
+  /** The same wiring index.ts has: sessions say who is watching, a closing browser goes through them. */
+  function wired(desktop: boolean) {
+    const sessions = createSessions({ isLive: () => false, desktop });
+    const fake = fakeComputer({
+      inUse: (botId) => ({ browser: false, watched: sessions.watching(botId) }),
+    });
+    /** What profiles.ts does when it closes a browser: onClosed, the close, then afterClosed. */
+    const closeBrowser = async (botId: string) => {
+      await sessions.browserClosed(botId, "The computer stopped.");
+      fake.desktops.browserClosed(botId);
+      // Whatever the close set going, let it finish.
+      await Bun.sleep(5);
+    };
+    return { sessions, fake, closeBrowser };
+  }
+
+  test("keeps its screen, and the person on it, when the browser closes", async () => {
+    const { sessions, fake, closeBrowser } = wired(true);
+    await fake.desktops.use("bot-a");
+    const told: string[] = [];
+    const socket = { socket: 1 };
+    sessions.for("bot-a").viewer.claim(socket, (reason) => told.push(reason));
+
+    // Browser closed while the browser idle sweep ran: Chrome goes, the desktop does not.
+    fake.desktops.browserClosed("bot-a");
+    await sessions.browserClosed("bot-a", "The computer stopped.");
+    fake.desktops.browserClosed("bot-a");
+    expect(fake.desktops.get("bot-a")).toBeDefined();
+    expect(sessions.get("bot-a")?.viewer.occupied()).toBe(true);
+    expect(told).toEqual([]);
+
+    // They close the screen and go: the next close of the browser takes the desktop.
+    await sessions.get("bot-a")?.viewer.release(socket);
+    await closeBrowser("bot-a");
+    expect(fake.desktops.get("bot-a")).toBeUndefined();
+  });
+
+  test("counts a person holding the wheel as on it, screen open or not", async () => {
+    const { sessions, fake, closeBrowser } = wired(true);
+    await fake.desktops.use("bot-a");
+    const session = sessions.for("bot-a");
+    const help = session.control.requestHelp(
+      "Sign in, please.",
+      "call-1",
+    ).request;
+    if (!help) throw new Error("no request");
+    await session.control.take(help.id);
+    expect(sessions.watching("bot-a")).toBe(true);
+
+    await closeBrowser("bot-a");
+    expect(fake.desktops.get("bot-a")).toBeDefined();
+    // And it is never closed to make room either.
+    expect(
+      chooseDesktopToClose([{ botId: "bot-a", usedAt: 0 }], (botId) => ({
+        browser: false,
+        watched: sessions.watching(botId),
+      })),
+    ).toBeUndefined();
+    await fake.desktops.stopAll();
+  });
+
+  test("on a page screen the viewer still comes down with the browser, as before", async () => {
+    const sessions = createSessions({ isLive: () => false, desktop: false });
+    const told: string[] = [];
+    sessions
+      .for("bot-a")
+      .viewer.claim({ socket: 1 }, (reason) => told.push(reason));
+    await sessions.browserClosed("bot-a", "The computer stopped.");
+    expect(sessions.get("bot-a")?.viewer.occupied()).toBe(false);
+    expect(told).toEqual(["The computer stopped."]);
+  });
+});
+
+describe("a display that dies with pointers open on it", () => {
+  test("abandons every pointer before anything speaks to it, and stops the session before the browser is put away", async () => {
+    const fake = fakeComputer();
+    await fake.desktops.use("bot-a");
+    await fake.desktops.input("bot-a");
+    const cast = await fake.desktops.cast("bot-a", () => undefined);
+    await cast.send({ type: "mouse", event: "moved", x: 1, y: 1 });
+    expect(fake.inputs.map((i) => i.display)).toEqual([":10", ":10"]);
+
+    fake.displays[0]?.die(1);
+    await Bun.sleep(5);
+    await fake.desktops.stop("bot-a", "waiting for the teardown");
+
+    // Abandoned, never closed: closing a pointer on a dead display is what makes Xlib exit.
+    expect(fake.inputs.map((i) => [i.abandoned, i.closed])).toEqual([
+      [true, false],
+      [true, false],
+    ]);
+    expect(fake.events).toEqual([
+      "input abandoned :10",
+      "input abandoned :10",
+      "session stopped :10",
+      "vacated bot-a",
+    ]);
+    // The live screen stopping afterwards (its viewer told) closes nothing on the dead display.
+    await cast.stop();
+    expect(fake.inputs.some((i) => i.closed)).toBe(false);
+  });
+
+  test("a pointer closed with the desktop on an ordinary stop is closed, not abandoned", async () => {
+    const fake = fakeComputer();
+    await fake.desktops.use("bot-a");
+    await fake.desktops.input("bot-a");
+    await fake.desktops.stop("bot-a", "test");
+    expect(fake.inputs.map((i) => [i.abandoned, i.closed])).toEqual([
+      [false, true],
+    ]);
+  });
+});
+
+describe("a frame that would show nothing", () => {
+  test("is made black without starting a desktop, or closing another to make room", async () => {
+    const fake = fakeComputer({ max: 1 });
+    await fake.desktops.use("other");
+    const frame = await fake.desktops.capture(
+      "no-page",
+      { width: 640, height: 400 },
+      { x: 0, y: 0, width: 0, height: 0 },
+    );
+    expect(String(frame)).toBe("black 640x400");
+    expect(fake.desktops.get("no-page")).toBeUndefined();
+    expect(fake.desktops.get("other")).toBeDefined();
+    expect(fake.captures).toEqual([]);
+    // Unscaled, the screen's own size.
+    await fake.desktops.capture("no-page", null, {
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
+    expect(fake.blanks.at(-1)).toEqual(SIZE);
+    await fake.desktops.stopAll();
+  });
+
+  test("blank frames come from ffmpeg's colour source, once per size", async () => {
+    const calls: string[][] = [];
+    const spawnImpl = ((_command: string, args: string[]) => {
+      calls.push(args);
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new PassThrough(),
+      });
+      setTimeout(() => {
+        child.stdout.write(Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        child.emit("close", 0);
+      }, 0);
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+    const blank = blankFrames(spawnImpl);
+    const one = await blank({ width: 320, height: 200 });
+    const again = await blank({ width: 320, height: 200 });
+    expect(one.length).toBe(4);
+    expect(again).toBe(one);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("color=c=black:s=320x200");
+    expect(calls[0]).not.toContain("x11grab");
+  });
+});
+
+describe("the idle sweep", () => {
+  test("takes down the record it judged, never a desktop restarted while it was busy", async () => {
+    let releaseA: () => void = () => undefined;
+    const aStops = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    let firstA = true;
+    const fake = fakeComputer({
+      startDesktop: async (botId) => {
+        const holdThisOne = botId === "bot-a" && firstA;
+        if (botId === "bot-a") firstA = false;
+        return {
+          ready: true,
+          browserRequestDir: `/run/${botId}`,
+          stop: async () => {
+            if (holdThisOne) await aStops;
+          },
+        };
+      },
+    });
+    await fake.desktops.use("bot-a");
+    await fake.desktops.use("bot-b");
+    fake.tick(11 * 60_000);
+    // Both idle. The sweep stops bot-a first and waits on it.
+    const sweeping = fake.desktops.sweepIdleNow();
+    await Bun.sleep(5);
+    // Meanwhile bot-b's desktop is stopped and started again: a new one, just used.
+    await fake.desktops.stop("bot-b", "test");
+    const fresh = await fake.desktops.use("bot-b");
+    releaseA();
+    await sweeping;
+    expect(fake.desktops.get("bot-a")).toBeUndefined();
+    expect(fake.desktops.get("bot-b")?.display).toBe(fresh.display);
+    await fake.desktops.stopAll();
+  });
+});
+
+describe("a window manager that does not come up", () => {
+  test("is not waited for in full again until one does", async () => {
+    let ready = false;
+    const fake = fakeComputer({
+      startDesktop: async (botId, _display, hint) => {
+        fakeHints.push(hint);
+        return {
+          ready,
+          browserRequestDir: `/run/${botId}`,
+          stop: async () => undefined,
+        };
+      },
+    });
+    const fakeHints: { quick: boolean }[] = [];
+    await fake.desktops.use("bot-a");
+    await fake.desktops.use("bot-b");
+    ready = true;
+    await fake.desktops.use("bot-c");
+    await fake.desktops.use("bot-d");
+    expect(fakeHints.map((h) => h.quick)).toEqual([false, true, true, false]);
+    await fake.desktops.stopAll();
   });
 });

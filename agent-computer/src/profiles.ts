@@ -361,6 +361,12 @@ export type ProfilesOptions = {
    */
   displayFor?: (botId: string) => Promise<string | null>;
   /**
+   * Whether the display a browser was launched onto is still that Bot's. Asked once the launch is
+   * done, because a launch takes seconds and the desktop may have been closed under it meanwhile
+   * (the desktop cap): a browser on a display that went is closed and launched again.
+   */
+  displayCurrent?: (botId: string, display: string) => boolean;
+  /**
    * Told when a Bot's browser has been closed and has finished closing (a stop, a reset, the cap or
    * the idle sweep), so what it ran on can go too. Not awaited: the close is on the launch path.
    */
@@ -387,7 +393,7 @@ export function createProfiles(
   root: string,
   onClosed: BrowserClosed = () => undefined,
   onLaunched?: BrowserLaunched,
-  { displayFor, afterClosed }: ProfilesOptions = {},
+  { displayFor, displayCurrent, afterClosed }: ProfilesOptions = {},
 ) {
   type LiveBrowser = {
     context: BrowserContext;
@@ -716,16 +722,7 @@ export function createProfiles(
           () => undefined,
         );
         await mkdir(downloadsPath, { recursive: true });
-        // The Bot's own display, when it has one: started here the first time (desktop-sessions.ts).
-        const display = (await displayFor?.(botId)) ?? null;
-        console.info(
-          JSON.stringify({
-            type: "computer-browser-launching",
-            botId,
-            ...(display ? { display } : {}),
-          }),
-        );
-        const context = await chromium.launchPersistentContext(dir, {
+        const launchOptions = {
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
           args: [
@@ -753,9 +750,55 @@ export function createProfiles(
           handleSIGINT: false,
           handleSIGHUP: false,
           ...(proxy ? { proxy } : {}),
-          ...(display ? { env: browserEnvironment(display) } : {}),
           downloadsPath,
-        });
+        };
+        /*
+         * On the Bot's own display, when it has one (desktop-sessions.ts), which this starts the
+         * first time. And checked once launched: a desktop closed while the launch ran leaves a
+         * browser on a display that is gone, so it is closed and launched again on the Bot's desktop
+         * as it is now. Twice at most; the third launch stands, whatever happened to its display.
+         */
+        const launchOnBotDisplay = async (): Promise<BrowserContext> => {
+          for (let attempt = 1; ; attempt++) {
+            const display = (await displayFor?.(botId)) ?? null;
+            console.info(
+              JSON.stringify({
+                type: "computer-browser-launching",
+                botId,
+                ...(display ? { display } : {}),
+              }),
+            );
+            const stillItsDisplay = () =>
+              display === null ||
+              displayCurrent === undefined ||
+              displayCurrent(botId, display) ||
+              attempt >= 3;
+            let launched: BrowserContext | undefined;
+            try {
+              launched = await chromium.launchPersistentContext(dir, {
+                ...launchOptions,
+                ...(display ? { env: browserEnvironment(display) } : {}),
+              });
+            } catch (error) {
+              // A display taken away mid-launch fails the launch; the Bot's desktop as it is now
+              // is not a reason to give up.
+              if (stillItsDisplay()) throw error;
+            }
+            if (launched && stillItsDisplay()) return launched;
+            console.info(
+              JSON.stringify({
+                type: "computer-browser-display-replaced",
+                botId,
+                display,
+                attempt,
+              }),
+            );
+            if (launched)
+              await settleWithin(launched.close(), DEAD_CLOSE_BUDGET_MS);
+            await sweepLocks(dir);
+          }
+        };
+        const context = await launchOnBotDisplay();
         onLaunched?.(botId, context);
         /*
          * Session cookies back before anything navigates, so the first request a site sees from this
@@ -1022,6 +1065,16 @@ export function createProfiles(
     /** Whether this Bot has a browser right now, so a caller can drop state that belongs to one. */
     isLive(botId: string): boolean {
       return live.has(botId);
+    },
+
+    /** Whether this Bot's browser is being launched right now: busy, though not live yet. */
+    isLaunching(botId: string): boolean {
+      return starting.has(botId);
+    },
+
+    /** When this Bot last asked for its page, or null with no browser running. */
+    usedAt(botId: string): number | null {
+      return live.get(botId)?.usedAt ?? null;
     },
 
     /**

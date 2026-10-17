@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { totalmem } from "node:os";
 import type { Desktop } from "./desktop";
@@ -14,24 +15,32 @@ import type { XInput } from "./x-input";
  * one maximized window on it. The live screen streamed the whole display, so a person watching one
  * Bot saw whichever Bot's window was in front, and their hands reached every window on it: a person
  * could click into another Bot's browser. Here each Bot gets an X display of its own (its own Xvfb,
- * on a display number the X server picks with `-displayfd`), its own XFCE session with its own home,
- * runtime directory and session bus, and its browser on that display. A viewer streams the display
- * of the Bot it is watching and nothing else, and its input goes to that display and nothing else.
+ * on a display number never used before in this process, `createDisplayNumbers`), its own XFCE
+ * session with its own home, runtime directory and session bus, and its browser on that display. A
+ * viewer streams the display of the Bot it is watching and nothing else, and its input goes to that
+ * display and nothing else.
  *
  * STARTED ON FIRST USE: the live screen, the desktop preview, or the Bot's browser launching. A Bot
  * that only reads pages costs nothing here until something needs its screen.
  *
  * STOPPED with the Bot's browser: a stop, a reset, the browser cap and the browser idle sweep all
- * close the browser and then its desktop (`browserClosed`). A desktop left with no browser and nobody
+ * close the browser and then its desktop (`browserClosed`), unless somebody is watching it or has
+ * the wheel: the desktop is their screen, browser or not. A desktop left with no browser and nobody
  * watching (a person closed Chrome from its window and went away) is idle, and the sweep here stops
  * it after `idleMs`.
  *
  * CAPPED by memory. Each desktop is an X server and a handful of XFCE processes, and the Bot's
  * browser beside it, so a computer holds as many as its memory allows (`desktopCapFromEnv`). At the
  * cap a new one takes the place of the least recently used one that nobody is watching: idle ones
- * first, then one whose Bot has a browser, which is closed with its tabs kept, the same as the
- * browser cap does it. A computer whose every desktop is being watched refuses the new one and says
- * so, rather than start what its memory cannot hold.
+ * first, then one whose Bot has a browser running or starting, which is closed with its tabs kept,
+ * the same as the browser cap does it. "Used" counts the Bot's browser as well as its desktop, so a
+ * Bot working through its browser is not mistaken for a quiet one. A computer whose every desktop is
+ * in use refuses the new one and says so, rather than start what its memory cannot hold.
+ *
+ * A DISPLAY THAT DIES takes its desktop down and nothing else: its session is stopped first, so it
+ * does not go on relaunching onto a dead display, every pointer opened on it is abandoned rather than
+ * closed (closing one on a dead display is what makes Xlib exit the process), and only then is the
+ * Bot's browser put away.
  *
  * No Playwright here, so the decisions can be tested with fake displays (index.ts wires the real
  * ones).
@@ -48,8 +57,15 @@ export type DesktopSession = {
   startedAt: string;
 };
 
-/** Whether a Bot's desktop is in use: its browser is running, or a person has its screen open. */
-export type DesktopUse = { browser: boolean; watched: boolean };
+/** Whether a Bot's desktop is in use, and when its browser was. */
+export type DesktopUse = {
+  /** The Bot's browser is running, or starting: a launch in progress is the busiest a Bot gets. */
+  browser: boolean;
+  /** A person has its screen open, or has the wheel. */
+  watched: boolean;
+  /** When the Bot last used its browser, which is most of what a Bot does on its desktop. */
+  usedAt?: number | null;
+};
 
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -62,8 +78,15 @@ export type DesktopSessionsOptions = {
   idleMs: number;
   /** Start one X server. */
   startDisplay: (size: DisplaySize) => Promise<VirtualDisplay>;
-  /** Start one Bot's XFCE session on its display. */
-  startDesktop: (botId: string, display: string) => Promise<Desktop>;
+  /**
+   * Start one Bot's XFCE session on its display. `quick` once a window manager has failed to come up,
+   * so that every later start does not wait the whole budget for one that will not come either.
+   */
+  startDesktop: (
+    botId: string,
+    display: string,
+    hints: { quick: boolean },
+  ) => Promise<Desktop>;
   /** A pointer and keyboard on one display (x-input.ts). */
   openInput: (display: string) => Promise<XInput>;
   /** A live screen of one display (desktop-cast.ts). */
@@ -81,6 +104,8 @@ export type DesktopSessionsOptions = {
     scale: DisplaySize | null,
     keep: Rect | null,
   ) => Promise<Buffer>;
+  /** An all-black frame of a size, for a frame that would show nothing. Made without a display. */
+  blank?: (size: DisplaySize) => Promise<Buffer>;
   stream?: StreamSettings;
   /** Watch one desktop's dock for its Chrome button (browser-request.ts). */
   watchDock?: (
@@ -186,7 +211,8 @@ export function desktopCapFromEnv(memory: number = memoryBytes()): number {
 
 /**
  * Which desktop gives way when a new one needs room: never one being watched or kept, idle ones
- * before ones with a running browser, and the least recently used of those.
+ * before ones with a browser running or starting, and of those the one whose Bot used its desktop or
+ * its browser least recently.
  */
 export function chooseDesktopToClose(
   running: Iterable<{ botId: string; usedAt: number }>,
@@ -195,21 +221,87 @@ export function chooseDesktopToClose(
 ): string | undefined {
   return [...running]
     .filter((entry) => !keep(entry.botId))
-    .map((entry) => ({ ...entry, use: inUse(entry.botId) }))
+    .map((entry) => {
+      const use = inUse(entry.botId);
+      return { ...entry, use, last: Math.max(entry.usedAt, use.usedAt ?? 0) };
+    })
     .filter((entry) => !entry.use.watched)
     .sort(
       (a, b) =>
-        Number(a.use.browser) - Number(b.use.browser) || a.usedAt - b.usedAt,
+        Number(a.use.browser) - Number(b.use.browser) || a.last - b.last,
     )[0]?.botId;
+}
+
+/** How long a window manager is waited for once one has failed to come up. */
+export const QUICK_WINDOW_MANAGER_MS = 3_000;
+
+/** Whether a kept rectangle keeps nothing: the frame is then black whatever is on the screen. */
+function keepsNothing(keep: Rect | null): boolean {
+  return keep !== null && (keep.width < 2 || keep.height < 2);
+}
+
+/**
+ * An all-black JPEG of a size, made by ffmpeg from nothing: no X server, no desktop. Kept per size,
+ * since a Bot with no page asks for the same black frame on every look.
+ */
+export function blankFrames(spawnImpl: typeof spawn = spawn) {
+  const made = new Map<string, Promise<Buffer>>();
+  return (size: DisplaySize): Promise<Buffer> => {
+    const key = `${size.width}x${size.height}`;
+    const known = made.get(key);
+    if (known) return known;
+    const making = new Promise<Buffer>((resolve, reject) => {
+      const child = spawnImpl(
+        "ffmpeg",
+        [
+          "-nostdin",
+          "-loglevel",
+          "error",
+          "-f",
+          "lavfi",
+          "-i",
+          `color=c=black:s=${key}`,
+          "-frames:v",
+          "1",
+          "-f",
+          "image2pipe",
+          "-c:v",
+          "mjpeg",
+          "-",
+        ],
+        { stdio: ["ignore", "pipe", "ignore"] },
+      );
+      const chunks: Buffer[] = [];
+      child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        const frame = Buffer.concat(chunks);
+        if (code === 0 && frame.length > 0) resolve(frame);
+        else
+          reject(new Error(`A blank frame could not be made (exit ${code}).`));
+      });
+    });
+    // A failure is not kept: the next look tries again.
+    making.catch(() => made.delete(key));
+    if (made.size >= 16) made.clear();
+    made.set(key, making);
+    return making;
+  };
 }
 
 export function createDesktopSessions(options: DesktopSessionsOptions) {
   type Running = DesktopSession & {
+    /** When something used this desktop: started it, watched it, captured it, gave it input. */
     usedAt: number;
+    /** When the sweep last found it in use, for its idle time; not for choosing which gives way. */
+    busyAt: number;
     virtual: VirtualDisplay;
     desktop: Desktop;
     dock?: { close: () => void };
+    /** The pointer for screen-space input (Clicky), kept until the desktop stops. */
     input?: Promise<XInput>;
+    /** Every pointer opened on this display, the live screens' too: abandoned if the display dies. */
+    inputs: Set<XInput>;
     /** Its teardown, once begun: a desktop is taken down once, however many paths ask. */
     torn?: Promise<void>;
   };
@@ -217,6 +309,7 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
   const now = options.now ?? Date.now;
   const log = options.log ?? ((line) => console.info(JSON.stringify(line)));
   const keep = options.keep ?? (() => false);
+  const blank = options.blank ?? blankFrames();
   const max = Math.max(1, options.max);
 
   const running = new Map<string, Running>();
@@ -225,6 +318,8 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
   /** Stops in flight, so a desktop is never started again on top of the one going away. */
   const stopping = new Map<string, Promise<void>>();
   let closed = false;
+  /** A window manager failed to come up last time: the next start does not wait long for one. */
+  let windowManagerFailed = false;
 
   const view = (record: Running): DesktopSession => ({
     botId: record.botId,
@@ -235,17 +330,60 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
   });
 
   /**
-   * Take one desktop down: its dock, its pointer, its session, then its X server. Out of the map at
+   * Open a pointer on this desktop's display, remembered so a dying display can abandon it. Once
+   * abandoned it is closed for good: a live screen stopping later (its viewer told the desktop went)
+   * closes nothing, so nothing speaks to the dead server.
+   */
+  const openTracked = async (record: Running): Promise<XInput> => {
+    const opened = await options.openInput(record.display);
+    if (record.torn) {
+      // Gone while this opened, perhaps with its display: let go without a word to it.
+      opened.abandon?.();
+      throw new DesktopNotRunningError();
+    }
+    let done = false;
+    const tracked: XInput = {
+      ...opened,
+      close() {
+        if (done) return;
+        done = true;
+        record.inputs.delete(tracked);
+        opened.close();
+      },
+      abandon() {
+        if (done) return;
+        done = true;
+        record.inputs.delete(tracked);
+        opened.abandon?.();
+      },
+    };
+    record.inputs.add(tracked);
+    return tracked;
+  };
+
+  /**
+   * Take one desktop down: its dock, its pointers, its session, then its X server. Out of the map at
    * once, so nothing finds it on the way out; anything asking for that Bot's desktop meanwhile waits
    * for this and starts a fresh one.
+   *
+   * `lost`: its X server has already gone. Then every pointer on it is abandoned before anything
+   * else, since a pointer told to close (by a live screen stopping, as the viewer is released) would
+   * speak to a dead server, and its session is stopped before the Bot's browser is put away, so the
+   * session does not spend that time relaunching itself onto a display number that is no longer its.
    */
   const teardown = (
     record: Running,
     reason: string,
-    message?: string,
+    { message, lost = false }: { message?: string; lost?: boolean } = {},
   ): Promise<void> => {
     if (running.get(record.botId) === record) running.delete(record.botId);
     if (record.torn) return record.torn;
+    let sessionStopped: Promise<void> | undefined;
+    if (lost) {
+      for (const input of [...record.inputs]) input.abandon?.();
+      record.inputs.clear();
+      sessionStopped = record.desktop.stop().catch(() => undefined);
+    }
     const work = (async () => {
       if (message)
         await settleWithin(
@@ -253,11 +391,11 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
           VACATE_BUDGET_MS,
         );
       record.dock?.close();
-      if (record.input) {
+      if (record.input && !lost) {
         const input = await record.input.catch(() => undefined);
         input?.close();
       }
-      await record.desktop.stop().catch(() => undefined);
+      await (sessionStopped ?? record.desktop.stop().catch(() => undefined));
       await record.virtual.stop().catch(() => undefined);
       log({
         type: "computer-desktop-stopped",
@@ -307,11 +445,9 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
         for: botId,
         max,
       });
-      await teardown(
-        record,
-        "the cap on running desktops was reached",
-        DESKTOP_MADE_ROOM,
-      );
+      await teardown(record, "the cap on running desktops was reached", {
+        message: DESKTOP_MADE_ROOM,
+      });
     }
   };
 
@@ -324,11 +460,14 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
     const virtual = await options.startDisplay(options.size);
     let desktop: Desktop;
     try {
-      desktop = await options.startDesktop(botId, virtual.name);
+      desktop = await options.startDesktop(botId, virtual.name, {
+        quick: windowManagerFailed,
+      });
     } catch (error) {
       await virtual.stop().catch(() => undefined);
       throw error;
     }
+    windowManagerFailed = !desktop.ready;
     const openBrowser = options.openBrowser;
     const dock =
       options.watchDock && openBrowser
@@ -349,15 +488,18 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
       await virtual.stop().catch(() => undefined);
       throw new Error("The computer is shutting down.");
     }
+    const at = now();
     const record: Running = {
       botId,
       display: virtual.name,
       size: virtual.size,
       ready: desktop.ready,
       startedAt: new Date(startedAt).toISOString(),
-      usedAt: now(),
+      usedAt: at,
+      busyAt: at,
       virtual,
       desktop,
+      inputs: new Set(),
       ...(dock ? { dock } : {}),
     };
     running.set(botId, record);
@@ -370,7 +512,10 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
         display: record.display,
         exitCode: code,
       });
-      void teardown(record, "its display exited", DESKTOP_LOST);
+      void teardown(record, "its display exited", {
+        message: DESKTOP_LOST,
+        lost: true,
+      });
     });
     log({
       type: "computer-desktop-started",
@@ -404,19 +549,26 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
 
   /**
    * Stop desktops that have had no browser and nobody watching for `idleMs`. A desktop in use is
-   * marked used each time this looks, so its idle time counts from when it stopped being used.
+   * stamped busy each time this looks, so its idle time counts from when it stopped being used.
+   * Each record is checked against the map before it is judged, and that record is the one taken
+   * down: a desktop restarted while the sweep was busy with another is not stopped on its
+   * predecessor's account.
    */
   const sweepIdle = async (): Promise<void> => {
-    const at = now();
     for (const record of [...running.values()]) {
+      if (running.get(record.botId) !== record) continue;
       if (keep(record.botId)) continue;
+      const at = now();
       const state = options.inUse(record.botId);
       if (state.browser || state.watched) {
-        record.usedAt = at;
+        record.busyAt = at;
+        // A person watching is the desktop being used; a browser says when it was used itself.
+        if (state.watched) record.usedAt = at;
         continue;
       }
-      if (options.idleMs > 0 && at - record.usedAt >= options.idleMs)
-        await stop(record.botId, "it had been idle");
+      const last = Math.max(record.usedAt, record.busyAt, state.usedAt ?? 0);
+      if (options.idleMs > 0 && at - last >= options.idleMs)
+        await teardown(record, "it had been idle");
     }
   };
 
@@ -440,6 +592,15 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
       return record ? view(record) : undefined;
     },
 
+    /**
+     * Whether the Bot's running desktop is still the one on `display`: false once it has been
+     * replaced or stopped, which is how a browser launched onto a desktop that went meanwhile is
+     * caught and launched again.
+     */
+    current(botId: string, display: string): boolean {
+      return running.get(botId)?.display === display;
+    },
+
     /** A live screen of this Bot's display, and input that reaches this display only. */
     async cast(
       botId: string,
@@ -450,17 +611,22 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
         display: record.display,
         size: record.size,
         onFrame,
-        input: options.openInput,
+        input: () => openTracked(record),
         ...(options.stream ? { stream: options.stream } : {}),
       });
     },
 
-    /** One frame of this Bot's display, started if it is not running. */
+    /**
+     * One frame of this Bot's display, started if it is not running. A frame that keeps nothing
+     * (Clicky's, for a Bot with no page on the screen) is black whatever the screen shows, so it is
+     * made without one: no desktop is started, and none is closed to make room, for a black picture.
+     */
     async capture(
       botId: string,
       scale: DisplaySize | null = null,
       keepRect: Rect | null = null,
     ): Promise<Buffer> {
+      if (keepsNothing(keepRect)) return blank(scale ?? options.size);
       const record = await use(botId);
       return options.capture(record.display, record.size, scale, keepRect);
     },
@@ -475,7 +641,7 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
       if (!record) return Promise.reject(new DesktopNotRunningError());
       record.usedAt = now();
       if (!record.input) {
-        const opening = options.openInput(record.display);
+        const opening = openTracked(record);
         record.input = opening;
         // A display that could not be opened is asked again next time, not remembered as broken.
         opening.catch(() => {
@@ -487,8 +653,9 @@ export function createDesktopSessions(options: DesktopSessionsOptions) {
 
     /**
      * The Bot's browser was closed (a stop, a reset, the browser cap or its idle sweep): its desktop
-     * goes too, unless it is kept or somebody still has the screen open, in which case it is idle and
-     * the sweep decides. Called after the browser has closed, so it never loses its display first.
+     * goes too, unless it is kept or somebody is watching it or has the wheel, in which case it stays
+     * their screen and the idle sweep decides later. Called after the browser has closed, so it never
+     * loses its display first.
      */
     browserClosed(botId: string): void {
       if (keep(botId) || options.inUse(botId).watched) return;

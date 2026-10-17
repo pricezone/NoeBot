@@ -124,6 +124,8 @@ jobs:
         working-directory: agent-computer
       - run: bunx playwright install --with-deps chromium
         working-directory: agent-computer
+      # libXtst, for the desktop test that drives a real XTEST pointer on a display that dies.
+      - run: sudo apt-get install -y --no-install-recommends libxtst6
       - run: >-
           bun test tests/sign-in.test.ts tests/session-cookies.test.ts tests/follows-popup.test.ts
           tests/demonstration-live.test.ts tests/webrtc-proxy.test.ts tests/saved-tabs.test.ts
@@ -132,6 +134,7 @@ jobs:
         working-directory: agent-computer
         env:
           OPENBOT_COMPUTER_BROWSER: '1'
+          OPENBOT_COMPUTER_XTEST: '1'
           OPENBOT_DEMONSTRATION_LIVE: '1'
 
   chart:
