@@ -30,8 +30,16 @@ export type XInput = {
   button(button: number, press: boolean): Promise<void>;
   /** By keysym name: `a`, `Return`, `Shift_L`. */
   key(keysym: string, press: boolean): Promise<void>;
-  /** Characters, whatever the keymap has. */
-  type(text: string): Promise<void>;
+  /**
+   * Characters, whatever the keymap has. `clearModifiers`: xdotool lets go of whatever modifiers are
+   * held (Caps Lock included) while it types, and puts them back after.
+   */
+  type(text: string, options?: { clearModifiers?: boolean }): Promise<void>;
+  /**
+   * The desktop's clipboard, and its primary selection, set to `text`; false when it could not be
+   * (no xclip), and the caller types the text instead.
+   */
+  setClipboard?(text: string): Promise<boolean>;
   close(): void;
 };
 
@@ -113,10 +121,72 @@ export function xdotoolEnvironment(
 /** Typing through xdotool, which maps characters the keymap lacks into a spare keycode. */
 function typeWith(run: ReturnType<typeof xdotoolRunner>) {
   // From a file rather than an argument, so text beginning with a dash is text and not an option.
-  return (text: string) =>
+  return (text: string, options?: { clearModifiers?: boolean }) =>
     text
-      ? run(["type", "--delay", "2", "--file", "-"], text)
+      ? run(
+          [
+            "type",
+            ...(options?.clearModifiers ? ["--clearmodifiers"] : []),
+            "--delay",
+            "2",
+            "--file",
+            "-",
+          ],
+          text,
+        )
       : Promise.resolve();
+}
+
+/**
+ * How long the display is given to hear that xclip owns the clipboard before anything pastes. xclip
+ * claims the selection and forks; the claim reaches the server when the forked copy first flushes,
+ * a moment after the process this waits for has exited.
+ */
+const CLIPBOARD_SETTLES_MS = 30;
+
+/**
+ * The desktop's clipboard, set with xclip: CLIPBOARD, which Control+V pastes, and PRIMARY, which a
+ * middle click pastes. The text goes in on stdin, never in an argument a process list would show.
+ *
+ * xclip stays behind, forked, to hand the text to whichever window asks, until something else is
+ * copied; the process waited for here is the one that forks, and exits once the selection is held.
+ * True when the clipboard took it. False when xclip is missing or failed: the caller types instead.
+ */
+export function clipboardWriter(
+  display: string,
+  {
+    spawnImpl = spawn,
+    settleMs = CLIPBOARD_SETTLES_MS,
+  }: { spawnImpl?: typeof spawn; settleMs?: number } = {},
+) {
+  const env = xdotoolEnvironment(display, process.env);
+  const write = (selection: "clipboard" | "primary", text: string) =>
+    new Promise<boolean>((resolve) => {
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawnImpl("xclip", ["-selection", selection], {
+          env,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+      } catch {
+        resolve(false);
+        return;
+      }
+      child.on("error", () => resolve(false));
+      // `exit`, not `close`: the forked copy keeps running, and nothing of it is waited for.
+      child.on("exit", (code) => resolve(code === 0));
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(text);
+    });
+  return async (text: string): Promise<boolean> => {
+    const [clipboard] = await Promise.all([
+      write("clipboard", text),
+      write("primary", text),
+    ]);
+    if (clipboard && settleMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+    return clipboard;
+  };
 }
 
 /** Everything through xdotool. Slower by one process per event; needs no library. */
@@ -128,6 +198,7 @@ export function xdotoolInput(display: string): XInput {
       run([press ? "mousedown" : "mouseup", String(button)]),
     key: (keysym, press) => run([press ? "keydown" : "keyup", keysym]),
     type: typeWith(run),
+    setClipboard: clipboardWriter(display),
     close: () => undefined,
   };
 }
@@ -297,10 +368,10 @@ export async function xtestInput(display: string): Promise<XInput> {
       xtst.symbols.XTestFakeKeyEvent(connection, keycode, press ? 1 : 0, 0);
       x11.symbols.XFlush(connection);
     },
-    async type(text) {
+    async type(text, options) {
       for (const segment of runsOf(text)) {
         if (closed) return;
-        if (segment.onKeymap) await typeOnKeymap(segment.text);
+        if (segment.onKeymap) await typeOnKeymap(segment.text, options);
         else
           for (const character of segment.text) {
             try {
@@ -314,11 +385,12 @@ export async function xtestInput(display: string): Promise<XInput> {
                     error instanceof Error ? error.message : String(error),
                 }),
               );
-              await typeOnKeymap(character);
+              await typeOnKeymap(character, options);
             }
           }
       }
     },
+    setClipboard: clipboardWriter(display),
     close() {
       if (closed) return;
       closed = true;

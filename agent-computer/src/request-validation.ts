@@ -163,7 +163,16 @@ export function parseInputMessage(input: unknown): InputMessageParseResult {
     if (typeof body.text !== "string" || !body.text) {
       return { ok: false, error: "A text message needs text." };
     }
+    if (body.paste !== undefined && typeof body.paste !== "boolean") {
+      return {
+        ok: false,
+        error: "A text message's paste must be true or false.",
+      };
+    }
     return { ok: true, message: body as unknown as InputMessage };
+  }
+  if (body.type === "release") {
+    return { ok: true, message: { type: "release" } };
   }
   return { ok: false, error: "That input message has an unknown type." };
 }

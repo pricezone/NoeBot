@@ -118,6 +118,19 @@ describe("a live-screen input message", () => {
     });
   });
 
+  test("a pasted text keeps its paste flag, and a release passes as nothing but a release", () => {
+    expect(
+      parseInputMessage({ type: "text", text: "word", paste: true }),
+    ).toEqual({
+      ok: true,
+      message: { type: "text", text: "word", paste: true },
+    });
+    expect(parseInputMessage({ type: "release", extra: "dropped" })).toEqual({
+      ok: true,
+      message: { type: "release" },
+    });
+  });
+
   test.each([
     ["unknown type", { type: "bogus" }],
     ["missing type", {}],
@@ -141,6 +154,10 @@ describe("a live-screen input message", () => {
     ["wheel without delta", { type: "wheel", x: 1, y: 2, deltaX: 0 }],
     ["key without code", { type: "key", event: "down", key: "a" }],
     ["text without text", { type: "text" }],
+    [
+      "text with a paste that is not a flag",
+      { type: "text", text: "a", paste: "yes" },
+    ],
   ])("rejects %s with a 400 message", (_name, input) => {
     const parsed = parseInputMessage(input);
     expect(parsed.ok).toBe(false);

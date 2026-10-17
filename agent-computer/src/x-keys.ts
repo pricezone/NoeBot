@@ -112,9 +112,31 @@ export type XKey =
   /** Nothing to send: a key the desktop has no use for. */
   | { kind: "none" };
 
-/** What to send X for one key the person pressed. */
-export function xKeyFor(message: { key: string; code: string }): XKey {
+/** CDP's modifier bits, as the surface sends them. */
+const ALT = 1;
+const CONTROL = 2;
+const META = 4;
+
+/**
+ * What to send X for one key the person pressed.
+ *
+ * With Control or Command held (and not Alt, which with Control is AltGr writing a character), a
+ * key is a shortcut, and a shortcut is the key under the finger whatever the layout writes on it:
+ * Control and the C key on a Greek layout report "ψ", and are Copy, not a ψ typed into the page.
+ */
+export function xKeyFor(message: {
+  key: string;
+  code: string;
+  modifiers?: number | undefined;
+}): XKey {
   const { key, code } = message;
+  const bits = message.modifiers ?? 0;
+  const usKeyOfShortcut =
+    bits & (CONTROL | META) && !(bits & ALT) ? US_KEYS[code] : undefined;
+  if (usKeyOfShortcut && [...key].length === 1) {
+    const base = usKeyOfShortcut[0];
+    return { kind: "keysym", keysym: KEYSYM_OF_CHARACTER[base] ?? base };
+  }
 
   const sided = SIDED_KEYS[key];
   if (sided) {

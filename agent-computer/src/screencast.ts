@@ -43,7 +43,13 @@ export type InputMessage =
       windowsVirtualKeyCode?: number;
       modifiers?: number;
     }
-  | { type: "text"; text: string };
+  /** `paste`: the person pasted it, rather than typed it on a keyboard with no key for it. */
+  | { type: "text"; text: string; paste?: boolean }
+  /**
+   * Let go of every key held: the person's window lost focus or they handed the wheel back. Only the
+   * desktop holds keys between messages; a page's keys are each a whole event, so there it is nothing.
+   */
+  | { type: "release" };
 
 /** What we send back. */
 export type FrameMessage = {
@@ -253,6 +259,8 @@ export async function startScreencast(
         });
         return;
       }
+
+      if (message.type === "release") return;
 
       // A block of text at once: a paste, or a one-time code the person did not type character by
       // character. `Input.insertText` bypasses key events entirely, which is correct here, it is not

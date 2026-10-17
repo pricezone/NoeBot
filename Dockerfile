@@ -182,11 +182,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Manager that slides away from the maximized browser. The live screen then shows the whole display
 # rather than the page. See agent-computer/src/desktop.ts.
 # ffmpeg grabs the display for the live screen; libXtst and xdotool carry a person's input back to
-# it. `xfce4-settings` is what makes fonts anti-aliased; `dbus-uuidgen` is what lets a session bus
-# start in a container that never ran a system one.
+# it, and xclip puts what they paste on the desktop's clipboard. `xfce4-settings` is what makes
+# fonts anti-aliased; `dbus-uuidgen` is what lets a session bus start in a container that never ran
+# a system one.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       xfce4-session xfwm4 xfce4-panel xfdesktop4 xfce4-settings xfce4-terminal thunar \
-      dbus-x11 xdotool ffmpeg libxtst6 x11-utils fonts-dejavu-core \
+      dbus-x11 xdotool xclip ffmpeg libxtst6 x11-utils fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/* \
   && dbus-uuidgen --ensure \
   && mkdir -p /run/user/1001 \

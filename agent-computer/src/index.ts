@@ -884,6 +884,13 @@ async function applyStreamInput(
     ws.send(JSON.stringify({ type: "error", error: "Input is not JSON." }));
     return;
   }
+  // A release presses nothing: it lets go of keys this screen's person holds down on the desktop
+  // (x-keyboard.ts). So it is honoured whoever holds the wheel, because the one that matters most
+  // arrives just after the person handed it back, and a Control left down would be the Bot's.
+  if (message.type === "release") {
+    await standing.cast.send(message).catch(() => undefined);
+    return;
+  }
   // A person's input is accepted only while they hold the wheel. The socket being open is not permission:
   // without this check, anything that could reach this port could drive the browser while a Bot
   // was working, which is the one thing the control state exists to prevent.
