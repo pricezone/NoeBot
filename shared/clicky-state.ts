@@ -555,12 +555,24 @@ function reduceCommand(
       if (session.awake && session.state !== "stopped")
         return unchanged(session);
       const awake = { ...session, awake: true };
+      const woken: ClickySession = {
+        ...awake,
+        state: restingState(awake),
+        reply: session.reply ?? notice("awake"),
+      };
+      /*
+       * A walkthrough left while asleep: the page may have moved on meanwhile (the Bot carried on,
+       * the person browsed), so where its step points is looked at again before it is trusted.
+       */
+      if (currentStep(woken) && mayCheck(woken)) {
+        const look = startCheck(woken, context);
+        return changed({
+          session: look.session,
+          effects: [...wakeAudit(session, "wake"), ...look.effects],
+        });
+      }
       return changed({
-        session: {
-          ...awake,
-          state: restingState(awake),
-          reply: session.reply ?? notice("awake"),
-        },
+        session: woken,
         effects: wakeAudit(session, "wake"),
       });
     }

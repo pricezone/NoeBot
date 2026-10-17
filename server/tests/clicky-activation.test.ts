@@ -316,6 +316,52 @@ describe("from a run waiting on the person", () => {
     );
   });
 
+  test("the private sign-in answered, the run picks up again and 'needs you' closes", async () => {
+    // Live: the Taxisnet sign-in filled from a saved login; "Noë Bot needs you here" stayed.
+    const { store, activation } = harness();
+    activation.onRunBusy({
+      threadId: "t-sign",
+      busy: true,
+      userId: "user-1",
+      agentId: "bot-1",
+    });
+    activation.onWaiting({
+      userId: "user-1",
+      botId: "bot-1",
+      wait: {
+        threadId: "t-sign",
+        runId: "run-1",
+        toolCallId: "call-1",
+        toolName: "computer_request_sign_in",
+        waiting: {
+          kind: "computer_sign_in",
+          requestId: "s-gsis",
+          site: "https://oauth2.gsis.gr",
+        },
+        message:
+          "Waiting for the person to sign in to https://oauth2.gsis.gr in a private form.",
+      },
+    });
+    activation.onRunBusy({ threadId: "t-sign", busy: false });
+    await until(
+      async () =>
+        (await store.load("user-1", "bot-1"))?.trigger?.requestId === "s-gsis",
+    );
+    // The form is sent: the thread runs again.
+    activation.onRunBusy({
+      threadId: "t-sign",
+      busy: true,
+      userId: "user-1",
+      agentId: "bot-1",
+    });
+    await until(
+      async () => (await store.load("user-1", "bot-1"))?.trigger === null,
+    );
+    const session = await store.load("user-1", "bot-1");
+    expect(session?.reply?.notice).toBe("takeover_resolved");
+    expect(session?.walkthrough).toBeNull();
+  });
+
   test("an approval opens Clicky only when the person must do it themselves", async () => {
     const plain = harness();
     plain.activation.onWaiting({

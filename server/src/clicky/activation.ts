@@ -113,6 +113,14 @@ export function createClickyActivation(deps: {
   const runs = new Map<string, { userId: string; botId: string }>();
   /** Threads whose run stopped to wait on the person: their next release is not an end. */
   const suspended = new Set<string>();
+  /**
+   * The request each suspended thread opened Clicky for. The person answering it (the private
+   * sign-in form, an approval) is what lets the thread run again, so its next start resolves it.
+   */
+  const waitsOn = new Map<
+    string,
+    { userId: string; botId: string; requestId: string }
+  >();
 
   const activate = async (
     userId: string,
@@ -226,11 +234,39 @@ export function createClickyActivation(deps: {
        */
       if (notTheBots(wait.waiting.handoff)) return;
       const trigger = waitTrigger(wait);
-      if (trigger) quietly(activate(userId, botId, trigger));
+      if (!trigger) return;
+      if (trigger.requestId) {
+        waitsOn.set(wait.threadId, {
+          userId,
+          botId,
+          requestId: trigger.requestId,
+        });
+        if (waitsOn.size > 1000) {
+          const oldest = waitsOn.keys().next().value;
+          if (oldest !== undefined) waitsOn.delete(oldest);
+        }
+      }
+      quietly(activate(userId, botId, trigger));
     },
 
     onRunBusy({ threadId, busy, userId, agentId }) {
       if (busy) {
+        /*
+         * A thread that waited on the person runs again: they answered (live: the Taxisnet sign-in
+         * filled from a saved login), so "Noë Bot needs you here" closes and its steps go.
+         */
+        const answered = waitsOn.get(threadId);
+        if (answered) {
+          waitsOn.delete(threadId);
+          quietly(
+            resolve(
+              answered.userId,
+              answered.botId,
+              answered.requestId,
+              "completed",
+            ),
+          );
+        }
         if (userId && agentId) runs.set(threadId, { userId, botId: agentId });
         // A run whose end was never heard is forgotten eventually, oldest first.
         if (runs.size > 1000) {

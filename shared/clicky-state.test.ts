@@ -732,6 +732,16 @@ describe("walkthroughs", () => {
     expect(h.session.reply?.notice).toBe("walkthrough_done");
   });
 
+  test("waking on a walkthrough looks again before its marks are trusted", () => {
+    // Live: asleep, the page moved on; woken, the old step pointed where a field used to be.
+    const h = guided();
+    h.command({ type: "sleep" });
+    const woken = h.command({ type: "wake" });
+    expect(woken.effects.some((effect) => effect.type === "check")).toBe(true);
+    expect(h.session.overlaysStale).toBe(true);
+    expect(h.session.check?.stepId).toBe(h.session.walkthrough?.currentStepId);
+  });
+
   test("the stuck nudge comes once, after a quiet spell", () => {
     const h = guided();
     h.advance(CLICKY_NUDGE_AFTER_MS - 1);
