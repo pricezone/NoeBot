@@ -49,6 +49,7 @@ import { createAgentProfileStore } from "./agents/profile-store";
 import type { AgentActor } from "./agents/profile-types";
 import { agentDto } from "./agents/routes";
 import { createRuntimeAgentLoader } from "./agents/runtime-agents";
+import { selfProfileTool } from "./agents/self-profile";
 import {
   createSuggestionRoutes,
   marketplaceViewerOf,
@@ -1771,7 +1772,14 @@ const coordinationForActor =
           initiator: assertion?.initiator ?? initiator,
         };
     const tools = await coordination.toolsForRun(run);
-    return tools.map((tool) => ({
+    // Renaming itself runs here, not through the callback; `copilot.ts` keeps it from remote Bots.
+    const self = selfProfileTool({
+      run,
+      store: agentProfileStore,
+      actorFor,
+      auditStore: bootAuditStore,
+    });
+    const coordinated = tools.map((tool) => ({
       ...tool,
       execute: async (args: unknown) => {
         if (!args || typeof args !== "object" || Array.isArray(args))
@@ -1808,6 +1816,7 @@ const coordinationForActor =
         return result.text;
       },
     }));
+    return [...coordinated, self];
   };
 
 /*

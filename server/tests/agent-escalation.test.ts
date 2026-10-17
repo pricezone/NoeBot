@@ -265,3 +265,31 @@ describe("what a routed question answers with", () => {
     expect(said as string).toStartWith(PUT_TO);
   });
 });
+
+describe("a yes-or-no question", () => {
+  test("the model is told to mark it, and that the call ends its turn", () => {
+    const tool = escalationTool({ from: FROM, route: askTheirOwnPerson });
+    expect(tool.description).toContain("yesNo: true");
+    expect(tool.description).toContain("The call ends your turn");
+    expect(
+      tool.parameters.safeParse({ question: "Ship it?", yesNo: true }),
+    ).toMatchObject({ success: true, data: { yesNo: true } });
+    expect(
+      tool.parameters.safeParse({ question: "Ship it?", yesNo: "yes" }).success,
+    ).toBe(false);
+  });
+
+  test("is answered from the card with Yes and No, so the Bot does not ask it again", async () => {
+    const tool = escalationTool({ from: FROM, route: askTheirOwnPerson });
+
+    const said = await tool.execute({
+      question: "Shall I send it?",
+      yesNo: true,
+    });
+
+    expect(said).toStartWith(PUT_TO);
+    expect(said).toContain("with its options");
+    expect(said).toContain("do not repeat it");
+    expect(said).toContain("Their next message is their answer.");
+  });
+});

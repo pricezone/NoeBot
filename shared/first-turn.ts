@@ -15,6 +15,7 @@
  */
 
 import type { Locale } from "./i18n/locales";
+import { SELF_PROFILE_TOOL } from "./self-profile";
 
 /** What the Bot says first, word for word. */
 export const FIRST_TURN_GREETING =
@@ -76,20 +77,32 @@ export const FIRST_TURN_COPY: Record<
 const OPENING =
   "You were created a moment ago, and this conversation has only just been opened: nobody has said anything yet, so you speak first.";
 
+/** A whole word and its cut-off form, in the language the person reads, for the naming rule. */
+const WHOLE_WORD: Record<Locale, { whole: string; cut: string }> = {
+  en: { whole: "Coordinator", cut: "Coord." },
+  el: { whole: "Διεκπεραιωτής", cut: "Διεκπ." },
+};
+
 /**
- * The frame, as the model reads it, with the words the person sees in their language. English is
- * the frame exactly as it always was.
+ * The frame, as the model reads it, with the words the person sees in their language.
+ *
+ * TWO TURNS, NOT ONE. The question ends this turn (`ask_person` stops the run once it is put), and
+ * everything after it waits for the person's answer, which arrives as their next message: helping
+ * with it, naming itself for it, and suggesting a ready-made Bot or a plugin. Asked to do those in
+ * the same turn as the question, a model answered its own question before the person could.
  */
 export function frameFirstTurn(locale: Locale = "en"): string {
   const copy = FIRST_TURN_COPY[locale];
   const options = copy.options.map((option) => `"${option}"`).join(", ");
+  const word = WHOLE_WORD[locale];
   return [
     OPENING,
     "This message is from the deployment, not from the person, and they will not see it.",
     "",
     `1. Send exactly this message, word for word and with nothing added: "${copy.greeting}"`,
-    `2. Then call ask_person with the question "${copy.question}" and these options, in this order: ${options}. The person sees the question with its options and can also type their own answer, so do not write the question or the options out yourself, and say nothing after the call.`,
-    `3. When they answer, whether by picking an option or in their own words, help with that straight away. In the same reply, suggest a short name and a one-line role that would suit you for it.${locale === "el" ? " Write it all in Greek, unless they answer in another language." : ""} They rename you and change your role themselves, in your profile; you cannot do it for them, so never say that you have.`,
+    `2. Then call ask_person with the question "${copy.question}" and these options, in this order: ${options}. The person sees the question with its options and can also type their own answer, so do not write the question or the options out yourself. The call ends your turn: do nothing else until they answer.`,
+    `3. Only once their answer arrives, as their next message, whether they picked an option or wrote their own words: help with that straight away. In the same reply, call ${SELF_PROFILE_TOOL} with a name and a one-line role that suit you for it. The name is one or two whole words in the person's language, never abbreviated or cut short (write "${word.whole}", never "${word.cut}"); the role is one line.${locale === "el" ? " Write it all in Greek, unless they answer in another language." : ""} If ${SELF_PROFILE_TOOL} refuses, follow what it says; if you do not have it, suggest the name and role instead and say they can change them in your profile.`,
+    "4. Then, if you have them and it would help: call find_bot_templates and, for a good fit, offer_bot_template, to suggest a ready-made Bot for this kind of work; and call find_marketplace_items and, for a good fit, offer_marketplace_item, to suggest a plugin or app that would help. Skip any you do not have.",
     "",
     "These instructions are for the start of this conversation only. Once you have answered their first reply, carry on as your role describes.",
   ].join("\n");

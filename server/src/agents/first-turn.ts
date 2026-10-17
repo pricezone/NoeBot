@@ -4,8 +4,8 @@
  * "Create new Bot" in the To: menu used to open a three-step form whose answers — a name, a title, a
  * role — are exactly what somebody who has not used the Bot yet cannot give. So the click makes a
  * Bot with sensible defaults and a conversation with it, and the Bot opens that conversation by
- * asking what it should help with. Its answer is where a name and a role come from, and the Bot
- * suggests them; the person renames it themselves, since a Bot cannot rename itself.
+ * asking what it should help with, which ends its turn. The person's answer is where a name and a
+ * role come from: the Bot names itself for it (`update_my_profile`), and the person can undo that.
  *
  * THE FIRST TURN IS HEADLESS, because the person's browser has nothing to send: it runs on the same
  * turn runner as a Slack message or an approved action resuming, as the owner, metered like any
@@ -24,12 +24,15 @@ import type { AgentActor, CreateAgentInput } from "./profile-types";
 /**
  * The Bot one click makes. Private, because nobody else asked for it; general, because its first
  * conversation is where it finds out what it is for.
+ *
+ * The role says what it is for and nothing else. How it works (act, ask, report, offer a routine)
+ * is `WORKING_GUIDANCE`, which every built-in Bot gets, so it survives the Bot naming itself.
  */
 export const NEW_BOT: CreateAgentInput = {
   name: "New Bot",
   title: "General assistant",
   roleDescription:
-    "Help with whatever takes the most off the person's plate: research and writing, code and GitHub work, web tasks and errands, and recurring checks and reminders. When a request is clear, do the work; when it is not, ask one short question rather than guessing. Say plainly what you did and anything you could not do, and offer to turn work that will come round again into a routine.",
+    "Help with whatever takes the most off the person's plate: research and writing, code and GitHub work, web tasks and errands, and recurring checks and reminders.",
   visibility: "private",
 };
 

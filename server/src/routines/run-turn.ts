@@ -792,14 +792,24 @@ export function createTurnRunner(options: {
         "The turn stopped to ask a question, and a routine has nobody to ask.",
       );
     }
-    if (replyText.length === 0) {
+    /*
+     * A turn that put a question to the person ends on it, with nothing said after
+     * (`agents/question-turn.ts`). The conversation draws the question as a card; a surface that
+     * reads only the reply (Slack, a phone notification, the roster) would get what led up to it and
+     * not the question, so the question is said in the reply too when the Bot did not say it.
+     */
+    const asked = askedQuestion(added);
+    const reply =
+      asked && !replyText.includes(asked)
+        ? [replyText, asked].filter((part) => part.length > 0).join("\n\n")
+        : replyText;
+    if (reply.length === 0) {
       throw new Error("The turn finished without saying anything.");
     }
 
     const drawn = drawnComponents(added);
-    const asked = askedQuestion(added);
     return {
-      replyText,
+      replyText: reply,
       ...(drawn.length > 0 ? { components: drawn } : {}),
       ...(asked ? { asked } : {}),
     };

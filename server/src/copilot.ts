@@ -20,7 +20,9 @@ import { z } from "zod";
 import {
   COMPUTER_GUIDANCE,
   PROVENANCE_GUIDANCE,
+  WORKING_GUIDANCE,
 } from "../../shared/bot-prompt";
+import { SELF_PROFILE_TOOL } from "../../shared/self-profile";
 import { sanitizeSeededHistory } from "./agents/history-sanitize";
 import {
   type ReasoningEffort,
@@ -34,6 +36,7 @@ import {
   planModelForEnvironment,
 } from "./agents/plan-model";
 import type { AgentActor } from "./agents/profile-types";
+import { questionTurns } from "./agents/question-turn";
 import { suggestionGuidance } from "./agents/suggestions";
 import {
   executeNativeApprovalTool,
@@ -183,6 +186,9 @@ export function standingRoleMessage(
       `You are ${profile.name}, ${profile.title}.`,
       profile.roleDescription,
       "This standing role applies in every channel. Treat channel messages as task-specific instructions within it.",
+      // How to work, for the same reason as the rule below: a Bot made in one click on a deployment
+      // with a managed harness runs here, and its role no longer carries it.
+      WORKING_GUIDANCE,
       /*
        * Here rather than in the package, because for a remote Bot the standing role is the only
        * instruction there is: `role_description` is one sentence somebody wrote about what it is
@@ -460,6 +466,8 @@ export function builtInAgentConfiguration(
     prompt: [
       agent.systemPrompt,
       ...(standing ? [standing] : []),
+      // How to work, whatever the role says it is for; a self-set one-line role keeps it.
+      WORKING_GUIDANCE,
       /*
        * Unconditional, unlike the two below it.
        *
@@ -1512,7 +1520,10 @@ function remoteAgentWithStandingRole(
             coordination?.(agent.id, input) ?? Promise.resolve([]),
           ]).then(([offered, coordinationTools]) => [
             ...offered,
-            ...coordinationTools,
+            // A remote Bot's callback cannot run it: renaming itself is for a Bot that runs here.
+            ...coordinationTools.filter(
+              (tool) => tool.name !== SELF_PROFILE_TOOL,
+            ),
           ]),
         ).pipe(switchMap((offered) => runWith(offered, input, next))),
       );
@@ -1719,7 +1730,9 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
     markAttachmentsSent?: MarkAttachmentsSent,
     runOptions: BuiltInRunOptions = {},
   ) {
-    super(configuration);
+    // Its model ends the turn on a question to the person and reads their reply as the answer
+    // (question-turn.ts). Wrapped here, and the plain configuration kept, so a clone wraps it once.
+    super(questionTurns(configuration));
     this.configuration = configuration;
     this.loadAttachment = loadAttachment;
     this.markAttachmentsSent = markAttachmentsSent;

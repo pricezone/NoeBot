@@ -7,7 +7,7 @@ import { LLMock } from "@copilotkit/aimock";
 import { BuiltInAgent } from "@copilotkit/runtime/v2";
 import { EMPTY, lastValueFrom } from "rxjs";
 import { z } from "zod";
-import { PROVENANCE_GUIDANCE } from "../../shared/bot-prompt";
+import { PROVENANCE_GUIDANCE, WORKING_GUIDANCE } from "../../shared/bot-prompt";
 import { MAX_INLINED_BYTES_PER_RUN } from "../src/channels/attachment-parts";
 import { loadConfig } from "../src/config";
 import type { LoadAttachment } from "../src/copilot";
@@ -290,7 +290,7 @@ describe("registered Copilot agents", () => {
       model: "openai/gpt-5.6-terra",
       // The provenance rule is unconditional, so even a Bot with no tools and no computer carries
       // it. That Bot needs it most: nothing it says was read anywhere.
-      prompt: `Be helpful.\n\n${PROVENANCE_GUIDANCE}\n\n${UNTRUSTED_GUIDANCE}`,
+      prompt: `Be helpful.\n\n${WORKING_GUIDANCE}\n\n${PROVENANCE_GUIDANCE}\n\n${UNTRUSTED_GUIDANCE}`,
       apiKey: "openai-secret",
     });
   });
@@ -612,6 +612,7 @@ describe("standing agent roles", () => {
         "You are Expense Manager, Finance Operations.",
         "Review receipts, categorize expenses, and prepare reimbursement reports.",
         "This standing role applies in every channel. Treat channel messages as task-specific instructions within it.",
+        WORKING_GUIDANCE,
         // For a remote Bot this message is the whole instruction, so the provenance rule has to
         // travel in it or the Bot never hears it. Referenced rather than restated, so the assertion
         // stays exact without pinning the wording twice.
@@ -819,6 +820,7 @@ describe("standing agent roles", () => {
         "You are Expense Manager, Finance Operations.",
         "Reconcile corporate card statements.",
         "This standing role applies in every channel. Treat channel messages as task-specific instructions within it.",
+        WORKING_GUIDANCE,
         PROVENANCE_GUIDANCE,
         UNTRUSTED_GUIDANCE,
       ].join("\n\n"),
@@ -1218,7 +1220,7 @@ describe("a person's standing instructions", () => {
       // Byte for byte what a deployment had before any of this existed, which is what most people
       // on most days get.
       expect(prompt).toBe(
-        `Be helpful.\n\n${PROVENANCE_GUIDANCE}\n\n${UNTRUSTED_GUIDANCE}`,
+        `Be helpful.\n\n${WORKING_GUIDANCE}\n\n${PROVENANCE_GUIDANCE}\n\n${UNTRUSTED_GUIDANCE}`,
       );
     },
   );
