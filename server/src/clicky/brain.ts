@@ -225,8 +225,8 @@ export function buildBrainPrompt(input: BrainPromptInput): {
   const act = session.mode === "act";
   const system = [
     ...persona(input),
-    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h], "typing": true}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true}',
-    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8; its "goal" is what the person asked for as a whole, in their words, not only the part these steps cover; "typing" is true for a step the person does by typing into its control (a search, a field), not by clicking it. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true only when what the person asked for, in their own words, has happened (the document issued, the form sent, the thing bought): reaching its page, or seeing its link, is not doing it.',
+    'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h], "typing": true}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true, "loading": true}',
+    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8; its "goal" is what the person asked for as a whole, in their words, not only the part these steps cover; "typing" is true for a step the person does by typing into its control (a search, a field), not by clicking it. "point" is where to point now: the current step\'s control, or what the person asked about. "loading" is true when the page is still loading (blank, a spinner, nothing on it to act on yet): then give no plan and no point, and you will be asked again in a moment; never make waiting a step. "done" is true only when what the person asked for, in their own words, has happened (the document issued, the form sent, the thing bought): reaching its page, or seeing its link, is not doing it.',
     act
       ? 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, propose scrolling to it first: {"action": "scroll", "ref": "e40"}.'
       : 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, make the step before it "Scroll down" (or up) to it, and point at where to scroll.',
@@ -311,6 +311,8 @@ export type BrainAnswer = {
   overlays?: ClickyOverlay[];
   proposal?: { action: ClickyAction; why: string };
   done?: boolean;
+  /** The page was still loading: nothing to point at yet. */
+  loading?: boolean;
 };
 
 /** The JSON object in a model's answer, fences and stray words around it ignored. */
@@ -616,6 +618,7 @@ export function parseBrainAnswer(
   }
 
   if (answer.done === true) result.done = true;
+  if (answer.loading === true) result.loading = true;
   return result;
 }
 
@@ -1295,6 +1298,7 @@ export function createClickyBrain(deps: {
       ...(answer.overlays ? { overlays: answer.overlays } : {}),
       ...(proposal ? { proposal } : {}),
       ...(answer.done ? { done: true } : {}),
+      ...(answer.loading ? { loading: true } : {}),
     };
   }
 }

@@ -105,6 +105,11 @@ export type ClickyEvent =
       proposal?: ClickyRatedAction;
       /** The task is finished. */
       done?: boolean;
+      /**
+       * The page was still loading when it looked (blank, a spinner): the server looks again in a
+       * moment rather than answer with a step nobody can do ("wait"). Ignored here.
+       */
+      loading?: boolean;
     }
   | { type: "brain.failed"; thinkId: string; detail?: string }
   | {

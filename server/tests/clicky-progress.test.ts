@@ -82,6 +82,7 @@ function harness(
       snapshotId?: number,
     ) => Promise<ElementRect>;
     released?: string[];
+    think?: ClickyBrain["think"];
   } = {},
 ) {
   const store = createInMemoryClickyStore();
@@ -91,6 +92,7 @@ function harness(
   const elementsCalls: string[] = [];
   const brain: ClickyBrain = {
     async think(input) {
+      if (options.think) return options.think(input);
       return {
         type: "brain.reply",
         thinkId: input.thinkId,
@@ -146,6 +148,7 @@ function harness(
       extendMs: 100,
       typingSettleMs: 40,
       scrollSettleMs: 40,
+      loadingRetryMs: 10,
       settleFloorMs: 5,
     },
     ...(options.checks ? { checks: options.checks } : {}),
@@ -729,5 +732,64 @@ describe("who is watching, and whether the Bot is at work", () => {
     expect(presence.botActive("user-1", "bot-1")).toBe(true);
     now += 2_000;
     expect(presence.botActive("user-1", "bot-1")).toBe(false);
+  });
+});
+
+describe("a look at a page still loading", () => {
+  test("is made again once the page settles, and only its answer is shown", async () => {
+    // Live, on dilosi.services.gov.gr: "Wait for page load", a step nobody could do.
+    let asked = 0;
+    const { service, load } = harness({
+      think: async (input) => {
+        asked += 1;
+        return asked < 3
+          ? {
+              type: "brain.reply",
+              thinkId: input.thinkId,
+              say: "The page is still loading.",
+              loading: true,
+            }
+          : {
+              type: "brain.reply",
+              thinkId: input.thinkId,
+              say: "Press Continue.",
+              plan: {
+                goal: "Issue a declaration",
+                steps: [{ title: "Press Continue", overlays: [] }],
+              },
+            };
+      },
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "ask", text: "Θέλω να εκδώσω υπεύθυνη δήλωση" },
+    });
+    await until(async () => (await load())?.state === "guiding");
+    expect(asked).toBe(3);
+    const session = await load();
+    expect(session.reply?.text).toBe("Press Continue.");
+    expect(session.walkthrough?.steps[0]?.title).toBe("Press Continue");
+  });
+
+  test("gives up looking again after a few tries, and says what it saw", async () => {
+    let asked = 0;
+    const { service, load } = harness({
+      think: async (input) => {
+        asked += 1;
+        return {
+          type: "brain.reply",
+          thinkId: input.thinkId,
+          say: "The page is still loading.",
+          loading: true,
+        };
+      },
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "ask", text: "what now?" },
+    });
+    await until(async () => (await load())?.state !== "thinking");
+    expect(asked).toBe(4);
+    expect((await load()).reply?.text).toBe("The page is still loading.");
   });
 });
