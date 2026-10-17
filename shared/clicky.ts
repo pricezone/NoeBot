@@ -91,6 +91,11 @@ export type ClickyStep = {
    * starts it, and the look after the typing, Enter or the page changing says when it is done.
    */
   typing?: boolean;
+  /**
+   * The step is done by scrolling: it is about the page, not a control, so its pointer is never put
+   * on whatever control is nearest, when it is planned or when a look places it again.
+   */
+  scroll?: boolean;
 };
 
 /** A task broken into steps. Progress is kept, so a walkthrough resumes where it was. */

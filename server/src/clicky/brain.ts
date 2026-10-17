@@ -554,7 +554,7 @@ export function parseBrainAnswer(
       .map(asRecord)
       .filter((step): step is Record<string, unknown> => Boolean(step))
       .slice(0, CLICKY_STEP_LIMIT)
-      .flatMap((step) => {
+      .flatMap((step): ClickyPlan["steps"] => {
         const title = stringOf(step.title ?? step.say, 200);
         if (!title) return [];
         const detail = stringOf(step.detail, 500);
@@ -569,16 +569,8 @@ export function parseBrainAnswer(
             {
               title,
               ...(detail ? { detail } : {}),
-              overlays: at
-                ? [
-                    {
-                      kind: "pointer" as const,
-                      id: context.newId(),
-                      at,
-                      approximate: true,
-                    },
-                  ]
-                : [],
+              overlays: at ? guessedPointer(at, context.newId) : [],
+              scroll: true,
             },
           ];
         }
@@ -912,9 +904,20 @@ export function buildCheckPrompt(input: {
 }
 
 /** The model's answer to a look after a step. Throws when it is not a JSON object. */
+/** A pointer at a spot that is not a control: where to scroll, marked as a guess, with no box. */
+function guessedPointer(at: ClickyPoint, newId: () => string): ClickyOverlay[] {
+  return [{ kind: "pointer", id: newId(), at, approximate: true }];
+}
+
 export function parseCheckAnswer(
   raw: string,
-  context: { placed: readonly PlacedElement[]; newId: () => string },
+  context: {
+    placed: readonly PlacedElement[];
+    newId: () => string;
+    /** The walkthrough's steps and the one looked at, to know which step the point is for. */
+    steps?: readonly { scroll?: boolean }[];
+    index?: number;
+  },
 ): BrainCheck {
   const answer = jsonObjectIn(raw);
   const result: BrainCheck = { stepDone: answer.stepDone === true };
@@ -922,7 +925,17 @@ export function parseCheckAnswer(
   if (result.stepDone && Number.isInteger(many) && many > 1)
     result.stepsDone = many;
   const point = asRecord(answer.point);
-  if (point) {
+  // The point is for the first step not done yet; a scroll step's is never put on a control.
+  const pointedStep =
+    context.steps && context.index !== undefined && context.index >= 0
+      ? context.steps[
+          context.index + (result.stepDone ? (result.stepsDone ?? 1) : 0)
+        ]
+      : undefined;
+  if (point && pointedStep?.scroll) {
+    const at = readPoint(point.point);
+    if (at) result.overlays = guessedPointer(at, context.newId);
+  } else if (point) {
     const target = targetIn(point, context.placed);
     if (target)
       result.overlays = overlaysFor(
@@ -1162,7 +1175,17 @@ export function createClickyBrain(deps: {
           signal,
         });
         try {
-          return parseCheckAnswer(raw, { placed, newId: deps.newId });
+          const steps = session.walkthrough?.steps;
+          return parseCheckAnswer(raw, {
+            placed,
+            newId: deps.newId,
+            ...(steps
+              ? {
+                  steps,
+                  index: steps.findIndex((step) => step.id === input.stepId),
+                }
+              : {}),
+          });
         } catch (error) {
           throw staged("parse", error);
         }

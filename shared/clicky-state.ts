@@ -79,6 +79,7 @@ export type ClickyPlan = {
     overlays: ClickyOverlay[];
     targetRef?: string;
     typing?: boolean;
+    scroll?: boolean;
   }[];
 };
 
@@ -513,6 +514,7 @@ function buildWalkthrough(
     overlays: step.overlays,
     ...(step.targetRef ? { targetRef: step.targetRef } : {}),
     ...(step.typing ? { typing: true } : {}),
+    ...(step.scroll ? { scroll: true } : {}),
   }));
   return {
     id: context.newId(),

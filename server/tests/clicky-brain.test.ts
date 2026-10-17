@@ -132,6 +132,34 @@ describe("parseBrainAnswer", () => {
     ]);
   });
 
+  test("a look placing a scroll step again never puts its pointer on a control either", () => {
+    const steps = [
+      { title: "Type the text" },
+      { title: "Scroll down", scroll: true },
+    ];
+    const check = parseCheckAnswer(
+      JSON.stringify({ stepDone: true, point: { point: [220, 120] } }),
+      { placed, newId, steps, index: 0 },
+    );
+    expect(rounded(check.overlays)).toEqual([
+      {
+        kind: "pointer",
+        id: expect.any(String),
+        at: { x: 0.22, y: 0.12 },
+        approximate: true,
+      },
+    ]);
+    // The same point for a click step snaps onto the button beside it.
+    const click = parseCheckAnswer(
+      JSON.stringify({ stepDone: false, point: { point: [220, 120] } }),
+      { placed, newId, steps, index: 0 },
+    );
+    expect(click.overlays?.map((overlay) => overlay.kind)).toEqual([
+      "highlight",
+      "pointer",
+    ]);
+  });
+
   test("a check may say several steps are done at once; one is the least a done step counts", () => {
     const check = (answer: Record<string, unknown>) =>
       parseCheckAnswer(JSON.stringify(answer), { placed, newId });
@@ -197,6 +225,7 @@ describe("parseBrainAnswer", () => {
       context,
     );
     const [scroll, press] = answer.plan?.steps ?? [];
+    expect(scroll?.scroll).toBe(true);
     expect(scroll?.targetRef).toBeUndefined();
     expect(rounded(scroll?.overlays)).toEqual([
       {
