@@ -16,7 +16,7 @@ import { Route as SignRoute } from "@/routes/sign";
 /**
  * A link into the app survives signing in: `_authed` sends somebody who is not signed in to
  * `/sign?redirect=<where they were going>`, `/sign` keeps only an in-app path, a signed-in visit
- * goes straight there, and the platform button goes through `/api/noebot/open?to=<it>`.
+ * goes straight there, and the platform button goes through `/api/noebot/share?to=<it>`.
  */
 
 const originalFetch = globalThis.fetch;
@@ -176,7 +176,7 @@ test("the platform button carries the page through the platform's open route", a
     name: "Continue with HyperNoesis",
   });
   expect(button.getAttribute("href")).toBe(
-    `https://www.hypernoesis.ai/api/noebot/open?to=${encodeURIComponent("/marketplace?tab=apps&app=slack")}`,
+    `https://www.hypernoesis.ai/api/noebot/share?to=${encodeURIComponent("/marketplace?tab=apps&app=slack")}`,
   );
   cleanup();
 

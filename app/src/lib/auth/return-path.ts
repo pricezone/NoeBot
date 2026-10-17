@@ -3,7 +3,7 @@
  *
  * `_authed` sends somebody who is not signed in to `/sign?redirect=<the path and search they
  * asked for>`; every way in from there carries it: the provider buttons as their callback, the
- * platform handoff through `/api/noebot/open?to=`, and an already signed-in visit to `/sign` as
+ * platform handoff through `/api/noebot/share?to=`, and an already signed-in visit to `/sign` as
  * a redirect. Only an in-app path is ever honoured — a single leading `/`, no backslash, no
  * control character — so the parameter cannot send anybody to another site; the server's handoff
  * endpoint checks it again (`localRedirect`).

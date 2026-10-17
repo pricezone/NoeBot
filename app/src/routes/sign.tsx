@@ -51,14 +51,15 @@ export const Route = createFileRoute("/sign")({
 
 /**
  * Where the platform button goes: its return address, or — when somebody arrived on their way to a
- * page — the platform's `/api/noebot/open?to=<that page>`, which signs them in here and lands them
- * on it (the handoff endpoint takes `redirect`).
+ * page — the platform's `/api/noebot/share?to=<that page>`, which signs them in on the platform
+ * first if they are not, then hands them to their own instance on that page (the handoff endpoint
+ * takes `redirect`). Not `/open`: that one refuses anybody not yet signed in on the platform.
  */
 function handoffHref(returnUrl: string, back: string | undefined): string {
   if (!back) return returnUrl;
   try {
     const { origin } = new URL(returnUrl);
-    return `${origin}/api/noebot/open?to=${encodeURIComponent(back)}`;
+    return `${origin}/api/noebot/share?to=${encodeURIComponent(back)}`;
   } catch {
     return returnUrl;
   }
