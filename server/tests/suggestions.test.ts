@@ -496,6 +496,29 @@ describe("finding Marketplace items", () => {
     expect(analysis[0]?.name).not.toBe("Superpowers");
   });
 
+  test("ads, in any of the words people use for them, find the Google Ads app", async () => {
+    const googleAds = {
+      id: "composio-google-ads",
+      title: "Google Ads",
+      summary: "Connect your Google Ads account.",
+      provenance: "composio",
+      authScheme: "OAUTH2",
+      offeredToAllBots: true,
+    };
+    for (const query of [
+      "run ad campaigns",
+      "advertising",
+      "διαφημίσεις στο google",
+    ]) {
+      const items = await findMarketplaceItems(
+        query,
+        sources({ plugins: [], servers: async () => [googleAds] }),
+        MEMBER,
+      );
+      expect(items.map((item) => item.name)).toContain("Google Ads");
+    }
+  });
+
   test("writing code finds Superpowers in the real index", async () => {
     const items = await findMarketplaceItems(
       "writing code",
