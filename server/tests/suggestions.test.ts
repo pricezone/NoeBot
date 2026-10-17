@@ -474,6 +474,28 @@ describe("finding Marketplace items", () => {
     expect(kept).toContain(brokered.id);
   });
 
+  test("code work in a vendor's words still finds the general library first", async () => {
+    for (const query of [
+      "python data analysis debugging",
+      "debugging python scripts",
+      "προγραμματισμός και αποσφαλμάτωση κώδικα",
+    ]) {
+      const items = await findMarketplaceItems(
+        query,
+        sources({ plugins: listablePlugins() }),
+        MEMBER,
+      );
+      expect(items[0]?.name).toBe("Superpowers");
+    }
+    // Not code work: the library is not pushed on it.
+    const analysis = await findMarketplaceItems(
+      "quarterly sales data analysis",
+      sources({ plugins: listablePlugins() }),
+      MEMBER,
+    );
+    expect(analysis[0]?.name).not.toBe("Superpowers");
+  });
+
   test("writing code finds Superpowers in the real index", async () => {
     const items = await findMarketplaceItems(
       "writing code",

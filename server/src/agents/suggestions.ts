@@ -591,6 +591,48 @@ function breadth(
   return Math.min(SKILL_BONUS_CEILING, about * SKILL_BONUS);
 }
 
+/**
+ * General-purpose plugins for a whole kind of work, and the words that ask for that work.
+ *
+ * Vendor plugins describe themselves in the words a task is written in ("Python", "data",
+ * "debugging") and outranked the one library that is about the work itself: "Python data analysis
+ * and debugging" found AWS, Snowflake and Hugging Face, and not Superpowers. When the words ask for
+ * this kind of work, the library comes first. Ids are the vendored index's.
+ */
+const GENERAL_PURPOSE: readonly {
+  pluginId: string;
+  asks: readonly string[];
+}[] = [
+  {
+    // Superpowers: test-driven development, debugging, planning and review for code work.
+    pluginId: "684",
+    asks: tokensOf(
+      [
+        "code coding coder program programming programmer developer development software",
+        "debug debugging bug bugs refactor refactoring test tests testing",
+        "script scripts python typescript javascript java rust golang react node",
+        "repository github pull request",
+        "κώδικας κώδικα προγραμματισμός προγραμματιστής αποσφαλμάτωση σφάλματα",
+      ].join(" "),
+    ),
+  },
+];
+
+/** Enough to put the library first when the words ask for its kind of work. */
+const GENERAL_BONUS = 0.5;
+
+function generalPurpose(concepts: readonly string[], item: MarketplaceItem) {
+  if (item.target.kind !== "plugin") return 0;
+  const pluginId = item.target.pluginId;
+  const entry = GENERAL_PURPOSE.find((each) => each.pluginId === pluginId);
+  if (!entry) return 0;
+  return concepts.some((concept) =>
+    entry.asks.some((token) => sameToken(concept, token)),
+  )
+    ? GENERAL_BONUS
+    : 0;
+}
+
 /** The parts of the stores a Marketplace listing is read from. Narrow, so a test can hand them in. */
 export type MarketplaceSources = {
   /** The Marketplace plugins this deployment lists (`listablePlugins()`). */
@@ -811,7 +853,8 @@ export async function findMarketplaceItems(
       score: Math.min(
         1,
         scoreFields(concepts, candidate.fields) +
-          breadth(concepts, candidate.skills),
+          breadth(concepts, candidate.skills) +
+          generalPurpose(concepts, candidate.item),
       ),
     }))
     .filter((entry) => entry.score >= MIN_SCORE)
