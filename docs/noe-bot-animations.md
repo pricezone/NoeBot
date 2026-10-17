@@ -41,7 +41,7 @@ www deploy form's mascot follows the pointer anywhere on the page. Touch and red
 
 ## Chat indicator
 
-`ChatActivityIndicator` sits under the last message for the whole turn, like Grok's status row: the
+`ChatActivityIndicator` sits under the last message for the whole turn as a status row: the
 Bot's own character in its colour, a 32 px box (2 px per cell), inline with the label, with nothing
 behind it. The animation is the director's, in HD with its props; the label starts 24 px after the
 box, the room the props on the right need. `useAvatarDirector` turns

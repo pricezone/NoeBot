@@ -15,7 +15,7 @@ import type { MarketplacePlugin } from "@/lib/plugins/queries";
 
 /**
  * How the Apps tab lays the Marketplace index out and what each row's button says, decided
- * without a DOM: Grok Bot's sections in Cursor's order, a preview per category, and a row that
+ * without a DOM: the sections in Cursor's order, a preview per category, and a row that
  * says what is left for the person to do.
  */
 

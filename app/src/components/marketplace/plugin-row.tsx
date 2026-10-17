@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
  * Apps rows and the Composio directory read as one list rather than two lists that happen to share
  * a modal.
  *
- * With `onOpen`, the tile and the text become a button that opens the row's own page (Grok Bot's
- * rows do), and the row tints on hover to say so. The action stays beside the button, never inside
+ * With `onOpen`, the tile and the text become a button that opens the row's own page,
+ * and the row tints on hover to say so. The action stays beside the button, never inside
  * it: a button in a button is not markup, and Add must not also open the page.
  */
 export function PluginRow({

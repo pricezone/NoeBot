@@ -108,7 +108,7 @@ export function ffmpegGrabArguments(
     "-video_size",
     `${size.width}x${size.height}`,
     // The display's own pointer left out of the picture. Drawn in, a person watching saw two arrows,
-    // that one and their own, and their own is the only one they should see, as in Grok; the Bot
+    // that one and their own, and their own is the only one they should see; the Bot
     // never needs the system pointer in a screenshot. A pointer moving over a still screen also no
     // longer changes the frame, so the dedupe below sends nothing for it.
     "-draw_mouse",

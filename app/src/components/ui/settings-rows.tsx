@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
  * whole popup `bg-card`, and a `bg-card` card with no border on it drew nothing: the rounded shape
  * never showed, and a one-row card — or a stat card with no hairline — had nothing marking it at
  * all. `bg-muted` is the next step up in both themes (oklch 0.27 on 0.21 in dark, a light grey on
- * white in light), the same relation Grok's settings have between its #1c1c1e surface and the
+ * white in light), one step between the surface and the
  * cards on it. A row's hover is therefore a tint over the card rather than `bg-muted/50`, which on
  * this fill is the fill.
  */

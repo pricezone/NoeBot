@@ -165,7 +165,7 @@ export function egressLabel(
  * ---------------------------------------------------------------------------------------------------
  * Network policy: where a Bot's computer may connect.
  *
- * The same four modes Grok Bot's Network Controls offer (no policy, allow all, defaults plus team
+ * Four modes (no policy, allow all, defaults plus team
  * allowlist, team allowlist only), plus `deny_all`, which is what a Bot gets when its owner's "Cloud
  * network access" capability is off. The rule engine below is pure and is also what the API server
  * imports to refuse a navigation before it reaches the computer, so the two ends cannot disagree.

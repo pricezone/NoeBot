@@ -134,8 +134,8 @@ function ModalShell({
           </nav>
         )}
         {/*
-         * With a nav, the sections sit on the page colour beside a raised nav column, the way Grok
-         * Bot's settings do: black in the dark theme, so the section cards read as cards. Without
+         * With a nav, the sections sit on the page colour beside a raised nav column:
+         * black in the dark theme, so the section cards read as cards. Without
          * one (the Marketplace) the whole modal is the one raised surface.
          */}
         <div

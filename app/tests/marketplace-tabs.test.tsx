@@ -904,7 +904,7 @@ test("the Marketplace's plugins are listed by category, four at a time, with Vie
     });
   });
   expect(view.getByRole("region", { name: "Support" })).toBeTruthy();
-  // Grok Bot's link out to its Bot templates is not drawn: ours are the Agents tab.
+  // No link out to separate Bot templates is drawn: ours are the Agents tab.
   expect(view.queryByRole("link", { name: /Bot templates/ })).toBeNull();
 });
 

@@ -151,10 +151,10 @@ export type PackageAgentFile = {
 };
 
 /**
- * A Bot template: a Bot a person starts from, as Grok Bot's marketplace offers them.
+ * A Bot template: a Bot a person starts from, offered on the Marketplace's Agents tab.
  *
- * The same fields Grok Bot's templates carry — instructions, skills, the routines it runs and the
- * apps it uses — authored here, in `templates.yaml`, and shipped with the package. Adding one
+ * Its fields — instructions, skills, the routines it runs and the
+ * apps it uses — are authored here, in `templates.yaml`, and shipped with the package. Adding one
  * creates a private Bot for the person with the instructions as its prompt, the avatar chosen
  * here and the package skills granted; the routines and the apps are told, not set up, because a
  * Bot schedules its own routines and a person connects their own apps.

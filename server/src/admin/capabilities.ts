@@ -9,8 +9,8 @@
  *
  * - The organization row is the baseline (OpenAI: "Workspace default > Workspace capabilities").
  * - A role row replaces the baseline for everybody holding that role (OpenAI custom roles).
- * - A group row can only widen (Grok Bot: "Group settings only widen: a group can grant its members
- *   more than the team allows, never less"). `true` grants; `false` is recorded and changes nothing.
+ * - A group row can only widen: a group can grant its members more than the team allows, never
+ *   less. `true` grants; `false` is recorded and changes nothing.
  * - No row anywhere means the built-in default below, which keeps every deployment that has never
  *   opened this screen working exactly as it did.
  */

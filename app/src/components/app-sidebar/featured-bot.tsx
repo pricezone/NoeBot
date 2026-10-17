@@ -31,7 +31,7 @@ export function featuredAgent(
 /**
  * The Bot that is this person's own, drawn large under the sidebar's header.
  *
- * Grok Bot keeps its one Bot above the roster, where it reads as the person's coworker rather
+ * The person's one Bot sits above the roster, where it reads as their coworker rather
  * than as one conversation among many; the rows beneath are the conversations. The dot is the
  * same question the roster asks per row, asked of the Bot: it lights while the Bot's newest
  * conversation is mid-turn or while the Bot has something waiting on the person (a question, an

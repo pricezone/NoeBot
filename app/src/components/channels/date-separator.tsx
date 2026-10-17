@@ -55,8 +55,7 @@ function readStamp(value: unknown): Date | null {
  *
  * A row with no stamp neither gets one nor resets the comparison: a tool line between two messages
  * sent a day apart is not a reason to lose the boundary between them. The first stamped row always
- * gets one, so a conversation that spans a single day still says which day that was — which is
- * what the Grok transcript does under its header.
+ * gets one, so a conversation that spans a single day still says which day that was.
  */
 export function daySeparators(
   rows: readonly { id: string; at: Date | null }[],

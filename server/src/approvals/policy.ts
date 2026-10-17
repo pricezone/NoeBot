@@ -13,12 +13,11 @@ import type {
  * Custom rules, built-in safety requirements and auto-review: the part of the gate that decides
  * what happens to an action, kept pure so every layer can be driven without a database or a model.
  *
- * Modelled on the two products this has to match. Dot's custom rules give each action one of four
- * behaviours, and some sensitive tasks, changing a password or moving money, always stay with the
- * person whatever the rules say. Grok Bot's auto-review checks risky actions before they run, lets
- * an "allow automatically" rule proceed only when the reviewer finds no other reason to stop, lets
- * "ask first" win any conflict, shows team rules as locked rows, and does not review memory writes
- * or settings changes.
+ * Custom rules give each action one of four behaviours, as Dot's do, and some sensitive tasks,
+ * changing a password or moving money, always stay with the person whatever the rules say.
+ * Auto-review checks risky actions before they run, lets an "allow automatically" rule proceed
+ * only when the reviewer finds no other reason to stop, lets "ask first" win any conflict, shows
+ * team rules as locked rows, and does not review memory writes or settings changes.
  */
 
 const RANK: Record<RuleBehaviour, number> = {

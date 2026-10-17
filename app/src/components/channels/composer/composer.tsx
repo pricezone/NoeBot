@@ -1466,7 +1466,7 @@ export function Composer({
   const callAction =
     draft.isEmpty && draft.attachments.length === 0 ? voiceCall : undefined;
   /**
-   * One round button, drawn as Grok draws it: a filled circle in the foreground colour, so on the
+   * One round button: a filled circle in the foreground colour, so on the
    * dark theme it is the one white disc in the pill. Stop is the exception and is red, because it
    * is the one press here that ends something rather than starting it.
    */
@@ -1626,7 +1626,7 @@ export function Composer({
              * the editor, because the editor scrolls internally at COMPACT_MAX_HEIGHT_PX and
              * padding inside that box would scroll away with the text.
              *
-             * A hairline and a soft shadow at rest, as Grok draws it: on the light theme's white
+             * A hairline and a soft shadow at rest: on the light theme's white
              * page the box is otherwise the same colour as everything around it. A soft ring
              * while focused keeps a keyboard user able to see which box has the caret.
              */

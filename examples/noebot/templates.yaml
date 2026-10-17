@@ -1,4 +1,4 @@
-# Bot templates: the Bots a person starts from, as Grok Bot's marketplace offers them.
+# Bot templates: the Bots a person starts from, offered on the Marketplace's Agents tab.
 #
 # A template is a Bot described in full — what it is for, how it should work, the playbooks it
 # runs, the jobs it runs on its own and the apps it uses — and "Add" makes a private copy for the

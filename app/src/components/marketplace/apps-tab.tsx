@@ -58,7 +58,7 @@ import { cn } from "@/lib/utils";
  */
 const BETA_KEYS = new Set(["google-drive"]);
 
-/** How many category pills show before the rest fold into More, as Grok Bot's row does. */
+/** How many category pills show before the rest fold into More. */
 const PILLS_BEFORE_MORE = 5;
 
 function markFor(app: ConnectableApp): React.ReactNode {
@@ -81,7 +81,7 @@ function titleFor(app: ConnectableApp, title: string): React.ReactNode {
 }
 
 /**
- * Every app the Marketplace offers, the way Grok Bot's own apps popup lays them out: what is
+ * Every app the Marketplace offers: what is
  * connected first, then one section per category with a few rows each and a "View all".
  *
  * TWO LISTS, ONE LAYOUT. The catalogue's own apps — Drive, Notion, Parallel, Routines — and the
@@ -279,7 +279,7 @@ export function AppsTab({
   return (
     <div className="flex flex-col">
       {/*
-       * The category pills, as Grok Bot's row under its search: All, the biggest categories, and
+       * The category pills under the search: All, the biggest categories, and
        * the rest behind More. The active one is `?category`, the same address "View all" sets, so
        * the pill and the link are two ways to the same place and All is the way back from either.
        */}

@@ -22,7 +22,7 @@ import {
 import { reportComputerActivity } from "@/lib/copilot/computer-activity";
 
 /**
- * A Bot's computer view sleeps when nobody is using it, the way Grok's computer does.
+ * A Bot's computer view sleeps when nobody is using it.
  *
  * The bot panel used to ask for a screenshot every second for as long as it was open, and on the
  * shared computer every screenshot touches the browser, so an open panel kept a browser alive for

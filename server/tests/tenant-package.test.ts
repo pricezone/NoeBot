@@ -1082,7 +1082,7 @@ describe("skills a package ships", () => {
     ).toEqual([]);
   });
 
-  test("the Noë Bot package ships the skills behind Grok Bot's jobs, each a valid entry", async () => {
+  test("the Noë Bot package ships the skills for everyday jobs, each a valid entry", async () => {
     const skillsYaml = await Bun.file(
       new URL("../../examples/noebot/skills.yaml", import.meta.url),
     ).text();

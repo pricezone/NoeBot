@@ -83,7 +83,7 @@ export function handoffTool(options: {
   maxPerRun: number;
   /**
    * The person's approval gate. Delegation is an action like any other: custom rules, auto-review
-   * and "ask before" apply to handing work to another Bot, as Grok Bot reviews subagent launches.
+   * and "ask before" apply to handing work to another Bot, as to any other action.
    */
   approvalGate?: ApprovalGate;
   privateShare?: PrivateShareGate;

@@ -4,9 +4,9 @@ import type { PageFrameStore } from "./page-frames";
 /**
  * Showing the person what the Bot has on screen, as a picture in the conversation.
  *
- * Grok Bot posts a screenshot of a form's preview before it asks whether to submit it, so the person
- * decides on the page itself rather than on the Bot's retelling of it. A Bot here had no way to do
- * that: told to "show the preview (a screenshot)", it rebuilt the page as a generated interface
+ * A Bot should post a screenshot of a form's preview before it asks whether to submit it, so the
+ * person decides on the page itself rather than on the Bot's retelling of it. A Bot here had no way
+ * to do that: told to "show the preview (a screenshot)", it rebuilt the page as a generated interface
  * instead, which drew raw JSON and a loading skeleton in the gov.gr run (O19).
  *
  * The picture is kept as the tool call's page frame, the same row a navigation keeps, so the

@@ -32,7 +32,7 @@ import { useShareLink } from "@/lib/share-link";
  * the right, the description, then how it should work, the playbooks it runs, the jobs that run
  * on their own, the apps it uses, and a few facts in rows.
  *
- * It used to be a dialog over the tab. A page is what Grok Bot opens, and it is what the Apps tab
+ * It used to be a dialog over the tab. A page is what the Apps tab
  * already did for a plugin; a person moving between the two tabs should not meet a different
  * answer to the same click. The address is the same as before (`?tab=agents&template=<id>`), so a
  * shared link keeps working and Back returns to the list with the term and the category kept.
