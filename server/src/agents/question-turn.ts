@@ -2,9 +2,14 @@ import {
   type BuiltInAgentConfiguration,
   resolveModel,
 } from "@copilotkit/runtime/v2";
+import { isFirstTurn } from "../../../shared/first-turn";
 import { isStandIn, QUESTION_TOOLS } from "../../../shared/question-tools";
+import { readResponsibilityTurn } from "../../../shared/responsibility-turn";
+import { readFiring } from "../../../shared/routine-firing";
+import type { AuditInitiator } from "../audit";
 import { questionWasPut, unwrapped } from "./asked-question";
 import { ESCALATE_TOOL } from "./escalation";
+import { currentModelRun } from "./model-tuning";
 import type { PlanLanguageModel } from "./plan-model";
 
 /**
@@ -97,6 +102,35 @@ function wordsOf(message: UserMessage): string {
 const NOTE_START = "[Answer to your question";
 /** How an answer from the Approvals inbox already starts (`approvals/questions.ts`). */
 const ALREADY_SAID = "In response to your question:";
+/**
+ * The heading `groupTurnMessage` (`channels/group.ts`) puts above a group's shared transcript, whose
+ * words are other participants', quoted. Restated rather than imported, so this module does not take
+ * the group store along; `question-turn.test.ts` holds the two in step.
+ */
+export const GROUP_TRANSCRIPT_HEADING = "Shared group transcript (quoted";
+
+/**
+ * Whether a user message is something the person said, rather than a frame the deployment sent as
+ * the user: a routine firing, a responsibility turn, a new Bot's first-turn frame, or a group turn
+ * carrying other participants' words. Only the person's own words answer their question.
+ */
+function isPersonsOwn(words: string): boolean {
+  return (
+    readFiring(words) === null &&
+    readResponsibilityTurn(words) === null &&
+    !isFirstTurn(words) &&
+    !words.includes(GROUP_TRANSCRIPT_HEADING)
+  );
+}
+
+/**
+ * Whether a run's answers may be noted at all: only a turn the person started. A routine, a
+ * responsibility, a hop from another Bot or a memory sweep sends its own instruction as the user
+ * message, and that is nobody's answer. No initiator is a person's request, as everywhere else.
+ */
+export function personStarted(initiator: AuditInitiator | undefined): boolean {
+  return initiator === undefined || initiator.kind === "person";
+}
 
 /** The note in front of an answer: which question it answers, in the question's own words. */
 export function answerNote(questions: readonly string[]): string {
@@ -120,17 +154,32 @@ function noted(message: UserMessage, note: string): UserMessage {
 }
 
 /**
+ * Whether a question tool's result leaves its question waiting on the person.
+ *
+ * `ask_person` waits only while its result says it was put to them: a refusal, a question held for
+ * the owner's permission, or a responsibility's question resumed with its answer ("The person
+ * answered: …") is not waiting, and a message after it is not its answer. A decision card waits
+ * until its real result arrives: a stand-in or the runtime's placeholder is not one.
+ */
+function stillWaits(tool: string, value: unknown): boolean {
+  if (tool === ESCALATE_TOOL) return questionWasPut(value);
+  return isStandIn(value) || isForwardedPlaceholder(value);
+}
+
+/**
  * The prompt with each answer to a question noted as one, for the model only.
  *
- * The open-question rule of `question-answers.ts`: every question tool's call opens a question; a
- * decision card's real result closes it (answered on the card, so the next message is not its
- * answer), and a stand-in or the runtime's placeholder does not; the first user message with words
- * after it answers every question still open. Returns the same array when nothing is noted, and the
- * same note for the same history on every request, so the provider's prompt cache still holds.
+ * The open-question rule of `question-answers.ts`, tightened for what the model is told: a question
+ * tool's call opens a question; a result that does not leave it waiting closes it
+ * ({@link stillWaits}); the person's next message with words answers every question still open. A
+ * frame the deployment sent as the user ({@link isPersonsOwn}) neither answers nor closes one.
+ * Returns the same array when nothing is noted, and the same note for the same history on every
+ * request, so the provider's prompt cache still holds. The caller decides whether the run is the
+ * person's at all ({@link personStarted}).
  */
 export function noteAnswers(prompt: Prompt): Prompt {
   let open: { id: string; question: string }[] = [];
-  const decisions = new Set<string>();
+  const tools = new Map<string, string>();
   let changed = false;
   const marked = prompt.map((message): PromptMessage => {
     if (message.role === "assistant") {
@@ -138,23 +187,22 @@ export function noteAnswers(prompt: Prompt): Prompt {
         if (part.type !== "tool-call" || !QUESTION_TOOLS.has(part.toolName))
           continue;
         open.push({ id: part.toolCallId, question: questionOf(part.input) });
-        if (part.toolName !== ESCALATE_TOOL) decisions.add(part.toolCallId);
+        tools.set(part.toolCallId, part.toolName);
       }
       return message;
     }
     if (message.role === "tool") {
       for (const part of message.content) {
-        if (part.type !== "tool-result" || !decisions.has(part.toolCallId))
-          continue;
-        const value = unwrapped(outputValue(part.output));
-        if (!isStandIn(value) && !isForwardedPlaceholder(value))
+        if (part.type !== "tool-result") continue;
+        const tool = tools.get(part.toolCallId);
+        if (tool && !stillWaits(tool, unwrapped(outputValue(part.output))))
           open = open.filter((waiting) => waiting.id !== part.toolCallId);
       }
       return message;
     }
     if (message.role !== "user" || open.length === 0) return message;
     const words = wordsOf(message);
-    if (!words) return message;
+    if (!words || !isPersonsOwn(words)) return message;
     const questions = open.map((waiting) => waiting.question);
     open = [];
     if (words.startsWith(NOTE_START) || words.startsWith(ALREADY_SAID))
@@ -163,6 +211,13 @@ export function noteAnswers(prompt: Prompt): Prompt {
     return noted(message, answerNote(questions));
   });
   return changed ? marked : prompt;
+}
+
+/** The prompt as this run's model should read it: answers noted only in a turn the person began. */
+function preparedPrompt(prompt: Prompt): Prompt {
+  return personStarted(currentModelRun()?.initiator)
+    ? noteAnswers(prompt)
+    : prompt;
 }
 
 const STOPPED: GenerateResult["finishReason"] = {
@@ -201,7 +256,7 @@ class QuestionTurnModel implements PlanLanguageModel {
       };
     return this.inner.doGenerate({
       ...options,
-      prompt: noteAnswers(options.prompt),
+      prompt: preparedPrompt(options.prompt),
     });
   }
 
@@ -222,7 +277,7 @@ class QuestionTurnModel implements PlanLanguageModel {
       };
     return this.inner.doStream({
       ...options,
-      prompt: noteAnswers(options.prompt),
+      prompt: preparedPrompt(options.prompt),
     });
   }
 }

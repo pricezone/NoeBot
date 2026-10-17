@@ -4,6 +4,7 @@ import {
   type BuiltInAgentConfiguration,
   resolveModel,
 } from "@copilotkit/runtime/v2";
+import type { AuditInitiator } from "../audit";
 import { now, recordPhase } from "../run-timing";
 import type { PlanLanguageModel } from "./plan-model";
 
@@ -55,8 +56,16 @@ export function reasoningEffortFrom(
   );
 }
 
-/** The conversation a model call belongs to, set around a run's subscription. */
-export type ModelRun = { botId: string; threadId: string; runId: string };
+/**
+ * The conversation a model call belongs to, set around a run's subscription. `initiator` is what
+ * started the run, absent for a person's request (`question-turn.ts` notes answers only then).
+ */
+export type ModelRun = {
+  botId: string;
+  threadId: string;
+  runId: string;
+  initiator?: AuditInitiator;
+};
 const modelRuns = new AsyncLocalStorage<ModelRun>();
 export const withModelRun = <T>(run: ModelRun, work: () => T): T =>
   modelRuns.run(run, work);

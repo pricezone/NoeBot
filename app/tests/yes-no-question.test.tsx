@@ -123,6 +123,8 @@ describe("reading a question as yes-or-no", () => {
     "Είναι αυτό το σωστό αρχείο;",
     "Έχεις λογαριασμό;",
     "θελεις να συνεχισω;",
+    // "η" without its accent is the article, not "or".
+    "Είναι η αναφορά έτοιμη;",
   ])("%s", (question) => {
     expect(readsAsYesNo(question)).toBe(true);
   });
@@ -134,6 +136,18 @@ describe("reading a question as yes-or-no", () => {
     "Ναι, το έστειλα.",
     "Τι θέλεις να κάνω;",
     "Is it done.",
+    // A choice between things, which Yes or No does not answer.
+    "Do you want staging or production?",
+    "Should I use Postgres or MySQL?",
+    "Θέλεις PDF ή Word;",
+    // A polite request to be told something.
+    "Could you tell me your company name?",
+    "Can you share the link to the document?",
+    "Would you give me the order number?",
+    "Could you let me know when you are free?",
+    "Μπορείς να μου πεις το email σου;",
+    "Μπορείς να μου δώσεις τον αριθμό;",
+    "Πες μου, είναι έτοιμο;",
   ])("not %s", (question) => {
     expect(readsAsYesNo(question)).toBe(false);
   });

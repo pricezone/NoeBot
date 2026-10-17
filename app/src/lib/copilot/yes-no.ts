@@ -5,6 +5,10 @@
  * that opens the way a yes-or-no question opens and ends on a question mark still gets Yes and No to
  * pick from, so the person can answer with one tap. English by its first word; Greek by its opening
  * (accents and case aside) and its question mark, which is ";" in Greek.
+ *
+ * Not a choice between things ("Do you want staging or production?", "Θέλεις PDF ή Word;") nor a
+ * polite request for information ("Could you tell me your company name?"): they open the same way,
+ * and Yes or No answers neither.
  */
 
 const ENGLISH =
@@ -13,14 +17,26 @@ const ENGLISH =
 /** Greek openings, without accents: Θέλεις, Θέλετε, Να, Μπορώ, Μπορείς, Είναι, Έχεις. */
 const GREEK = ["θελεις", "θελετε", "να ", "μπορω", "μπορεις", "ειναι", "εχεις"];
 
+/**
+ * A choice between things: "or" in English, "ή" in Greek. The Greek one is matched with its accent,
+ * because without it "η" is the article ("Είναι η αναφορά έτοιμη;").
+ */
+const CHOICE = /\s(or|ή)\s/i;
+
+/** Asking to be told something, in English and (without accents) in Greek. */
+const TELL_ME =
+  /\b(tell me|tell us|share|give me|let me know)\b|(πες|πειτε|δωσε|δωστε) μου|μου (πεις|πειτε|δωσεις|δωσετε|στειλεις|στειλετε)/i;
+
 export function readsAsYesNo(question: string): boolean {
   const text = question.trim();
-  if (ENGLISH.test(text)) return true;
+  if (CHOICE.test(text)) return false;
   // NFD splits the accents off (and turns the Greek question mark into ";"), so they can be dropped.
   const plain = text
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .toLocaleLowerCase("el");
+  if (TELL_ME.test(plain)) return false;
+  if (ENGLISH.test(text)) return true;
   return (
     /[;?]$/.test(plain) && GREEK.some((opening) => plain.startsWith(opening))
   );

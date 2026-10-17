@@ -270,7 +270,11 @@ describe("a yes-or-no question", () => {
   test("the model is told to mark it, and that the call ends its turn", () => {
     const tool = escalationTool({ from: FROM, route: askTheirOwnPerson });
     expect(tool.description).toContain("yesNo: true");
-    expect(tool.description).toContain("The call ends your turn");
+    expect(tool.description).toContain("the call ends your turn");
+    // Results of tools called alongside it would be dropped with the rest of the turn.
+    expect(tool.description).toContain(
+      "Call it on its own, after any other tools have returned",
+    );
     expect(
       tool.parameters.safeParse({ question: "Ship it?", yesNo: true }),
     ).toMatchObject({ success: true, data: { yesNo: true } });
