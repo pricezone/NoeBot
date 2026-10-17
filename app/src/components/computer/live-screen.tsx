@@ -68,6 +68,22 @@ function isPasteShortcut(event: KeyboardEvent): boolean {
 }
 
 /**
+ * How long the paste shortcut waits for the browser's own paste event before reading the clipboard
+ * itself. Safari, and the app's WKWebView, may fire none over a screen that is not a text field.
+ */
+const PASTE_EVENT_WAIT_MS = 150;
+
+/** The clipboard's text, where the browser lets this page read it; empty where it does not. */
+async function readClipboardText(): Promise<string> {
+  try {
+    return (await navigator.clipboard?.readText?.()) ?? "";
+  } catch {
+    // Refused, or not offered here. Nothing to paste, and nothing to say: the person sees no paste.
+    return "";
+  }
+}
+
+/**
  * Whether a keystroke is aimed at a field on this page rather than at the Bot's browser.
  *
  * The canvas cannot hold focus, so a keystroke meant for the remote page arrives targeted at the
@@ -133,8 +149,11 @@ export function LiveScreen({
   clickyRef.current = clicky;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
-  /** Keydowns handled locally whose matching keyup must not leak to the remote browser. */
-  const localKeyUps = useRef(new Set<string>());
+  /**
+   * Keydowns handled locally whose matching keyup must not leak to the remote browser, by code, each
+   * with whether Command was held when it went down (see the keyup handler).
+   */
+  const localKeyUps = useRef(new Map<string, boolean>());
   /** The size of the frames Chrome is sending, which is what input coordinates are relative to. */
   const frameSize = useRef<{ width: number; height: number } | null>(null);
   /** Latest validated encoded frame. Hidden tabs keep only this, never decoded bitmaps. */
@@ -427,6 +446,28 @@ export function LiveScreen({
    */
   useEffect(() => {
     if (!driving || !connected) return;
+    /** The paste shortcut's wait for its paste event; `delivered` once its text has been sent. */
+    let pasteWait: {
+      timer: ReturnType<typeof setTimeout>;
+      delivered: boolean;
+    } | null = null;
+    const sendPaste = (text: string) =>
+      send({ type: "text", text, paste: true });
+    /** No paste event in time: the clipboard read here instead, when the browser allows it. */
+    const awaitPaste = () => {
+      if (pasteWait) clearTimeout(pasteWait.timer);
+      const wait = {
+        delivered: false,
+        timer: setTimeout(() => {
+          void readClipboardText().then((text) => {
+            if (!text || wait.delivered) return;
+            wait.delivered = true;
+            sendPaste(text);
+          });
+        }, PASTE_EVENT_WAIT_MS),
+      };
+      pasteWait = wait;
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       /*
        * CLICKY'S STOP COMES FIRST, before anything is forwarded: its shortcut, and Escape while it
@@ -442,13 +483,15 @@ export function LiveScreen({
         event.preventDefault();
         event.stopPropagation();
         // Its release must not reach the computer either (Escape's never does).
-        if (event.key !== "Escape") localKeyUps.current.add(event.code);
+        if (event.key !== "Escape")
+          localKeyUps.current.set(event.code, event.metaKey);
         companion.onStop();
         return;
       }
       if (event.key === "Escape") return; // Escape still closes the view.
       if (isPasteShortcut(event) || isLocalField(event.target)) {
-        localKeyUps.current.add(event.code);
+        localKeyUps.current.set(event.code, event.metaKey);
+        if (!isLocalField(event.target)) awaitPaste();
         return;
       }
       event.preventDefault();
@@ -459,7 +502,7 @@ export function LiveScreen({
        * ended the live screen.
        */
       if (!event.code && event.key.length === 1) {
-        localKeyUps.current.add("");
+        localKeyUps.current.set("", event.metaKey);
         send({ type: "text", text: event.key });
         return;
       }
@@ -475,6 +518,16 @@ export function LiveScreen({
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key === "Escape") return;
+      /*
+       * A Mac sends no keyup for a key let go of while Command is held, so a key kept here that went
+       * down with Command (its V, for a paste) waited for a keyup that never came, and swallowed the
+       * next plain press of the same key: the v after a paste never came up on the Bot's computer.
+       * Command's own release ends that wait. Only Command: other modifiers do not stop the keyup.
+       */
+      if (event.key === "Meta") {
+        for (const [code, withCommand] of localKeyUps.current)
+          if (withCommand) localKeyUps.current.delete(code);
+      }
       if (localKeyUps.current.delete(event.code) || isPasteShortcut(event)) {
         return;
       }
@@ -486,23 +539,44 @@ export function LiveScreen({
         modifiers: modifierBits(event),
       });
     };
-    /** Paste arrives as one block; CDP inserts it as text rather than key events. */
+    /**
+     * Paste arrives as one block, marked as a paste: the page inserts it as text, and the desktop
+     * pastes it from its own clipboard. The browser's paste event wins over the clipboard read.
+     */
     const onPaste = (event: ClipboardEvent) => {
       if (isLocalField(event.target)) return;
+      const wait = pasteWait;
+      pasteWait = null;
+      if (wait) clearTimeout(wait.timer);
       const text = event.clipboardData?.getData("text");
       if (!text) return;
       event.preventDefault();
-      send({ type: "text", text });
+      if (wait?.delivered) return;
+      if (wait) wait.delivered = true;
+      sendPaste(text);
+    };
+    /**
+     * The window lost the focus: the keys held now go up where this page never hears, so the Bot's
+     * computer lets go of everything, and no keyup is waited for here either.
+     */
+    const onBlur = () => {
+      localKeyUps.current.clear();
+      send({ type: "release" });
     };
 
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("paste", onPaste);
+    window.addEventListener("blur", onBlur);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("paste", onPaste);
+      window.removeEventListener("blur", onBlur);
+      if (pasteWait) clearTimeout(pasteWait.timer);
       localKeyUps.current.clear();
+      // The wheel handed back: nothing the person held stays down for the Bot to type through.
+      send({ type: "release" });
     };
   }, [driving, connected, send]);
 
