@@ -333,6 +333,44 @@ describe("parseBrainAnswer", () => {
 });
 
 describe("buildBrainPrompt", () => {
+  test("opened because Noë Bot needs the person, a look works from the Bot's request, not their earlier words", () => {
+    // Live: an earlier gov.gr request turned "the browser restarted" into "type gov.gr".
+    const session = {
+      ...newClickySession({ id: "s1", botId: "bot-1", now: 0 }),
+      trigger: {
+        kind: "takeover" as const,
+        requestId: "r1",
+        reason: "The browser was interrupted and needs a restart.",
+      },
+      transcript: [
+        {
+          role: "person" as const,
+          text: "Θέλω να εκδώσω υπεύθυνη δήλωση στο gov.gr",
+          at: "2026-10-17T00:00:00.000Z",
+        },
+      ],
+    };
+    const opened = buildBrainPrompt({
+      session,
+      reason: "activate",
+      locale: "el",
+      guidance: "brief",
+      screen,
+      placed,
+    }).text;
+    expect(opened).not.toContain("υπεύθυνη δήλωση");
+    expect(opened).toContain("The browser was interrupted");
+    const carriedOn = buildBrainPrompt({
+      session,
+      reason: "continue",
+      locale: "el",
+      guidance: "brief",
+      screen,
+      placed,
+    }).text;
+    expect(carriedOn).not.toContain("What the person asked for:");
+  });
+
   test("carrying on, the person's request is said on its own, so done is judged against it", () => {
     // Live: having found the declaration's link, the look said done for its own goal (the way there).
     const session = {

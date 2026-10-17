@@ -269,7 +269,16 @@ export function buildBrainPrompt(input: BrainPromptInput): {
    * The conversation so far is information: Clicky's earlier answers may quote the screen, and the
    * person's earlier words were for earlier questions. Their words now are below, on their own.
    */
-  const turns = session.transcript.slice(-6);
+  /*
+   * Opened because Noë Bot needs the person, the task is the Bot's request, above. Their earlier
+   * words were about something else (live: an earlier gov.gr request turned the Bot's "the browser
+   * restarted" into "type gov.gr in the address bar").
+   */
+  const forTheBot =
+    session.trigger !== null &&
+    session.trigger !== undefined &&
+    session.trigger.kind !== "person";
+  const turns = input.reason === "activate" ? [] : session.transcript.slice(-6);
   if (turns.length > 0)
     parts.push(
       `The conversation so far:\n${wrapUntrusted(
@@ -292,7 +301,7 @@ export function buildBrainPrompt(input: BrainPromptInput): {
    * own goal (often only the way there).
    */
   const asked =
-    input.reason === "continue"
+    input.reason === "continue" && !forTheBot
       ? session.transcript.findLast((turn) => turn.role === "person")?.text
       : undefined;
   if (asked?.trim())
