@@ -667,7 +667,6 @@
   "Manage": "Διαχείριση",
   "Manage keys": "Διαχείριση κλειδιών",
   "Managed": "Διαχειριζόμενος",
-  "Manage…": "Διαχείριση…",
   "Mark as Read": "Σήμανση ως αναγνωσμένο",
   "Mark as Unread": "Σήμανση ως μη αναγνωσμένο",
   "Marketplace": "Αγορά",
@@ -1580,5 +1579,6 @@
   "Use the computer yourself.": "Χρησιμοποίησε τον υπολογιστή μόνος σου.",
   "Type “{{text}}” into: {{target}}, then press Enter": "Πληκτρολόγηση «{{text}}» σε: {{target}}, και μετά πάτημα Enter",
   "Open {{host}}": "Άνοιγμα {{host}}",
-  "Advanced Settings": "Σύνθετες ρυθμίσεις"
+  "Advanced Settings": "Σύνθετες ρυθμίσεις",
+  "Bot Settings": "Ρυθμίσεις Bot"
 }
