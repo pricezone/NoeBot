@@ -4,8 +4,8 @@
  * "Create new Bot" in the To: menu used to open a three-step form whose answers — a name, a title, a
  * role — are exactly what somebody who has not used the Bot yet cannot give. So the click makes a
  * Bot with sensible defaults and a conversation with it, and the Bot opens that conversation by
- * asking what it should help with. Its answer is where a name and a role come from, and the Bot
- * suggests them; the person renames it themselves, since a Bot cannot rename itself.
+ * asking what it should help with, which ends its turn. The person's answer is where a name and a
+ * role come from: the Bot names itself for it (`update_my_profile`), and the person can undo that.
  *
  * THE FIRST TURN IS HEADLESS, because the person's browser has nothing to send: it runs on the same
  * turn runner as a Slack message or an approved action resuming, as the owner, metered like any
