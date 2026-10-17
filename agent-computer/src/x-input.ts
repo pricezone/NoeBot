@@ -254,6 +254,14 @@ export function xdotoolInput(display: string): XInput {
 const BINDING_SETTLES_MS = 20;
 
 /**
+ * Xlib's process-wide IO error handler, set once. The default one prints "X connection to … broken"
+ * and calls exit(1) itself, before a connection's own exit handler is ever reached, so on its own
+ * `XSetIOErrorExitHandler` changes nothing. This one only returns; the connection's exit handler
+ * then marks it broken. Held here for the life of the process, so the callback is never collected.
+ */
+let quietIoErrors: { handler: unknown; library: unknown } | null = null;
+
+/**
  * Pointer and keys through libXtst; text the US keymap has through xdotool, and text it does not
  * have on spare keycodes bound here.
  *
@@ -263,6 +271,17 @@ export async function xtestInput(display: string): Promise<XInput> {
   const { dlopen, FFIType, JSCallback, ptr, toArrayBuffer } = await import(
     "bun:ffi"
   );
+  if (!quietIoErrors) {
+    const handler = new JSCallback(() => 0, {
+      args: [FFIType.ptr],
+      returns: FFIType.i32,
+    });
+    const library = dlopen("libX11.so.6", {
+      XSetIOErrorHandler: { args: [FFIType.function], returns: FFIType.ptr },
+    });
+    library.symbols.XSetIOErrorHandler(handler);
+    quietIoErrors = { handler, library };
+  }
   const x11 = dlopen("libX11.so.6", {
     XOpenDisplay: { args: [FFIType.ptr], returns: FFIType.ptr },
     XCloseDisplay: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -314,7 +333,8 @@ export async function xtestInput(display: string): Promise<XInput> {
    * is to call exit(1) from inside whichever call noticed (XFlush, XSync, the XSync in
    * XCloseDisplay), and every Bot's browser would die with it, unflushed. libX11 1.7 and later let
    * a connection have its own exit handler: this one returns, the connection is marked broken, and
-   * nothing calls into it again. Without that function (an older libX11) `abandon` is what keeps a
+   * nothing calls into it again. It is only reached because the process-wide IO error handler
+   * (`quietIoErrors`) returns too. Without that function (an older libX11) `abandon` is what keeps a
    * known-dead display from being spoken to.
    */
   let broken = false;
