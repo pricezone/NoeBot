@@ -46,7 +46,12 @@ const CHANGE: SelfProfileChange = {
   bot: "agent_new",
   name: "Quill",
   role: "Researches topics and writes clear drafts.",
-  previous: { name: "New Bot", role: "Help with whatever comes up." },
+  title: "Researches topics and writes clear drafts.",
+  previous: {
+    name: "New Bot",
+    role: "Help with whatever comes up.",
+    title: "General assistant",
+  },
   note: "Your profile now says this.",
 };
 
@@ -61,7 +66,7 @@ function serve() {
   let profile: AgentProfile = {
     id: CHANGE.bot,
     name: CHANGE.name,
-    title: "General assistant",
+    title: CHANGE.title,
     roleDescription: CHANGE.role,
     avatarSeed: "seed",
     avatarColor: null,
@@ -144,7 +149,7 @@ describe("a Bot naming itself", () => {
     );
   });
 
-  test("Undo puts the previous name and role back through the profile route", async () => {
+  test("Undo puts the previous name, role and title back through the profile route", async () => {
     const { writes } = serve();
     const { view } = draw({
       toolCallId: "call-name-2",

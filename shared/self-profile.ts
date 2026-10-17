@@ -12,15 +12,20 @@ export const SELF_PROFILE_TOOL = "update_my_profile";
 /** The longest name a Bot may have: the profile form's own limit. */
 export const SELF_PROFILE_NAME_MAX = 80;
 
+/** The longest role a Bot may give itself: the title's limit, since the role is its title too. */
+export const SELF_PROFILE_ROLE_MAX = 120;
+
 /** What the tool answers with when the profile changed. */
 export type SelfProfileChange = {
   updated: true;
   /** The Bot that renamed itself, which in a group conversation is not always the one in view. */
   bot: string;
   name: string;
+  /** The one-line role, written as both the role description and the title the roster shows. */
   role: string;
+  title: string;
   /** What Undo puts back. */
-  previous: { name: string; role: string };
+  previous: { name: string; role: string; title: string };
   /** The sentence for the model. */
   note: string;
 };
@@ -47,14 +52,16 @@ export function readSelfProfileChange(
     }
   }
   if (!isRecord(value) || value.updated !== true) return null;
-  const { bot, name, role, previous, note } = value;
+  const { bot, name, role, title, previous, note } = value;
   if (
     typeof bot !== "string" ||
     typeof name !== "string" ||
     typeof role !== "string" ||
+    typeof title !== "string" ||
     !isRecord(previous) ||
     typeof previous.name !== "string" ||
-    typeof previous.role !== "string"
+    typeof previous.role !== "string" ||
+    typeof previous.title !== "string"
   )
     return null;
   return {
@@ -62,7 +69,12 @@ export function readSelfProfileChange(
     bot,
     name,
     role,
-    previous: { name: previous.name, role: previous.role },
+    title,
+    previous: {
+      name: previous.name,
+      role: previous.role,
+      title: previous.title,
+    },
     note: typeof note === "string" ? note : "",
   };
 }

@@ -1,6 +1,10 @@
 /**
  * A Bot changing its own name and one-line role.
  *
+ * The role is written as the role description and as the title, the line the roster shows under
+ * the name, so "General assistant" does not sit stale beside a name chosen for something else. How
+ * the Bot works is not in the role (`WORKING_GUIDANCE`), so replacing it loses nothing but the role.
+ *
  * A Bot made in one click is "New Bot" until somebody renames it, and the person who just told it
  * what it is for is the last person who wants a form to fill in. So the Bot, once it knows, names
  * itself: through the same validation and the same write as the profile form (`PATCH
@@ -14,6 +18,7 @@
 import { z } from "zod";
 import {
   SELF_PROFILE_NAME_MAX,
+  SELF_PROFILE_ROLE_MAX,
   SELF_PROFILE_TOOL,
   type SelfProfileChange,
   shortenedWordIn,
@@ -37,7 +42,9 @@ const parameters = z.object({
   role: z
     .string()
     .optional()
-    .describe("Your new role: one line saying what you do for the person"),
+    .describe(
+      `Your new role: one line saying what you do for the person, at most ${SELF_PROFILE_ROLE_MAX} characters. It is also the title shown under your name`,
+    ),
 });
 
 /** A refusal, in the shape every server tool refuses in, so the transcript draws it as one. */
@@ -72,7 +79,8 @@ export function selfProfileTool(options: {
     description:
       "Change your own name and one-line role, the ones the person sees in the sidebar and in your " +
       "profile. Use it once you know what the person wants you for. A name is one or two whole " +
-      "words in their language, never abbreviated or cut short; a role is one line. Only your own " +
+      "words in their language, never abbreviated or cut short; a role is one line, and it is also " +
+      "the title shown under your name. Only your own " +
       "profile changes, and the person sees the change and can undo it.",
     parameters,
     execute: async (args: unknown) => {
@@ -86,6 +94,14 @@ export function selfProfileTool(options: {
       if (name && name.length > SELF_PROFILE_NAME_MAX)
         return refuse(
           `Nothing was changed: a name is at most ${SELF_PROFILE_NAME_MAX} characters. Choose one or two whole words and call ${SELF_PROFILE_TOOL} again.`,
+        );
+      /*
+       * The role is the title too, so it must fit the title's limit. Refused rather than cut: a
+       * title cut to fit ends mid-word, which is the thing a name is refused for below.
+       */
+      if (role && role.length > SELF_PROFILE_ROLE_MAX)
+        return refuse(
+          `Nothing was changed: a role is at most ${SELF_PROFILE_ROLE_MAX} characters, because it is also the title shown under your name. Say it in one shorter line and call ${SELF_PROFILE_TOOL} again.`,
         );
       const shortened = name ? shortenedWordIn(name) : null;
       if (shortened)
@@ -113,7 +129,7 @@ export function selfProfileTool(options: {
        */
       const input = parseAgentInput({
         name: name ?? profile.name,
-        title: profile.title,
+        title: role ?? profile.title,
         roleDescription: role ?? profile.roleDescription,
         visibility: profile.visibility,
       });
@@ -170,7 +186,12 @@ export function selfProfileTool(options: {
         bot: run.botId,
         name: updated.name,
         role: updated.roleDescription,
-        previous: { name: profile.name, role: profile.roleDescription },
+        title: updated.title,
+        previous: {
+          name: profile.name,
+          role: profile.roleDescription,
+          title: profile.title,
+        },
         note: "Your profile now says this. The person sees the change in the conversation and can undo it; carry on with what they asked.",
       };
       return JSON.stringify(change);

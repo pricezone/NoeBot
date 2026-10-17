@@ -24,12 +24,15 @@ import type { AgentActor, CreateAgentInput } from "./profile-types";
 /**
  * The Bot one click makes. Private, because nobody else asked for it; general, because its first
  * conversation is where it finds out what it is for.
+ *
+ * The role says what it is for and nothing else. How it works (act, ask, report, offer a routine)
+ * is `WORKING_GUIDANCE`, which every built-in Bot gets, so it survives the Bot naming itself.
  */
 export const NEW_BOT: CreateAgentInput = {
   name: "New Bot",
   title: "General assistant",
   roleDescription:
-    "Help with whatever takes the most off the person's plate: research and writing, code and GitHub work, web tasks and errands, and recurring checks and reminders. When a request is clear, do the work; when it is not, ask one short question rather than guessing. Say plainly what you did and anything you could not do, and offer to turn work that will come round again into a routine.",
+    "Help with whatever takes the most off the person's plate: research and writing, code and GitHub work, web tasks and errands, and recurring checks and reminders.",
   visibility: "private",
 };
 

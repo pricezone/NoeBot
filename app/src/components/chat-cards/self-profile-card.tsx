@@ -17,8 +17,8 @@ import {
  * with Undo.
  *
  * The rename is already made when this draws (`update_my_profile` runs on the server), so the card
- * is a receipt and a way back. Undo goes through the profile form's own route, with the name and
- * role the Bot had before and everything else as it is now.
+ * is a receipt and a way back. Undo goes through the profile form's own route, with the name, role
+ * and title the Bot had before and everything else as it is now.
  */
 
 /**
@@ -76,7 +76,7 @@ export function SelfProfileCard({
   const undo = async (previous: SelfProfileChange["previous"]) => {
     setFailed(false);
     try {
-      // Everything the Bot did not change goes back as it is now, as the profile form sends it.
+      // Name, role and title as they were; the rest as it is now, as the profile form sends it.
       const current = await queryClient.fetchQuery(
         agentQueryOptions(change.bot),
       );
@@ -84,7 +84,7 @@ export function SelfProfileCard({
         agentId: change.bot,
         input: {
           name: previous.name,
-          title: current.title,
+          title: previous.title,
           roleDescription: previous.role,
           visibility: current.visibility,
           ...(current.endpoint ? { endpoint: current.endpoint } : {}),

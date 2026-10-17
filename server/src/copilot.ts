@@ -20,6 +20,7 @@ import { z } from "zod";
 import {
   COMPUTER_GUIDANCE,
   PROVENANCE_GUIDANCE,
+  WORKING_GUIDANCE,
 } from "../../shared/bot-prompt";
 import { SELF_PROFILE_TOOL } from "../../shared/self-profile";
 import { sanitizeSeededHistory } from "./agents/history-sanitize";
@@ -184,6 +185,9 @@ export function standingRoleMessage(
       `You are ${profile.name}, ${profile.title}.`,
       profile.roleDescription,
       "This standing role applies in every channel. Treat channel messages as task-specific instructions within it.",
+      // How to work, for the same reason as the rule below: a Bot made in one click on a deployment
+      // with a managed harness runs here, and its role no longer carries it.
+      WORKING_GUIDANCE,
       /*
        * Here rather than in the package, because for a remote Bot the standing role is the only
        * instruction there is: `role_description` is one sentence somebody wrote about what it is
@@ -460,6 +464,8 @@ export function builtInAgentConfiguration(
     prompt: [
       agent.systemPrompt,
       ...(standing ? [standing] : []),
+      // How to work, whatever the role says it is for; a self-set one-line role keeps it.
+      WORKING_GUIDANCE,
       /*
        * Unconditional, unlike the two below it.
        *

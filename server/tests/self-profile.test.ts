@@ -94,7 +94,7 @@ describe(SELF_PROFILE_TOOL, () => {
         id: NEW_BOT.id,
         input: {
           name: "Quill",
-          title: NEW_BOT.title,
+          title: "Researches topics and writes clear drafts.",
           roleDescription: "Researches topics and writes clear drafts.",
           visibility: "private",
           endpoint: undefined,
@@ -107,7 +107,12 @@ describe(SELF_PROFILE_TOOL, () => {
       bot: NEW_BOT.id,
       name: "Quill",
       role: "Researches topics and writes clear drafts.",
-      previous: { name: NEW_BOT.name, role: NEW_BOT.roleDescription },
+      title: "Researches topics and writes clear drafts.",
+      previous: {
+        name: NEW_BOT.name,
+        role: NEW_BOT.roleDescription,
+        title: NEW_BOT.title,
+      },
       note: expect.stringContaining("undo"),
     });
     // The form's row, saying the Bot did it in its owner's run.
@@ -136,8 +141,31 @@ describe(SELF_PROFILE_TOOL, () => {
     await tool.execute({ role: "Keeps an eye on the build." });
     expect(updates[0]?.input).toMatchObject({
       name: NEW_BOT.name,
+      title: "Keeps an eye on the build.",
       roleDescription: "Keeps an eye on the build.",
     });
+  });
+
+  test("leaves the title alone when only the name is given", async () => {
+    const { tool, updates } = harness();
+    await tool.execute({ name: "Quill" });
+    expect(updates[0]?.input).toMatchObject({
+      name: "Quill",
+      title: NEW_BOT.title,
+      roleDescription: NEW_BOT.roleDescription,
+    });
+  });
+
+  test("refuses a role too long to be the title, rather than cutting it", async () => {
+    const { tool, updates } = harness();
+    const said = await tool.execute({ name: "Quill", role: "R".repeat(121) });
+    expect(said).toStartWith(REFUSAL_MARKER);
+    expect(said).toContain("at most 120 characters");
+    expect(said).toContain("title");
+    expect(updates).toEqual([]);
+    // Exactly the limit fits.
+    await tool.execute({ role: "R".repeat(120) });
+    expect(updates[0]?.input.title).toBe("R".repeat(120));
   });
 
   test("refuses a name cut short, says which word, and changes nothing", async () => {
@@ -224,7 +252,8 @@ describe("a whole name", () => {
       bot: "b",
       name: "Quill",
       role: "Writes.",
-      previous: { name: "New Bot", role: "Helps." },
+      title: "Writes.",
+      previous: { name: "New Bot", role: "Helps.", title: "General assistant" },
       note: "",
     };
     expect(readSelfProfileChange(JSON.stringify(change))).toEqual(change);
