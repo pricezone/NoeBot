@@ -125,7 +125,8 @@ describe.skipIf(!asked)("each Bot's desktop on a real X server", () => {
       const [onA, onB] = browsers;
       if (!onA || !onB) throw new Error("A browser did not start.");
       const screenWidth = async (browser: Browser) => {
-        const page = await browser.newPage();
+        // No viewport: Playwright's default one (1280 wide) would also stand in for the screen.
+        const page = await browser.newPage({ viewport: null });
         const width = await page.evaluate(() => screen.width);
         await page.close();
         return width;
