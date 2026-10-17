@@ -40,6 +40,13 @@ can also talk to it from their phone (the HyperNoesis app). See [docs/clicky-mod
   must be listed in `TRUSTED_ORIGINS`.
 - A session opened without "remember me" is never extended past its first day.
 
+**A desktop for each Bot.** With `COMPUTER_DESKTOP=on`, every Bot now has its own desktop (its own X
+display and XFCE session) instead of all Bots sharing one with a maximized browser each. A person
+watching a Bot sees only that Bot's screen, their clicks and keys reach only it, and its dock's Chrome
+button opens that Bot's browser. A Bot's desktop starts when it is first needed and closes with its
+browser or after `COMPUTER_DESKTOP_IDLE_MS` (10 minutes) unused; `COMPUTER_MAX_DESKTOPS` caps how many
+run at once (by default one per 512 MB above the first 1 GB). Each costs roughly 150 MB while running.
+
 ## 0.1.0
 
 **Before upgrading.** Six things change for an existing deployment:
