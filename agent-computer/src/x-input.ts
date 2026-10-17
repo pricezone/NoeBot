@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   emptyKeycodes,
   keysymOfCharacter,
@@ -40,6 +40,11 @@ export type XInput = {
    * (no xclip), and the caller types the text instead.
    */
   setClipboard?(text: string): Promise<boolean>;
+  /**
+   * The class of the window that has the keyboard (`Xfce4-terminal`, `Google-chrome`), or null when
+   * it cannot be read. A paste asks it, because a terminal pastes on Control+Shift+V.
+   */
+  activeWindowClass?(): Promise<string | null>;
   close(): void;
 };
 
@@ -189,6 +194,33 @@ export function clipboardWriter(
   };
 }
 
+/**
+ * The focused window's class, from xdotool. Null on any failure (no window has focus, xdotool is
+ * missing, or it does not answer within half a second): the caller then pastes the usual way.
+ */
+export function activeWindowClassReader(
+  display: string,
+  { execFileImpl = execFile }: { execFileImpl?: typeof execFile } = {},
+) {
+  const env = xdotoolEnvironment(display, process.env);
+  return () =>
+    new Promise<string | null>((resolve) => {
+      try {
+        execFileImpl(
+          "xdotool",
+          ["getactivewindow", "getwindowclassname"],
+          { env, timeout: 500 },
+          (error, stdout) => {
+            const name = String(stdout ?? "").trim();
+            resolve(error || !name ? null : name);
+          },
+        );
+      } catch {
+        resolve(null);
+      }
+    });
+}
+
 /** Everything through xdotool. Slower by one process per event; needs no library. */
 export function xdotoolInput(display: string): XInput {
   const run = xdotoolRunner(display);
@@ -199,6 +231,7 @@ export function xdotoolInput(display: string): XInput {
     key: (keysym, press) => run([press ? "keydown" : "keyup", keysym]),
     type: typeWith(run),
     setClipboard: clipboardWriter(display),
+    activeWindowClass: activeWindowClassReader(display),
     close: () => undefined,
   };
 }
@@ -391,6 +424,7 @@ export async function xtestInput(display: string): Promise<XInput> {
       }
     },
     setClipboard: clipboardWriter(display),
+    activeWindowClass: activeWindowClassReader(display),
     close() {
       if (closed) return;
       closed = true;

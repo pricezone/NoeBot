@@ -23,7 +23,8 @@ import { xKeyFor } from "./x-keys";
  *
  * A PASTE IS A PASTE. Text the person pasted goes on the desktop's clipboard and is pasted with
  * Control+V, as they did it: instant at any length, every character intact (the US keymap has no
- * Greek), and the page's own paste handling runs. With no clipboard (no xclip) it is typed instead.
+ * Greek), and the page's own paste handling runs. In a terminal, which reads Control+V as a control
+ * character, it is Control+Shift+V. With no clipboard (no xclip) it is typed instead.
  *
  * NOTHING LEFT DOWN. `releaseAll` lets go of everything this keyboard pressed: the cast calls it
  * when the person's window loses the focus, when they hand the wheel back and when the screen stops,
@@ -57,6 +58,14 @@ export type DesktopKeyboard = {
   /** The keys held down on the display, in the order they were pressed. */
   held(): string[];
 };
+
+/** Terminal windows by their class: xfce4-terminal on this desktop, and the usual others. */
+const TERMINAL_CLASS =
+  /terminal|xterm|urxvt|rxvt|konsole|tilix|alacritty|kitty|terminator|wezterm/i;
+
+export function isTerminal(windowClass: string | null): boolean {
+  return windowClass !== null && TERMINAL_CLASS.test(windowClass);
+}
 
 /** One per live screen: what its person holds on the display. */
 export function createDesktopKeyboard(): DesktopKeyboard {
@@ -122,22 +131,34 @@ export function createDesktopKeyboard(): DesktopKeyboard {
 
     async text(x, message) {
       await withoutModifiers(x, async () => {
-        const copied =
-          message.paste === true && x.setClipboard
-            ? await x.setClipboard(message.text).catch(() => false)
-            : false;
+        const pasting = message.paste === true && x.setClipboard !== undefined;
+        // Asked alongside the copy rather than after it, so a paste waits for neither twice.
+        const [copied, windowClass] = pasting
+          ? await Promise.all([
+              x.setClipboard?.(message.text).catch(() => false) ?? false,
+              x.activeWindowClass?.().catch(() => null) ?? null,
+            ])
+          : [false, null];
         if (!copied) {
           await (message.paste
             ? x.type(message.text, { clearModifiers: true })
             : x.type(message.text));
           return;
         }
-        await x.key("Control_L", true);
+        // A terminal takes Control+V as a control character and pastes on Control+Shift+V.
+        const shortcut = isTerminal(windowClass)
+          ? ["Control_L", "Shift_L"]
+          : ["Control_L"];
+        const pressed: string[] = [];
         try {
+          for (const keysym of shortcut) {
+            await x.key(keysym, true);
+            pressed.push(keysym);
+          }
           await x.key("v", true);
           await x.key("v", false);
         } finally {
-          await x.key("Control_L", false);
+          for (const keysym of pressed.reverse()) await x.key(keysym, false);
         }
       });
     },

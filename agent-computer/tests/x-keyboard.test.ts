@@ -4,8 +4,13 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { startDesktopCast } from "../src/desktop-cast";
 import type { InputMessage } from "../src/screencast";
-import { clipboardWriter, type XInput } from "../src/x-input";
-import { createDesktopKeyboard } from "../src/x-keyboard";
+import type { execFile } from "node:child_process";
+import {
+  activeWindowClassReader,
+  clipboardWriter,
+  type XInput,
+} from "../src/x-input";
+import { createDesktopKeyboard, isTerminal } from "../src/x-keyboard";
 
 /**
  * A display that does with its events what X and xdotool do, so a test reads what came out on the
@@ -16,7 +21,13 @@ import { createDesktopKeyboard } from "../src/x-keyboard";
  * `--clearmodifiers` a held Control makes each character a shortcut, and after a capital it lets go
  * of Shift_L, as xdo does with the Shift it pressed for it.
  */
-function fakeDisplay({ clipboard = true }: { clipboard?: boolean } = {}) {
+function fakeDisplay({
+  clipboard = true,
+  windowClass,
+}: {
+  clipboard?: boolean;
+  windowClass?: string;
+} = {}) {
   const down = new Set<string>();
   const screen: string[] = [];
   const typed: Array<{ text: string; clearModifiers: boolean }> = [];
@@ -39,10 +50,15 @@ function fakeDisplay({ clipboard = true }: { clipboard?: boolean } = {}) {
       down.add(keysym);
       if (isModifier(keysym)) return;
       if (control()) {
+        // A terminal pastes on Control+Shift+V; Control+V alone is a control character there.
+        const pastes =
+          keysym === "v" &&
+          state.clipboard !== undefined &&
+          (windowClass === "Xfce4-terminal" ? shift() : true);
         screen.push(
-          keysym === "v" && state.clipboard !== undefined
+          pastes
             ? `paste:${state.clipboard}`
-            : `Ctrl+${keysym}`,
+            : `Ctrl+${shift() ? "Shift+" : ""}${keysym}`,
         );
         return;
       }
@@ -68,6 +84,9 @@ function fakeDisplay({ clipboard = true }: { clipboard?: boolean } = {}) {
             return true;
           },
         }
+      : {}),
+    ...(windowClass !== undefined
+      ? { activeWindowClass: async () => windowClass }
       : {}),
     close: () => {
       state.closed = true;
@@ -156,6 +175,34 @@ describe("the person's keyboard on the desktop", () => {
     // Command is still held, so Control is down again, and its release lets go of it.
     expect([...display.down]).toEqual(["Control_L"]);
     await keyboard.key(display.input, key("up", "Control", "ControlLeft", 0));
+    expect(display.down.size).toBe(0);
+  });
+
+  test("in a terminal a paste is Control+Shift+V, and the person's Control comes back after", async () => {
+    const display = fakeDisplay({ windowClass: "Xfce4-terminal" });
+    const keyboard = createDesktopKeyboard();
+    await keyboard.key(
+      display.input,
+      key("down", "Control", "ControlLeft", CONTROL),
+    );
+    await keyboard.text(display.input, {
+      type: "text",
+      text: "ls -la",
+      paste: true,
+    });
+    expect(display.screen).toEqual(["paste:ls -la"]);
+    expect([...display.down]).toEqual(["Control_L"]);
+  });
+
+  test("outside a terminal a paste stays Control+V", async () => {
+    const display = fakeDisplay({ windowClass: "Google-chrome" });
+    const keyboard = createDesktopKeyboard();
+    await keyboard.text(display.input, {
+      type: "text",
+      text: "word",
+      paste: true,
+    });
+    expect(display.screen).toEqual(["paste:word"]);
     expect(display.down.size).toBe(0);
   });
 
@@ -354,5 +401,40 @@ describe("the desktop's clipboard", () => {
       settleMs: 0,
     });
     expect(await write("word")).toBe(false);
+  });
+});
+
+describe("isTerminal", () => {
+  test("knows the desktop's terminal and the usual others, and nothing else", () => {
+    expect(isTerminal("Xfce4-terminal")).toBe(true);
+    expect(isTerminal("XTerm")).toBe(true);
+    expect(isTerminal("Google-chrome")).toBe(false);
+    expect(isTerminal("Thunar")).toBe(false);
+    expect(isTerminal(null)).toBe(false);
+  });
+});
+
+describe("activeWindowClassReader", () => {
+  const reader = (stdout: string, error: Error | null) =>
+    activeWindowClassReader(":5", {
+      execFileImpl: ((
+        _file: string,
+        args: string[],
+        options: { env: NodeJS.ProcessEnv },
+        callback: (error: Error | null, stdout: string) => void,
+      ) => {
+        expect(args).toEqual(["getactivewindow", "getwindowclassname"]);
+        expect(options.env.DISPLAY).toBe(":5");
+        callback(error, stdout);
+      }) as unknown as typeof execFile,
+    });
+
+  test("reads the focused window's class on the Bot's own display", async () => {
+    expect(await reader("Xfce4-terminal\n", null)()).toBe("Xfce4-terminal");
+  });
+
+  test("is null when xdotool fails or no window has focus", async () => {
+    expect(await reader("", new Error("no window"))()).toBeNull();
+    expect(await reader("", null)()).toBeNull();
   });
 });
