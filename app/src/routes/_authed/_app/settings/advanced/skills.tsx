@@ -1,0 +1,266 @@
+import { IconFileText, IconPlus } from "@tabler/icons-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import * as React from "react";
+import { useState } from "react";
+import {
+  PageEmpty,
+  PageRows,
+  PageSection,
+  PageShell,
+} from "@/components/layout/page-shell";
+import { SkillBots } from "@/components/skills/skill-bots";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemFooter,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import { useTranslation } from "@/lib/i18n";
+import { useContentText } from "@/lib/i18n/content";
+import {
+  removeSkillMutationOptions,
+  saveSkillMutationOptions,
+} from "@/lib/plugins/mutations";
+import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
+
+/**
+ * The deployment's skills: named instructions a person invokes with `/` and a Bot follows.
+ *
+ * Its own screen rather than a tab on Plugins, because a skill is not a connector. It adds no
+ * capability at all — it can only ask a Bot to use tools that Bot was already granted, and every one
+ * of those calls is still decided, policy-checked and audited. That is why anybody may write one for
+ * themselves on their own Skills page, while adding an MCP server stays an administrator's decision.
+ * Sitting in a list of vendors made it look like a third kind of thing a Bot could reach.
+ */
+export const Route = createFileRoute("/_authed/_app/settings/advanced/skills")({
+  component: RouteComponent,
+});
+
+const EMPTY_DRAFT = { slug: "", title: "", summary: "", instructions: "" };
+
+function RouteComponent() {
+  const { t } = useTranslation("admin");
+  const content = useContentText();
+  const queryClient = useQueryClient();
+  const plugins = useQuery(pluginsPageQueryOptions());
+
+  const [error, setError] = useState<string | null>(null);
+  const [writing, setWriting] = useState(false);
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+
+  const report = { onError: (thrown: Error) => setError(thrown.message) };
+  const saveSkill = useMutation({
+    ...saveSkillMutationOptions(queryClient),
+    ...report,
+  });
+  const removeSkill = useMutation({
+    ...removeSkillMutationOptions(queryClient),
+    ...report,
+  });
+
+  const skills = plugins.data?.skills ?? [];
+
+  return (
+    <PageShell
+      action={
+        <Button onClick={() => setWriting(true)} size="lg" type="button">
+          <IconPlus />
+          {t("Write a skill")}
+        </Button>
+      }
+      description={t(
+        "Named instructions anybody here can invoke with a slash. A skill adds no capability: it can only ask a Bot to use what that Bot already holds, and every one of those calls is still decided and recorded.",
+      )}
+      title={t("Skills")}
+    >
+      {error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <PageSection
+        description={t(
+          "Written for the whole deployment. People write their own on their Skills page.",
+        )}
+        title={t("Installed")}
+      >
+        {/* A read that failed says so; `isPending` goes false on it too, and it is not "none". */}
+        {plugins.isPending ? null : !plugins.data ? (
+          <p className="mt-4 text-destructive text-sm" role="alert">
+            {t("Skills could not be loaded.")}
+          </p>
+        ) : skills.length === 0 ? (
+          <PageEmpty>{t("No skills yet.")}</PageEmpty>
+        ) : (
+          <PageRows>
+            {skills.map((skill, index) => (
+              <React.Fragment key={skill.slug}>
+                <Item size="sm">
+                  <ItemMedia variant="icon">
+                    <IconFileText className="size-4" />
+                  </ItemMedia>
+                  <ItemContent>
+                    <ItemTitle>
+                      <code className="font-mono text-foreground/80 text-xs">
+                        /{skill.slug}
+                      </code>{" "}
+                      {content(skill.title)}
+                      {/*
+                       * A default skill — the package's, or a plugin's — is read-only here and
+                       * everywhere: the package rewrites its own on every boot, and a plugin's
+                       * goes with the plugin. Said on the row, so Remove is not offered and
+                       * refused.
+                       */}
+                      {skill.origin !== "yours" ? (
+                        <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 align-middle text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {t("Default")}
+                        </span>
+                      ) : null}
+                    </ItemTitle>
+                    <ItemDescription>
+                      {skill.summary ? content(skill.summary) : skill.summary}
+                    </ItemDescription>
+                    {/* A set, so it wraps onto its own line rather than crowding the title. */}
+                    <ItemFooter>
+                      <SkillBots
+                        grantedTo={skill.grantedTo}
+                        slug={skill.slug}
+                      />
+                    </ItemFooter>
+                  </ItemContent>
+                  {skill.origin === "yours" ? (
+                    <ItemActions>
+                      <Button
+                        onClick={() => removeSkill.mutate(skill.slug)}
+                        size="sm"
+                        type="button"
+                        variant="ghost"
+                      >
+                        {t("Remove")}
+                      </Button>
+                    </ItemActions>
+                  ) : null}
+                </Item>
+                {index !== skills.length - 1 && <Separator />}
+              </React.Fragment>
+            ))}
+          </PageRows>
+        )}
+      </PageSection>
+
+      <Dialog onOpenChange={setWriting} open={writing}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("Write a skill for the deployment")}</DialogTitle>
+            <DialogDescription>
+              {t(
+                "The slug is what a person types after a slash, and the instructions are added to the run when they do. Everybody here can use it, and you decide which Bots have it.",
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="mt-4">
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="skill-slug">{t("Slug")}</FieldLabel>
+                <Input
+                  id="skill-slug"
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      slug: event.target.value,
+                    }))
+                  }
+                  placeholder="standup-notes" /* i18n-ignore: an example of the format, not prose */
+                  value={draft.slug}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="skill-title">{t("Title")}</FieldLabel>
+                <Input
+                  id="skill-title"
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      title: event.target.value,
+                    }))
+                  }
+                  placeholder={t("Title")}
+                  value={draft.title}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="skill-summary">{t("Summary")}</FieldLabel>
+                <Input
+                  id="skill-summary"
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      summary: event.target.value,
+                    }))
+                  }
+                  placeholder={t("One line")}
+                  value={draft.summary}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="skill-instructions">
+                  {t("Instructions")}
+                </FieldLabel>
+                <Textarea
+                  className="h-28 font-mono text-sm"
+                  id="skill-instructions"
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      instructions: event.target.value,
+                    }))
+                  }
+                  placeholder={t(
+                    "What the Bot should do when this skill is used.",
+                  )}
+                  value={draft.instructions}
+                />
+              </Field>
+            </FieldGroup>
+          </DialogBody>
+          <DialogFooter className="mt-4">
+            <Button onClick={() => setWriting(false)} size="sm" variant="ghost">
+              {t("Cancel")}
+            </Button>
+            <Button
+              disabled={!(draft.slug && draft.title && draft.instructions)}
+              onClick={() => {
+                // Admin-authored skills are the deployment's; a person's own are made elsewhere.
+                saveSkill.mutate({ ...draft, global: true });
+                setDraft(EMPTY_DRAFT);
+                setWriting(false);
+              }}
+              size="sm"
+            >
+              {t("Install skill")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageShell>
+  );
+}

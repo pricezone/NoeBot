@@ -40,6 +40,17 @@ export const marketplaceSearchSchema = z.object({
    * tab reads Cursor's category keys; the Agents tab, a template category. Absent is All.
    */
   category: z.string().optional(),
+  /**
+   * The Composio app whose page is open, on the Apps tab, in place of the list (administrators,
+   * where Composio is configured). Its slug: `googlecalendar`; a number-looking one is read back
+   * as the string it is, as `plugin` is.
+   */
+  app: z
+    .union([z.string(), z.number()])
+    .transform((value) => String(value))
+    .optional(),
+  /** One Composio category under "Featured plugins", shown in full. Absent is All. */
+  featured: z.string().optional(),
 });
 
 export type MarketplaceSearch = z.infer<typeof marketplaceSearchSchema>;

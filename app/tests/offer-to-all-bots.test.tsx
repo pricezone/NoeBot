@@ -21,8 +21,8 @@ import userEvent from "@testing-library/user-event";
 import {
   grantSummary,
   Route as AdminAppRoute,
-} from "@/routes/_authed/_app/admin/plugins/$key";
-import { Route as AdminToolRoute } from "@/routes/_authed/_app/admin/plugins/$key_.tools.$tool";
+} from "@/routes/_authed/_app/settings/advanced/plugins/$key";
+import { Route as AdminToolRoute } from "@/routes/_authed/_app/settings/advanced/plugins/$key_.tools.$tool";
 
 /**
  * What the Marketplace's one-press arrangement looks like from the admin side.
@@ -185,7 +185,7 @@ afterEach(() => {
 
 type Updatable = { update: (options: unknown) => unknown };
 
-/** `/admin/plugins/$key` and `/admin/plugins/$key/tools/$tool`, at the ids their `useParams` read. */
+/** `/settings/advanced/plugins/$key` and `/settings/advanced/plugins/$key/tools/$tool`, at the ids their `useParams` read. */
 function renderAdmin(at: string) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
@@ -193,9 +193,14 @@ function renderAdmin(at: string) {
     getParentRoute: () => rootRoute,
     component: Outlet,
   });
-  const adminRoute = createRoute({
-    path: "/admin",
+  const settingsRoute = createRoute({
+    path: "/settings",
     getParentRoute: () => authedRoute,
+    component: Outlet,
+  });
+  const adminRoute = createRoute({
+    path: "/advanced",
+    getParentRoute: () => settingsRoute,
     component: Outlet,
   });
   const pluginsRoute = createRoute({
@@ -215,7 +220,9 @@ function renderAdmin(at: string) {
   });
   const tree = rootRoute.addChildren([
     authedRoute.addChildren([
-      adminRoute.addChildren([pluginsRoute, app as never, tool as never]),
+      settingsRoute.addChildren([
+        adminRoute.addChildren([pluginsRoute, app as never, tool as never]),
+      ]),
     ]),
   ]);
   const router = createRouter({
@@ -242,7 +249,7 @@ test("the rule in words: offered to every Bot says so, whatever the grants count
 });
 
 test("the connector page's switch writes the offer and the rows read it back as Every Bot", async () => {
-  const view = renderAdmin(`/admin/plugins/${APP_KEY}`);
+  const view = renderAdmin(`/settings/advanced/plugins/${APP_KEY}`);
 
   const offer = await view.findByRole("switch", {
     name: "Offer Google Drive to every Bot",
@@ -273,7 +280,7 @@ test("the connector page's switch writes the offer and the rows read it back as 
 });
 
 test("a platform-provided OAuth client is stated, with no paste form and no redirect URI to copy", async () => {
-  const view = renderAdmin(`/admin/plugins/${APP_KEY}`);
+  const view = renderAdmin(`/settings/advanced/plugins/${APP_KEY}`);
 
   expect(await view.findByText("Provided by HyperNoesis")).toBeTruthy();
   expect(view.queryByText("Not registered")).toBeNull();
@@ -292,7 +299,9 @@ test("a platform-provided OAuth client is stated, with no paste form and no redi
 
 test("the per-tool page draws every Bot's switch on and immovable, captioned Every Bot", async () => {
   offered = true;
-  const view = renderAdmin(`/admin/plugins/${APP_KEY}/tools/${TOOL_NAME}`);
+  const view = renderAdmin(
+    `/settings/advanced/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
+  );
 
   const held = await view.findByRole("switch", {
     name: `Let Ada call ${TOOL_NAME}`,
@@ -308,7 +317,9 @@ test("the per-tool page draws every Bot's switch on and immovable, captioned Eve
 });
 
 test("with the offer off, the per-tool page's switches are the decision again", async () => {
-  const view = renderAdmin(`/admin/plugins/${APP_KEY}/tools/${TOOL_NAME}`);
+  const view = renderAdmin(
+    `/settings/advanced/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
+  );
 
   const held = await view.findByRole("switch", {
     name: `Let Ada call ${TOOL_NAME}`,

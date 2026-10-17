@@ -29,6 +29,7 @@ import {
   type ShownCalls,
 } from "@/components/chat-cards/pending-requests";
 import { ChatNotice } from "@/components/chat-cards/recovery-card";
+import { YesNoReply } from "@/components/chat-cards/yes-no-reply";
 import { HandoffResumeNotice } from "@/components/computer/handoff-resume-notice";
 import { agentListQueryOptions } from "@/lib/agents/queries";
 import {
@@ -66,6 +67,7 @@ import {
   answersSignature,
   openQuestions,
   questionAnswers,
+  questionsAnswered,
 } from "@/lib/copilot/question-answers";
 import { repairUnansweredToolCalls } from "@/lib/copilot/repair-history";
 import { stoppedReason } from "@/lib/copilot/stopped-turn";
@@ -84,7 +86,7 @@ import {
 import { useSkillCommands } from "@/lib/plugins/skill-commands";
 import {
   askChannelAgent,
-  messageText,
+  spokenTurn,
   voiceContext,
   withVoiceContext,
 } from "@/lib/voice/agent-bridge";
@@ -1049,8 +1051,16 @@ export function ChannelChat({
         ),
       );
 
-    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers.
-    const answering = trimmed ? openQuestions(target.messages) : [];
+    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers,
+    // including a question the server holds that this tab's messages do not have yet.
+    const answering = trimmed
+      ? questionsAnswered(
+          openQuestions(target.messages),
+          queryClient.getQueryData(approvalInboxOptions().queryKey)
+            ?.questions ?? [],
+          channel.threadId,
+        )
+      : [];
     // Nothing new is a retry (`retryTurn`): the turn runs again on the message already here.
     if (trimmed || attachments.length > 0) {
       target.addMessage({
@@ -1118,14 +1128,8 @@ export function ChannelChat({
     if (turnFailure.current !== null) {
       throw new Error(turnFailure.current);
     }
-    return target.messages
-      .filter(
-        (message) =>
-          message.role === "assistant" && !existingMessageIds.has(message.id),
-      )
-      .map(messageText)
-      .filter(Boolean)
-      .join("\n\n");
+    // What a voice caller hears: the new words, and a question the turn ended on (agent-bridge.ts).
+    return spokenTurn(target.messages, existingMessageIds);
   };
 
   /**
@@ -1439,13 +1443,21 @@ export function ChannelChat({
           />
           <ConversationView
             pendingRequests={(shown: ShownCalls) => (
-              <PendingRequests
-                botId={runtimeAgentId}
-                channelId={channel.id}
-                live={liveCalls(agent.messages)}
-                shown={shown}
-                threadId={channel.threadId}
-              />
+              <>
+                <PendingRequests
+                  botId={runtimeAgentId}
+                  channelId={channel.id}
+                  live={liveCalls(agent.messages)}
+                  shown={shown}
+                  threadId={channel.threadId}
+                />
+                <YesNoReply
+                  busy={
+                    agent.isRunning || turnsInFlight > 0 || runsInFlight > 0
+                  }
+                  messages={agent.messages}
+                />
+              </>
             )}
             voiceCall={
               call.available

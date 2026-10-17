@@ -205,6 +205,12 @@ export type DeploymentConfig = {
   usage?: UsageConfig;
   /** Where a person manages the subscription behind this deployment. A link out, never called. */
   billingUrl?: string;
+  /**
+   * The platform a share link goes through, so it opens on whichever instance the reader has
+   * (`OPENBOT_SHARE_BASE_URL`, its origin only). Absent, the app takes the origin of the sign-in
+   * handoff's return address, and failing that shares this deployment's own address.
+   */
+  shareBaseUrl?: string;
   /** The port the API listens on. Named `PORT` or `SERVER_PORT`; see `serverPort`. */
   port: number;
   databaseUrl: string;
@@ -1592,6 +1598,8 @@ export function loadConfig(
   const workerSharedSecret = optional(environment, "WORKER_SHARED_SECRET");
   const usage = usageConfig(environment);
   const billingUrl = url(environment, "OPENBOT_BILLING_URL");
+  const shareBase = url(environment, "OPENBOT_SHARE_BASE_URL");
+  const shareBaseUrl = shareBase ? new URL(shareBase).origin : undefined;
   const deploymentId = optional(environment, "DEPLOYMENT_ID");
   const pluginOauthRedirect = pluginOauthRedirectUrl(environment);
   const platformOauth = pluginOauth(environment);
@@ -1617,6 +1625,7 @@ export function loadConfig(
     voice: voiceConfig(environment),
     ...(usage ? { usage } : {}),
     ...(billingUrl ? { billingUrl } : {}),
+    ...(shareBaseUrl ? { shareBaseUrl } : {}),
     databaseUrl: required(environment, "DATABASE_URL"),
     keyEncryptionKey: keyEncryptionKey(environment),
     ...(managedAgent ? { managedAgent } : {}),

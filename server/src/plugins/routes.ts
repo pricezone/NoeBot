@@ -17,7 +17,12 @@ import {
   schemeKind,
 } from "./broker";
 import { CATALOGUE, catalogueEntry } from "./catalogue";
-import { toolkitOf, vendorSentence } from "./composio";
+import {
+  type ComposioActions,
+  LISTING_LIMIT,
+  toolkitOf,
+  vendorSentence,
+} from "./composio";
 import { fetchGithubRaw, githubRepositoryOf } from "./github-raw";
 import {
   authorizationUrlFor,
@@ -35,6 +40,7 @@ import {
   unrelayedState,
 } from "./oauth";
 import {
+  browsablePlugins,
   type IndexedPlugin,
   listablePlugins,
   PLUGIN_INDEX_SYNCED_AT,
@@ -121,6 +127,12 @@ function brokerRefusal(
  */
 const DIRECTORY_UNAVAILABLE =
   "Composio would not answer with its app directory, and said nothing about why. Check that COMPOSIO_API_KEY is this project's key, and check Composio's status if it persists.";
+
+/** How long the Marketplace listing waits for Composio's directory before listing without it. */
+const DIRECTORY_WAIT_MS = 2500;
+
+/** How many of a Composio app's tools its Marketplace page lists. */
+const APP_PAGE_TOOLS = 200;
 
 /**
  * The Plugins surface: what this deployment has added, and which Bots may use it.
@@ -230,7 +242,11 @@ export function createPluginRoutes(
    * trap `connect` documents applies here with one more argument in it — every parameter from that
    * position on is optional, so a misplaced one typechecks and quietly does nothing.
    */
-  composio?: { broker: ComposioBroker },
+  composio?: {
+    broker: ComposioBroker;
+    /** Lists an app's tools for its Marketplace page; absent, the page shows none. */
+    actions?: Pick<ComposioActions, "listActions">;
+  },
 ) {
   const routes = new Hono<{ Variables: AppVariables }>();
 
@@ -351,6 +367,39 @@ export function createPluginRoutes(
   );
 
   /**
+   * Which Composio toolkits this person is offered, for hiding the Cursor plugins that duplicate
+   * them (`COMPOSIO_PLUGIN_IDS`). Everybody is offered an app an administrator already added; an
+   * administrator is also offered every app in the connectable directory, which they browse under
+   * "Featured plugins". Without Composio, or when the directory cannot be read in time, nothing is
+   * covered and the Cursor versions stay: a duplicate on screen is better than no way to the app.
+   */
+  const composioCoverage = async (
+    isAdmin: boolean,
+  ): Promise<(toolkit: string) => boolean> => {
+    if (!composio) return () => false;
+    const added = new Set(
+      (await store.serverUrls().catch(() => []))
+        .map((url) => toolkitOf(url))
+        .filter((toolkit): toolkit is string => toolkit !== null),
+    );
+    if (!isAdmin) return (toolkit) => added.has(toolkit);
+    // The directory is cached once read; a cold, slow one is not worth holding the tab for.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const directory = await Promise.race([
+      composio.broker.listApps().catch((): BrokerApp[] => []),
+      new Promise<BrokerApp[]>((resolve) => {
+        timer = setTimeout(() => resolve([]), DIRECTORY_WAIT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    const connectable = new Set(
+      directory
+        .filter((app) => app.connection.kind !== "unsupported")
+        .map((app) => app.slug),
+    );
+    return (toolkit) => added.has(toolkit) || connectable.has(toolkit);
+  };
+
+  /**
    * The Marketplace index, as the Apps tab draws it: every plugin something of which runs here,
    * and which of them are installed.
    *
@@ -368,10 +417,16 @@ export function createPluginRoutes(
   routes.get("/marketplace", requireUser, async (context) => {
     const installed = await store.listPlugins();
     const me = context.var.actor.id;
+    const composioCovers = await composioCoverage(
+      context.var.actor.role === "admin",
+    );
     context.header("Cache-Control", "private, no-cache");
     return context.json({
       syncedAt: PLUGIN_INDEX_SYNCED_AT,
-      plugins: listablePlugins().map((plugin) => marketplaceView(plugin)),
+      plugins: browsablePlugins({
+        installed: new Set(installed.map((plugin) => plugin.id)),
+        composioCovers,
+      }).map((plugin) => marketplaceView(plugin)),
       installed: Object.fromEntries(
         installed.map((plugin) => [
           plugin.id,
@@ -1014,6 +1069,66 @@ export function createPluginRoutes(
     return context.json({
       apps: matched.map((app) => ({ ...app, enabled: enabled.has(app.slug) })),
     });
+  });
+
+  /**
+   * One app of that catalogue, for its own page in the Marketplace: the directory's entry, whether
+   * it is already added, and its tools where the vendor lists them.
+   *
+   * Administrator-only like the directory it comes out of. The entry is read from the same cached
+   * directory, so an app the list did not offer (unknown, or one this deployment cannot connect)
+   * is a 404 here too. The tools are best-effort: a vendor that will not list them leaves the page
+   * with `tools: null` rather than failing it, since the page is still worth showing without them.
+   */
+  routes.get("/composio/apps/:slug", requireUser, async (context) => {
+    const forbidden = requireAdmin(context);
+    if (forbidden) return forbidden;
+    if (!composio) {
+      return context.json(
+        { error: new BrokerUnconfiguredError().message },
+        503,
+      );
+    }
+    const slug = context.req.param("slug").trim().toLowerCase();
+    let directory: BrokerApp[];
+    try {
+      directory = await composio.broker.listApps();
+    } catch (error) {
+      const refusal = brokerRefusal(error, DIRECTORY_UNAVAILABLE);
+      return context.json({ error: refusal.error }, refusal.status);
+    }
+    const app = directory.find(
+      (candidate) =>
+        candidate.slug === slug && candidate.connection.kind !== "unsupported",
+    );
+    if (!app) {
+      return context.json(
+        { error: `${slug} is not an app Composio lists for this deployment.` },
+        404,
+      );
+    }
+    let urls: string[];
+    try {
+      urls = await store.serverUrls();
+    } catch (error) {
+      if (isDeploymentFault(error)) {
+        return context.json({ error: deploymentFaultSentence(error) }, 409);
+      }
+      throw error;
+    }
+    const enabled = urls.some((url) => toolkitOf(url) === app.slug);
+    const tools = composio.actions
+      ? await composio.actions
+          .listActions(app.slug, { limit: LISTING_LIMIT })
+          .then((actions) =>
+            actions.slice(0, APP_PAGE_TOOLS).map((action) => ({
+              slug: action.slug,
+              description: action.description ?? "",
+            })),
+          )
+          .catch(() => null)
+      : null;
+    return context.json({ app: { ...app, enabled }, tools });
   });
 
   /**

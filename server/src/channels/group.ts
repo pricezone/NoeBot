@@ -23,6 +23,7 @@ import type { Message } from "@ag-ui/client";
 import { and, asc, desc, eq, isNull, min, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { sayingTheQuestion } from "../agents/asked-question";
 import type { HandoffCaps } from "../agents/handoff";
 import type { ApprovalContinuation } from "../approvals/types";
 import {
@@ -853,6 +854,8 @@ export function createGroupConversations(deps: {
           : PERSON_INITIATOR,
       });
       await writing;
+      // A group's message row draws no question card, so a question the Bot ended on is said in it.
+      const reply = sayingTheQuestion(result.replyText, result.asked);
       const gate = await shareGate({
         ownerUserId: turn.ownerUserId,
         channelId: turn.channelId,
@@ -860,7 +863,7 @@ export function createGroupConversations(deps: {
         threadId,
         rowId: id,
         runId,
-        text: result.replyText,
+        text: reply,
       });
       if (gate.status === "pending") {
         await deps.store.finish(id, "", "waiting", {
@@ -873,14 +876,14 @@ export function createGroupConversations(deps: {
         await deps.store.finish(id, gate.message, "failed");
         return;
       }
-      await deps.store.finish(id, result.replyText, "completed");
+      await deps.store.finish(id, reply, "completed");
       saved = true;
-      savedReply = result.replyText;
-      await deps.activity?.(turn, agentId, result.replyText, `group:${id}`);
+      savedReply = reply;
+      await deps.activity?.(turn, agentId, reply, `group:${id}`);
       consentsPosted = true;
       await postConsents(turn, agentId, threadId, id, consents);
       relayStarted = true;
-      await relay(turn, bot, id, result.replyText, bots, runId);
+      await relay(turn, bot, id, reply, bots, runId);
     } catch (error) {
       // The reply is already saved: a fault handing it on is not this Bot's answer failing, and
       // writing it over the row would replace a good reply with an error that no retry repairs.

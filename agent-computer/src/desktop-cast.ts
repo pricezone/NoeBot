@@ -2,7 +2,8 @@ import { type ChildProcess, spawn } from "node:child_process";
 import type { FrameMessage, InputMessage, Screencast } from "./screencast";
 import type { DisplaySize } from "./virtual-display";
 import { openXInput, type XInput } from "./x-input";
-import { wheelClicks, xKeyFor } from "./x-keys";
+import { createDesktopKeyboard } from "./x-keyboard";
+import { wheelClicks } from "./x-keys";
 
 /**
  * The live screen of a desktop, in the same shape as the live screen of a page.
@@ -107,7 +108,7 @@ export function ffmpegGrabArguments(
     "-video_size",
     `${size.width}x${size.height}`,
     // The display's own pointer left out of the picture. Drawn in, a person watching saw two arrows,
-    // that one and their own, and their own is the only one they should see, as in Grok; the Bot
+    // that one and their own, and their own is the only one they should see; the Bot
     // never needs the system pointer in a screenshot. A pointer moving over a still screen also no
     // longer changes the frame, so the dedupe below sends nothing for it.
     "-draw_mouse",
@@ -339,6 +340,8 @@ export function startDesktopCast(
     input ??= openInput(display);
     return input;
   };
+  /** What the person holds down on the display, kept in step and let go of (see x-keyboard.ts). */
+  const keyboard = createDesktopKeyboard();
 
   return {
     async stop() {
@@ -359,11 +362,21 @@ export function startDesktopCast(
         ]);
         if (!stoppedInTime) child.kill("SIGKILL");
       }
-      if (input) (await input).close();
+      if (input) {
+        const x = await input;
+        // Nothing left held down on a display the next person, or the Bot, types on.
+        await keyboard.releaseAll(x).catch(() => undefined);
+        x.close();
+      }
     },
 
     async send(message: InputMessage) {
       if (stopped) return;
+      // With no X connection open nothing was ever pressed, so a release opens none.
+      if (message.type === "release") {
+        if (input) await keyboard.releaseAll(await input);
+        return;
+      }
       const x = await inputFor();
       if (message.type === "mouse") {
         const px = Math.round(message.x);
@@ -388,16 +401,11 @@ export function startDesktopCast(
       }
 
       if (message.type === "key") {
-        const key = xKeyFor(message);
-        if (key.kind === "keysym") {
-          await x.key(key.keysym, message.event === "down");
-        } else if (key.kind === "text" && message.event === "down") {
-          await x.type(key.text);
-        }
+        await keyboard.key(x, message);
         return;
       }
 
-      await x.type(message.text);
+      await keyboard.text(x, message);
     },
   };
 }

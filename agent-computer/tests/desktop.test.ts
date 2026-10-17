@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +14,8 @@ import {
   launcherDesktopEntry,
   panelConfigXml,
   prepareDesktopHome,
+  type DesktopRuntime,
+  startDesktop,
   WALLPAPER_PATH,
   xfwm4ConfigXml,
 } from "../src/desktop";
@@ -262,5 +266,81 @@ describe("the environment the desktop runs with", () => {
     expect(env.XDG_RUNTIME_DIR).toMatch(/^\/tmp\/openbot-runtime-/);
     expect(env.PATH).toContain("/usr/bin");
     expect(env.LANG).toBe("C.UTF-8");
+  });
+});
+
+describe("the session on a Bot's display", () => {
+  /** A session whose window manager never answers, and whose processes say how they were signalled. */
+  function silentRuntime() {
+    const signals: string[] = [];
+    const runtime: DesktopRuntime = {
+      spawn: () =>
+        Object.assign(new EventEmitter(), {
+          pid: 4242,
+          exitCode: null,
+          signalCode: null as string | null,
+          kill: (signal?: string) => {
+            signals.push(`process ${signal}`);
+            return true;
+          },
+        }) as unknown as ChildProcess,
+      run: async () => ({ code: 1, stdout: "" }),
+      wait: (ms) =>
+        new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5))),
+      kill: (child, signal) => {
+        signals.push(`group ${signal}`);
+        // As a real child does: the signal recorded, then the exit.
+        (child as unknown as { signalCode: string }).signalCode = signal;
+        child.emit("exit", null);
+      },
+    };
+    return { runtime, signals };
+  }
+
+  test("waits only as long as it is told for a window manager, once one has failed", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openbot-desktop-session-"));
+    try {
+      const { runtime } = silentRuntime();
+      const started = Date.now();
+      const desktop = await startDesktop(
+        {
+          display: ":7",
+          home,
+          runtimeDir: join(home, "run"),
+          source: { WORKSPACE_DIR: home },
+          wmBudgetMs: 60,
+        },
+        runtime,
+      );
+      expect(desktop.ready).toBe(false);
+      expect(Date.now() - started).toBeLessThan(2_000);
+      await desktop.stop();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("is stopped as a process group, so what it started goes with it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openbot-desktop-session-"));
+    try {
+      const { runtime, signals } = silentRuntime();
+      const desktop = await startDesktop(
+        {
+          display: ":7",
+          home,
+          runtimeDir: join(home, "run"),
+          source: { WORKSPACE_DIR: home },
+          wmBudgetMs: 10,
+        },
+        runtime,
+      );
+      await desktop.stop();
+      expect(signals).toEqual(["group SIGTERM"]);
+      expect(desktop.browserRequestDir).toBe(
+        join(home, "run", "openbot-desktop"),
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });

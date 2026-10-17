@@ -1,5 +1,8 @@
 import type { Message } from "@ag-ui/core";
 import { i18n, msg } from "@/lib/i18n";
+import { asText } from "@/lib/plugins/tool-result";
+import { PUT_TO } from "./markers";
+import { isStandIn } from "./repair-history";
 
 /**
  * A browser step followed by silence, retried once and then reported.
@@ -34,8 +37,24 @@ export type ContinuedAgent = {
 const PLACEHOLDER = "Forwarded to client";
 
 /**
+ * Whether a result leaves a question waiting on the person, which ends the Bot's turn: running the
+ * model again on it would have the Bot answer its own question.
+ *
+ * `ask_person` put to them ("Put to …"). A decision card (`askChoice`, `askApproval`) whose result
+ * is only a stand-in or the runtime's placeholder. A card answered on the card is not waiting: its
+ * follow-up is the Bot reading the answer, and one that failed or came back empty is retried.
+ */
+function questionWaiting(toolName: string, content: unknown): boolean {
+  const text = typeof content === "string" ? asText(content).trim() : "";
+  if (toolName === "ask_person") return text.startsWith(PUT_TO);
+  if (toolName !== "askChoice" && toolName !== "askApproval") return false;
+  return isStandIn(text) || text === PLACEHOLDER;
+}
+
+/**
  * Whether the conversation ends on a tool result this turn added, for a tool whose result is meant
- * to be followed by the Bot: the browser answered, and the continuation never came.
+ * to be followed by the Bot: the browser answered, and the continuation never came. Never when the
+ * turn ended on a question still waiting on the person (`questionWaiting`).
  */
 export function awaitsContinuation(
   messages: readonly Message[],
@@ -47,12 +66,22 @@ export function awaitsContinuation(
   const content = typeof last.content === "string" ? last.content.trim() : "";
   if (content === PLACEHOLDER || content === JSON.stringify(PLACEHOLDER))
     return false;
-  const call = messages
-    .flatMap((message) =>
-      message.role === "assistant" ? (message.toolCalls ?? []) : [],
+  const calls = messages.flatMap((message) =>
+    message.role === "assistant" ? (message.toolCalls ?? []) : [],
+  );
+  const nameOf = (id: string) =>
+    calls.find((candidate) => candidate.id === id)?.function.name;
+  // A waiting question among the results the turn ended on ends it, whichever of them came last.
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== "tool") break;
+    if (
+      questionWaiting(nameOf(message.toolCallId) ?? "", message.content ?? "")
     )
-    .find((candidate) => candidate.id === last.toolCallId);
-  return Boolean(call && followsUp(call.function.name));
+      return false;
+  }
+  const name = nameOf(last.toolCallId);
+  return Boolean(name && followsUp(name));
 }
 
 function isAbort(error: unknown): boolean {

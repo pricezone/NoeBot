@@ -61,7 +61,7 @@ import { NameDialog } from "./name-dialog";
 import { RenameBotDialog } from "./rename-bot-dialog";
 
 /**
- * The menu's rows, drawn the way Grok Bot draws its own: roomier than the app's other menus, with
+ * The menu's rows: roomier than the app's other menus, with
  * the icon a size up, because this one is opened on a row the size of a finger and read at a glance.
  */
 const MENU_ITEM_CLASS =
@@ -74,7 +74,7 @@ type RowDialog = "delete" | "new-section" | "rename-bot";
  * Memoized roster row. `use-channel-events` preserves unchanged row identity, and
  * `content-visibility` keeps off-screen rows cheap without virtualization.
  *
- * Right-click opens the row's menu, in Grok Bot's order: Pin, Move to new section, Mark as Unread;
+ * Right-click opens the row's menu, in this order: Pin, Move to new section, Mark as Unread;
  * Rename Bot; Copy conversation ID; Hide from sidebar, Delete. Deleting is confirmed in a dialog
  * that names the channel, because the row it was invoked on is one of several identical-looking
  * rows. Every marker the menu sets (pin, section, read, hidden) is the caller's own and nobody

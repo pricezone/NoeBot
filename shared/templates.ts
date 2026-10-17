@@ -3,7 +3,7 @@
  *
  * Shared because two sides have to agree on it. The tenant package refuses a template filed under
  * a category this list does not name, and the Agents tab draws its pills from the same list in the
- * same order — Grok Bot's own categories, with "From Noë Bot Team" in front for the templates this
+ * same order, with "From Noë Bot Team" in front for the templates this
  * deployment ships. Nothing here knows about React or the database.
  */
 export const TEMPLATE_CATEGORIES = [

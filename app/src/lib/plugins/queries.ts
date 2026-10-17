@@ -185,6 +185,16 @@ export type ComposioApp = {
   enabled: boolean;
 };
 
+/** One Composio app's own Marketplace page: its directory entry and, where listed, its tools. */
+export type ComposioAppDetail = {
+  app: ComposioApp & {
+    /** How a person connects it once added; `no-auth` needs nothing of theirs. */
+    connection: { kind: string };
+  };
+  /** Null when Composio would not list them; the page stands without. */
+  tools: { slug: string; description: string }[] | null;
+};
+
 export type PluginsPage = {
   catalogue: CatalogueItem[];
   servers: PluginServer[];
@@ -310,6 +320,7 @@ export const pluginKeys = {
   connections: () => ["plugins", "connections"] as const,
   composioApps: (query: string) =>
     ["plugins", "composio", "apps", query] as const,
+  composioApp: (slug: string) => ["plugins", "composio", "app", slug] as const,
 };
 
 /**
@@ -467,6 +478,20 @@ export function composioAppsQueryOptions(query: string) {
       const response = await client(
         `/api/plugins/composio/apps?q=${encodeURIComponent(query)}`,
         { fallback: "Composio's app directory could not be read." },
+      );
+      return response.json();
+    },
+  });
+}
+
+/** One Composio app's page (`/api/plugins/composio/apps/:slug`, administrators only). */
+export function composioAppQueryOptions(slug: string) {
+  return queryOptions({
+    queryKey: pluginKeys.composioApp(slug),
+    queryFn: async (): Promise<ComposioAppDetail> => {
+      const response = await client(
+        `/api/plugins/composio/apps/${encodeURIComponent(slug)}`,
+        { fallback: "This app couldn't be loaded." },
       );
       return response.json();
     },

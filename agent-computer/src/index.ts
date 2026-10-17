@@ -66,12 +66,18 @@ import {
   refRectOnScreen,
   type ScreenElements,
 } from "./elements";
-import { startDesktop } from "./desktop";
+import { botDesktopDirectories, startDesktop } from "./desktop";
 import {
   captureDesktopFrame,
   startDesktopCast,
   streamSettingsFromEnv,
 } from "./desktop-cast";
+import {
+  createDesktopSessions,
+  DesktopNotRunningError,
+  desktopCapFromEnv,
+  QUICK_WINDOW_MANAGER_MS,
+} from "./desktop-sessions";
 import { createDialogKeeper, type DialogInfo } from "./dialogs";
 import {
   createDownloadKeeper,
@@ -126,7 +132,12 @@ import {
   probeSignIn,
   typeSecretValue,
 } from "./sign-in";
-import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
+import {
+  createDisplayNumbers,
+  displaySizeFromEnv,
+  startFreshDisplay,
+  startVirtualDisplay,
+} from "./virtual-display";
 import {
   createWorkspace,
   WorkspaceFileError,
@@ -188,8 +199,12 @@ const DISPLAY_SIZE = displaySizeFromEnv(
   process.env.COMPUTER_DISPLAY_SIZE,
   RUNTIME.desktop,
 );
+/**
+ * The computer's one display, for a headed browser without a desktop. A desktop computer starts none
+ * here: each Bot gets a display of its own when it first needs one (desktop-sessions.ts).
+ */
 const VIRTUAL_DISPLAY = await startVirtualDisplay(
-  RUNTIME.useVirtualDisplay ? "headed" : "headless",
+  RUNTIME.useVirtualDisplay && !RUNTIME.desktop ? "headed" : "headless",
   undefined,
   DISPLAY_SIZE,
 );
@@ -197,17 +212,28 @@ if (VIRTUAL_DISPLAY) process.env.DISPLAY = VIRTUAL_DISPLAY.name;
 /** How the desktop's live screen is encoded. See `streamSettingsFromEnv`. */
 const DESKTOP_STREAM = streamSettingsFromEnv(process.env, DISPLAY_SIZE);
 
-/** The desktop around the browser, when `COMPUTER_DESKTOP=on`. See desktop.ts. */
-const DESKTOP =
-  RUNTIME.desktop && VIRTUAL_DISPLAY
-    ? await startDesktop({ display: VIRTUAL_DISPLAY.name })
-    : null;
+/**
+ * Whether this computer draws a desktop around each Bot's browser (`COMPUTER_DESKTOP=on`): one per
+ * Bot, each on its own display, started on first use. See desktop.ts and desktop-sessions.ts.
+ */
+const DESKTOP = RUNTIME.desktop;
+/** How many Bots' desktops may run at once: `COMPUTER_MAX_DESKTOPS`, or what the memory allows. */
+const DESKTOP_MAX = desktopCapFromEnv();
+if (DESKTOP && import.meta.main && !Bun.which("Xvfb")) {
+  // Said at boot, as it was when the one desktop started here, rather than at every Bot's first screen.
+  console.error(
+    "COMPUTER_DESKTOP=on needs Xvfb, which is not installed here. The container image provides it.",
+  );
+  process.exit(1);
+}
 console.info(
   JSON.stringify({
     type: "computer-browser-mode",
     mode: BROWSER_MODE,
     display: VIRTUAL_DISPLAY?.name ?? null,
-    desktop: DESKTOP ? { ...DISPLAY_SIZE, ready: DESKTOP.ready } : null,
+    desktop: DESKTOP
+      ? { ...DISPLAY_SIZE, perBot: true, max: DESKTOP_MAX }
+      : null,
   }),
 );
 
@@ -263,6 +289,71 @@ const sessions = createSessions({
   profilesDirectory: process.env.PROFILES_DIR?.trim() || "/profiles",
   desktop: RUNTIME.desktop,
 });
+
+/**
+ * Each Bot's own desktop, on a desktop computer: an X display and an XFCE session apiece, started
+ * when the Bot's screen, its desktop preview or its browser first needs one, and stopped with its
+ * browser or when idle. See desktop-sessions.ts.
+ *
+ * A computer for one Bot (`COMPUTER_BOT_ID` set) keeps that Bot's desktop up from boot to shutdown,
+ * in the computer's own home and runtime directory, as its one desktop always was: its terminal
+ * history and its XFCE and file manager settings stay where they were.
+ */
+function keptDesktop(botId: string): boolean {
+  return (
+    Boolean(process.env.COMPUTER_BOT_ID?.trim()) && botId === DEFAULT_BOT_ID
+  );
+}
+/** Display numbers for the Bots' desktops, never one handed out twice (virtual-display.ts). */
+const DISPLAY_NUMBERS = createDisplayNumbers();
+const DESKTOPS = DESKTOP
+  ? createDesktopSessions({
+      size: DISPLAY_SIZE,
+      max: DESKTOP_MAX,
+      // A desktop with no browser and nobody watching. Zero keeps them.
+      idleMs: numberFromEnv("COMPUTER_DESKTOP_IDLE_MS", 10 * 60_000, {
+        zeroSwitchesItOff: true,
+      }),
+      startDisplay: (size) => startFreshDisplay(size, DISPLAY_NUMBERS),
+      startDesktop: (botId, display, { quick }) =>
+        startDesktop({
+          display,
+          ...botDesktopDirectories(botId, { own: keptDesktop(botId) }),
+          ...(quick ? { wmBudgetMs: QUICK_WINDOW_MANAGER_MS } : {}),
+        }),
+      openInput: openXInput,
+      startCast: (options) => startDesktopCast(options),
+      capture: (display, size, scale, keep) =>
+        captureDesktopFrame(display, size, undefined, scale, keep),
+      stream: DESKTOP_STREAM,
+      watchDock: (dir, open) => watchBrowserRequests(dir, open),
+      /*
+       * The Chrome button on a Bot's dock: that Bot's browser, opened again if it was closed and
+       * brought to the front either way. See browser-request.ts.
+       */
+      openBrowser: async (botId) => {
+        console.info(
+          JSON.stringify({ type: "computer-desktop-browser-request", botId }),
+        );
+        const page = await currentPage(botId);
+        // A browser launched for this click is on the start page already (profiles.ts); this is for one
+        // still blank because its start page did not load. The window comes forward while Google loads.
+        await openStartPage(page, startPageFor(botId));
+        await raiseBrowserWindow(page);
+      },
+      inUse: (botId) => ({
+        // A launch in progress counts: its desktop is the one it is about to draw on.
+        browser: profiles.isLive(botId) || profiles.isLaunching(botId),
+        watched: sessions.watching(botId),
+        usedAt: profiles.usedAt(botId),
+      }),
+      vacate: async (botId, message) => {
+        await sessions.get(botId)?.viewer.releaseAll(message);
+        await profiles.putAway(botId, "its desktop was closed");
+      },
+      keep: keptDesktop,
+    })
+  : null;
 
 /**
  * Sent by the server as a header on every call. Absent means the caller does not know or does not
@@ -389,11 +480,11 @@ await startEgressFilter({ forShell: import.meta.main });
 const profiles = createProfiles(
   process.env.PROFILES_DIR?.trim() || "/profiles",
   async (botId) => {
-    if (sessions.get(botId)) sessions.renewRun(botId);
     dialogs.forget(botId);
     downloads.forget(botId);
     navigations.forget(botId);
-    await sessions.get(botId)?.viewer.releaseAll(COMPUTER_STOPPED);
+    // A new run, and on a page screen its viewer taken down; a Bot's own desktop stays on (sessions.ts).
+    await sessions.browserClosed(botId, COMPUTER_STOPPED);
   },
   // Before any page is used, so no dialog is auto-dismissed and no download lost. See dialogs.ts.
   (botId, context) => {
@@ -402,6 +493,15 @@ const profiles = createProfiles(
     // Every navigation, for Clicky's `/elements/state`. See navigation-state.ts.
     navigations.attach(botId, context as unknown as FollowedContext);
   },
+  DESKTOPS
+    ? {
+        // Each Bot's browser on its own desktop, which this starts the first time.
+        displayFor: async (botId) => (await DESKTOPS.use(botId)).display,
+        displayCurrent: (botId, display) => DESKTOPS.current(botId, display),
+        // And the desktop closed after the browser has, never before: Chromium flushes on the way out.
+        afterClosed: (botId) => DESKTOPS.browserClosed(botId),
+      }
+    : {},
 );
 /*
  * A hidden headless launch at boot, so the first real one finds the browser in memory: 11.5 s
@@ -447,16 +547,12 @@ const DEFAULT_BOT_ID = (() => {
   return configured;
 })();
 
-/** The Bot whose browser was last in use: the one the dock's Chrome button brings back. */
-let lastBrowserBot: string | null = null;
-
 async function currentPage(
   botId: string,
   purpose: PagePurpose = "read",
 ): Promise<Page> {
   const session = sessions.for(botId);
   const page = await profiles.page(botId);
-  lastBrowserBot = botId;
   sessions.observeBrowser(botId, page.context());
   assertPageAccess(RUNTIME.backend, page.url(), purpose);
   // A ref names an element on the page it was taken from, so moving to a window the site opened has
@@ -490,37 +586,35 @@ const CLICKY_TEXT_LIMIT = 6_000;
 const CLICKY_READ_MS = 2_500;
 
 /**
- * The desktop's pointer and keyboard for input Clicky carries out in screen space, opened on first
- * use like the live screen's (desktop-cast.ts), and kept.
+ * The pointer and keyboard of this Bot's own desktop, for input Clicky carries out in screen space:
+ * opened on first use like the live screen's (desktop-cast.ts), and kept until that desktop stops.
+ * Only ever this Bot's display, and only while it is running.
  */
-let screenInput: Promise<XInput> | undefined;
-function screenInputFor(display: string): Promise<XInput> {
-  screenInput ??= openXInput(display);
-  return screenInput;
+function screenInputFor(botId: string): Promise<XInput> {
+  if (!DESKTOPS) return Promise.reject(new DesktopNotRunningError());
+  return DESKTOPS.input(botId);
 }
 
-/**
- * The dock's Chrome button: a browser, opened again if it was closed and brought to the front either
- * way. Whose: the Bot whose screen a person is driving; else the Bot that last used a browser; else,
- * after a restart, the profile used last. See browser-request.ts.
+/** This Bot's running desktop, or null: a look at a screen never starts one. */
+function runningDesktop(botId: string) {
+  return DESKTOPS?.get(botId) ?? null;
+}
+
+/*
+ * A computer for one Bot starts that Bot's desktop at boot, as its one desktop always started:
+ * the screen is there the moment somebody opens it.
  */
-const BROWSER_REQUESTS = DESKTOP
-  ? await watchBrowserRequests(DESKTOP.browserRequestDir, async () => {
-      const botId =
-        sessions.drivenByPerson() ??
-        lastBrowserBot ??
-        (await profiles.lastUsed()) ??
-        DEFAULT_BOT_ID;
-      console.info(
-        JSON.stringify({ type: "computer-desktop-browser-request", botId }),
-      );
-      const page = await currentPage(botId);
-      // A browser launched for this click is on the start page already (profiles.ts); this is for one
-      // still blank because its start page did not load. The window comes forward while Google loads.
-      await openStartPage(page, startPageFor(botId));
-      await raiseBrowserWindow(page);
-    })
-  : null;
+if (DESKTOPS && process.env.COMPUTER_BOT_ID?.trim() && import.meta.main) {
+  void DESKTOPS.use(DEFAULT_BOT_ID).catch((error: unknown) =>
+    console.error(
+      JSON.stringify({
+        type: "computer-desktop-not-started",
+        botId: DEFAULT_BOT_ID,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    ),
+  );
+}
 
 /**
  * Describe everything on the page a Bot can act on.
@@ -884,6 +978,13 @@ async function applyStreamInput(
     ws.send(JSON.stringify({ type: "error", error: "Input is not JSON." }));
     return;
   }
+  // A release presses nothing: it lets go of keys this screen's person holds down on the desktop
+  // (x-keyboard.ts). So it is honoured whoever holds the wheel, because the one that matters most
+  // arrives just after the person handed it back, and a Control left down would be the Bot's.
+  if (message.type === "release") {
+    await standing.cast.send(message).catch(() => undefined);
+    return;
+  }
   // A person's input is accepted only while they hold the wheel. The socket being open is not permission:
   // without this check, anything that could reach this port could drive the browser while a Bot
   // was working, which is the one thing the control state exists to prevent.
@@ -985,20 +1086,16 @@ serve<StreamData>({
           }
         };
 
-        if (DESKTOP && VIRTUAL_DISPLAY) {
+        if (DESKTOPS) {
           /*
-           * The whole display, not the page. The browser is asked for so that its window is on the
-           * desktop the person is about to see, but not waited for: the desktop is there already,
-           * and the window appears on it when the launch is done. Nothing to follow, either; a
-           * desktop does not change when the Bot changes page.
+           * This Bot's whole display, not the page, and no other Bot's: each has its own, and input
+           * from this screen reaches this display only. The browser is asked for so that its window
+           * is on the desktop the person is about to see, but not waited for: the window appears on
+           * it when the launch is done. Nothing to follow, either; a desktop does not change when
+           * the Bot changes page. The desktop starts here if it is not running yet.
            */
           void currentPage(ws.data.botId).catch(() => undefined);
-          const cast = startDesktopCast({
-            display: VIRTUAL_DISPLAY.name,
-            size: DISPLAY_SIZE,
-            onFrame: send,
-            stream: DESKTOP_STREAM,
-          });
+          const cast = await DESKTOPS.cast(ws.data.botId, send);
           await claim.install(cast);
           return;
         }
@@ -1464,19 +1561,23 @@ serve<StreamData>({
          * hands on the live screen. Behind the same wheel check as above.
          */
         if (body?.space === "screen") {
-          if (!DESKTOP || !VIRTUAL_DISPLAY)
+          if (!DESKTOP)
             return json(
               { error: "Screen input needs a computer with a desktop." },
               400,
             );
+          // This Bot's own display, and only while it is running: the screen the person is looking at.
+          const desktop = runningDesktop(botId);
+          if (!desktop)
+            return json({ error: new DesktopNotRunningError().message }, 409);
           try {
             return json(
               await performScreenInput(
-                await screenInputFor(VIRTUAL_DISPLAY.name),
+                await screenInputFor(botId),
                 url.pathname,
                 body,
                 session.livePage?.url() ?? "",
-                windowChecks(VIRTUAL_DISPLAY.name, botId),
+                windowChecks(desktop.display, botId),
               ),
             );
           } catch (error) {
@@ -1519,13 +1620,23 @@ serve<StreamData>({
           browserBackend: RUNTIME.backend,
           browserChannel: RUNTIME.channel,
           // The screen the live view shows, when it is a desktop rather than a page. Null is a
-          // computer without one, which is the default, not a failure.
+          // computer without one, which is the default, not a failure. This Bot's own desktop:
+          // `running` says whether it is up now (it starts when its screen or browser is first
+          // needed), `ready` whether its window manager answered. Asking starts nothing.
           desktop: DESKTOP
-            ? {
-                width: DISPLAY_SIZE.width,
-                height: DISPLAY_SIZE.height,
-                ready: DESKTOP.ready,
-              }
+            ? (() => {
+                const desktop = runningDesktop(botId);
+                return {
+                  width: DISPLAY_SIZE.width,
+                  height: DISPLAY_SIZE.height,
+                  ready: desktop?.ready ?? false,
+                  running: Boolean(desktop),
+                  display: desktop?.display ?? null,
+                  // Every Bot's, for an operator: how many desktops this computer runs, of how many.
+                  desktops: DESKTOPS?.list().length ?? 0,
+                  maxDesktops: DESKTOP_MAX,
+                };
+              })()
             : null,
         });
       }
@@ -1578,7 +1689,6 @@ serve<StreamData>({
         const wasRunning = profiles.isLive(botId);
         try {
           const page = await profiles.page(botId);
-          lastBrowserBot = botId;
           sessions.observeBrowser(botId, page.context());
           return json({
             warm: true,
@@ -1763,7 +1873,7 @@ serve<StreamData>({
        * `/screenshot` stays a picture of its page, masked, which is what its tools reason about.
        */
       if (url.pathname === "/desktop/screenshot" && request.method === "GET") {
-        if (!DESKTOP || !VIRTUAL_DISPLAY) {
+        if (!DESKTOPS) {
           return json(
             {
               error:
@@ -1785,10 +1895,9 @@ serve<StreamData>({
               })
             : DISPLAY_SIZE.width;
           const fit = fitWidth(DISPLAY_SIZE, wanted);
-          const frame = await captureDesktopFrame(
-            VIRTUAL_DISPLAY.name,
-            DISPLAY_SIZE,
-            undefined,
+          // This Bot's desktop, started if it is not running yet.
+          const frame = await DESKTOPS.capture(
+            botId,
             fit.scale < 1 ? fit : null,
           );
           return json({
@@ -1964,7 +2073,7 @@ serve<StreamData>({
               });
             return json({ error: BROWSER_NOT_OPEN }, 409);
           }
-          const display = VIRTUAL_DISPLAY;
+          const display = runningDesktop(botId)?.display;
           return json(
             await elementAtScreen(
               page,
@@ -1975,14 +2084,14 @@ serve<StreamData>({
               DESKTOP && display && verify
                 ? async (pageWindow) => {
                     const pid = await browserPid(profiles.directory(botId));
-                    const pointer = await screenInputFor(display.name);
+                    const pointer = await screenInputFor(botId);
                     await pointer.move(
                       Math.round(point.x),
                       Math.round(point.y),
                     );
                     // A moment for the X server to settle the pointer before it is asked.
                     await Bun.sleep(40);
-                    return windowUnderPointer(display.name, pid, pageWindow);
+                    return windowUnderPointer(display, pid, pageWindow);
                   }
                 : undefined,
             ),
@@ -2000,17 +2109,17 @@ serve<StreamData>({
         try {
           const page = await livePageOf(botId);
           if (!page && !DESKTOP) return json({ error: BROWSER_NOT_OPEN }, 409);
-          const display = VIRTUAL_DISPLAY;
-          const window =
-            DESKTOP && display
-              ? page
-                ? await focusedWindow(
-                    display.name,
-                    await browserPid(profiles.directory(botId)),
-                    await pageWindowRect(page),
-                  )
-                : "other"
-              : "browser";
+          // This Bot's display; with no desktop running there is no window of its page to have it.
+          const display = runningDesktop(botId)?.display;
+          const window = DESKTOP
+            ? page && display
+              ? await focusedWindow(
+                  display,
+                  await browserPid(profiles.directory(botId)),
+                  await pageWindowRect(page),
+                )
+              : "other"
+            : "browser";
           return json(await focusOn(page, window));
         } catch (error) {
           return json(
@@ -2030,19 +2139,15 @@ serve<StreamData>({
         try {
           const page = await livePageOf(botId);
           if (!page && !DESKTOP) return json({ error: BROWSER_NOT_OPEN }, 409);
-          const display = VIRTUAL_DISPLAY;
           const framed = await maskedFrame({
             page,
-            desktop: DESKTOP && display ? DISPLAY_SIZE : null,
+            desktop: DESKTOPS ? DISPLAY_SIZE : null,
             width,
+            // This Bot's display only.
             captureDesktop: (scale, keep) =>
-              captureDesktopFrame(
-                display?.name ?? "",
-                DISPLAY_SIZE,
-                undefined,
-                scale,
-                keep,
-              ),
+              DESKTOPS
+                ? DESKTOPS.capture(botId, scale, keep)
+                : Promise.reject(new DesktopNotRunningError()),
           });
           console.info(
             `[timing] clicky.frame bot=${botId} total=${Math.round(performance.now() - started)} mode=${DESKTOP ? "desktop" : "page"} width=${framed.width}`,
@@ -3130,8 +3235,8 @@ async function shutDown(reason: string, exitCode: number): Promise<void> {
   shuttingDown = true;
   console.info(`${reason}: closing the browser so its profile is flushed`);
   await profiles.closeAll();
-  BROWSER_REQUESTS?.close();
-  await DESKTOP?.stop();
+  // After the browsers, so none loses its display before it has flushed its profile.
+  await DESKTOPS?.stopAll();
   await VIRTUAL_DISPLAY?.stop();
   process.exit(exitCode);
 }

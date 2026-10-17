@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   emptyKeycodes,
   keysymOfCharacter,
@@ -30,10 +30,32 @@ export type XInput = {
   button(button: number, press: boolean): Promise<void>;
   /** By keysym name: `a`, `Return`, `Shift_L`. */
   key(keysym: string, press: boolean): Promise<void>;
-  /** Characters, whatever the keymap has. */
-  type(text: string): Promise<void>;
+  /**
+   * Characters, whatever the keymap has. `clearModifiers`: xdotool lets go of whatever modifiers are
+   * held (Caps Lock included) while it types, and puts them back after.
+   */
+  type(text: string, options?: { clearModifiers?: boolean }): Promise<void>;
+  /**
+   * The desktop's clipboard, and its primary selection, set to `text`; false when it could not be
+   * (no xclip), and the caller types the text instead.
+   */
+  setClipboard?(text: string): Promise<boolean>;
+  /**
+   * The class of the window that has the keyboard (`Xfce4-terminal`, `Google-chrome`), or null when
+   * it cannot be read. A paste asks it, because a terminal pastes on Control+Shift+V.
+   */
+  activeWindowClass?(): Promise<string | null>;
   close(): void;
+  /**
+   * Let go of a connection whose display has gone, without a word to it. `close` says goodbye to
+   * the X server, and to a server that is gone Xlib's answer is to exit the whole process.
+   */
+  abandon?(): void;
 };
+
+/** Said when input reaches a connection whose display has gone. */
+export const DISPLAY_GONE =
+  "The desktop's display has gone, so the input did not go through.";
 
 /**
  * One `xdotool` after another.
@@ -113,10 +135,99 @@ export function xdotoolEnvironment(
 /** Typing through xdotool, which maps characters the keymap lacks into a spare keycode. */
 function typeWith(run: ReturnType<typeof xdotoolRunner>) {
   // From a file rather than an argument, so text beginning with a dash is text and not an option.
-  return (text: string) =>
+  return (text: string, options?: { clearModifiers?: boolean }) =>
     text
-      ? run(["type", "--delay", "2", "--file", "-"], text)
+      ? run(
+          [
+            "type",
+            ...(options?.clearModifiers ? ["--clearmodifiers"] : []),
+            "--delay",
+            "2",
+            "--file",
+            "-",
+          ],
+          text,
+        )
       : Promise.resolve();
+}
+
+/**
+ * How long the display is given to hear that xclip owns the clipboard before anything pastes. xclip
+ * claims the selection and forks; the claim reaches the server when the forked copy first flushes,
+ * a moment after the process this waits for has exited.
+ */
+const CLIPBOARD_SETTLES_MS = 30;
+
+/**
+ * The desktop's clipboard, set with xclip: CLIPBOARD, which Control+V pastes, and PRIMARY, which a
+ * middle click pastes. The text goes in on stdin, never in an argument a process list would show.
+ *
+ * xclip stays behind, forked, to hand the text to whichever window asks, until something else is
+ * copied; the process waited for here is the one that forks, and exits once the selection is held.
+ * True when the clipboard took it. False when xclip is missing or failed: the caller types instead.
+ */
+export function clipboardWriter(
+  display: string,
+  {
+    spawnImpl = spawn,
+    settleMs = CLIPBOARD_SETTLES_MS,
+  }: { spawnImpl?: typeof spawn; settleMs?: number } = {},
+) {
+  const env = xdotoolEnvironment(display, process.env);
+  const write = (selection: "clipboard" | "primary", text: string) =>
+    new Promise<boolean>((resolve) => {
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawnImpl("xclip", ["-selection", selection], {
+          env,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+      } catch {
+        resolve(false);
+        return;
+      }
+      child.on("error", () => resolve(false));
+      // `exit`, not `close`: the forked copy keeps running, and nothing of it is waited for.
+      child.on("exit", (code) => resolve(code === 0));
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(text);
+    });
+  return async (text: string): Promise<boolean> => {
+    const [clipboard] = await Promise.all([
+      write("clipboard", text),
+      write("primary", text),
+    ]);
+    if (clipboard && settleMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, settleMs));
+    return clipboard;
+  };
+}
+
+/**
+ * The focused window's class, from xdotool. Null on any failure (no window has focus, xdotool is
+ * missing, or it does not answer within half a second): the caller then pastes the usual way.
+ */
+export function activeWindowClassReader(
+  display: string,
+  { execFileImpl = execFile }: { execFileImpl?: typeof execFile } = {},
+) {
+  const env = xdotoolEnvironment(display, process.env);
+  return () =>
+    new Promise<string | null>((resolve) => {
+      try {
+        execFileImpl(
+          "xdotool",
+          ["getactivewindow", "getwindowclassname"],
+          { env, timeout: 500 },
+          (error, stdout) => {
+            const name = String(stdout ?? "").trim();
+            resolve(error || !name ? null : name);
+          },
+        );
+      } catch {
+        resolve(null);
+      }
+    });
 }
 
 /** Everything through xdotool. Slower by one process per event; needs no library. */
@@ -128,7 +239,11 @@ export function xdotoolInput(display: string): XInput {
       run([press ? "mousedown" : "mouseup", String(button)]),
     key: (keysym, press) => run([press ? "keydown" : "keyup", keysym]),
     type: typeWith(run),
+    setClipboard: clipboardWriter(display),
+    activeWindowClass: activeWindowClassReader(display),
     close: () => undefined,
+    // Nothing held open: each event is its own process.
+    abandon: () => undefined,
   };
 }
 
@@ -139,13 +254,34 @@ export function xdotoolInput(display: string): XInput {
 const BINDING_SETTLES_MS = 20;
 
 /**
+ * Xlib's process-wide IO error handler, set once. The default one prints "X connection to … broken"
+ * and calls exit(1) itself, before a connection's own exit handler is ever reached, so on its own
+ * `XSetIOErrorExitHandler` changes nothing. This one only returns; the connection's exit handler
+ * then marks it broken. Held here for the life of the process, so the callback is never collected.
+ */
+let quietIoErrors: { handler: unknown; library: unknown } | null = null;
+
+/**
  * Pointer and keys through libXtst; text the US keymap has through xdotool, and text it does not
  * have on spare keycodes bound here.
  *
  * Throws when the libraries cannot be opened or the display cannot, and the caller falls back.
  */
 export async function xtestInput(display: string): Promise<XInput> {
-  const { dlopen, FFIType, ptr, toArrayBuffer } = await import("bun:ffi");
+  const { dlopen, FFIType, JSCallback, ptr, toArrayBuffer } = await import(
+    "bun:ffi"
+  );
+  if (!quietIoErrors) {
+    const handler = new JSCallback(() => 0, {
+      args: [FFIType.ptr],
+      returns: FFIType.i32,
+    });
+    const library = dlopen("libX11.so.6", {
+      XSetIOErrorHandler: { args: [FFIType.function], returns: FFIType.ptr },
+    });
+    library.symbols.XSetIOErrorHandler(handler);
+    quietIoErrors = { handler, library };
+  }
   const x11 = dlopen("libX11.so.6", {
     XOpenDisplay: { args: [FFIType.ptr], returns: FFIType.ptr },
     XCloseDisplay: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -191,6 +327,53 @@ export async function xtestInput(display: string): Promise<XInput> {
     xtst.close();
     throw new Error(`The display ${display} could not be opened for input.`);
   }
+
+  /*
+   * A display that goes away must not take this process with it. Xlib's answer to a lost connection
+   * is to call exit(1) from inside whichever call noticed (XFlush, XSync, the XSync in
+   * XCloseDisplay), and every Bot's browser would die with it, unflushed. libX11 1.7 and later let
+   * a connection have its own exit handler: this one returns, the connection is marked broken, and
+   * nothing calls into it again. It is only reached because the process-wide IO error handler
+   * (`quietIoErrors`) returns too. Without that function (an older libX11) `abandon` is what keeps a
+   * known-dead display from being spoken to.
+   */
+  let broken = false;
+  const lost = new JSCallback(
+    () => {
+      broken = true;
+    },
+    { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.void },
+  );
+  const exitHandler = (() => {
+    try {
+      return dlopen("libX11.so.6", {
+        XSetIOErrorExitHandler: {
+          args: [FFIType.ptr, FFIType.function, FFIType.ptr],
+          returns: FFIType.void,
+        },
+      });
+    } catch {
+      return null;
+    }
+  })();
+  exitHandler?.symbols.XSetIOErrorExitHandler(connection, lost, null);
+  /** Whether to go on: false once closed, and refused outright once the display has gone. */
+  const usable = (): boolean => {
+    if (broken) throw new Error(DISPLAY_GONE);
+    return !closed;
+  };
+  /** Send what is queued, and say so if that is what found the display gone. */
+  const flush = () => {
+    x11.symbols.XFlush(connection);
+    if (broken) throw new Error(DISPLAY_GONE);
+  };
+  /** Everything this connection holds, once no call into it can follow. */
+  const release = () => {
+    x11.close();
+    xtst.close();
+    exitHandler?.close();
+    lost.close();
+  };
 
   const run = xdotoolRunner(display);
   const keycodes = new Map<string, number>();
@@ -269,43 +452,50 @@ export async function xtestInput(display: string): Promise<XInput> {
       x11.symbols.XSync(connection, 0);
       await new Promise((resolve) => setTimeout(resolve, BINDING_SETTLES_MS));
     }
+    // Asked again after the wait: the connection may have been closed, or found gone, meanwhile,
+    // and a closed one is freed memory.
+    if (!usable()) return;
     xtst.symbols.XTestFakeKeyEvent(connection, slot.keycode, 1, 0);
     xtst.symbols.XTestFakeKeyEvent(connection, slot.keycode, 0, 0);
-    x11.symbols.XFlush(connection);
+    flush();
   };
   const typeOnKeymap = typeWith(run);
 
   return {
     async move(x, y) {
-      if (closed) return;
+      if (!usable()) return;
       xtst.symbols.XTestFakeMotionEvent(connection, -1, x, y, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
     async button(button, press) {
-      if (closed) return;
+      if (!usable()) return;
       xtst.symbols.XTestFakeButtonEvent(connection, button, press ? 1 : 0, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
     async key(keysym, press) {
-      if (closed) return;
+      if (!usable()) return;
       const keycode = keycodeFor(keysym);
+      // Looking the key up may have been what found the display gone.
+      if (!usable()) return;
       if (keycode === 0) {
         // Not in the keymap. xdotool borrows a keycode for it; slower, and correct.
         await run([press ? "keydown" : "keyup", keysym]);
         return;
       }
       xtst.symbols.XTestFakeKeyEvent(connection, keycode, press ? 1 : 0, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
-    async type(text) {
+    async type(text, options) {
       for (const segment of runsOf(text)) {
-        if (closed) return;
-        if (segment.onKeymap) await typeOnKeymap(segment.text);
+        if (!usable()) return;
+        if (segment.onKeymap) await typeOnKeymap(segment.text, options);
         else
           for (const character of segment.text) {
             try {
               await typeUnmapped(character);
             } catch (error) {
+              // A display that has gone is not typed on the old way either.
+              if (!usable()) return;
               // Said once a character, and typed the old way, which now has the locale it needs.
               console.warn(
                 JSON.stringify({
@@ -314,17 +504,25 @@ export async function xtestInput(display: string): Promise<XInput> {
                     error instanceof Error ? error.message : String(error),
                 }),
               );
-              await typeOnKeymap(character);
+              await typeOnKeymap(character, options);
             }
           }
       }
     },
+    setClipboard: clipboardWriter(display),
+    activeWindowClass: activeWindowClassReader(display),
     close() {
       if (closed) return;
       closed = true;
-      x11.symbols.XCloseDisplay(connection);
-      x11.close();
-      xtst.close();
+      // A connection found gone is not called into again, not even to close it.
+      if (!broken) x11.symbols.XCloseDisplay(connection);
+      release();
+    },
+    abandon() {
+      if (closed) return;
+      closed = true;
+      // Left as it is: its memory and its socket, a few kilobytes for a display that will not return.
+      release();
     },
   };
 }

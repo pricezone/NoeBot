@@ -489,25 +489,29 @@ export function createWakeUpRunner(options: {
               instruction: wakeUpInstruction(payload),
               initiator,
             });
-            await channels.recordActivity(
-              actor,
-              channel.id,
-              { text: replyText, agentId: payload.agentId, at: new Date() },
-              { id: `follow-up:${item.key}` },
-            );
+            // A turn that only asked a question has no words of its own; its question was
+            // already announced and notified where it was put.
+            if (replyText)
+              await channels.recordActivity(
+                actor,
+                channel.id,
+                { text: replyText, agentId: payload.agentId, at: new Date() },
+                { id: `follow-up:${item.key}` },
+              );
             await done("succeeded");
             report.ran.push(item.key);
-            await notify?.(
-              {
-                ownerUserId: payload.ownerUserId,
-                channelId: channel.id,
-                agentId: payload.agentId,
-                threadId: channel.threadId,
-              },
-              { id: `follow-up:${item.key}`, text: replyText, kind: "reply" },
-            ).catch((error: unknown) =>
-              console.warn("Could not notify about a follow-up.", error),
-            );
+            if (replyText)
+              await notify?.(
+                {
+                  ownerUserId: payload.ownerUserId,
+                  channelId: channel.id,
+                  agentId: payload.agentId,
+                  threadId: channel.threadId,
+                },
+                { id: `follow-up:${item.key}`, text: replyText, kind: "reply" },
+              ).catch((error: unknown) =>
+                console.warn("Could not notify about a follow-up.", error),
+              );
           } catch (error) {
             if (error instanceof BotPausedError) {
               await done("skipped", error.message);

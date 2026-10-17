@@ -5,7 +5,7 @@ import { onComputerActivity } from "@/lib/copilot/computer-activity";
 /**
  * When a Bot's computer view goes to sleep, and what wakes it.
  *
- * Grok's computer sleeps when nobody is using it and wakes where it left off. Here the screen in the
+ * A computer should sleep when nobody is using it and wake where it left off. Here the screen in the
  * bot panel asked for a screenshot every second for as long as it was open, and on the shared
  * computer every screenshot touches the browser, so an open panel kept a browser alive for ever and
  * the computer's own idle sweep never ran. Asleep, the panel and the full-window viewer ask for

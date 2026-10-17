@@ -153,7 +153,7 @@ function draw(input: {
       page("/settings", "Settings page"),
       page("/settings/usage", "Usage page"),
       page("/settings/approvals", "Approvals page"),
-      page("/admin", "Admin page"),
+      page("/settings/advanced", "Advanced Settings page"),
       page("/sign", "Sign in"),
     ]),
   });
@@ -207,11 +207,13 @@ test("the usage row exists only on a metered deployment, and links to the usage 
   expect(row.getAttribute("href")).toBe("/settings/usage");
 });
 
-test("Approvals and Admin are not rows of the menu, for anybody: they are sections of Settings", async () => {
+test("Approvals and Advanced Settings are not rows of the menu, for anybody: they are sections of Settings", async () => {
   const asAdmin = draw({ role: "admin", pending: 2 });
   await open(asAdmin.view);
   expect(asAdmin.view.queryByRole("link", { name: /Approvals/ })).toBeNull();
-  expect(asAdmin.view.queryByRole("link", { name: "Admin" })).toBeNull();
+  expect(
+    asAdmin.view.queryByRole("link", { name: "Advanced Settings" }),
+  ).toBeNull();
   // Nothing is asked for on their behalf either: a menu does not poll the approvals inbox.
   expect(requests.map((request) => request.path)).not.toContain(
     "/api/approvals",
@@ -221,7 +223,9 @@ test("Approvals and Admin are not rows of the menu, for anybody: they are sectio
   const asUser = draw({ role: "user" });
   await open(asUser.view);
   expect(asUser.view.queryByRole("link", { name: /Approvals/ })).toBeNull();
-  expect(asUser.view.queryByRole("link", { name: "Admin" })).toBeNull();
+  expect(
+    asUser.view.queryByRole("link", { name: "Advanced Settings" }),
+  ).toBeNull();
 });
 
 test("a row navigates and closes the menu", async () => {

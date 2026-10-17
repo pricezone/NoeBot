@@ -87,6 +87,16 @@ const parameters = z.object({
     .describe(
       "Up to eight short answers the person can pick from, when the answer is likely one of a few. They can always type their own instead",
     ),
+  /*
+   * A yes-or-no question, drawn with Yes and No in the person's language. Presentation only, like
+   * the options: the label they pick arrives as their next message.
+   */
+  yesNo: z
+    .boolean()
+    .optional()
+    .describe(
+      "true when the question can be answered with yes or no: the person is offered Yes and No, and can still type their own answer",
+    ),
 });
 
 /**
@@ -112,7 +122,9 @@ export function escalationTool(options: {
       "Put a question to a person when the work needs judgement you do not have: a decision only " +
       "they can make, a fact only they know, permission you do not hold. Prefer this to guessing, " +
       "and prefer it to asking another Bot when no other Bot could settle it either. Say what you " +
-      "need and why, then stop and wait for their answer.",
+      "need and why. Every question that can be answered with yes or no sets yesNo: true, so the " +
+      "person is offered Yes and No. Call it on its own, after any other tools have returned: the " +
+      "call ends your turn, and their answer arrives as their next message.",
     parameters,
     execute: async (args: unknown) => {
       const parsed = parameters.safeParse(args);
@@ -224,13 +236,15 @@ export function escalationTool(options: {
 
       if (!("reached" in outcome)) return outcome.refusal;
       /*
-       * With options, the conversation already shows the question and its answers as a card, so
-       * asking it again in prose would put it on the screen twice, the second time without the
-       * answers to pick from. Without them, the Bot's own sentence is the question.
+       * The conversation shows the question as a card, with its options or Yes and No when it has
+       * them, and a built-in Bot's turn ends on this result (`question-turn.ts`), so there is
+       * nothing to say after it. Read again on a later turn, it says where the answer is.
        */
-      return parsed.data.options?.length
-        ? `${PUT_TO}${outcome.reached}. They can see the question with its options and can also answer in their own words, so do not repeat it: stop there, do not answer it yourself and do not hand it to another Bot.`
-        : `${PUT_TO}${outcome.reached}. Ask it in your own words now, plainly, and stop there: do not answer it yourself and do not hand it to another Bot.`;
+      const offered =
+        parsed.data.options?.length || parsed.data.yesNo
+          ? " with its options"
+          : "";
+      return `${PUT_TO}${outcome.reached}. They can see the question${offered} in the conversation and can answer in their own words, so do not repeat it: stop there, do not answer it yourself and do not hand it to another Bot. Their next message is their answer.`;
     },
   };
 }

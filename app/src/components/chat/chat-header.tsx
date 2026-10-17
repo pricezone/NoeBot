@@ -64,7 +64,7 @@ export function ChatHeader({
 /**
  * Who you are talking to, as a button: the avatar and the name on a card-coloured pill.
  *
- * Floating, the way Grok draws it: a hairline and a soft shadow lift it off the transcript that
+ * Floating: a hairline and a soft shadow lift it off the transcript that
  * scrolls under it, which on the light theme's white is the only thing that says it is a control.
  */
 function BotPill({

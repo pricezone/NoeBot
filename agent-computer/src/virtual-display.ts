@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import type { Readable } from "node:stream";
 import type { BrowserMode } from "./browser-mode";
 
@@ -133,10 +134,16 @@ export async function startVirtualDisplay(
   mode: BrowserMode,
   runtime: DisplayRuntime = systemRuntime,
   size: DisplaySize = PAGE_DISPLAY_SIZE,
+  /**
+   * The display number to take, rather than the lowest free one. Xvfb still reports readiness on
+   * the descriptor, and exits if that number is taken.
+   */
+  number?: number,
 ): Promise<VirtualDisplay | null> {
   if (mode === "headless") return null;
 
   const displayProcess = runtime.spawn("Xvfb", [
+    ...(number === undefined ? [] : [`:${number}`]),
     "-displayfd",
     "3",
     "-screen",
@@ -172,6 +179,11 @@ export async function startVirtualDisplay(
     if (!/^:\d+$/.test(name)) {
       throw new Error("Xvfb returned an invalid display number.");
     }
+    if (number !== undefined && name !== `:${number}`) {
+      throw new Error(
+        `Xvfb took ${name}, not the :${number} it was asked for.`,
+      );
+    }
   } catch (error) {
     if (exitCode === undefined) {
       stopping = true;
@@ -190,4 +202,65 @@ export async function startVirtualDisplay(
       await stop(displayProcess, runtime);
     },
   };
+}
+
+/**
+ * Display numbers that are never handed out twice in this process.
+ *
+ * `-displayfd` alone gives the lowest free number, so a display that has just gone is the next one
+ * handed out. With a display per Bot that is a hazard, not a saving: a Chromium still connecting to
+ * the Bot display that went, or the old desktop's session restarting on it, would land on another
+ * Bot's new screen. So numbers only go up, from well above the ones a person's own X server uses,
+ * skipping any another server holds (its lock file says so), and wrapping only after tens of
+ * thousands.
+ */
+export function createDisplayNumbers({
+  first = 100,
+  last = 30_000,
+  taken = (number: number) => existsSync(`/tmp/.X${number}-lock`),
+}: {
+  first?: number;
+  last?: number;
+  taken?: (number: number) => boolean;
+} = {}) {
+  let next = first;
+  return (): number => {
+    for (let tries = 0; tries <= last - first; tries++) {
+      const number = next;
+      next = next >= last ? first : next + 1;
+      if (!taken(number)) return number;
+    }
+    throw new Error("No display number is free.");
+  };
+}
+
+/**
+ * Start an X display on a number never used before in this process, trying the next number when
+ * one is taken from under it (another X server started between the check and the bind).
+ */
+export async function startFreshDisplay(
+  size: DisplaySize,
+  numbers: () => number,
+  {
+    runtime = systemRuntime,
+    attempts = 4,
+  }: { runtime?: DisplayRuntime; attempts?: number } = {},
+): Promise<VirtualDisplay> {
+  let failure: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const display = await startVirtualDisplay(
+        "headed",
+        runtime,
+        size,
+        numbers(),
+      );
+      if (display) return display;
+    } catch (error) {
+      failure = error;
+    }
+  }
+  throw failure instanceof Error
+    ? failure
+    : new Error("The virtual display could not be started.");
 }

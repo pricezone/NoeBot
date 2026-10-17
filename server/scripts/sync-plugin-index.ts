@@ -1,12 +1,13 @@
 /**
  * One sweep: rewrite `src/plugins/cursor-index.json` from the Cursor Marketplace.
  *
- * Grok Bot's apps are Cursor Marketplace plugins — a public GitHub repository at a pinned commit,
- * with remote MCP servers in `mcp.json` and skills under `skills/` — and Cursor's index lists them
- * at `POST https://cursor.com/api/dashboard/list-marketplace-plugins`, undocumented and without
- * authentication. That endpoint is asked HERE, by whoever runs this script, and never by a
- * deployment: what a deployment offers is the committed file, reviewed in a diff, so an endpoint
- * that changes shape breaks this script on somebody's laptop and not every instance at boot.
+ * Noë Bot's Marketplace apps are Cursor Marketplace plugins — a public GitHub repository at a
+ * pinned commit, with remote MCP servers in `mcp.json` and skills under `skills/` — and Cursor's
+ * index lists them at `POST https://cursor.com/api/dashboard/list-marketplace-plugins`,
+ * undocumented and without authentication. That endpoint is asked HERE, by whoever runs this
+ * script, and never by a deployment: what a deployment offers is the committed file, reviewed in a
+ * diff, so an endpoint that changes shape breaks this script on somebody's laptop and not every
+ * instance at boot.
  *
  * Per plugin it reads the MCP configuration out of the repository at the pinned commit, reads
  * every dialect of it into one shape (`src/plugins/mcp-config.ts`), decides which servers a
@@ -22,6 +23,24 @@
  * where there is none) instead of asking the vendor. `--only` processes the named plugins and
  * prints them rather than writing the file. Exits non-zero when the index could not be fetched or
  * the result fails its own invariants, and writes nothing in either case.
+ *
+ * DUPLICATES. Every sweep ends by proposing which Cursor plugins duplicate a Composio toolkit (a
+ * normalised-slug match against `src/plugins/composio-toolkits.json`) or another Cursor plugin, and
+ * prints how that differs from the reviewed maps in `plugin-index.ts` (`COMPOSIO_PLUGIN_IDS`,
+ * `CURSOR_DUPLICATE_PLUGIN_IDS`), which are updated by hand after a read. Two flags help with that:
+ *
+ *   cd server && bun scripts/sync-plugin-index.ts --duplicates           # committed index, offline
+ *   cd server && bun scripts/sync-plugin-index.ts --composio-toolkits    # refresh the toolkit list
+ *
+ * `--composio-toolkits` rewrites the toolkit list from Composio's public docs sitemap (every
+ * `docs.composio.dev/toolkits/<slug>` page; their API wants a key) and then proposes, offline.
+ *
+ * THE PRODUCT'S NAME. Cursor's index is read by another client too, and some authors name it in
+ * their descriptions. Every sweep rewrites that name to Noë Bot in the text a person reads
+ * (`src/plugins/rebrand.ts`), so the committed file never says otherwise; `--rebrand` applies the
+ * same rewrite to the committed file, offline, without a sweep:
+ *
+ *   cd server && bun scripts/sync-plugin-index.ts --rebrand              # committed index, offline
  */
 import { renameSync, writeFileSync } from "node:fs";
 import { extractResourceMetadataUrl } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -43,7 +62,13 @@ import {
   skillSlugFor,
 } from "../src/plugins/plugin-ids";
 import {
+  proposeComposioMatches,
+  proposeCursorDuplicates,
+} from "../src/plugins/plugin-duplicates";
+import {
   CATALOGUE_PLUGIN_IDS,
+  COMPOSIO_PLUGIN_IDS,
+  CURSOR_DUPLICATE_PLUGIN_IDS,
   type IndexedPlugin,
   type IndexedServer,
   type IndexedServerAuth,
@@ -52,9 +77,20 @@ import {
   type PluginIndex,
   parsePluginIndex,
 } from "../src/plugins/plugin-index";
+import { rebrandPlugin } from "../src/plugins/rebrand";
 
 const INDEX_URL = "https://cursor.com/api/dashboard/list-marketplace-plugins";
 const OUTPUT = new URL("../src/plugins/cursor-index.json", import.meta.url);
+const TOOLKITS = new URL(
+  "../src/plugins/composio-toolkits.json",
+  import.meta.url,
+);
+const TOOLKITS_SITEMAP = "https://docs.composio.dev/sitemap.xml";
+/** Cursor plugins a slug match pairs with a toolkit but review ruled out: not the same app. */
+const NOT_COMPOSIO_DUPLICATES = new Set([
+  // Cursor's Composio plugin is Composio itself, not one of the apps it brokers.
+  "32661537",
+]);
 const CONCURRENCY = 8;
 const PROBE_TIMEOUT_MS = 10_000;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -101,6 +137,9 @@ const SKILL_DESCRIPTION_CHARS = 400;
 
 const args = process.argv.slice(2);
 const noProbe = args.includes("--no-probe");
+const duplicatesOnly = args.includes("--duplicates");
+const refreshToolkits = args.includes("--composio-toolkits");
+const rebrandOnly = args.includes("--rebrand");
 const onlyIndex = args.indexOf("--only");
 const only =
   onlyIndex === -1
@@ -368,6 +407,8 @@ async function fetchPlugin(
     skippedParts: [],
   });
 
+  // Cursor's own keys for the clients that read its index, verbatim: they are its API's field
+  // names, not prose, so the rebrand never touches them.
   const clients = plugin.minClientVersions ?? {};
   if (clients.sand === "never" || clients.grokbot === "never") {
     return unavailable("hidden");
@@ -459,8 +500,146 @@ async function fetchPlugin(
   };
 }
 
+/** The vendored Composio toolkit slugs. */
+async function readToolkits(): Promise<string[]> {
+  const file = (await Bun.file(TOOLKITS).json()) as { slugs?: unknown };
+  if (
+    !Array.isArray(file.slugs) ||
+    !file.slugs.every((slug) => typeof slug === "string")
+  ) {
+    throw new Error(
+      "composio-toolkits.json: slugs: expected a list of strings",
+    );
+  }
+  return file.slugs;
+}
+
+/** Rewrites `composio-toolkits.json` from the toolkit pages Composio's docs sitemap lists. */
+async function refreshToolkitList(): Promise<void> {
+  const response = await fetch(TOOLKITS_SITEMAP);
+  if (!response.ok) {
+    throw new Error(`${TOOLKITS_SITEMAP} answered ${response.status}`);
+  }
+  const sitemap = await response.text();
+  const slugs = [
+    ...new Set(
+      [
+        ...sitemap.matchAll(/docs\.composio\.dev\/toolkits\/([a-z0-9_]+)</g),
+      ].map((match) => match[1] as string),
+    ),
+  ].sort();
+  if (slugs.length < 100) {
+    throw new Error(
+      `${TOOLKITS_SITEMAP} listed only ${slugs.length} toolkits; not overwriting the list`,
+    );
+  }
+  writeFileSync(
+    TOOLKITS.pathname,
+    `${JSON.stringify(
+      { source: TOOLKITS_SITEMAP, syncedAt: new Date().toISOString(), slugs },
+      null,
+      2,
+    )}\n`,
+  );
+  console.error(`wrote ${TOOLKITS.pathname}: ${slugs.length} toolkits`);
+}
+
+/** How a proposed map differs from the committed one, as lines a reviewer reads. */
+function mapDrift(
+  name: string,
+  proposed: Record<string, string>,
+  committed: Readonly<Record<string, string>>,
+  plugins: readonly IndexedPlugin[],
+): string[] {
+  const slugOf = (id: string) =>
+    plugins.find((plugin) => plugin.id === id)?.slug ?? "?";
+  const lines: string[] = [];
+  for (const [id, target] of Object.entries(proposed)) {
+    if (committed[id] !== target) {
+      lines.push(`${name} + "${id}": "${target}", // ${slugOf(id)}`);
+    }
+  }
+  for (const [id, target] of Object.entries(committed)) {
+    if (proposed[id] !== target) {
+      lines.push(`${name} - "${id}": "${target}", // ${slugOf(id)}`);
+    }
+  }
+  return lines;
+}
+
+/** Proposes both duplicate maps for an index and prints how they differ from the reviewed ones. */
+async function reportDuplicates(plugins: readonly IndexedPlugin[]) {
+  const composio = proposeComposioMatches(
+    plugins,
+    await readToolkits(),
+    NOT_COMPOSIO_DUPLICATES,
+  );
+  const cursor = proposeCursorDuplicates(plugins);
+  const drift = [
+    ...mapDrift("COMPOSIO_PLUGIN_IDS", composio, COMPOSIO_PLUGIN_IDS, plugins),
+    ...mapDrift(
+      "CURSOR_DUPLICATE_PLUGIN_IDS",
+      cursor,
+      CURSOR_DUPLICATE_PLUGIN_IDS,
+      plugins,
+    ),
+  ];
+  console.error(
+    `duplicates: ${Object.keys(composio).length} Composio, ${Object.keys(cursor).length} Cursor; ${
+      drift.length === 0
+        ? "the reviewed maps in plugin-index.ts agree"
+        : "review these against plugin-index.ts:"
+    }`,
+  );
+  for (const line of drift) console.error(`  ${line}`);
+}
+
+/** The index as this script writes it: two-space JSON and a final newline. */
+function serialiseIndex(index: PluginIndex): string {
+  return `${JSON.stringify(index, null, 2)}\n`;
+}
+
+/** Replaces the committed file in one rename, so a reader never sees half of it. */
+function writeIndex(index: PluginIndex): void {
+  const temporary = `${OUTPUT.pathname}.tmp`;
+  writeFileSync(temporary, serialiseIndex(index));
+  renameSync(temporary, OUTPUT.pathname);
+  console.error(`wrote ${OUTPUT.pathname}`);
+}
+
+/**
+ * `--rebrand`: the committed index with the sweep's rewrite applied, and nothing else changed — not
+ * `syncedAt`, not an auth, not an id — so the diff is the sentences and only the sentences.
+ */
+async function rebrandCommittedIndex(): Promise<void> {
+  const committed = (await Bun.file(OUTPUT).json()) as PluginIndex;
+  parsePluginIndex(committed);
+  const index: PluginIndex = {
+    ...committed,
+    plugins: committed.plugins.map(rebrandPlugin),
+  };
+  parsePluginIndex(index);
+  const changed = index.plugins.filter(
+    (plugin, at) =>
+      JSON.stringify(plugin) !== JSON.stringify(committed.plugins[at]),
+  ).length;
+  console.error(`rebrand: ${changed} plugins changed`);
+  writeIndex(index);
+}
+
 async function main() {
+  if (rebrandOnly) {
+    await rebrandCommittedIndex();
+    return;
+  }
   const previous = await readPreviousIndex();
+  if (refreshToolkits) await refreshToolkitList();
+  if (duplicatesOnly || refreshToolkits) {
+    if (!previous) throw new Error("cursor-index.json could not be read");
+    await reportDuplicates(previous.plugins);
+    return;
+  }
+
   const previousAuth = new Map<string, IndexedServerAuth>();
   for (const plugin of previous?.plugins ?? []) {
     for (const server of plugin.servers) {
@@ -585,10 +764,12 @@ async function main() {
   const index: PluginIndex = {
     source: "cursor-marketplace",
     syncedAt: new Date().toISOString(),
-    plugins,
+    // Authors' words, shown in our Marketplace: the product they name is this one.
+    plugins: plugins.map(rebrandPlugin),
   };
   // The same validation the loader runs at boot, so a file this script writes is one it accepts.
   parsePluginIndex(index);
+  await reportDuplicates(plugins);
 
   const count = (predicate: (plugin: IndexedPlugin) => boolean) =>
     plugins.filter(predicate).length;
@@ -622,15 +803,11 @@ async function main() {
     }),
   );
 
-  const serialised = `${JSON.stringify(index, null, 2)}\n`;
   if (only) {
-    process.stdout.write(serialised);
+    process.stdout.write(serialiseIndex(index));
     return;
   }
-  const temporary = `${OUTPUT.pathname}.tmp`;
-  writeFileSync(temporary, serialised);
-  renameSync(temporary, OUTPUT.pathname);
-  console.error(`wrote ${OUTPUT.pathname}`);
+  writeIndex(index);
 }
 
 main().catch((error) => {

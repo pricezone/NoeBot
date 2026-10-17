@@ -14,6 +14,8 @@
 import type { AbstractAgent, BaseEvent } from "@ag-ui/client";
 import type { Observable } from "rxjs";
 import { headlessTurnRefusal } from "../admin/controls";
+import { questionWasPut } from "./asked-question";
+import { ESCALATE_TOOL } from "./escalation";
 import type { HandoffDelivery } from "./handoff-runner";
 import { guardBotTurn } from "./lifecycle";
 import { textOf } from "./message-text";
@@ -215,6 +217,12 @@ export function createHandoffDelivery(options: {
        */
       const said: string[] = [];
       let saying = "";
+      /*
+       * Questions it put to the person, by call, as they stream past. A Bot that asks ends its turn
+       * on the question (`question-turn.ts`) with no words after it, and a relay of text alone
+       * carried back nothing: the question is said too, where its result says it was put.
+       */
+      const asking = new Map<string, string>();
       const runAgent =
         typeof agent.runAgent === "function"
           ? agent.runAgent.bind(agent)
@@ -229,16 +237,43 @@ export function createHandoffDelivery(options: {
             {
               ...(config ?? {}),
               onEvent: (emitted: {
-                event?: { type?: unknown; delta?: unknown };
+                event?: {
+                  type?: unknown;
+                  delta?: unknown;
+                  toolCallId?: unknown;
+                  toolCallName?: unknown;
+                  content?: unknown;
+                };
               }) => {
                 seen.count += 1;
-                const type = String(emitted?.event?.type ?? "");
+                const event = emitted?.event;
+                const type = String(event?.type ?? "");
                 seen.last = type;
                 if (type === "TEXT_MESSAGE_START") saying = "";
                 if (type === "TEXT_MESSAGE_CONTENT")
-                  saying += String(emitted?.event?.delta ?? "");
+                  saying += String(event?.delta ?? "");
                 if (type === "TEXT_MESSAGE_END" && saying.trim().length > 0)
                   said.push(saying.trim());
+                const call = String(event?.toolCallId ?? "");
+                if (
+                  type === "TOOL_CALL_START" &&
+                  event?.toolCallName === ESCALATE_TOOL
+                )
+                  asking.set(call, "");
+                if (type === "TOOL_CALL_ARGS" && asking.has(call))
+                  asking.set(
+                    call,
+                    `${asking.get(call)}${String(event?.delta ?? "")}`,
+                  );
+                if (
+                  type === "TOOL_CALL_RESULT" &&
+                  asking.has(call) &&
+                  questionWasPut(event?.content)
+                ) {
+                  const question = questionIn(asking.get(call) ?? "");
+                  if (question && !said.some((text) => text.includes(question)))
+                    said.push(question);
+                }
                 config?.onEvent?.(emitted);
               },
             } as never,
@@ -607,4 +642,19 @@ function settled(
     // time, and the subscription it could not reach is this one.
     if (done) subscription.unsubscribe();
   });
+}
+
+/** The question in an `ask_person` call's arguments, or nothing when they hold none. */
+function questionIn(args: string): string {
+  try {
+    const parsed: unknown = JSON.parse(args || "{}");
+    return parsed &&
+      typeof parsed === "object" &&
+      "question" in parsed &&
+      typeof parsed.question === "string"
+      ? parsed.question.trim()
+      : "";
+  } catch {
+    return "";
+  }
 }

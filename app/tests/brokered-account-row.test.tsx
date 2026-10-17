@@ -25,7 +25,7 @@ import {
 } from "@/components/plugins/brokered-account-row";
 import type { BrokerField } from "@/lib/plugins/mutations";
 import type { PluginServer, PluginsPage } from "@/lib/plugins/queries";
-import { Route as AdminAppRoute } from "@/routes/_authed/_app/admin/plugins/$key";
+import { Route as AdminAppRoute } from "@/routes/_authed/_app/settings/advanced/plugins/$key";
 import { Route as ConnectedAccountRoute } from "@/routes/_authed/_app/settings/connected-accounts/$key";
 import { BROKERED_PROBE_OUTCOMES } from "../../server/src/plugins/store";
 
@@ -749,7 +749,7 @@ function renderAccountScreen(client: QueryClient) {
   );
 }
 
-/** The administrator's connector page, the same way: id `/plugins/$key` under `/_authed/admin`. */
+/** The administrator's connector page, the same way: id `/plugins/$key` under `/_authed/_app/settings/advanced`. */
 function renderAdminScreen(client: QueryClient) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
@@ -757,9 +757,14 @@ function renderAdminScreen(client: QueryClient) {
     getParentRoute: () => rootRoute,
     component: Outlet,
   });
-  const adminRoute = createRoute({
-    path: "/admin",
+  const settingsRoute = createRoute({
+    path: "/settings",
     getParentRoute: () => authedRoute,
+    component: Outlet,
+  });
+  const adminRoute = createRoute({
+    path: "/advanced",
+    getParentRoute: () => settingsRoute,
     component: Outlet,
   });
   const pluginsRoute = createRoute({
@@ -777,12 +782,16 @@ function renderAdminScreen(client: QueryClient) {
     getParentRoute: () => adminRoute,
   });
   const tree = rootRoute.addChildren([
-    authedRoute.addChildren([adminRoute.addChildren([pluginsRoute, wired])]),
+    authedRoute.addChildren([
+      settingsRoute.addChildren([
+        adminRoute.addChildren([pluginsRoute, wired]),
+      ]),
+    ]),
   ]);
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
-      initialEntries: [`/admin/plugins/${APP_KEY}`],
+      initialEntries: [`/settings/advanced/plugins/${APP_KEY}`],
     }),
   });
   return render(

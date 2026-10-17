@@ -14,7 +14,9 @@ import { GENERATIVE_UI_DESIGN_SKILL } from "./generative-ui";
 import { HandoffTool } from "./handoff-tool";
 import { loadFrameDefaults } from "./sandbox-frame";
 import { SandboxedTools } from "./sandboxed-tools";
+import { SelfProfileTool } from "./self-profile-tool";
 import { SkillTools } from "./skill-tools";
+import { SuggestionTools } from "./suggestion-tools";
 
 // Before the first generated interface is drawn: every surface that draws one sits under this
 // provider, and the SDK makes each frame through the call this wraps (see sandbox-frame.ts).
@@ -71,6 +73,8 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
         */}
         <HandoffTool />
         <EscalationTool />
+        {/* A Bot naming itself, with Undo: `update_my_profile` runs on the server. */}
+        <SelfProfileTool />
         {/* Gallery tools are registered once; their handlers re-read the active Bot to avoid shadowing renderers. */}
         <GalleryTools />
         {/* Browser-authored components use the same component grants as the compiled gallery. */}
@@ -82,6 +86,8 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
           `bot-creator` skill, so most runs are not offered these four tools at all.
         */}
         <BotTools />
+        {/* Offering a template or a Marketplace item; the finders that feed them run on the server. */}
+        <SuggestionTools />
         {children}
       </ActiveBotProvider>
     </CopilotKitProvider>

@@ -146,8 +146,9 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
           <brand.Avatar name={name} seed={agentId} size={96} />
         )}
       </div>
-      <h2 className="w-full text-balance text-[18px] font-semibold leading-tight tracking-tight">
-        {name}
+      {/* Wrapped, never cut short, however long the name or a word in it. */}
+      <h2 className="w-full text-balance break-words text-[18px] font-semibold leading-tight tracking-tight">
+        {agent.data?.name ?? name}
       </h2>
       {agent.isPending ? null : (
         <button
@@ -156,7 +157,7 @@ function BotHeader({ agentId, name }: { agentId: string; name: string }) {
               ? t("Edit {{name}}'s label", { name })
               : t("Add a label to {{name}}", { name })
           }
-          className="max-w-full truncate rounded-md px-1 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+          className="max-w-full text-balance break-words rounded-md px-1 text-[13px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
           onClick={() => setManaging(true)}
           type="button"
         >

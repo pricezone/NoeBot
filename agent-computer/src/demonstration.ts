@@ -18,7 +18,7 @@ export function gestureForRecording(
       deltaY: Math.max(-2000, Math.min(2000, input.deltaY)),
     };
   if (input.type === "text") return { kind: "type" };
-  if (input.event !== "down") return null;
+  if (input.type === "release" || input.event !== "down") return null;
   if (input.key.length === 1 || (input.text && input.key !== "Enter"))
     return { kind: "type" };
   if (

@@ -30,7 +30,7 @@ const updatedAt = () =>
  * replaces the baseline for that role. `group` names a directory group (the values in
  * `users.groups`, written by SCIM) and can only widen: a group row of `true` grants the capability to
  * its members whatever the baseline says, and a group row of `false` changes nothing. That is the
- * Grok Bot rule ("group settings only widen").
+ * "group settings only widen" rule.
  */
 export const capabilitySettings = pgTable(
   "capability_settings",

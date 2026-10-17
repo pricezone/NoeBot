@@ -8,7 +8,7 @@ import { hostOf } from "./secure-form";
 /**
  * The Bot showing the person its screen: a picture of the page, in the conversation.
  *
- * Grok Bot posts the preview of a form as a screenshot before it asks whether to submit it, so the
+ * The Bot posts the preview of a form as a screenshot before it asks whether to submit it, so the
  * decision is made on the page itself. This is that picture. It is kept on the server under the
  * tool call (`show-screen.ts`), so it is the same picture after a reload and in every tab, and a
  * click opens it full size in the transcript's lightbox.

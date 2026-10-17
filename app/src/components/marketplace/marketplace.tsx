@@ -2,6 +2,7 @@ import { IconSearch } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { AgentsTab } from "@/components/marketplace/agents-tab";
 import { AppsTab } from "@/components/marketplace/apps-tab";
+import { ComposioAppDetail } from "@/components/marketplace/composio-app-detail";
 import { InstalledCluster } from "@/components/marketplace/installed-cluster";
 import { PluginDetail } from "@/components/marketplace/plugin-detail";
 import {
@@ -69,7 +70,7 @@ export default function Marketplace({
   };
 
   /*
-   * A plugin's page takes the whole body, search and tabs included, the way Grok Bot's does: the
+   * A plugin's page takes the whole body, search and tabs included: the
    * back chevron is the way out, and it returns to the list with the term and the category kept.
    * Switching tab clears `plugin` already (the tab change narrows the address to `{ tab, q }`).
    */
@@ -85,8 +86,34 @@ export default function Marketplace({
               ...(search.category === undefined
                 ? {}
                 : { category: search.category }),
+              ...(search.featured === undefined
+                ? {}
+                : { featured: search.featured }),
             })
           }
+        />
+      </div>
+    );
+  }
+
+  /* A Composio app's page, the same way; Back keeps the term and the Featured category. */
+  if (tab === "apps" && search.app !== undefined) {
+    return (
+      <div className="flex flex-1 flex-col px-5 py-5 md:px-10 md:py-6">
+        <ComposioAppDetail
+          onBack={() =>
+            onSearchChange({
+              tab: "apps",
+              q: search.q,
+              ...(search.category === undefined
+                ? {}
+                : { category: search.category }),
+              ...(search.featured === undefined
+                ? {}
+                : { featured: search.featured }),
+            })
+          }
+          slug={search.app}
         />
       </div>
     );
@@ -152,6 +179,7 @@ export default function Marketplace({
         <TabsPanel className="pt-3" value="apps">
           <AppsTab
             category={search.category}
+            featured={search.featured}
             onSearchChange={onSearchChange}
             query={query}
           />

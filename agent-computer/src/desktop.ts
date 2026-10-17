@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isPlainBotId, UnusableBotIdError } from "./bot-id";
 
 /**
  * The desktop around the Bot's browser.
@@ -11,18 +12,19 @@ import { dirname, join } from "node:path";
  * is open. It is what a person expects of "the Bot's computer" when they open the screen, and it is
  * what lets them take the wheel on something other than the one page the Bot had open.
  *
- * Kept deliberately bare, like Grok's: no menu bar, no desktop icons, three launchers and no frame
+ * Kept deliberately bare: no menu bar, no desktop icons, three launchers and no frame
  * around them. The browser opens maximized and the dock slides out of its way, so while the Bot is
  * browsing the screen is the page. The Bot's shell commands are a tool of their own and are shown in
  * the app's activity log, not typed into a window here; the dock's terminal is for the person.
  *
  * XFCE, because it is the lightest desktop that still looks like one: a window manager, a panel and
- * a wallpaper for a few hundred megabytes of image and well under that of memory. It runs on the
- * same Xvfb the headed browser already uses, started by `virtual-display.ts`, as the same user.
+ * a wallpaper for a few hundred megabytes of image and well under that of memory. It runs on an Xvfb
+ * started by `virtual-display.ts`, as the same user.
  *
- * ONE DESKTOP PER COMPUTER PROCESS, which on the one-container image is one per deployment: every Bot
- * on the computer shares it, the same way they share the browser process and the shell today. A
- * per-Bot desktop is the same change as a per-Bot computer and arrives with it.
+ * ONE DESKTOP PER BOT. Each Bot on the computer gets its own X display and its own session on it,
+ * with its own home, settings, runtime directory and session bus (`botDesktopDirectories`), so a
+ * person watching one Bot sees that Bot's screen only, and their hands reach no other Bot's windows.
+ * Which Bots have one running, and for how long, is `desktop-sessions.ts`.
  *
  * Supervised, not merely started. The session is restarted when it dies, with a short pause so a
  * desktop that cannot start does not spin, and a cap so one that keeps dying is eventually left dead
@@ -250,7 +252,7 @@ const SESSION_CONFIG_XML = `<?xml version="1.0" encoding="UTF-8"?>
 /**
  * The dock's hover and its tooltips, as a GTK 3 user stylesheet (`$XDG_CONFIG_HOME/gtk-3.0/gtk.css`).
  *
- * Grok's look: a launcher under the pointer sits on a soft, light rounded square, and its tooltip is
+ * The look: a launcher under the pointer sits on a soft, light rounded square, and its tooltip is
  * a dark rounded label with the name in white. The image has no GTK theme of its own, so without
  * this the panel draws Adwaita's: a bevelled button on hover and a translucent, bordered tooltip
  * with the launcher's icon beside a bold name.
@@ -391,13 +393,15 @@ export function desktopEnvironment(
   display: string,
   source: NodeJS.ProcessEnv,
   home: string,
+  /** This desktop's own runtime directory (see `botDesktopDirectories`); else the computer's. */
+  runtimeDir?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     DISPLAY: display,
     HOME: home,
     PATH: source.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     LANG: source.LANG ?? "C.UTF-8",
-    XDG_RUNTIME_DIR: runtimeDirectory(source),
+    XDG_RUNTIME_DIR: runtimeDir ?? runtimeDirectory(source),
     XDG_CONFIG_HOME: join(home, ".config"),
     XDG_CACHE_HOME: join(home, ".cache"),
     XDG_DATA_HOME: join(home, ".local", "share"),
@@ -416,6 +420,34 @@ function runtimeDirectory(source: NodeJS.ProcessEnv): string {
   const configured = source.XDG_RUNTIME_DIR?.trim();
   if (configured) return configured;
   return join("/tmp", `openbot-runtime-${process.getuid?.() ?? "user"}`);
+}
+
+/**
+ * Where one Bot's desktop lives: a home of its own (its XFCE settings, caches, and what a person's
+ * terminal calls `~`) and a runtime directory of its own (its session bus, and the dock's browser
+ * requests, which is how the Chrome button on a Bot's dock opens that Bot's browser and no other).
+ *
+ * Under the computer's own home and runtime directory, so nothing new has to be created or owned by
+ * the image. The id becomes a path, so it is checked here as well as at the door.
+ *
+ * `own`: the computer's own home and runtime directory themselves, for a computer that runs one
+ * Bot. Its desktop was always there, and its terminal history and its XFCE and file manager
+ * settings stay where they were.
+ */
+export function botDesktopDirectories(
+  botId: string,
+  {
+    home = homedir(),
+    source = process.env,
+    own = false,
+  }: { home?: string; source?: NodeJS.ProcessEnv; own?: boolean } = {},
+): { home: string; runtimeDir: string } {
+  if (!isPlainBotId(botId)) throw new UnusableBotIdError(botId);
+  if (own) return { home, runtimeDir: runtimeDirectory(source) };
+  return {
+    home: join(home, ".openbot-desktops", botId),
+    runtimeDir: join(runtimeDirectory(source), "openbot-desktops", botId),
+  };
 }
 
 /**
@@ -471,6 +503,8 @@ export type DesktopRuntime = {
     env: Record<string, string>,
   ) => Promise<{ code: number; stdout: string }>;
   wait: (milliseconds: number) => Promise<void>;
+  /** Signal a supervised process and everything it started. Its own process when absent. */
+  kill?: (child: ChildProcess, signal: NodeJS.Signals) => void;
 };
 
 const systemRuntime: DesktopRuntime = {
@@ -478,6 +512,13 @@ const systemRuntime: DesktopRuntime = {
     const child = spawn(command, args, {
       env,
       stdio: ["ignore", "ignore", "pipe"],
+      /*
+       * Its own process group, so stopping it reaches what it started. `dbus-launch` runs
+       * `startxfce4`, which runs xfce4-session, which runs the window manager, the panel and the
+       * desktop: a SIGTERM to the first alone left the rest running, and on a display that had gone
+       * they went on trying to draw on whichever X server took its number next.
+       */
+      detached: true,
     });
     /*
      * GTK and XFCE say a great deal on stderr that is not wrong, and a container log full of it hides
@@ -514,6 +555,17 @@ const systemRuntime: DesktopRuntime = {
   },
   wait: (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  kill(child, signal) {
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // The group has gone, or never was one: the process itself, then.
+      }
+    }
+    child.kill(signal);
+  },
 };
 
 export type Desktop = {
@@ -526,7 +578,8 @@ export type Desktop = {
 
 /** How long the window manager gets to appear before the computer carries on without waiting. */
 const WM_BUDGET_MS = 20_000;
-const WM_POLL_MS = 250;
+/** Often, because a browser launch waits on this: a quarter second of polling is a quarter second. */
+const WM_POLL_MS = 100;
 /** A dead session comes back after this, and gives up after too many deaths in a row. */
 const RESTART_DELAY_MS = 2_000;
 const MAX_RESTARTS = 5;
@@ -538,14 +591,20 @@ export async function startDesktop(
     display,
     home = homedir(),
     source = process.env,
+    runtimeDir,
+    wmBudgetMs = WM_BUDGET_MS,
   }: {
     display: string;
     home?: string;
     source?: NodeJS.ProcessEnv;
+    /** The session's own runtime directory; the computer's when absent. */
+    runtimeDir?: string;
+    /** How long to wait for the window manager. Shorter once one has failed to come up. */
+    wmBudgetMs?: number;
   },
   runtime: DesktopRuntime = systemRuntime,
 ): Promise<Desktop> {
-  const env = desktopEnvironment(display, source, home);
+  const env = desktopEnvironment(display, source, home, runtimeDir);
   await prepareDesktopHome(env, source.WORKSPACE_DIR?.trim() || "/workspace", {
     compositing:
       source.COMPUTER_DESKTOP_COMPOSITING?.trim().toLowerCase() !== "off",
@@ -577,6 +636,7 @@ export async function startDesktop(
         console.error(
           JSON.stringify({
             type: "computer-desktop-exited",
+            display,
             process: name,
             exitCode: code,
             restarting: restarts <= MAX_RESTARTS,
@@ -597,7 +657,7 @@ export async function startDesktop(
    * a budget: a desktop that never comes up is reported in the log and the browser still works
    * without it, as it did before there was a desktop.
    */
-  const deadline = Date.now() + WM_BUDGET_MS;
+  const deadline = Date.now() + wmBudgetMs;
   let ready = false;
   while (Date.now() < deadline && !stopping) {
     const probe = await runtime.run(
@@ -615,7 +675,8 @@ export async function startDesktop(
     console.error(
       JSON.stringify({
         type: "computer-desktop-not-ready",
-        budgetMs: WM_BUDGET_MS,
+        display,
+        budgetMs: wmBudgetMs,
       }),
     );
   }
@@ -627,7 +688,9 @@ export async function startDesktop(
       if (stopping) return;
       stopping = true;
       const children = [...supervised.values()];
-      for (const child of children) child.kill("SIGTERM");
+      const signal = (child: ChildProcess, name: NodeJS.Signals) =>
+        runtime.kill ? runtime.kill(child, name) : child.kill(name);
+      for (const child of children) signal(child, "SIGTERM");
       const exits = Promise.all(
         children.map(
           (child) =>
@@ -644,7 +707,7 @@ export async function startDesktop(
         exits.then(() => true),
         runtime.wait(STOP_BUDGET_MS).then(() => false),
       ]);
-      if (!stopped) for (const child of children) child.kill("SIGKILL");
+      if (!stopped) for (const child of children) signal(child, "SIGKILL");
     },
   };
 }

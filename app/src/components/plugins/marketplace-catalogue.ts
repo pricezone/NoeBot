@@ -9,15 +9,15 @@ import type {
  * The Marketplace plugins as the Apps tab draws them, decided without a DOM.
  *
  * The server's index is a flat list with Cursor's category keys on each plugin; the tab draws it
- * the way Grok Bot does — one section per category in a fixed order, a few rows each with a "View
+ * as one section per category in a fixed order, a few rows each with a "View
  * all", and a row's button saying what pressing it does next. Those rules live here, beside the
  * ones for catalogue apps in `connectable-apps.ts`, and are pinned by `marketplace-catalogue.test.ts`.
  */
 
 /**
- * Cursor's categories in the order its own site lists them, with the labels Grok Bot shows.
- * Cursor's curated "Featured" set is the first section of the tab, under the name Grok Bot gives
- * its own first section; it is a section only, never a pill (see `categoryPills`).
+ * Cursor's categories in the order its own site lists them, with our own labels. Cursor's
+ * curated "Featured" set is the first section of the tab, as "Recommended for you"; it is a
+ * section only, never a pill (see `categoryPills`).
  */
 export const CATEGORIES: readonly { key: string; label: string }[] = [
   { key: "FEATURED", label: msg("Recommended for you") },

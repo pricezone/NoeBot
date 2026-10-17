@@ -22,6 +22,7 @@ import {
   POINT_AT_DESCRIPTION,
 } from "../../../shared/clicky-tools";
 import { SIGN_IN_TOOL_DESCRIPTION } from "../../../shared/sign-in-guidance";
+import { endsOnAskedQuestion } from "../agents/asked-question";
 import {
   type ApprovalContinuation,
   currentApprovalContext,
@@ -349,14 +350,16 @@ export class HeadlessToolsMiddleware extends Middleware {
             /*
              * A chat turn that just ran a tool and then said nothing would end as "Done" with no
              * answer. One more model turn on the same conversation; if that is silent too, the run
-             * fails out loud rather than pretending it finished.
+             * fails out loud rather than pretending it finished. A turn that ended on a question to
+             * the person is not silent: it has said all it should.
              */
             const silent =
               interactive &&
               answeredInRun > 0 &&
               !spoke &&
               terminal.outcome?.type !== "interrupt" &&
-              pending.length === 0;
+              pending.length === 0 &&
+              !endsOnAskedQuestion(messages);
             if (silent && !nudged && segment < maxSegments) {
               nudged = true;
               request = { ...request, messages, state, resume: undefined };

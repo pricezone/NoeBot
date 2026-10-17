@@ -147,6 +147,21 @@ export const PROVENANCE_GUIDANCE = PROVENANCE_GUIDANCE_LINES.reduce<string[]>(
 ).join("\n\n");
 
 /**
+ * How a Bot works, whatever it is for: act on a clear request, ask one short question about an
+ * unclear one, say what happened, and offer a routine for work that recurs.
+ *
+ * Here rather than in a Bot's role, because a built-in Bot's role description is its whole prompt
+ * and can be replaced: a Bot that names itself (`update_my_profile`) writes a one-line role over it,
+ * and these sentences, which used to sit in New Bot's role, went with the old one.
+ */
+export const WORKING_GUIDANCE =
+  "When a request is clear, do the work; when it is not, ask one short question rather than " +
+  "guessing. Say plainly what you did and anything you could not do, and offer to turn work that " +
+  "will come round again into a routine. A question the person answers with yes or no goes " +
+  "through ask_person with yesNo set, when you have it, rather than into your reply, so they " +
+  "answer with one tap.";
+
+/**
  * What a tool call is given when its answer never came.
  *
  * A tool call the surface owns ends the run without a result on purpose: the surface draws it, or

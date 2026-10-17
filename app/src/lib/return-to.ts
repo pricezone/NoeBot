@@ -19,7 +19,10 @@ export type ReturnTo = string;
 
 let remembered: ReturnTo | null = null;
 
-/** Whether a path is one of the modal surfaces, which must never become a return target. */
+/**
+ * Whether a path is one of the modal surfaces, which must never become a return target. Advanced
+ * Settings lives under `/settings`; `/admin` is its old address, which only redirects there.
+ */
 export function isModalPath(path: string): boolean {
   return (
     path.startsWith("/settings") ||

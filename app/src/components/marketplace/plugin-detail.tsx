@@ -38,9 +38,10 @@ import {
   pluginDetailQueryOptions,
   pluginsPageQueryOptions,
 } from "@/lib/plugins/queries";
+import { useShareLink } from "@/lib/share-link";
 
 /**
- * A plugin's own page inside the Marketplace, laid out like Grok Bot's: back chevron, the mark at
+ * A plugin's own page inside the Marketplace: back chevron, the mark at
  * 92px, the name with a link to the source, Share and Add on the right, the description, then the
  * connectors it adds, the skills it brings, and a few facts in rows.
  *
@@ -68,6 +69,7 @@ export function PluginDetail({
   const [error, setError] = useState<string | null>(null);
   const [keyFor, setKeyFor] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const shareLink = useShareLink();
   const install = useMutation({
     ...installPluginMutationOptions(queryClient),
     onError: (thrown: Error) => setError(thrown.message),
@@ -130,7 +132,10 @@ export function PluginDetail({
   const source = sourceOf(plugin);
 
   const share = async () => {
-    const address = `${window.location.origin}/marketplace?tab=apps&plugin=${encodeURIComponent(plugin.id)}`;
+    // Opens on the reader's own instance, through the platform where there is one.
+    const address = shareLink(
+      `/marketplace?tab=apps&plugin=${encodeURIComponent(plugin.id)}`,
+    );
     try {
       await navigator.clipboard.writeText(address);
       setIsCopied(true);

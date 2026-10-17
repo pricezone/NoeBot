@@ -2,9 +2,9 @@
  * OpenBot Desktop: the setup window.
  *
  * The world is the one the product sits next to: warm off-white ground, near-black text, almost no
- * chrome, and one rounded focal element per screen. Measured from Grok rather than guessed — the
- * ground is a warm #F9F8F7 and the hairlines are a warm-tinted black at 4-8% rather than a cool
- * gray, which is most of why that interface reads calm instead of clinical.
+ * chrome, and one rounded focal element per screen. Measured rather than guessed — the ground is a
+ * warm #F9F8F7 and the hairlines are a warm-tinted black at 4-8% rather than a cool gray, which
+ * is most of why the interface reads calm instead of clinical.
  *
  * `universalSans` is deliberately absent: it is xAI's own face and not ours to ship. Inter is the
  * documented fallback and the system stack is what a desktop window can rely on with no network at

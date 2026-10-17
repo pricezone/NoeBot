@@ -108,6 +108,7 @@ import type { SignInService } from "./passwords/service";
 import type { OnboardingStore } from "./people/onboarding";
 import { MAX_PAGE, type PeopleStore } from "./people/store";
 import type { ComposioBroker } from "./plugins/broker";
+import type { ComposioActions } from "./plugins/composio";
 import { createPluginRoutes } from "./plugins/routes";
 import {
   isDeploymentFault,
@@ -389,7 +390,10 @@ export function createApp(
    * configured, which is the correct degraded behaviour: a deployment with no Composio API key has
    * no app directory to offer, rather than one that lists apps nobody can connect.
    */
-  composio?: { broker: ComposioBroker },
+  composio?: {
+    broker: ComposioBroker;
+    actions?: Pick<ComposioActions, "listActions">;
+  },
   /** Native model OAuth stays server-side; callers hold only a separate local bearer. */
   modelProviderProxy?: ModelProviderProxy,
   userPreferences?: UserPreferencesStore,
@@ -436,6 +440,8 @@ export function createApp(
      * SPA fallback at the end of this function. See the mount below for why.
      */
     botTemplates?: Hono<{ Variables: AppVariables }>;
+    /** Template and Marketplace suggestions for a Bot (`/api/suggestions`); mounted here likewise. */
+    suggestions?: Hono<{ Variables: AppVariables }>;
     /** The Keys page's model-key read (`/api/settings/model-key`); mounted here for the same reason. */
     modelKey?: Hono<{ Variables: AppVariables }>;
     /** In-run computer waits the open tab watches and claims (runs/waits.ts), at /api/runs. */
@@ -528,6 +534,12 @@ export function createApp(
        * browser can tell "no billing page" from "an older server".
        */
       billingUrl: config.billingUrl ?? null,
+      /*
+       * Where share links go through so they open on any instance: the platform's origin, from
+       * OPENBOT_SHARE_BASE_URL. Null where none is set; the app then falls back to the sign-in
+       * handoff's return address below, and then to its own address.
+       */
+      shareBaseUrl: config.shareBaseUrl ?? null,
       /*
        * Which identity providers this deployment can sign somebody in with.
        *
@@ -1777,6 +1789,9 @@ export function createApp(
    */
   if (coworker?.botTemplates) {
     app.route("/api/bot-templates", coworker.botTemplates);
+  }
+  if (coworker?.suggestions) {
+    app.route("/api/suggestions", coworker.suggestions);
   }
   if (coworker?.modelKey) {
     app.route("/api/settings/model-key", coworker.modelKey);

@@ -93,7 +93,7 @@ function MenuLink({
 }
 
 /**
- * What the usage row says, laid out as Grok Bot's "Weekly usage   3%  ›": the label on the left,
+ * What the usage row says, laid out as "Weekly usage   3%  ›": the label on the left,
  * the week's figure on the right in muted type. A 288px menu could not hold the figure inside
  * the label. Named after the Settings section it opens, so the menu and the nav agree.
  *
@@ -136,9 +136,9 @@ function UsageRow({ onNavigate }: { onNavigate: () => void }) {
 /**
  * The account menu behind the sidebar's avatar.
  *
- * Grok Bot's: usage, then Settings, then the interface language (only where the deployment offers
- * more than one; see `language-row.tsx`), then the way out. Approvals and Admin are not rows here any
- * more: both are sections of Settings, where the nav names them, and a menu that repeated them
+ * In this order: usage, then Settings, then the interface language (only where the deployment offers
+ * more than one; see `language-row.tsx`), then the way out. Approvals and Advanced Settings are not
+ * rows here any more: both are sections of Settings, where the nav names them, and a menu that repeated them
  * was two ways to the same place. The usage row is gated where the server gates it — only on a
  * deployment the platform meters — so a row that is here is a row that works.
  *

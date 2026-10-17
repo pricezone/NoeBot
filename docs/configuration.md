@@ -443,6 +443,7 @@ opens a session for the one address it admits and lands on `redirect`.
 | `OPENBOT_SIGNIN_HANDOFF_EMAIL` | The one person a token may sign in; name them in `INITIAL_ADMIN_EMAILS` too. |
 | `OPENBOT_SIGNIN_HANDOFF_RETURN_URL` | Where the sign-in screen sends somebody who arrives without a token. |
 | `OPENBOT_SIGNIN_HANDOFF_PROVIDER_NAME` | What the sign-in screen calls the platform. |
+| `OPENBOT_SHARE_BASE_URL` | The platform Share links go through (`<origin>/api/noebot/share?to=<in-app path>`), so they open on the reader's own instance. Defaults to the origin of `OPENBOT_SIGNIN_HANDOFF_RETURN_URL`; without either, a Share link is this deployment's own address. |
 
 A configured handoff counts as an identity provider: `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
 `INITIAL_ADMIN_EMAILS` are required with it, and `OPENBOT_SINGLE_USER` is not. The token is
@@ -599,7 +600,9 @@ is still the record.
 | `COMPUTER_BROWSER_LANG`              | The managed browser's language, as a language tag such as `el-GR`: its own words, the `Accept-Language` it sends (followed by English), and the start page's Google language. `en-US` by default. `COMPUTER_BROWSER_LANG_<BOT>` (named like `EGRESS_PROXY_<BOT>`) sets one Bot's. A person's own Chrome keeps its own. |
 | `COMPUTER_BROWSER_BACKEND`           | `managed` by default (full bundled Chromium); `local-chrome` opts into installed Chrome with dedicated profiles and a loopback API. |
 | `COMPUTER_BROWSER_MODE`              | Managed defaults to `headless` (full Chromium's new headless mode). `headed` uses Xvfb on Linux and a native window on macOS/Windows. Local Chrome requires `headed`. |
-| `COMPUTER_DESKTOP`                   | `on` draws a whole desktop (XFCE) on the virtual display: a wallpaper, a dock of Chrome, Terminal and File Manager, and the browser maximized over it; the live screen shows the display. Implies `headed`; Linux only. Off by default. |
+| `COMPUTER_DESKTOP`                   | `on` gives each Bot a whole desktop (XFCE) on a virtual display of its own: a wallpaper, a dock of Chrome, Terminal and File Manager, and the Bot's browser maximized over it; the live screen shows that Bot's display. Implies `headed`; Linux only. Off by default. |
+| `COMPUTER_MAX_DESKTOPS`              | How many Bots' desktops may run at once with `COMPUTER_DESKTOP=on`. By default one per 512 MB of memory (the container's limit when it has one) above the first 1 GB, and at least one. Past it, the least recently used desktop nobody is watching is closed, its browser's tabs kept. |
+| `COMPUTER_DESKTOP_IDLE_MS`           | How long a Bot's desktop is kept once it has no browser and nobody is watching it. 10 minutes by default; `0` keeps them. A desktop also closes with its Bot's browser. |
 | `COMPUTER_DISPLAY_SIZE`              | The virtual display, as `WIDTHxHEIGHT`. `1440x900` with a desktop, `1280x800` without. 800x600 to 4096x4096. |
 | `OPENBOT_LOCAL_COMPUTER_DIR`         | Local startup helper's absolute data root. Defaults to the platform's OpenBot user-data directory; contains `profiles/` and `workspace/`. |
 | `COMPUTER_SUPERVISOR_URL`            | Supervisor URL for per-Bot computers. If absent, Bots share `AGENT_COMPUTER_URL`.         |
@@ -644,8 +647,8 @@ The supervisor recreates each computer with the same named volumes on its next r
 It is deliberately bare: a wallpaper and a frameless dock at the bottom with three buttons, Chrome,
 Terminal and File Manager, and no menu bar or desktop icons. The Bot's Chromium opens maximized, and
 the dock slides down out of its way while a window covers it and back up when the pointer reaches the
-bottom edge. The dock's Chrome button brings back the browser of the Bot that last used one, opening
-it again if it was closed. Terminal and File Manager open in the workspace, for the person who has
+bottom edge. The dock's Chrome button brings back that Bot's browser, opening it again if it was
+closed. Terminal and File Manager open in the workspace, for the person who has
 taken the wheel; the Bot's own shell commands are not shown on the desktop, and the app lists them in
 the Bot's activity. A person who takes the wheel drives the whole screen, so they can use the
 terminal, the file manager or the browser's address bar, not only click inside the page. The Bot's
@@ -656,9 +659,16 @@ The look is written by the computer each time the desktop starts (`agent-compute
 so a change made inside the session lasts until the computer restarts. The wallpaper is
 `docker/desktop/wallpaper.svg`, rendered to the PNG the image ships.
 
-The desktop is one per computer process, so on the single-container image every Bot shares it, as
-they share the browser. It costs roughly 150 MB of memory while idle and one ffmpeg process while
-somebody is watching; a frame is only sent when the screen changed. `COMPUTER_DISPLAY_SIZE` sets the
+Each Bot has a desktop of its own: its own X display and XFCE session, with its own settings, so a
+person watching one Bot sees that Bot's screen only and cannot click into another Bot's windows. A
+Bot's desktop starts when its screen, its desktop preview or its browser is first needed, closes with
+its browser (a stop, a reset, `COMPUTER_MAX_BROWSERS` or `COMPUTER_BROWSER_IDLE_MS`) unless somebody
+has its screen open or holds the wheel, and otherwise after `COMPUTER_DESKTOP_IDLE_MS` with no browser
+and nobody watching; `COMPUTER_MAX_DESKTOPS` caps how many run at once. A display that fails takes
+down only its own Bot's desktop and browser; the next use starts a new one. A computer run for one Bot (`COMPUTER_BOT_ID` set) starts that Bot's desktop at
+boot and keeps it. `/health` reports the asking Bot's desktop (`running`, `ready`, `display`) and how
+many run of how many allowed. Each desktop costs roughly 150 MB of memory while idle and one ffmpeg
+process while somebody is watching; a frame is only sent when the screen changed. `COMPUTER_DISPLAY_SIZE` sets the
 screen; the panel's preview and the full-size view take that shape.
 
 The Docker image carries everything the desktop needs. The mode is read by the computer at start,

@@ -6,8 +6,7 @@
  *
  * WHO A COMPUTER BELONGS TO is the Bot's owner (`agent_profiles.owner_user_id`). Their directory
  * groups pick the policy: a group with a policy of its own replaces the organization's, unless the
- * organization policy is locked (Grok Bot: "groups can override team policy with their own, with
- * optional locks enforcing team-level restrictions"). When the owner's "Cloud network access"
+ * organization policy is locked. When the owner's "Cloud network access"
  * capability is off, the computer gets `deny_all` whatever the policy says.
  *
  * APPLIED LIVE by pushing to every running computer: on the enterprise LISTEN/NOTIFY announcement

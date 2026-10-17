@@ -327,6 +327,15 @@ describe("the frame", () => {
     expect(frame).toContain("for the start of this conversation only");
   });
 
+  test("ends the turn on the question, and names the Bot only once the person answers", () => {
+    const frame = frameFirstTurn();
+    expect(frame).toContain("The call ends your turn");
+    const answered = frame.indexOf("Only once their answer arrives");
+    expect(answered).toBeGreaterThan(frame.indexOf("call ask_person"));
+    expect(frame.indexOf("call update_my_profile")).toBeGreaterThan(answered);
+    expect(frame).not.toContain("short name");
+  });
+
   test("is recognised, and a person's own words are not", () => {
     expect(isFirstTurn(frameFirstTurn())).toBe(true);
     expect(isFirstTurn("Research and writing")).toBe(false);

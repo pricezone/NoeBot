@@ -63,7 +63,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   type AgentFormValues,
   agentFormSchema,
-  agentInputFrom,
+  agentPatchInput,
 } from "@/lib/agents/form";
 import {
   deleteAgentMutationOptions,
@@ -280,27 +280,11 @@ function GeneralSection({
   const navigate = useNavigate();
   const updateAgent = useMutation(updateAgentMutationOptions(queryClient));
 
-  /*
-   * One field at a time, over the whole update endpoint: the API takes the full profile, so the
-   * unchanged fields ride along as they are on screen. The empty key means "keep the current one".
-   */
+  /* One field at a time, over the whole update endpoint (`agentPatchInput`). */
   const save = (patch: Partial<AgentFormValues>) =>
     updateAgent.mutateAsync({
       agentId,
-      input: agentInputFrom({
-        name: profile.name,
-        title: profile.title,
-        roleDescription: profile.roleDescription,
-        visibility: profile.visibility,
-        /*
-         * Not a built-in coworker's endpoint. That is the managed Bot's own address, which nobody
-         * typed, and the route checks any endpoint it is sent as one somebody did: on a deployment
-         * whose Bot is on localhost it refused every edit. Empty leaves the stored one where it is.
-         */
-        endpoint: profile.builtIn ? "" : (profile.endpoint ?? ""),
-        authValue: "",
-        ...patch,
-      }),
+      input: agentPatchInput(profile, patch),
     });
 
   return (

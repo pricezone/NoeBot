@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 
 /**
  * The pieces every sensitive request in a conversation is drawn with: a sign-in, a one-time code, a
- * value the Bot must not see, a form, a request to take over the browser. One look for all of them,
- * the one Grok Bot uses: a compact row in the Bot's column with the site's icon, a title, "Secure
+ * value the Bot must not see, a form, a request to take over the browser. One look for all of them:
+ * a compact row in the Bot's column with the site's icon, a title, "Secure
  * Form" and an Open pill; a centred dialog with the same header, labelled fields, a lock note naming
  * the host the values go to, and a Continue pill that stays disabled until the form is complete.
  *

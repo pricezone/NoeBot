@@ -54,7 +54,7 @@ export const SETTINGS_NAV: ModalNavItem[] = [
     to: "/settings/notifications",
   },
   /*
-   * The same subject as Admin's Plugins, from the other side: here you decide what this
+   * The same subject as Advanced Settings' Plugins, from the other side: here you decide what this
    * deployment may reach as you, there an administrator narrows which Bots hold it.
    */
   {
@@ -78,11 +78,12 @@ export const SETTINGS_NAV: ModalNavItem[] = [
     icon: IconLock,
     to: "/settings/passwords",
   },
+  /* The deployment-wide settings (`settings/advanced/*`), drawn inside this same popup. */
   {
-    id: "admin",
-    label: msg("Admin"),
+    id: "advanced",
+    label: msg("Advanced Settings"),
     icon: IconShieldLock,
-    to: "/admin",
+    to: "/settings/advanced",
     adminOnly: true,
   },
 ];
@@ -104,9 +105,9 @@ const CLICKY_NAV: ModalNavItem = {
  *
  * Usage & Billing only where there is something to show: a metered deployment has a meter, and
  * one with a billing page has somewhere to send people. A bring-your-own-key deployment with
- * neither would get a row that could only say "nothing here". Admin stays in the list either way:
- * whether the signed-in person may see it is the caller's question (`ModalShell` asks it for the
- * modal, the search popup for itself).
+ * neither would get a row that could only say "nothing here". Advanced Settings stays in the list
+ * either way: whether the signed-in person may see it is the caller's question (`ModalShell` asks
+ * it for the modal, the search popup for itself).
  */
 export function useSettingsNav(): ModalNavItem[] {
   const capabilities = useQuery(deploymentCapabilitiesQueryOptions());

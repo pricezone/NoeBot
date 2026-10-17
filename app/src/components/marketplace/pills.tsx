@@ -10,10 +10,10 @@ import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 /**
- * The row of category pills Grok Bot draws under a Marketplace search: All, then each category,
- * with the tail folded into a "More" menu when there are more than fit a line. Shared by the Apps
- * and Agents tabs so the two rows are one look — measured off x.ai/bot/marketplace: `rounded-full
- * px-[18px] py-2.5 text-sm font-medium`, the active one in the foreground colour.
+ * The row of category pills under a Marketplace search: All, then each category, with the tail
+ * folded into a "More" menu when there are more than fit a line. Shared by the Apps and Agents tabs
+ * so the two rows are one look: `rounded-full px-[18px] py-2.5 text-sm font-medium`, the active
+ * one in the foreground colour.
  *
  * Which pill is active is the caller's address (`?category`), so Back works and a category can be
  * linked to; `onSelect(undefined)` is All. A key that sits inside More is still the active one —

@@ -188,7 +188,7 @@ type Props = {
 /**
  * The Bot's screen, near full-window.
  *
- * Grok's shape: whose screen it is top-left, the wheel, the recorder and a minimize button
+ * The layout: whose screen it is top-left, the wheel, the recorder and a minimize button
  * top-right, and the screen itself as large as the window allows at the frame's own shape. The
  * shape matters to more than looks: `take-the-wheel.ts` maps a click on the canvas to the remote
  * page by the canvas's whole width and height, so the box is sized from the frame's aspect and both

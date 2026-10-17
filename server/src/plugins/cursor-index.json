@@ -12594,7 +12594,7 @@
           "name": "make-bot-ui",
           "slug": "pstack-make-bot-ui",
           "path": "pstack/skills/make-bot-ui/SKILL.md",
-          "description": "Use when building a custom UI (page, dashboard, buttons) that should wake a Grok Bot over a webhook, when the user must provide a webhook sender key, or when exposing that UI on Tailscale."
+          "description": "Use when building a custom UI (page, dashboard, buttons) that should wake a Noë Bot over a webhook, when the user must provide a webhook sender key, or when exposing that UI on Tailscale."
         },
         {
           "name": "no-comments",
@@ -25434,7 +25434,7 @@
       "slug": "finance",
       "name": "finance",
       "displayName": "Finance",
-      "description": "Link your bank, card, and investment accounts through Plaid so Grok can answer questions about balances, spending, subscriptions, and investments. You'll share contact details, account and balance info, transactions, credit and loans, and investments. Grok syncs and stores your linked account data so the connector can work, and Grok Bot's privacy mode still controls whether your conversations are stored or used for training. Access is read-only, xAI never sees or stores your bank login, and you can unlink accounts anytime from cursor.com.",
+      "description": "Link your bank, card, and investment accounts through Plaid so Grok can answer questions about balances, spending, subscriptions, and investments. You'll share contact details, account and balance info, transactions, credit and loans, and investments. Grok syncs and stores your linked account data so the connector can work, and Noë Bot's privacy mode still controls whether your conversations are stored or used for training. Access is read-only, xAI never sees or stores your bank login, and you can unlink accounts anytime from cursor.com.",
       "publisher": {
         "name": "cursor",
         "displayName": "Cursor",
@@ -26267,7 +26267,7 @@
       "slug": "runway",
       "name": "runway",
       "displayName": "Runway",
-      "description": "Generate images, videos, music, speech, and sound effects with Runway — Gen-4.5, Aleph, Seedance, Kling, GPT Image and more — from Cursor and Grok Bot. Sign in with your Runway account; no API key needed.",
+      "description": "Generate images, videos, music, speech, and sound effects with Runway — Gen-4.5, Aleph, Seedance, Kling, GPT Image and more — from Cursor and Noë Bot. Sign in with your Runway account; no API key needed.",
       "publisher": {
         "name": "runway",
         "displayName": "Runway",
@@ -26360,7 +26360,7 @@
       "slug": "migma",
       "name": "migma",
       "displayName": "Migma",
-      "description": "Run your entire email marketing from Cursor and Grok Bot. Migma designs on-brand campaigns, sends when you approve, and gets better with every send.",
+      "description": "Run your entire email marketing from Cursor and Noë Bot. Migma designs on-brand campaigns, sends when you approve, and gets better with every send.",
       "publisher": {
         "name": "migma",
         "displayName": "Migma AI",
@@ -27006,7 +27006,7 @@
           "name": "orthogonal-mcp",
           "slug": "orthogonal-orthogonal-mcp",
           "path": "./skills/orthogonal-mcp/SKILL.md",
-          "description": "Configure or troubleshoot Orthogonal's hosted MCP server in Codex, Claude Code, Cursor, Grok Bot, or another Streamable HTTP MCP client. Use for plugin installation, OAuth authorization, missing tools, connection errors, URL validation, or a read-only installation check. Do not u"
+          "description": "Configure or troubleshoot Orthogonal's hosted MCP server in Codex, Claude Code, Cursor, Noë Bot, or another Streamable HTTP MCP client. Use for plugin installation, OAuth authorization, missing tools, connection errors, URL validation, or a read-only installation check. Do not u"
         },
         {
           "name": "orthogonal-sdk",

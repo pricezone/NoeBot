@@ -83,6 +83,28 @@ describe("a browser key as an X key", () => {
     });
   });
 
+  test("with Control or Command held, a key is the shortcut under the finger, whatever the layout writes", () => {
+    // Control and the C key on a Greek layout: Copy, not a ψ typed into the page.
+    expect(xKeyFor({ key: "ψ", code: "KeyC", modifiers: 2 })).toEqual({
+      kind: "keysym",
+      keysym: "c",
+    });
+    expect(xKeyFor({ key: "ω", code: "KeyV", modifiers: 2 | 8 })).toEqual({
+      kind: "keysym",
+      keysym: "v",
+    });
+    // Control with Alt is AltGr writing a character, and that character is typed.
+    expect(xKeyFor({ key: "€", code: "KeyE", modifiers: 2 | 1 })).toEqual({
+      kind: "text",
+      text: "€",
+    });
+    // Shift alone shifts; it makes no shortcut.
+    expect(xKeyFor({ key: "Α", code: "KeyA", modifiers: 8 })).toEqual({
+      kind: "text",
+      text: "Α",
+    });
+  });
+
   test("keys with no meaning on the desktop send nothing", () => {
     expect(xKeyFor({ key: "Dead", code: "Quote" })).toEqual({ kind: "none" });
     expect(xKeyFor({ key: "Process", code: "KeyA" })).toEqual({ kind: "none" });

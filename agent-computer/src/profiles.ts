@@ -352,10 +352,48 @@ export type BrowserClosed = (botId: string) => void | Promise<void>;
  */
 export type BrowserLaunched = (botId: string, context: BrowserContext) => void;
 
+export type ProfilesOptions = {
+  /**
+   * The X display a Bot's browser opens on, when each Bot has a desktop of its own
+   * (desktop-sessions.ts): asked before every launch, which is what starts that desktop the first
+   * time. Absent, or answering null, the browser opens where the computer's environment says, as it
+   * always has.
+   */
+  displayFor?: (botId: string) => Promise<string | null>;
+  /**
+   * Whether the display a browser was launched onto is still that Bot's. Asked once the launch is
+   * done, because a launch takes seconds and the desktop may have been closed under it meanwhile
+   * (the desktop cap): a browser on a display that went is closed and launched again.
+   */
+  displayCurrent?: (botId: string, display: string) => boolean;
+  /**
+   * Told when a Bot's browser has been closed and has finished closing (a stop, a reset, the cap or
+   * the idle sweep), so what it ran on can go too. Not awaited: the close is on the launch path.
+   */
+  afterClosed?: (botId: string) => void;
+};
+
+/**
+ * The environment a browser on its own display launches with: the computer's, with `DISPLAY` set to
+ * that Bot's. Everything else stays as it was, the home and its font cache included.
+ */
+export function browserEnvironment(
+  display: string,
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value !== undefined) env[name] = value;
+  }
+  env.DISPLAY = display;
+  return env;
+}
+
 export function createProfiles(
   root: string,
   onClosed: BrowserClosed = () => undefined,
   onLaunched?: BrowserLaunched,
+  { displayFor, displayCurrent, afterClosed }: ProfilesOptions = {},
 ) {
   type LiveBrowser = {
     context: BrowserContext;
@@ -510,6 +548,12 @@ export function createProfiles(
       if (keepTabs) await keepOpenTabs(botId, running);
       await keepSessionCookies(running);
       await closeAndWait(running.context).catch(() => undefined);
+      // Inside the close, so a launch waiting on it finds whatever this sets going already going.
+      try {
+        afterClosed?.(botId);
+      } catch {
+        // Its own business; the browser is closed either way.
+      }
     });
     return true;
   };
@@ -678,10 +722,7 @@ export function createProfiles(
           () => undefined,
         );
         await mkdir(downloadsPath, { recursive: true });
-        console.info(
-          JSON.stringify({ type: "computer-browser-launching", botId }),
-        );
-        const context = await chromium.launchPersistentContext(dir, {
+        const launchOptions = {
           channel: BROWSER_RUNTIME.channel,
           headless: BROWSER_RUNTIME.mode === "headless",
           args: [
@@ -710,7 +751,54 @@ export function createProfiles(
           handleSIGHUP: false,
           ...(proxy ? { proxy } : {}),
           downloadsPath,
-        });
+        };
+        /*
+         * On the Bot's own display, when it has one (desktop-sessions.ts), which this starts the
+         * first time. And checked once launched: a desktop closed while the launch ran leaves a
+         * browser on a display that is gone, so it is closed and launched again on the Bot's desktop
+         * as it is now. Twice at most; the third launch stands, whatever happened to its display.
+         */
+        const launchOnBotDisplay = async (): Promise<BrowserContext> => {
+          for (let attempt = 1; ; attempt++) {
+            const display = (await displayFor?.(botId)) ?? null;
+            console.info(
+              JSON.stringify({
+                type: "computer-browser-launching",
+                botId,
+                ...(display ? { display } : {}),
+              }),
+            );
+            const stillItsDisplay = () =>
+              display === null ||
+              displayCurrent === undefined ||
+              displayCurrent(botId, display) ||
+              attempt >= 3;
+            let launched: BrowserContext | undefined;
+            try {
+              launched = await chromium.launchPersistentContext(dir, {
+                ...launchOptions,
+                ...(display ? { env: browserEnvironment(display) } : {}),
+              });
+            } catch (error) {
+              // A display taken away mid-launch fails the launch; the Bot's desktop as it is now
+              // is not a reason to give up.
+              if (stillItsDisplay()) throw error;
+            }
+            if (launched && stillItsDisplay()) return launched;
+            console.info(
+              JSON.stringify({
+                type: "computer-browser-display-replaced",
+                botId,
+                display,
+                attempt,
+              }),
+            );
+            if (launched)
+              await settleWithin(launched.close(), DEAD_CLOSE_BUDGET_MS);
+            await sweepLocks(dir);
+          }
+        };
+        const context = await launchOnBotDisplay();
         onLaunched?.(botId, context);
         /*
          * Session cookies back before anything navigates, so the first request a site sees from this
@@ -852,6 +940,15 @@ export function createProfiles(
     },
 
     /**
+     * Close this Bot's browser for a reason nobody asked for, its tabs written down first so the next
+     * launch opens them again: the close the cap and the idle sweep make. For the desktop cap, which
+     * takes a Bot's desktop away and its browser with it (desktop-sessions.ts).
+     */
+    async putAway(botId: string, reason: string): Promise<boolean> {
+      return evict(botId, reason, { keepTabs: true });
+    },
+
+    /**
      * Forget everything this Bot knows and start over.
      *
      * The browser is closed before the directory is deleted: deleting a profile
@@ -968,6 +1065,16 @@ export function createProfiles(
     /** Whether this Bot has a browser right now, so a caller can drop state that belongs to one. */
     isLive(botId: string): boolean {
       return live.has(botId);
+    },
+
+    /** Whether this Bot's browser is being launched right now: busy, though not live yet. */
+    isLaunching(botId: string): boolean {
+      return starting.has(botId);
+    },
+
+    /** When this Bot last asked for its page, or null with no browser running. */
+    usedAt(botId: string): number | null {
+      return live.get(botId)?.usedAt ?? null;
     },
 
     /**

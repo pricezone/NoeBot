@@ -112,6 +112,181 @@ export const CATALOGUE_PLUGIN_IDS: Readonly<Record<string, string>> =
     "698": "parallel",
   });
 
+/**
+ * Cursor plugins for an app Composio also brokers: Cursor id → Composio toolkit slug.
+ *
+ * Proposed by `scripts/sync-plugin-index.ts` (a normalised-slug match against
+ * `composio-toolkits.json`, see `plugin-duplicates.ts`) and committed after review. Where the
+ * deployment has Composio configured, the Composio version is the one the Marketplace lists and
+ * these are hidden from browsing (`browsablePlugins`); an installed one keeps working and stays
+ * listed. Left out on review: Cursor's own Composio plugin (32661537), which is Composio itself
+ * rather than an app it brokers.
+ */
+export const COMPOSIO_PLUGIN_IDS: Readonly<Record<string, string>> =
+  Object.freeze({
+    "233": "convex", // convex
+    "353": "prisma", // prisma
+    "407": "cloudflare", // cloudflare
+    "408": "stripe", // stripe
+    "512": "linear", // linear
+    "579": "sentry", // sentry
+    "649": "vercel", // vercel
+    "651": "hex", // hex
+    "653": "snowflake", // snowflake-cursor-plugin
+    "657": "figma", // figma
+    "674": "slack", // slack
+    "717": "atlassian_mcp", // atlassian
+    "730": "posthog", // posthog
+    "735": "hugging_face", // huggingface-skills
+    "738": "langfuse", // langfuse
+    "761": "wix", // wix
+    "786": "amplitude", // amplitude
+    "789": "firecrawl", // firecrawl
+    "800": "launch_darkly", // launchdarkly
+    "1089": "pagerduty", // pagerduty
+    "1090": "webflow", // webflow
+    "1092": "box", // box
+    "1198": "sanity", // sanity
+    "1220": "gitlab", // gitlab
+    "1295": "render", // render
+    "1411": "datadog", // datadog
+    "2046": "braintrust", // braintrust
+    "2050": "postman", // postman
+    "2911": "miro", // miro
+    "3131": "plain", // plain
+    "3165": "tavily", // tavily
+    "3277": "mongodb", // mongodb
+    "3777": "firebase", // firebase
+    "3793": "cloudinary", // cloudinary
+    "3970": "shopify", // shopify-plugin
+    "4339": "pinecone", // pinecone
+    "4793": "brightdata", // bright-data
+    "5069": "clickup", // clickup
+    "5188": "resend", // resend
+    "5609": "granola_mcp", // granola
+    "5636": "exa", // exa
+    "5648": "mem0", // mem0
+    "6067": "workos", // workos
+    "6344": "temporal", // temporal
+    "7619": "vantage_mcp", // vantage
+    "7624": "datarobot", // datarobot-agent-skills
+    "8006": "harness", // harness
+    "9347": "sourcegraph", // sourcegraph-cursor-plugin
+    "11976": "mixpanel", // mixpanel-mcp
+    "146017": "grafana_cloud_mcp", // grafana-cloud-mcp
+    "2507579": "buildkite", // buildkite
+    "5420454": "higgsfield", // higgsfield
+    "14372196": "heygen", // heygen
+    "18281353": "raisely", // raisely
+    "20992516": "netlify_mcp", // netlify-skills
+    "22025095": "airtable", // airtable
+    "25808295": "mintlify", // mintlify-cursor-plugin
+    "26126658": "roboflow", // roboflow
+    "26723531": "databricks", // databricks
+    "29413143": "railway", // railway
+    "32197178": "canva", // canva
+    "32610026": "zoominfo", // zoominfo
+    "32704904": "apollo", // apollo
+    "32766883": "ramp", // ramp
+    "32913266": "apify", // apify
+    "33865099": "magic_patterns_mcp", // magic-patterns
+    "41756884": "lucid_mcp", // lucid
+    "45893410": "gmail", // gmail
+    "45893411": "googlecalendar", // google-calendar
+    "45893412": "googledocs", // google-docs
+    "45893414": "googlesheets", // google-sheets
+    "45893415": "googleslides", // google-slides
+    "47477538": "browser_use", // browser-use
+    "47725204": "gong", // gong
+    "48668144": "agent_mail", // agentmail
+    "48677658": "github", // github
+    "49047809": "zoom", // zoom
+    "49104326": "ashby", // ashby
+    "49110469": "clay", // clay
+    "49339687": "circleback_mcp", // circleback
+    "49339688": "docusign", // docusign
+    "49339689": "hubspot", // hubspot
+    "49339690": "intercom", // intercom
+    "50389919": "whop", // whop
+    "50433623": "circleci", // circleci
+    "52632771": "mobbin_mcp", // mobbin
+    "53497710": "context_dev", // context-dev
+    "53543399": "hostinger", // hostinger-cursor-plugin
+    "53761261": "dropbox", // dropbox
+    "56235003": "elevenlabs", // elevenlabs
+    "56366542": "customerio", // customerio
+    "56809965": "ahrefs", // ahrefs
+    "56809966": "brevo", // brevo
+    "56809967": "brex", // brex
+    "56809968": "calendly", // calendly
+    "56809969": "coda", // coda
+    "56809970": "craft_mcp", // craft
+    "56809971": "customerio", // customer-io
+    "56809972": "fathom", // fathom
+    "56809973": "fireflies", // fireflies
+    "56809974": "godaddy_mcp", // godaddy
+    "56809976": "jotform", // jotform
+    "56809977": "klaviyo", // klaviyo
+    "56809978": "mailerlite", // mailerlite
+    "56809979": "mem", // mem
+    "56809980": "mercury_mcp", // mercury
+    "56809981": "otter_ai_mcp", // otter
+    "56809983": "semrush", // semrush
+    "56809986": "todoist", // todoist
+    "56809987": "typeform", // typeform
+    "56809989": "workable", // workable
+    "56809990": "wrike", // wrike
+    "57763987": "linq", // linq
+    "58578698": "supermemory", // cursor-supermemory
+    "58737848": "postiz_mcp", // postiz
+    "59966080": "incident_io", // incident-io
+    "60855173": "wordpress_com", // wordpress-com
+    "60858255": "turso", // turso
+    "60860738": "crustdata", // crustdata
+    "62459236": "attio", // attio
+    "62459238": "hunter", // hunter
+    "63354503": "gamma", // gamma
+    "63408930": "excalidraw_mcp", // excalidraw
+    "63446691": "quo", // quo
+    "63853950": "descript_mcp", // descript
+    "65140224": "runway", // runway
+    "65143440": "zernio_mcp", // zernio
+    "66345229": "read_ai_mcp", // read-ai
+    "66347861": "jam", // jam
+    "66353838": "htmlcss_to_image", // html-css-to-image
+    "66639982": "browserless", // browserless
+    "66676653": "modem", // modem
+    "66811936": "statsig", // statsig
+    "68516158": "coinbase", // coinbase
+    "68811927": "active_campaign", // activecampaign
+    "68824395": "ngrok", // skills
+    "68859981": "fullstory", // fullstory
+    "69569192": "tinyfish", // tinyfish
+    "69591832": "beehiiv", // beehiiv
+    "69591833": "buffer", // buffer
+    "69591835": "posthog", // posthog-mcp
+    "69591836": "trello", // trello
+    "70335978": "wispr_flow_mcp", // wispr-flow
+    "70598720": "clarify_mcp", // clarify
+    "70729788": "greenhouse", // greenhouse
+    "70796588": "writer", // writer-mcp
+    "70798451": "razorpay", // razorpay-remote-mcp-server
+    "72150064": "mural", // mural
+    "72532351": "make", // make
+    "73049045": "kit", // kit
+    "73501007": "context7_mcp", // context7
+  });
+
+/**
+ * Cursor's own duplicates: hidden Cursor id → the id listed in its place (the fuller plugin of the
+ * two, by `plugin-duplicates.ts`). Hidden whether or not Composio is configured.
+ */
+export const CURSOR_DUPLICATE_PLUGIN_IDS: Readonly<Record<string, string>> =
+  Object.freeze({
+    "56809971": "56366542", // customer-io → customerio
+    "69591835": "730", // posthog-mcp → posthog
+  });
+
 export class PluginIndexError extends Error {
   constructor(message: string) {
     super(message);
@@ -446,4 +621,25 @@ export function pluginIndexServer(
 /** The plugins the Marketplace lists: everything but the ones nothing of which runs here. */
 export function listablePlugins(): IndexedPlugin[] {
   return PLUGIN_INDEX.filter((plugin) => plugin.availability !== "unavailable");
+}
+
+/**
+ * The plugins the Marketplace offers to browse: the listable ones without the duplicates.
+ *
+ * A Cursor duplicate of another Cursor plugin is always left out; a Cursor plugin for an app
+ * Composio brokers is left out when `composioCovers` says this deployment offers the Composio
+ * version. An installed plugin is never left out, so whatever somebody already added keeps its row
+ * (and keeps working: nothing here uninstalls anything). `listablePlugins` stays whole, because a
+ * plugin's own page, its install and its servers are still resolved through it.
+ */
+export function browsablePlugins(options: {
+  installed: ReadonlySet<string>;
+  composioCovers: (toolkit: string) => boolean;
+}): IndexedPlugin[] {
+  return listablePlugins().filter((plugin) => {
+    if (options.installed.has(plugin.id)) return true;
+    if (CURSOR_DUPLICATE_PLUGIN_IDS[plugin.id]) return false;
+    const toolkit = COMPOSIO_PLUGIN_IDS[plugin.id];
+    return !(toolkit && options.composioCovers(toolkit));
+  });
 }

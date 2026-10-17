@@ -24,6 +24,7 @@ import {
 } from "@/lib/agents/queries";
 import { useTranslation } from "@/lib/i18n";
 import { useContentText } from "@/lib/i18n/content";
+import { useShareLink } from "@/lib/share-link";
 
 /**
  * A Bot template's own page inside the Marketplace, in place of the Agents tab, laid out the way a
@@ -31,7 +32,7 @@ import { useContentText } from "@/lib/i18n/content";
  * the right, the description, then how it should work, the playbooks it runs, the jobs that run
  * on their own, the apps it uses, and a few facts in rows.
  *
- * It used to be a dialog over the tab. A page is what Grok Bot opens, and it is what the Apps tab
+ * It used to be a dialog over the tab. A page is what the Apps tab
  * already did for a plugin; a person moving between the two tabs should not meet a different
  * answer to the same click. The address is the same as before (`?tab=agents&template=<id>`), so a
  * shared link keeps working and Back returns to the list with the term and the category kept.
@@ -54,6 +55,7 @@ export function TemplateDetail({
   const templates = useQuery(templateListQueryOptions());
   const [error, setError] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const shareLink = useShareLink();
   const add = useMutation({
     ...addTemplateMutationOptions(queryClient),
     onError: (thrown: Error) => setError(thrown.message),
@@ -106,7 +108,10 @@ export function TemplateDetail({
   }
 
   const share = async () => {
-    const address = `${window.location.origin}/marketplace?tab=agents&template=${encodeURIComponent(template.id)}`;
+    // Opens on the reader's own instance, through the platform where there is one.
+    const address = shareLink(
+      `/marketplace?tab=agents&template=${encodeURIComponent(template.id)}`,
+    );
     try {
       await navigator.clipboard.writeText(address);
       setIsCopied(true);

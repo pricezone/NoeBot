@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AgentProfile } from "@/lib/agents/queries";
 import { msg } from "@/lib/i18n";
 
 /**
@@ -64,4 +65,28 @@ export function agentInputFrom(values: AgentFormValues) {
       ? { auth: { header: "Authorization", value: values.authValue.trim() } }
       : {}),
   };
+}
+
+/**
+ * A change to some fields of an existing Bot, as the whole input the update endpoint takes: the
+ * unchanged fields ride along as they are. The empty key keeps the current one. A built-in Bot
+ * sends no endpoint: its managed address is not one somebody typed, and the route checks any
+ * endpoint it is sent as one somebody did (on a localhost Bot it refused every edit).
+ */
+export function agentPatchInput(
+  profile: Pick<
+    AgentProfile,
+    "name" | "title" | "roleDescription" | "visibility" | "builtIn" | "endpoint"
+  >,
+  patch: Partial<AgentFormValues>,
+) {
+  return agentInputFrom({
+    name: profile.name,
+    title: profile.title,
+    roleDescription: profile.roleDescription,
+    visibility: profile.visibility,
+    endpoint: profile.builtIn ? "" : (profile.endpoint ?? ""),
+    authValue: "",
+    ...patch,
+  });
 }

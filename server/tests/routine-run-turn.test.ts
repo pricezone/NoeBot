@@ -109,6 +109,10 @@ function harness(options: {
   heartbeatMs?: number;
   lockTtlSeconds?: number;
   learningContainerId?: string;
+  /** A turn resuming a paused step rather than answering a new message. */
+  continuation?: Parameters<
+    ReturnType<typeof createTurnRunner>
+  >[0]["continuation"];
 }) {
   const order: string[] = [];
   const calls = {
@@ -246,6 +250,7 @@ function harness(options: {
       agentId: AGENT_ID,
       threadId: THREAD_ID,
       instruction: INSTRUCTION,
+      ...(options.continuation ? { continuation: options.continuation } : {}),
     });
 
   return { run, agent, calls, order, builtFor };
@@ -814,6 +819,106 @@ describe("a failed heartbeat stops the turn", () => {
     });
 
     await expect(run()).rejects.toThrow("lock lost");
+  });
+});
+
+describe("a turn that ended on a question", () => {
+  /** The Bot asks through `ask_person`, the question reaches the person, and nothing follows. */
+  const asks =
+    (said: string): Driver =>
+    ({ agent, observer }) => {
+      agent.messages = [
+        ...agent.messages,
+        {
+          id: "assistant_q",
+          role: "assistant",
+          content: said,
+          toolCalls: [
+            {
+              id: "call_q",
+              type: "function",
+              function: {
+                name: "ask_person",
+                arguments: JSON.stringify({ question: "Ship it today?" }),
+              },
+            },
+          ],
+        },
+        {
+          id: "tool_q",
+          role: "tool",
+          toolCallId: "call_q",
+          content: JSON.stringify("Put to the person in this conversation."),
+        },
+      ] as typeof agent.messages;
+      observer.complete();
+    };
+
+  test("keeps the reply to the Bot's own words and returns the question beside it", async () => {
+    // Most surfaces already show the question (its card, its notification), so it is not repeated.
+    const { run } = harness({ drive: asks("The build is green.") });
+    expect(await run()).toEqual({
+      replyText: "The build is green.",
+      asked: "Ship it today?",
+    });
+  });
+
+  test("with nothing said before it, the turn is not a failure", async () => {
+    const { run } = harness({ drive: asks("") });
+    expect(await run()).toEqual({ replyText: "", asked: "Ship it today?" });
+  });
+
+  test("a resumed turn whose paused step had put the question ends on it, not in failure", async () => {
+    const paused: Message[] = [
+      { id: "u_p", role: "user", content: "Tidy the server." },
+      {
+        id: "a_p",
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_q",
+            type: "function",
+            function: {
+              name: "ask_person",
+              arguments: JSON.stringify({ question: "Ship it today?" }),
+            },
+          },
+          {
+            id: "call_gated",
+            type: "function",
+            function: { name: "delete_backups", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        id: "t_q",
+        role: "tool",
+        toolCallId: "call_q",
+        content: JSON.stringify("Put to the person in this conversation."),
+      },
+    ];
+    const { run } = harness({
+      // The model is never asked again: the run ends at once, adding nothing.
+      drive: ({ observer }) => observer.complete(),
+      continuation: {
+        snapshot: {
+          runId: "run_paused",
+          threadId: THREAD_ID,
+          toolCallId: "call_gated",
+          toolName: "delete_backups",
+          args: {},
+          messages: paused,
+          state: {},
+          context: [],
+          forwardedProps: {},
+        },
+        result: { content: "Deleted 3 backups." },
+        messageId: "t_gated",
+      },
+    });
+
+    expect(await run()).toEqual({ replyText: "", asked: "Ship it today?" });
   });
 });
 

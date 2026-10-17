@@ -45,6 +45,28 @@ describe("signInWith", () => {
     expect(callbackURL).toBe("http://localhost:3010");
   });
 
+  test("comes back to the page somebody was on their way to, and only to a page here", async () => {
+    const location = (window as unknown as { location: { search?: string } })
+      .location;
+    let callbackURL = "";
+    const start = async (input: { callbackURL: string }) => {
+      callbackURL = input.callbackURL;
+      return {};
+    };
+    try {
+      location.search = `?redirect=${encodeURIComponent("/marketplace?tab=apps&plugin=55647425")}`;
+      await signInWith("google", start);
+      expect(callbackURL).toBe(
+        "http://localhost:3010/marketplace?tab=apps&plugin=55647425",
+      );
+      location.search = "?redirect=https%3A%2F%2Fevil.example";
+      await signInWith("google", start);
+      expect(callbackURL).toBe("http://localhost:3010");
+    } finally {
+      delete location.search;
+    }
+  });
+
   test("throws what the client said when it refuses", async () => {
     const refuse = async () => ({
       error: { message: "That provider is not configured." },

@@ -21,7 +21,7 @@ import { AgentDialog } from "@/components/agents/agent-dialog";
 import { CreateAgentDialog } from "@/components/agents/create-agent-dialog";
 import { type AgentProfile, agentKeys } from "@/lib/agents/queries";
 import { computerKeys } from "@/lib/computers/queries";
-import { Route as BoundariesRoute } from "@/routes/_authed/_app/admin/boundaries";
+import { Route as BoundariesRoute } from "@/routes/_authed/_app/settings/advanced/boundaries";
 
 /**
  * The Enter that confirms a character an input method is composing is not an Enter.

@@ -175,14 +175,26 @@ describe.skipIf(!asked)(
         `../src/profiles?cap=${Date.now()}`
       )) as typeof import("../src/profiles");
       const told: string[] = [];
-      const profiles = createProfiles(join(root, "cap"), (botId) => {
-        told.push(botId);
-      });
+      // What ran on the browser (its own desktop) goes after it, never before: Chromium has to flush.
+      const after: { botId: string; pageClosed: boolean }[] = [];
+      let firstPage: { isClosed: () => boolean } | undefined;
+      const profiles = createProfiles(
+        join(root, "cap"),
+        (botId) => {
+          told.push(botId);
+        },
+        undefined,
+        {
+          afterClosed: (botId) =>
+            after.push({ botId, pageClosed: firstPage?.isClosed() ?? false }),
+        },
+      );
 
-      await profiles.page("first");
+      firstPage = await profiles.page("first");
       await profiles.page("second");
 
       expect(told).toEqual(["first"]);
+      expect(after).toEqual([{ botId: "first", pageClosed: true }]);
       await profiles.closeAll();
     }, 60_000);
   },

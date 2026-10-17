@@ -62,6 +62,12 @@ export type DeploymentCapabilities = {
   locales?: Locale[];
   /** The language somebody who chose none starts in, when the deployment names one. */
   defaultLocale?: Locale | null;
+  /**
+   * The platform origin Share links go through so they open on any instance
+   * (`lib/share-link.ts`): the server's `shareBaseUrl`, else the origin of its sign-in handoff's
+   * return address. Absent, a Share link is this deployment's own address.
+   */
+  shareBase?: string;
 };
 
 export const deploymentKeys = {
@@ -106,6 +112,8 @@ export function deploymentCapabilitiesQueryOptions() {
         clicky?: { enabled?: unknown; voice?: unknown } | null;
         locales?: unknown;
         defaultLocale?: unknown;
+        shareBaseUrl?: unknown;
+        signInHandoff?: { returnUrl?: unknown } | null;
       };
 
       const locales = parseLocales(
@@ -139,7 +147,24 @@ export function deploymentCapabilitiesQueryOptions() {
         ...(typeof body.billingUrl === "string" && body.billingUrl
           ? { billingUrl: body.billingUrl }
           : {}),
+        ...shareBaseOf(body.shareBaseUrl, body.signInHandoff?.returnUrl),
       };
     },
   });
+}
+
+/** The first of these that is an http(s) address, as an origin: the platform share links use. */
+function shareBaseOf(...candidates: unknown[]): { shareBase?: string } {
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate) continue;
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === "https:" || url.protocol === "http:") {
+        return { shareBase: url.origin };
+      }
+    } catch {
+      // Not an address; try the next.
+    }
+  }
+  return {};
 }

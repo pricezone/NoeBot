@@ -49,7 +49,7 @@
   "Audit events and Bot actions stream to your OpenTelemetry collector or SIEM when OTEL_EXPORTER_OTLP_ENDPOINT is set, tagged openbot.surface.": "Τα συμβάντα ελέγχου και οι ενέργειες των Bots στέλνονται στον collector OpenTelemetry ή στο SIEM σου όταν έχει οριστεί το OTEL_EXPORTER_OTLP_ENDPOINT, με την ετικέτα openbot.surface.",
   "Automatic Learning": "Αυτόματη μάθηση",
   "Available to": "Διαθέσιμο σε",
-  "Back to Admin": "Πίσω στη Διαχείριση",
+  "Back to Advanced Settings": "Πίσω στις Σύνθετες ρυθμίσεις",
   "Back to components": "Πίσω στα στοιχεία",
   "Bot {{botId}}": "Bot {{botId}}",
   "Bots may answer with it.": "Οι Bots μπορούν να απαντούν με αυτό.",

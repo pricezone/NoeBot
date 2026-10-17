@@ -13,7 +13,7 @@ import { AVATAR_COLORS, avatarSchemeOf } from "../../../../shared/avatar";
  * The two bubbles a conversation draws, written once so the single-Bot transcript and the group
  * chat cannot drift apart.
  *
- * As Grok draws them: the Bot's words in a grey bubble on the left, the person's in the
+ * The Bot's words in a grey bubble on the left, the person's in the
  * conversation Bot's own avatar colour on the right, so whose conversation this is shows in every
  * line of it. The same colours in both themes, like the avatar they come from.
  */

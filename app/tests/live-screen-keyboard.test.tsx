@@ -279,7 +279,7 @@ test("the paste event sends clipboard text without forwarding it through a key e
   window.dispatchEvent(paste);
 
   expect(paste.defaultPrevented).toBe(true);
-  expect(socket.sent).toEqual([{ type: "text", text: "." }]);
+  expect(socket.sent).toEqual([{ type: "text", text: ".", paste: true }]);
 });
 
 test("a character with no key code behind it is sent as text, and its key-up stays here", async () => {
@@ -303,4 +303,153 @@ test("a character with no key code behind it is sent as text, and its key-up sta
   );
 
   expect(socket.sent).toEqual([{ type: "text", text: "ύ" }]);
+});
+
+/** `navigator.clipboard` for one test, restored after it. */
+function stubClipboard(readText: () => Promise<string>): () => void {
+  const had = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { readText },
+  });
+  return () => {
+    if (had) Object.defineProperty(navigator, "clipboard", had);
+    else delete (navigator as { clipboard?: unknown }).clipboard;
+  };
+}
+
+const commandV = () =>
+  new KeyboardEvent("keydown", {
+    key: "v",
+    code: "KeyV",
+    keyCode: 86,
+    metaKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+
+test("Command+V with no paste event from the browser reads the clipboard and sends it as a paste", async () => {
+  // Safari and a WKWebView may fire no paste event over a screen that is not a text field.
+  const restore = stubClipboard(async () => "from the clipboard");
+  try {
+    const socket = await liveSocket();
+    window.dispatchEvent(commandV());
+    expect(socket.sent).toEqual([]);
+    await waitFor(() =>
+      expect(socket.sent).toEqual([
+        { type: "text", text: "from the clipboard", paste: true },
+      ]),
+    );
+  } finally {
+    restore();
+  }
+});
+
+test("when the paste event does come, its text is sent once and the clipboard is not read", async () => {
+  let reads = 0;
+  const restore = stubClipboard(async () => {
+    reads++;
+    return "read";
+  });
+  try {
+    const socket = await liveSocket();
+    window.dispatchEvent(commandV());
+    const paste = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", {
+      value: { getData: () => "pasted" },
+    });
+    window.dispatchEvent(paste);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(reads).toBe(0);
+    expect(socket.sent).toEqual([
+      { type: "text", text: "pasted", paste: true },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("a key kept here under Command, whose keyup a Mac never sends, does not swallow the next press", async () => {
+  const restore = stubClipboard(async () => "");
+  try {
+    const socket = await liveSocket();
+    const press = (type: "keydown" | "keyup", init: KeyboardEventInit) =>
+      window.dispatchEvent(
+        new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init }),
+      );
+    press("keydown", {
+      key: "Meta",
+      code: "MetaLeft",
+      keyCode: 91,
+      metaKey: true,
+    });
+    window.dispatchEvent(commandV());
+    // No keyup for the V: Command was still held. Then Command goes up.
+    press("keyup", { key: "Meta", code: "MetaLeft", keyCode: 91 });
+    press("keydown", { key: "v", code: "KeyV", keyCode: 86 });
+    press("keyup", { key: "v", code: "KeyV", keyCode: 86 });
+
+    expect(socket.sent.filter((message) => message.code === "KeyV")).toEqual([
+      {
+        type: "key",
+        event: "down",
+        key: "v",
+        code: "KeyV",
+        text: "v",
+        windowsVirtualKeyCode: 86,
+        modifiers: 0,
+      },
+      {
+        type: "key",
+        event: "up",
+        key: "v",
+        code: "KeyV",
+        windowsVirtualKeyCode: 86,
+        modifiers: 0,
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test("the window losing the focus lets go of every key on the Bot's computer", async () => {
+  const socket = await liveSocket();
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: "Shift",
+      code: "ShiftLeft",
+      keyCode: 16,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  window.dispatchEvent(new Event("blur"));
+
+  expect(socket.sent.at(-1)).toEqual({ type: "release" });
+});
+
+test("handing the wheel back lets go of every key on the Bot's computer", async () => {
+  const view = render(<LiveScreen computerId="keyboard-test" driving />);
+  await waitFor(() => expect(SocketDouble.latest).toBeDefined());
+  const socket = SocketDouble.latest as SocketDouble;
+  // Driving and ready: a key goes through.
+  await waitFor(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Control",
+        code: "ControlLeft",
+        keyCode: 17,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    expect(socket.sent.length).toBeGreaterThan(0);
+  });
+
+  view.rerender(<LiveScreen computerId="keyboard-test" driving={false} />);
+
+  expect(socket.sent.at(-1)).toEqual({ type: "release" });
 });

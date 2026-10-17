@@ -34,6 +34,8 @@ test("modal paths and relative strings are ignored", () => {
   rememberReturnTo("https://example.com/");
   expect(readReturnTo()).toBe("/channel/abc");
   expect(isModalPath("/settings")).toBe(true);
+  expect(isModalPath("/settings/advanced/plugins")).toBe(true);
+  expect(isModalPath("/admin/credentials")).toBe(true);
   expect(isModalPath("/marketplace")).toBe(true);
   expect(isModalPath("/channel/abc")).toBe(false);
 });

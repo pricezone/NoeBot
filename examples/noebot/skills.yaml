@@ -318,12 +318,12 @@ skills:
       into one theme to shorten the list.
     tools: []
 
-  # The skills behind the jobs Grok Bot's own guides describe — its welcome card (replies for the
-  # inbox, meeting prep, a morning brief, a postponed decision), its use-case roles (sales outbound,
-  # talent scout, paid media, expense manager, product performance, bug reproduction, account
-  # health, chief of staff) and its first tasks. Each says when it applies, what it needs, the
-  # sequence, how to check the result, what to return, and what needs the person's approval —
-  # Grok Bot's own checklist for a useful skill. None sends, enrols, changes or pays on its own.
+  # The thirteen skills for everyday jobs: replies for the inbox, meeting prep, a morning brief and
+  # a postponed decision; the use-case roles (sales outbound, talent scout, paid media, expense
+  # manager, product performance, bug reproduction, account health, chief of staff); and first
+  # tasks. Each says when it applies, what it needs, the sequence, how to check the result, what to
+  # return, and what needs the person's approval, the checklist for a useful skill. None sends,
+  # enrols, changes or pays on its own.
 
   - slug: prepare-inbox-replies
     title: Prepare replies for what is waiting in my inbox
