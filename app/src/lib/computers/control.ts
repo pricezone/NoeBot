@@ -60,6 +60,12 @@ export function readControl(
  */
 export type TakeControlOptions = { reason?: string; source?: HandoffSource };
 
+/**
+ * What a person's own Take control says, for the server and the trail. It is not shown back to
+ * them: the line is theirs, in English, and tells them nothing (`handoverReason` in the viewer).
+ */
+export const MANUAL_TAKE_REASON = "I want to take control of the browser.";
+
 export async function takeControl(
   computerId: string,
   requestId?: string,
@@ -69,7 +75,7 @@ export async function takeControl(
     requestId ??
     (
       await callControl(computerId, "/control/request", {
-        reason: options.reason ?? "I want to take control of the browser.",
+        reason: options.reason ?? MANUAL_TAKE_REASON,
         ...(options.source ? { source: options.source } : {}),
       })
     )?.request?.id;

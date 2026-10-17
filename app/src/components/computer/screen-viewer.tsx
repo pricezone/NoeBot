@@ -19,7 +19,7 @@ import {
   useClickyAutoControl,
   useClickyWatchOnOpen,
 } from "@/lib/clicky/viewer-control";
-import type { ControlState } from "@/lib/computers/control";
+import { type ControlState, MANUAL_TAKE_REASON } from "@/lib/computers/control";
 import { useTranslation } from "@/lib/i18n";
 import { queryClient } from "@/query-client";
 import { CLICKY_HELP_REASON } from "../../../../shared/clicky";
@@ -324,17 +324,26 @@ export function ScreenViewer({
     return () => window.removeEventListener("keydown", onKey);
   }, [onMinimize, stopClicky]);
 
-  // Every reason is the Bot's own words, except Clicky's, which is a fixed English line drawn here.
+  /*
+   * Every reason is the Bot's own words, except Clicky's, which is a fixed English line drawn here,
+   * and the person's own Take control, which says nothing they need to read (live, it showed "I want
+   * to take control of the browser." after "You have control").
+   */
+  const ownTake =
+    control?.request?.source === "manual" ||
+    control?.reason === MANUAL_TAKE_REASON;
   const handoverReason = (reason: string) =>
     reason === CLICKY_HELP_REASON
       ? t("Show me how is helping you here.")
-      : reason;
+      : ownTake
+        ? ""
+        : reason;
   const status = settled
     ? null
     : control?.transitioning
       ? t("Finishing the current action…")
       : driving
-        ? `${t("You have control — click and type on the page.")}${control?.reason ? ` ${handoverReason(control.reason)}` : ""}`
+        ? `${t("You have control — click and type on the page.")} ${control?.reason ? handoverReason(control.reason) : ""}`.trim()
         : control?.requested
           ? `${t("The assistant needs you.")} ${control.reason ? handoverReason(control.reason) : ""}`.trim()
           : null;

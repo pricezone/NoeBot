@@ -539,6 +539,13 @@ test("control the person took themselves is not given back when Show me how stop
   const view = preview();
   const viewer = await openViewer(view);
   const bar = await viewer.findByRole("region", { name: "Show me how" });
+  // The person's own take says nothing they need to read (live: its English line was shown).
+  expect(
+    await viewer.findByText("You have control — click and type on the page."),
+  ).toBeTruthy();
+  expect(
+    viewer.queryByText(/I want to take control of the browser/),
+  ).toBeNull();
   fireEvent.click(within(bar).getByRole("button", { name: "Stop" }));
   await waitFor(() => expect(commands).toContainEqual({ type: "stop" }));
   await new Promise((resolve) => setTimeout(resolve, 50));
