@@ -1,5 +1,6 @@
 import type { Message } from "@ag-ui/core";
 import { i18n, msg } from "@/lib/i18n";
+import { QUESTION_TOOLS } from "./repair-history";
 
 /**
  * A browser step followed by silence, retried once and then reported.
@@ -36,6 +37,9 @@ const PLACEHOLDER = "Forwarded to client";
 /**
  * Whether the conversation ends on a tool result this turn added, for a tool whose result is meant
  * to be followed by the Bot: the browser answered, and the continuation never came.
+ *
+ * Never after a question to the person (`ask_person`, `askChoice`, `askApproval`): the question ends
+ * the Bot's turn, and running the model again on it would have the Bot answer its own question.
  */
 export function awaitsContinuation(
   messages: readonly Message[],
@@ -47,12 +51,19 @@ export function awaitsContinuation(
   const content = typeof last.content === "string" ? last.content.trim() : "";
   if (content === PLACEHOLDER || content === JSON.stringify(PLACEHOLDER))
     return false;
-  const call = messages
-    .flatMap((message) =>
-      message.role === "assistant" ? (message.toolCalls ?? []) : [],
-    )
-    .find((candidate) => candidate.id === last.toolCallId);
-  return Boolean(call && followsUp(call.function.name));
+  const calls = messages.flatMap((message) =>
+    message.role === "assistant" ? (message.toolCalls ?? []) : [],
+  );
+  const nameOf = (id: string) =>
+    calls.find((candidate) => candidate.id === id)?.function.name;
+  // A question among the results the turn ended on ends it, whichever of them came last.
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== "tool") break;
+    if (QUESTION_TOOLS.has(nameOf(message.toolCallId) ?? "")) return false;
+  }
+  const name = nameOf(last.toolCallId);
+  return Boolean(name && followsUp(name));
 }
 
 function isAbort(error: unknown): boolean {

@@ -817,6 +817,63 @@ describe("a failed heartbeat stops the turn", () => {
   });
 });
 
+describe("a turn that ended on a question", () => {
+  /** The Bot asks through `ask_person`, the question reaches the person, and nothing follows. */
+  const asks =
+    (said: string): Driver =>
+    ({ agent, observer }) => {
+      agent.messages = [
+        ...agent.messages,
+        {
+          id: "assistant_q",
+          role: "assistant",
+          content: said,
+          toolCalls: [
+            {
+              id: "call_q",
+              type: "function",
+              function: {
+                name: "ask_person",
+                arguments: JSON.stringify({ question: "Ship it today?" }),
+              },
+            },
+          ],
+        },
+        {
+          id: "tool_q",
+          role: "tool",
+          toolCallId: "call_q",
+          content: JSON.stringify("Put to the person in this conversation."),
+        },
+      ] as typeof agent.messages;
+      observer.complete();
+    };
+
+  test("says the question in the reply, for a surface that cannot draw its card", async () => {
+    const { run } = harness({ drive: asks("The build is green.") });
+    expect(await run()).toEqual({
+      replyText: "The build is green.\n\nShip it today?",
+      asked: "Ship it today?",
+    });
+  });
+
+  test("with nothing said before it, the question is the reply rather than a failure", async () => {
+    const { run } = harness({ drive: asks("") });
+    expect(await run()).toEqual({
+      replyText: "Ship it today?",
+      asked: "Ship it today?",
+    });
+  });
+
+  test("does not say the question twice when the Bot already did", async () => {
+    const { run } = harness({ drive: asks("Ship it today?") });
+    expect(await run()).toEqual({
+      replyText: "Ship it today?",
+      asked: "Ship it today?",
+    });
+  });
+});
+
 describe("recovering what was said", () => {
   test("falls back to the streamed chunks when no message was added", async () => {
     const { run } = harness({

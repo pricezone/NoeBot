@@ -1,37 +1,19 @@
 import type { Message } from "@ag-ui/core";
+import {
+  ANSWERED_IN_CHAT,
+  isStandIn,
+  QUESTION_TOOLS,
+  UNANSWERED,
+} from "../../../../shared/question-tools";
 import { newId } from "../new-id";
 
 /**
  * Insert explanatory tool results for unanswered tool calls before sending history to providers.
+ *
+ * The question tools and the stand-ins are declared in `shared/`, because the server reads the same
+ * rule for which message answers a question (`server/src/agents/question-turn.ts`).
  */
-
-export const UNANSWERED =
-  "This call produced no result: the surface was interrupted before it could answer. Do not assume it succeeded.";
-
-/**
- * The tools that put a question to the person: `ask_person` on the server, and the two decision
- * cards that suspend a run in the browser. A card is answered on the card where the tab that drew it
- * still holds the run; anywhere else (another tab, or the same one after a reload) the only way left
- * to answer it is the next message, so that message is the answer.
- */
-export const QUESTION_TOOLS: ReadonlySet<string> = new Set([
-  "ask_person",
-  "askChoice",
-  "askApproval",
-]);
-
-/**
- * The stand-in for a question nobody answered on its card, when the person has written since. It
- * tells the Bot where the answer is instead of that the question failed, which is what the generic
- * sentence above would have it believe.
- */
-export const ANSWERED_IN_CHAT =
-  "The person answered this question in their next message instead of on the card. Read that message as their answer.";
-
-/** Whether a tool result is one of the stand-ins this file writes rather than a real answer. */
-export function isStandIn(content: unknown): boolean {
-  return content === UNANSWERED || content === ANSWERED_IN_CHAT;
-}
+export { ANSWERED_IN_CHAT, isStandIn, QUESTION_TOOLS, UNANSWERED };
 
 /** A tool result message, which AG-UI models as its own role. */
 type ToolResult = { role: "tool"; toolCallId: string };

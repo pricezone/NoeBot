@@ -171,6 +171,9 @@ const EN = {
   questionSendAnswer: "Send answer",
   questionAnswered: "Answered",
   questionScreen: "The Bot's screen",
+  // The rows of a question that can be answered with yes or no (escalation-tool.tsx).
+  yes: "Yes",
+  no: "No",
 
   // A decision card whose question is still being written (decisions.tsx).
   waitingForBot: "Waiting for the Bot…",
@@ -348,6 +351,8 @@ const EL: UiStrings = {
   questionSendAnswer: "Αποστολή απάντησης",
   questionAnswered: "Απαντήθηκε",
   questionScreen: "Η οθόνη του Bot",
+  yes: "Ναι",
+  no: "Όχι",
 
   waitingForBot: "Αναμονή για τον Bot…",
   preparingRequest: "Ετοιμάζεται το αίτημα…",

@@ -34,6 +34,7 @@ import {
   planModelForEnvironment,
 } from "./agents/plan-model";
 import type { AgentActor } from "./agents/profile-types";
+import { questionTurns } from "./agents/question-turn";
 import {
   executeNativeApprovalTool,
   nativeApprovalRun,
@@ -1715,7 +1716,9 @@ class BuiltInAgentWithSaneHistory extends BuiltInAgent {
     markAttachmentsSent?: MarkAttachmentsSent,
     runOptions: BuiltInRunOptions = {},
   ) {
-    super(configuration);
+    // Its model ends the turn on a question to the person and reads their reply as the answer
+    // (question-turn.ts). Wrapped here, and the plain configuration kept, so a clone wraps it once.
+    super(questionTurns(configuration));
     this.configuration = configuration;
     this.loadAttachment = loadAttachment;
     this.markAttachmentsSent = markAttachmentsSent;

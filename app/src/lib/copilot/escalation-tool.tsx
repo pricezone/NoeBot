@@ -9,7 +9,9 @@ import { ChoiceCard } from "@/components/gallery/decisions";
 import { useConversation } from "@/lib/copilot/conversation";
 import { PUT_TO } from "@/lib/copilot/markers";
 import { i18n, useTranslation } from "@/lib/i18n";
+import { useUiStrings } from "@/lib/i18n/strings";
 import { saidItWentAhead } from "@/lib/plugins/tool-result";
+import { readsAsYesNo } from "./yes-no";
 
 /**
  * How a Bot stopping to ask a person reads in the transcript.
@@ -23,6 +25,7 @@ const parameters = z.object({
   question: z.string().optional(),
   why: z.string().optional(),
   options: z.array(z.string()).optional(),
+  yesNo: z.boolean().optional(),
 });
 
 /**
@@ -211,38 +214,68 @@ export function AskWithOptions({
   );
 }
 
+/**
+ * The rows a question offers: its own options, or Yes and No for a yes-or-no question — one the Bot
+ * marked `yesNo`, or one with no options that reads as yes-or-no (`yes-no.ts`). Empty means it is
+ * answered in words.
+ */
+export function offeredAnswers(
+  given: { options?: unknown[]; yesNo?: boolean; question?: string },
+  words: { yes: string; no: string },
+): string[] {
+  const options = (given.options ?? []).filter(
+    (option): option is string =>
+      typeof option === "string" && option.trim() !== "",
+  );
+  if (options.length > 0) return options;
+  return given.yesNo === true ||
+    (given.question !== undefined && readsAsYesNo(given.question))
+    ? [words.yes, words.no]
+    : [];
+}
+
+/**
+ * One `ask_person` question, drawn with its rows when it has any. Yes and No are in the
+ * conversation's language, and picking one says it as the person's message, like any option.
+ */
+export function AskPerson({
+  options,
+  yesNo,
+  ...asked
+}: {
+  toolCallId: string;
+  question?: string;
+  why?: string;
+  options?: unknown[];
+  yesNo?: boolean;
+  result: unknown;
+  running: boolean;
+}) {
+  const ui = useUiStrings();
+  const offered = offeredAnswers(
+    { question: asked.question, ...(options ? { options } : {}), yesNo },
+    ui,
+  );
+  if (offered.length > 0)
+    return <AskWithOptions {...asked} options={offered} />;
+  return <AskWithoutOptions {...asked} />;
+}
+
 export function EscalationTool() {
   useRenderTool({
     name: "ask_person",
     parameters,
-    render: ({ parameters: given, result, status, toolCallId }) => {
-      const running = status !== "complete" && result === undefined;
-      const options = (given?.options ?? []).filter(
-        (option): option is string =>
-          typeof option === "string" && option.trim() !== "",
-      );
-      if (options.length > 0) {
-        return (
-          <AskWithOptions
-            options={options}
-            question={given?.question}
-            result={result}
-            running={running}
-            toolCallId={toolCallId}
-            why={given?.why}
-          />
-        );
-      }
-      return (
-        <AskWithoutOptions
-          question={given?.question}
-          result={result}
-          running={running}
-          toolCallId={toolCallId}
-          why={given?.why}
-        />
-      );
-    },
+    render: ({ parameters: given, result, status, toolCallId }) => (
+      <AskPerson
+        options={given?.options}
+        question={given?.question}
+        result={result}
+        running={status !== "complete" && result === undefined}
+        toolCallId={toolCallId}
+        why={given?.why}
+        yesNo={given?.yesNo}
+      />
+    ),
   });
 
   return null;
