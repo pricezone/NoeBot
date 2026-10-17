@@ -9,6 +9,7 @@ import {
 } from "@/components/marketplace/plugin-row";
 import {
   type ComposioSection,
+  composioCategoryLabel,
   composioPills,
   composioSections,
   OTHER_CATEGORY,
@@ -155,7 +156,8 @@ export function ComposioAppList({
     },
   });
   const listed = matchingApps(apps.data?.apps ?? []);
-  const label = (key: string) => (key === OTHER_CATEGORY ? t(key) : key);
+  const label = (key: string) =>
+    key === OTHER_CATEGORY ? t(key) : composioCategoryLabel(key);
 
   const rowFor = (entry: ComposioApp, index: number, all: ComposioApp[]) => {
     // One mutation serves every row, so which rows are mid-request is tracked beside it

@@ -9,7 +9,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Fact, Group, Row } from "@/components/marketplace/detail-parts";
-import { composioToolTitle } from "@/components/plugins/composio-catalogue";
+import {
+  composioCategoryLabel,
+  composioToolTitle,
+} from "@/components/plugins/composio-catalogue";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { i18n, useTranslation } from "@/lib/i18n";
@@ -147,7 +150,7 @@ export function ComposioAppDetail({
                   className="rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
                   key={category}
                 >
-                  {category}
+                  {composioCategoryLabel(category)}
                 </li>
               ))}
             </ul>

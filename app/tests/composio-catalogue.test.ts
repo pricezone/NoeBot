@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
+  composioCategoryLabel,
   composioCategoryOf,
   composioPills,
   composioSections,
@@ -80,4 +81,19 @@ test("a tool's slug reads as a title without the app's own prefix", () => {
     "Slack send message",
   );
   expect(composioToolTitle("", "gmail")).toBe("");
+});
+
+describe("composioCategoryLabel", () => {
+  test("reads like the Cursor sections: capitalised words, initials in capitals", () => {
+    expect(composioCategoryLabel("developer tools")).toBe("Developer Tools");
+    expect(composioCategoryLabel("crm")).toBe("CRM");
+    expect(composioCategoryLabel("artificial intelligence")).toBe(
+      "Artificial Intelligence",
+    );
+    expect(composioCategoryLabel("model context protocol")).toBe(
+      "Model Context Protocol",
+    );
+    expect(composioCategoryLabel("hr & recruiting")).toBe("HR & Recruiting");
+    expect(composioCategoryLabel("DevOps")).toBe("DevOps");
+  });
 });

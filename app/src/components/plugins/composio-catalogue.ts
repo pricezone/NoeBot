@@ -5,8 +5,8 @@ import type { ComposioApp } from "@/lib/plugins/queries";
 /**
  * Composio's directory as the Marketplace's "Featured plugins" draws it, decided without a DOM:
  * grouped by the categories Composio files each app under, with pills like the Cursor sections'
- * (`marketplace-catalogue.ts`). Composio's categories are its own display names ("Productivity",
- * "Developer Tools"), so they are the keys and the labels both.
+ * (`marketplace-catalogue.ts`). Composio's categories are the keys ("developer tools", "crm"), and
+ * `composioCategoryLabel` is how they read, capitalised like the Cursor sections beside them.
  */
 
 /** Where an app Composio files under no category is listed. */
@@ -20,6 +20,40 @@ export const COMPOSIO_PREVIEW_ROWS = 4;
  * apps in dozens of categories; the biggest few are shown, the rest are a pill away.
  */
 export const COMPOSIO_PREVIEW_SECTIONS = 6;
+
+/** Words Composio writes in lower case that read as initials. */
+const INITIALISMS = new Set([
+  "ai",
+  "api",
+  "ats",
+  "cdp",
+  "cms",
+  "crm",
+  "erp",
+  "hr",
+  "hris",
+  "it",
+  "mcp",
+  "seo",
+  "sms",
+  "ui",
+  "ux",
+]);
+
+/**
+ * A category as it reads: "developer tools" is "Developer Tools", "crm" is "CRM". A word already
+ * written with capitals ("DevOps") is left as it is.
+ */
+export function composioCategoryLabel(category: string): string {
+  return category
+    .split(/(\s+|&|\/|-)/)
+    .map((word) => {
+      if (word !== word.toLowerCase()) return word;
+      if (INITIALISMS.has(word)) return word.toUpperCase();
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join("");
+}
 
 /** An app's first category, which is the section it is listed under. */
 export function composioCategoryOf(app: Pick<ComposioApp, "categories">) {
