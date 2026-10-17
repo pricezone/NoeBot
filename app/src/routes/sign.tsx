@@ -19,6 +19,7 @@ import {
   authProvidersQueryOptions,
   currentUserQueryOptions,
 } from "../lib/auth/queries";
+import { safeReturnPath } from "../lib/auth/return-path";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 
@@ -27,12 +28,19 @@ const ENTRANCE_STAGGER_SECONDS = 0.08;
 const ENTRANCE_OFFSET = "translateY(12px)";
 
 export const Route = createFileRoute("/sign")({
-  beforeLoad: async ({ context }) => {
+  // Where to go once signed in (`lib/auth/return-path.ts`); anything but an in-app path is dropped.
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+    const back = safeReturnPath(search.redirect);
+    return back ? { redirect: back } : {};
+  },
+  beforeLoad: async ({ context, search }) => {
     const user = await context.queryClient.ensureQueryData(
       currentUserQueryOptions(),
     );
     if (user) {
-      throw redirect({ to: "/" });
+      throw search.redirect
+        ? redirect({ href: search.redirect })
+        : redirect({ to: "/" });
     }
     // Loaded here so the screen paints with its buttons rather than painting empty and then
     // growing them, which reads as "no providers" for exactly as long as the request takes.
@@ -41,8 +49,24 @@ export const Route = createFileRoute("/sign")({
   component: SignScreen,
 });
 
+/**
+ * Where the platform button goes: its return address, or — when somebody arrived on their way to a
+ * page — the platform's `/api/noebot/open?to=<that page>`, which signs them in here and lands them
+ * on it (the handoff endpoint takes `redirect`).
+ */
+function handoffHref(returnUrl: string, back: string | undefined): string {
+  if (!back) return returnUrl;
+  try {
+    const { origin } = new URL(returnUrl);
+    return `${origin}/api/noebot/open?to=${encodeURIComponent(back)}`;
+  } catch {
+    return returnUrl;
+  }
+}
+
 function SignScreen() {
   const { t } = useTranslation("sign");
+  const { redirect: back } = Route.useSearch();
   // Which provider is being opened, rather than whether one is: with three buttons, a single
   // boolean would put "Opening…" on all of them.
   const [opening, setOpening] = useState<AuthProviderId | "sso" | null>(null);
@@ -183,7 +207,9 @@ function SignScreen() {
             options.handoff.returnUrl ? (
               <Button
                 className="h-10 w-full tracking-tight"
-                render={<a href={options.handoff.returnUrl} />}
+                render={
+                  <a href={handoffHref(options.handoff.returnUrl, back)} />
+                }
                 size="lg"
                 variant="outline"
               >

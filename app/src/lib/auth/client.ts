@@ -2,6 +2,7 @@ import { ssoClient } from "@better-auth/sso/client";
 import { createAuthClient } from "better-auth/react";
 import { i18n } from "@/lib/i18n";
 import type { AuthProviderId } from "./queries";
+import { returnPathFromLocation } from "./return-path";
 
 export const authClient = createAuthClient({ plugins: [ssoClient()] });
 
@@ -18,6 +19,11 @@ export function providerName(provider: AuthProviderId): string {
 
 /** What a sign-in attempt came back with, which is either nothing or a reason. */
 type SocialResult = { error?: { message?: string } | null };
+
+/** Where a provider sends somebody back: this origin, at the path they were on their way to. */
+function callbackUrl(): string {
+  return `${window.location.origin}${returnPathFromLocation() ?? ""}`;
+}
 
 /**
  * Start sign-in with one provider.
@@ -40,7 +46,7 @@ export async function signInWith(
 ) {
   const result = await start({
     provider,
-    callbackURL: window.location.origin,
+    callbackURL: callbackUrl(),
   });
 
   if (result.error) {
@@ -76,7 +82,7 @@ export async function signInWithEmailDomain(
       }
     ).signIn.sso(input),
 ) {
-  const result = await start({ email, callbackURL: window.location.origin });
+  const result = await start({ email, callbackURL: callbackUrl() });
 
   if (result.error) {
     throw new Error(
