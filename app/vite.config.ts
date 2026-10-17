@@ -148,11 +148,16 @@ export function selectOpenBotManualChunk(id: string): string | undefined {
   ) {
     return "route-chat-core";
   }
-  if (routePath.startsWith("_authed/_app/admin/")) {
+  // Advanced Settings (once Admin) stays its own chunk although it now lives under `settings/`, so
+  // somebody who never opens it never downloads it; checked before the Settings rule below.
+  if (
+    routePath.startsWith("_authed/_app/settings/advanced/") ||
+    routePath.startsWith("_authed/_app/admin/")
+  ) {
     return "route-admin";
   }
-  // Before the `_authed/_app/` rule below, which would otherwise claim them: Settings and Admin live
-  // under the app shell so the roster stays mounted behind their modal, but each is its own chunk.
+  // Before the `_authed/_app/` rule below, which would otherwise claim them: Settings lives under
+  // the app shell so the roster stays mounted behind its modal, but it is its own chunk.
   if (routePath.startsWith("_authed/_app/settings/")) {
     return "route-settings";
   }

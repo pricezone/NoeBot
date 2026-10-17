@@ -40,7 +40,9 @@ import {
  * tool per Bot do not fit on a row, and the previous screen's attempt to fit them made a page that
  * scrolled sideways.
  */
-export const Route = createFileRoute("/_authed/_app/admin/plugins/")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/plugins/",
+)({
   component: RouteComponent,
 });
 
@@ -150,7 +152,7 @@ function RouteComponent() {
                         render={
                           <Link
                             params={{ key: server.id }}
-                            to="/admin/plugins/$key"
+                            to="/settings/advanced/plugins/$key"
                           />
                         }
                         size="sm"
@@ -215,7 +217,7 @@ function RouteComponent() {
                         render={
                           <Link
                             params={{ key: entry.key }}
-                            to="/admin/plugins/$key"
+                            to="/settings/advanced/plugins/$key"
                           />
                         }
                         size="sm"
@@ -261,7 +263,7 @@ function RouteComponent() {
               {plugins.data?.composioConfigured ? (
                 <Item
                   data-testid="plugin-composio"
-                  render={<Link to="/admin/plugins/composio" />}
+                  render={<Link to="/settings/advanced/plugins/composio" />}
                   size="sm"
                 >
                   <RowMark>

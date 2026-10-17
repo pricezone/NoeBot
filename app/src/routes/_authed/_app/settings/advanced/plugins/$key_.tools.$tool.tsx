@@ -35,13 +35,13 @@ import { pluginsPageQueryOptions } from "@/lib/plugins/queries";
  * than becoming a layout with an outlet.
  */
 export const Route = createFileRoute(
-  "/_authed/_app/admin/plugins/$key_/tools/$tool",
+  "/_authed/_app/settings/advanced/plugins/$key_/tools/$tool",
 )({ component: RouteComponent });
 
 function RouteComponent() {
   const { t } = useTranslation("admin");
   const { key, tool: toolName } = useParams({
-    from: "/_authed/_app/admin/plugins/$key_/tools/$tool",
+    from: "/_authed/_app/settings/advanced/plugins/$key_/tools/$tool",
   });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -82,7 +82,7 @@ function RouteComponent() {
     label: server?.title ?? i18n.t("Plugin"),
     linkProps: {
       params: { key },
-      to: "/admin/plugins/$key" as const,
+      to: "/settings/advanced/plugins/$key" as const,
     },
   };
 

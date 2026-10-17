@@ -509,7 +509,7 @@ describe("where the callback sends somebody afterwards", () => {
         { serverId: "google-drive" },
         "admin",
       ),
-    ).toBe("http://localhost:3010/admin/plugins/google-drive");
+    ).toBe("http://localhost:3010/settings/advanced/plugins/google-drive");
   });
 
   test("a failure goes to the list even when it began on the admin page", () => {

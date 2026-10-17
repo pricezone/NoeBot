@@ -58,7 +58,9 @@ import {
 } from "@/lib/credentials/queries";
 import { useTranslation } from "@/lib/i18n";
 
-export const Route = createFileRoute("/_authed/_app/admin/credentials")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/credentials",
+)({
   component: CredentialsPage,
 });
 

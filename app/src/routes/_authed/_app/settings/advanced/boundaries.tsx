@@ -53,7 +53,9 @@ const PRESETS: { label: string; rule: string; cost?: string }[] = [
   },
 ];
 
-export const Route = createFileRoute("/_authed/_app/admin/boundaries")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/boundaries",
+)({
   component: BoundariesPage,
 });
 
@@ -149,7 +151,9 @@ function BoundariesPage() {
             t={t}
             i18nKey="What every Bot may and may not do with its computer. Rules are checked on every action before it happens, and a refusal is recorded in <audit>Audit</audit> with the rule that refused it."
             components={{
-              audit: <Link className="underline" to="/admin/audit" />,
+              audit: (
+                <Link className="underline" to="/settings/advanced/audit" />
+              ),
             }}
           />
         </>

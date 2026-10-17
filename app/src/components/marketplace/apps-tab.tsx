@@ -362,7 +362,7 @@ export function AppsTab({
           action={
             <Link
               className="text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              to="/admin/plugins/composio"
+              to="/settings/advanced/plugins/composio"
             >
               {t("View all")}
             </Link>

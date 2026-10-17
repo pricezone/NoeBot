@@ -49,7 +49,7 @@ import {
  * than becoming a layout with an outlet.
  */
 export const Route = createFileRoute(
-  "/_authed/_app/admin/plugins/$key_/bots/$agentId",
+  "/_authed/_app/settings/advanced/plugins/$key_/bots/$agentId",
 )({ component: RouteComponent });
 
 /**
@@ -74,7 +74,7 @@ export function readOnlyRefs(tools: PluginTool[]): string[] {
 function RouteComponent() {
   const { t } = useTranslation("admin");
   const { key, agentId } = useParams({
-    from: "/_authed/_app/admin/plugins/$key_/bots/$agentId",
+    from: "/_authed/_app/settings/advanced/plugins/$key_/bots/$agentId",
   });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
@@ -119,7 +119,7 @@ function RouteComponent() {
     label: appTitle,
     linkProps: {
       params: { key },
-      to: "/admin/plugins/$key" as const,
+      to: "/settings/advanced/plugins/$key" as const,
     },
   };
 
@@ -167,7 +167,7 @@ function RouteComponent() {
       <PageShell
         backButton={{
           label: i18n.t("Plugins"),
-          linkProps: { to: "/admin/plugins" },
+          linkProps: { to: "/settings/advanced/plugins" },
         }}
         description={t("This deployment has not enabled an app by that name.")}
         title={appTitle}
@@ -189,7 +189,7 @@ function RouteComponent() {
       <PageShell
         backButton={{
           label: i18n.t("Plugins"),
-          linkProps: { to: "/admin/plugins" },
+          linkProps: { to: "/settings/advanced/plugins" },
         }}
         title={t("Plugins")}
       >

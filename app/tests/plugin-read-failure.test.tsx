@@ -18,8 +18,8 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { type PluginsPage, pluginKeys } from "@/lib/plugins/queries";
-import { Route as AdminAppRoute } from "@/routes/_authed/_app/admin/plugins/$key";
-import { Route as AdminToolRoute } from "@/routes/_authed/_app/admin/plugins/$key_.tools.$tool";
+import { Route as AdminAppRoute } from "@/routes/_authed/_app/settings/advanced/plugins/$key";
+import { Route as AdminToolRoute } from "@/routes/_authed/_app/settings/advanced/plugins/$key_.tools.$tool";
 import { Route as ConnectedAccountRoute } from "@/routes/_authed/_app/settings/connected-accounts/$key";
 
 /**
@@ -121,7 +121,7 @@ afterEach(() => {
 
 type Updatable = { update: (options: unknown) => unknown };
 
-/** `/admin/plugins/$key` and `/admin/plugins/$key/tools/$tool`, at the ids their `useParams` read. */
+/** `/settings/advanced/plugins/$key` and `/settings/advanced/plugins/$key/tools/$tool`, at the ids their `useParams` read. */
 function renderAdmin(client: QueryClient, at: string) {
   const rootRoute = createRootRoute({ component: Outlet });
   const authedRoute = createRoute({
@@ -129,9 +129,14 @@ function renderAdmin(client: QueryClient, at: string) {
     getParentRoute: () => rootRoute,
     component: Outlet,
   });
-  const adminRoute = createRoute({
-    path: "/admin",
+  const settingsRoute = createRoute({
+    path: "/settings",
     getParentRoute: () => authedRoute,
+    component: Outlet,
+  });
+  const adminRoute = createRoute({
+    path: "/advanced",
+    getParentRoute: () => settingsRoute,
     component: Outlet,
   });
   const pluginsRoute = createRoute({
@@ -151,7 +156,9 @@ function renderAdmin(client: QueryClient, at: string) {
   });
   const tree = rootRoute.addChildren([
     authedRoute.addChildren([
-      adminRoute.addChildren([pluginsRoute, app as never, tool as never]),
+      settingsRoute.addChildren([
+        adminRoute.addChildren([pluginsRoute, app as never, tool as never]),
+      ]),
     ]),
   ]);
   const router = createRouter({
@@ -222,7 +229,7 @@ async function waitForFailedRead(client: QueryClient) {
 
 test("a connector's admin page says the plugin list failed, not that there is no such plugin", async () => {
   const client = failingQueryClient();
-  const view = renderAdmin(client, `/admin/plugins/${APP_KEY}`);
+  const view = renderAdmin(client, `/settings/advanced/plugins/${APP_KEY}`);
   await waitForFailedRead(client);
 
   expect(await view.findByText("Plugins could not be loaded.")).toBeTruthy();
@@ -232,7 +239,7 @@ test("a connector's admin page says the plugin list failed, not that there is no
 
 test("a list that genuinely lacks the connector still says it is not a plugin", async () => {
   const client = answeredWithout();
-  const view = renderAdmin(client, `/admin/plugins/${APP_KEY}`);
+  const view = renderAdmin(client, `/settings/advanced/plugins/${APP_KEY}`);
   await waitForFailedRead(client);
 
   expect(await view.findByText("Not a plugin")).toBeTruthy();
@@ -243,7 +250,7 @@ test("a tool's admin page says the plugin list failed, not that the connector is
   const client = failingQueryClient();
   const view = renderAdmin(
     client,
-    `/admin/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
+    `/settings/advanced/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
   );
   await waitForFailedRead(client);
 
@@ -260,7 +267,7 @@ test("a list that genuinely lacks the connector still says it is not enabled, on
   const client = answeredWithout();
   const view = renderAdmin(
     client,
-    `/admin/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
+    `/settings/advanced/plugins/${APP_KEY}/tools/${TOOL_NAME}`,
   );
   await waitForFailedRead(client);
 

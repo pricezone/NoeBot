@@ -16,7 +16,9 @@ import { i18n, useTranslation } from "@/lib/i18n";
  * The list itself lives in `components/plugins/composio-app-list.tsx`, because the Marketplace
  * draws the same directory under "Featured plugins"; this page is the search field and the frame.
  */
-export const Route = createFileRoute("/_authed/_app/admin/plugins/composio")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/plugins/composio",
+)({
   component: RouteComponent,
 });
 
@@ -31,7 +33,7 @@ function RouteComponent() {
     <PageShell
       backButton={{
         label: i18n.t("Plugins"),
-        linkProps: { to: "/admin/plugins" },
+        linkProps: { to: "/settings/advanced/plugins" },
       }}
       description={t(
         "Composio's own directory. Adding an app makes its tools available to grant; each person still connects their own account before any of them reads anything.",

@@ -18,7 +18,9 @@ import { cn } from "@/lib/utils";
  * component carries per-Bot grants, per-function grants and an editable description — more than a
  * tile can hold.
  */
-export const Route = createFileRoute("/_authed/_app/admin/components/")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/components/",
+)({
   component: RouteComponent,
 });
 
@@ -64,7 +66,7 @@ function RouteComponent() {
               data-testid={`component-${component.name}`}
               key={component.name}
               params={{ name: component.name }}
-              to="/admin/components/$name"
+              to="/settings/advanced/components/$name"
             >
               <div className="min-h-28 p-4">
                 <div className="flex flex-row items-center gap-2">

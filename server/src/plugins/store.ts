@@ -3314,10 +3314,10 @@ export function createPluginStore(options: PluginStoreOptions) {
       }
 
       /*
-       * Nor may it take the name of a screen. `/admin/plugins/composio` is a static route — the app
-       * directory's own page — and a static route is matched ahead of `/admin/plugins/$key`, so a
-       * server sitting at this id would be listed and then open somebody else's page instead of its
-       * own. Brokered servers are `composio-<slug>` and no catalogue entry is called this, which
+       * Nor may it take the name of a screen. `/settings/advanced/plugins/composio` is a static
+       * route — the app directory's own page — and a static route is matched ahead of
+       * `/settings/advanced/plugins/$key`, so a server sitting at this id would be listed and then
+       * open somebody else's page instead of its own. Brokered servers are `composio-<slug>` and no catalogue entry is called this, which
        * leaves a hand-typed id as the only way to reach it.
        */
       if (input.id === "composio") {

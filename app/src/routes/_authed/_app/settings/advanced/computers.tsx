@@ -41,7 +41,9 @@ import { computerFleetQueryOptions } from "@/lib/computers/queries";
 import { i18n, Trans, useTranslation } from "@/lib/i18n";
 import { compareText, intlLocale } from "@/lib/i18n/format";
 
-export const Route = createFileRoute("/_authed/_app/admin/computers")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/computers",
+)({
   component: ComputersPage,
 });
 
@@ -333,7 +335,7 @@ function ComputersPage() {
           i18nKey="<strong>Stop</strong> closes the browser and keeps its logins: the next thing the Bot does starts it again where it left off. <strong>Reset</strong> deletes the profile, so the Bot is signed out of everything and starts clean. <strong>Update computer</strong> appears when a computer runs an older image than this deployment, and moves it onto the new one with its files and sign-ins kept. All three are recorded in <audit>Audit</audit>."
           components={{
             strong: <strong />,
-            audit: <Link className="underline" to="/admin/audit" />,
+            audit: <Link className="underline" to="/settings/advanced/audit" />,
           }}
         />
       </p>
@@ -462,7 +464,7 @@ function HostFoldersSection({
           >
             {stopping ? t("Stopping…") : t("Stop folder access")}
           </Button>
-          <Link className="underline" to="/admin/audit">
+          <Link className="underline" to="/settings/advanced/audit">
             {t("View audit")}
           </Link>
         </div>

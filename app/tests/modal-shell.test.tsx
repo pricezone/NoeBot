@@ -32,7 +32,12 @@ afterAll(() => GlobalRegistrator.unregister());
 const NAV: ModalNavItem[] = [
   { id: "general", label: "General", to: "/settings", exact: true },
   { id: "bots", label: "Bots", to: "/settings/bots" },
-  { id: "admin", label: "Admin", to: "/admin", adminOnly: true },
+  {
+    id: "advanced",
+    label: "Advanced Settings",
+    to: "/settings/advanced",
+    adminOnly: true,
+  },
 ];
 
 function person(role: AuthenticatedUser["role"]): AuthenticatedUser {
@@ -82,7 +87,7 @@ function draw(
       page("/"),
       page("/channel/abc"),
       page("/elsewhere"),
-      page("/admin"),
+      page("/settings/advanced"),
     ]),
   });
   const view = render(
@@ -106,12 +111,16 @@ test("admin-only rows hide for a user and show for an admin", async () => {
   const asUser = draw("user");
   await asUser.view.findByRole("dialog");
   expect(asUser.view.getAllByRole("link", { name: "General" }).length).toBe(2);
-  expect(asUser.view.queryAllByRole("link", { name: "Admin" })).toHaveLength(0);
+  expect(
+    asUser.view.queryAllByRole("link", { name: "Advanced Settings" }),
+  ).toHaveLength(0);
   cleanup();
 
   const asAdmin = draw("admin");
   await asAdmin.view.findByRole("dialog");
-  expect(asAdmin.view.getAllByRole("link", { name: "Admin" }).length).toBe(2);
+  expect(
+    asAdmin.view.getAllByRole("link", { name: "Advanced Settings" }).length,
+  ).toBe(2);
 });
 
 test("the active row lights from the URL, honouring exact", async () => {

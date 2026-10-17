@@ -18,10 +18,14 @@ test("provides the generated sign-in and chat routes", () => {
   );
 });
 
-test("provides the protected credential administration route", () => {
-  expect(router.routesByPath["/admin/credentials"]?.fullPath).toBe(
-    "/admin/credentials",
+test("provides the protected credential administration route, inside Settings", () => {
+  expect(router.routesByPath["/settings/advanced/credentials"]?.fullPath).toBe(
+    "/settings/advanced/credentials",
   );
+});
+
+test("keeps the old Admin addresses, as redirects into Advanced Settings", () => {
+  expect(router.routesByPath["/admin/$"]?.fullPath).toBe("/admin/$");
 });
 
 test("splits route components without splitting loaders or providers", () => {
@@ -32,9 +36,9 @@ test("splits route components without splitting loaders or providers", () => {
   expect(
     selectedRouteSplitBehavior({ routeId: "/_authed/_app/channel/$channelId" }),
   ).toEqual([["component"]]);
-  expect(selectedRouteSplitBehavior({ routeId: "/admin/credentials" })).toEqual(
-    [["component"]],
-  );
+  expect(
+    selectedRouteSplitBehavior({ routeId: "/settings/advanced/credentials" }),
+  ).toEqual([["component"]]);
   expect(
     selectedRouteSplitBehavior({ routeId: "/settings/connected-accounts/" }),
   ).toEqual([["component"]]);
@@ -55,7 +59,7 @@ test("uses explicit manual chunks for route components", () => {
   ).toBe("route-chat-core");
   expect(
     selectOpenBotManualChunk(
-      "/repo/app/src/routes/_authed/_app/admin/credentials.tsx?tsr-split=component",
+      "/repo/app/src/routes/_authed/_app/settings/advanced/credentials.tsx?tsr-split=component",
     ),
   ).toBe("route-admin");
   expect(

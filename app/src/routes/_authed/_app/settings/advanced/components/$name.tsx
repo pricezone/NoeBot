@@ -71,10 +71,12 @@ import { queryClient } from "@/query-client";
 /** The same way back from every state this route can be in. */
 const BACK = {
   label: msg("UI Components"),
-  linkProps: { to: "/admin/components" },
+  linkProps: { to: "/settings/advanced/components" },
 } as const;
 
-export const Route = createFileRoute("/_authed/_app/admin/components/$name")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/components/$name",
+)({
   component: RouteComponent,
 });
 
@@ -137,7 +139,7 @@ function RouteComponent() {
             </EmptyDescription>
           </EmptyHeader>
           <Button
-            render={<Link to="/admin/components" />}
+            render={<Link to="/settings/advanced/components" />}
             size="sm"
             variant="outline"
           >

@@ -8,7 +8,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
-import { LearningPage } from "@/routes/_authed/_app/admin/learning";
+import { LearningPage } from "@/routes/_authed/_app/settings/advanced/learning";
 import type { LearningSettings } from "../../shared/learning";
 
 beforeAll(() => GlobalRegistrator.register());
