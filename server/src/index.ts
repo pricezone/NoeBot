@@ -3445,7 +3445,7 @@ const app = createApp(
   // The app directory, behind the same client the plugin store and the transport already share.
   // Absent without a key, which leaves the routes reporting no broker rather than listing apps
   // nobody could connect.
-  composio ? { broker: composio.broker } : undefined,
+  composio ? { broker: composio.broker, actions: composio.actions } : undefined,
   process.env.OPENBOT_MODEL_OAUTH_FILE?.trim()
     ? createProviderOAuthProxy(process.env.OPENBOT_MODEL_OAUTH_FILE.trim())
     : undefined,
