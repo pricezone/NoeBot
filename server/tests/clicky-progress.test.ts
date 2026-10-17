@@ -149,6 +149,7 @@ function harness(
       typingSettleMs: 40,
       scrollSettleMs: 40,
       loadingRetryMs: 10,
+      verifyAfterMs: 20,
       settleFloorMs: 5,
     },
     ...(options.checks ? { checks: options.checks } : {}),
@@ -791,5 +792,59 @@ describe("a look at a page still loading", () => {
     await until(async () => (await load())?.state !== "thinking");
     expect(asked).toBe(4);
     expect((await load()).reply?.text).toBe("The page is still loading.");
+  });
+});
+
+describe("a look's first step, checked again a moment later", () => {
+  const BOX = { x: 0.1, y: 0.2, width: 0.3, height: 0.05 };
+  const planned: ClickyBrain["think"] = async (input) => ({
+    type: "brain.reply",
+    thinkId: input.thinkId,
+    say: "Type the text.",
+    plan: {
+      goal: "Issue a declaration",
+      steps: [
+        {
+          title: "Type the declaration text",
+          targetRef: "e7",
+          overlays: [
+            { kind: "highlight", id: "h1", rect: BOX },
+            { kind: "pointer", id: "p1", at: { x: 0.25, y: 0.225 } },
+          ],
+        },
+        { title: "Press Continue", overlays: [] },
+      ],
+    },
+  });
+
+  test("a control that moved or went away is looked at again", async () => {
+    // Live, on dilosi: the box was drawn round something gone a second later.
+    const { service, looks, load } = harness({
+      think: planned,
+      elementRect: async () => ({ rect: null }),
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "ask", text: "how?" },
+    });
+    await until(async () => (await load())?.state === "guiding");
+    await until(() => looks.length === 1);
+  });
+
+  test("a control still where the look saw it is left alone", async () => {
+    const { service, looks, load } = harness({
+      think: planned,
+      elementRect: async () => ({
+        screen: { width: 1000, height: 1000 },
+        rect: { x: 100, y: 200, width: 300, height: 50 },
+      }),
+    });
+    await service.dispatch("user-1", "bot-1", {
+      type: "command",
+      command: { type: "ask", text: "how?" },
+    });
+    await until(async () => (await load())?.state === "guiding");
+    await Bun.sleep(120);
+    expect(looks).toHaveLength(0);
   });
 });

@@ -125,8 +125,8 @@ the Taxisnet form, where it pointed at «Χρήστης» and left the password 
 | S11 | After «Είσοδος στην υπηρεσία» the guide made a step "Wait for page load", which nothing finishes. | The look ran while dilosi's page was still drawing itself. | The model answers `loading` instead of a waiting step; the server waits, lets the page settle and looks again (up to 3 times). | fixed (6b278587) |
 | S12 | After the private Taxisnet sign-in was filled from a saved login, "Noë Bot needs you here" stayed. | Nothing closed a trigger opened by an in-run wait when the run picked up again. | A thread's wait is remembered and resolved when the thread runs again. | fixed (112f5e8b) |
 | S13 | Reopened, the guide showed its pre-sign-in step ("Enter username") over the consent page. | The trigger's steps outlived the page (S12); waking never re-checked a walkthrough. | Resolved with S12; waking on a walkthrough step runs a check first. | fixed (112f5e8b) |
-| S14 | "Scroll down to see more fields" boxed an unrelated link. | A scroll step was given the nearest control as its target. | — | open |
-| S15 | "Type the declaration text" first boxed an empty box above the fixed wording, not the text area. | A transient element was on the page during the look; the check after typing re-placed the step correctly. | — | watch |
+| S14 | "Scroll down to see more fields" boxed an unrelated link. | The step's point snapped onto the nearest control, as a click step's does. | A step the model marks `scroll` has no target: a pointer where it said, marked a guess, and no box. | fixed |
+| S15 | "Type the declaration text" first boxed an empty box above the fixed wording, not the text area. | The look saw an element that the page, still drawing itself, removed a moment later. | 1.2 s after a look its first step's control is asked for again (`/elements/ref`); moved or gone, the step is looked at again and placed where it is now. | fixed |
 
 **Where the run stands (2026-10-17 04:50 UTC, build e9e693b2).** Guided by Show me how, the person went
 from Google to gov.gr (address bar), searched «υπεύθυνη δήλωση» (click, type, Enter in one go; the

@@ -175,6 +175,43 @@ describe("parseBrainAnswer", () => {
     ]);
   });
 
+  test("a step done by scrolling points at the page, never boxing the control nearest its point", () => {
+    // Live: "Scroll down to see more fields" boxed an unrelated link.
+    const answer = parseBrainAnswer(
+      JSON.stringify({
+        say: "Two steps.",
+        plan: {
+          goal: "Fill the form",
+          steps: [
+            // 2% right of the Continue button's edge: a click step there would snap onto it.
+            {
+              title: "Scroll down",
+              scroll: true,
+              point: [220, 120],
+              ref: "e1",
+            },
+            { title: "Press Continue", ref: "e1" },
+          ],
+        },
+      }),
+      context,
+    );
+    const [scroll, press] = answer.plan?.steps ?? [];
+    expect(scroll?.targetRef).toBeUndefined();
+    expect(rounded(scroll?.overlays)).toEqual([
+      {
+        kind: "pointer",
+        id: expect.any(String),
+        at: { x: 0.22, y: 0.12 },
+        approximate: true,
+      },
+    ]);
+    expect(press?.overlays.map((overlay) => overlay.kind)).toEqual([
+      "highlight",
+      "pointer",
+    ]);
+  });
+
   test("a guessed point near an element snaps onto it", () => {
     // 2% of the screen to the right of the button's edge.
     const answer = parseBrainAnswer(
