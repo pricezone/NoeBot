@@ -267,6 +267,51 @@ describe("parseBrainAnswer", () => {
 });
 
 describe("buildBrainPrompt", () => {
+  test("carrying on, the person's request is said on its own, so done is judged against it", () => {
+    // Live: having found the declaration's link, the look said done for its own goal (the way there).
+    const session = {
+      ...newClickySession({ id: "s1", botId: "bot-1", now: 0 }),
+      transcript: [
+        {
+          role: "person" as const,
+          text: "Θέλω να εκδώσω υπεύθυνη δήλωση στο gov.gr",
+          at: "2026-10-17T00:00:00.000Z",
+        },
+        {
+          role: "clicky" as const,
+          text: "Two steps.",
+          at: "2026-10-17T00:00:01.000Z",
+        },
+      ],
+    };
+    const carryOn = buildBrainPrompt({
+      session,
+      reason: "continue",
+      locale: "el",
+      guidance: "brief",
+      screen,
+      placed,
+    });
+    expect(carryOn.text).toContain(
+      "What the person asked for: Θέλω να εκδώσω υπεύθυνη δήλωση στο gov.gr",
+    );
+    expect(carryOn.system).toContain(
+      "reaching its page, or seeing its link, is not doing it",
+    );
+    // A look the person asked for says their words already; nothing is added.
+    expect(
+      buildBrainPrompt({
+        session,
+        reason: "ask",
+        text: "Τι κάνω τώρα;",
+        locale: "el",
+        guidance: "brief",
+        screen,
+        placed,
+      }).text,
+    ).not.toContain("What the person asked for:");
+  });
+
   test("the screen and the Bot's words are inside the untrusted envelope", () => {
     const session = {
       ...newClickySession({ id: "s1", botId: "bot-1", now: 0 }),

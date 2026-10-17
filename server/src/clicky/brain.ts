@@ -226,7 +226,7 @@ export function buildBrainPrompt(input: BrainPromptInput): {
   const system = [
     ...persona(input),
     'Answer with ONE JSON object and nothing else, in this shape (only "say" is required): {"say": "...", "plan": {"goal": "...", "steps": [{"title": "...", "detail": "...", "ref": "e12", "point": [x, y], "box": [x, y, w, h], "typing": true}]}, "point": {"ref": "e12", "point": [x, y], "box": [x, y, w, h], "label": "..."}, "proposal": {"action": "click", "ref": "e12", "point": [x, y], "text": "...", "pressEnter": true, "keys": "Enter", "deltaY": 600, "url": "https://...", "label": "...", "why": "..."}, "done": true}',
-    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8; "typing" is true for a step the person does by typing into its control (a search, a field), not by clicking it. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true only when what the person asked for, in their own words, is finished: finding the way there is not doing it.',
+    '"say" is what you tell the person now, one or two short sentences. "plan" is only for a task of several steps when there is no walkthrough yet, or the one there no longer fits the screen: one step per thing to do, in order, at most 8; its "goal" is what the person asked for as a whole, in their words, not only the part these steps cover; "typing" is true for a step the person does by typing into its control (a search, a field), not by clicking it. "point" is where to point now: the current step\'s control, or what the person asked about. "done" is true only when what the person asked for, in their own words, has happened (the document issued, the form sent, the thing bought): reaching its page, or seeing its link, is not doing it.',
     act
       ? 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, propose scrolling to it first: {"action": "scroll", "ref": "e40"}.'
       : 'Some controls are off the screen (listed apart, above or below it). When the next step\'s control is one of them, make the step before it "Scroll down" (or up) to it, and point at where to scroll.',
@@ -285,6 +285,19 @@ export function buildBrainPrompt(input: BrainPromptInput): {
   if (input.text?.trim())
     parts.push(
       `The person says: ${input.text.trim().slice(0, CLICKY_TEXT_LIMIT)}`,
+    );
+  /*
+   * Carrying on after the last step, nobody says anything: what the person asked for is their last
+   * question, said here on its own so "done" is judged against it, not against the walkthrough's
+   * own goal (often only the way there).
+   */
+  const asked =
+    input.reason === "continue"
+      ? session.transcript.findLast((turn) => turn.role === "person")?.text
+      : undefined;
+  if (asked?.trim())
+    parts.push(
+      `What the person asked for: ${asked.trim().slice(0, CLICKY_TEXT_LIMIT)}`,
     );
   parts.push(...screenParts(input.screen, input.placed, input.pageText));
   parts.push(...(input.notes ?? []));
