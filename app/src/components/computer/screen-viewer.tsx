@@ -269,6 +269,10 @@ export function ScreenViewer({
   /*
    * The bar's height, measured, so the screen above it shrinks to leave it room rather than pushing
    * it off the bottom: the screen's box is sized from the window, not from what is left of it.
+   *
+   * The tallest it has been while awake, and its room kept at that: the bar is shorter while Clicky
+   * thinks (no Back and Next), and a screen that grew and shrank with it moved under the person's
+   * pointer between pressing and releasing, so their click landed somewhere else.
    */
   const barRef = useRef<HTMLDivElement | null>(null);
   const [barHeight, setBarHeight] = useState(0);
@@ -278,7 +282,8 @@ export function ScreenViewer({
       setBarHeight(0);
       return;
     }
-    const measure = () => setBarHeight(bar.offsetHeight);
+    const measure = () =>
+      setBarHeight((was) => Math.max(was, bar.offsetHeight));
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
@@ -499,7 +504,10 @@ export function ScreenViewer({
           <div
             className="w-full shrink-0"
             ref={barRef}
-            style={{ paddingTop: CLICKY_BAR_GAP_PX }}
+            style={{
+              paddingTop: CLICKY_BAR_GAP_PX,
+              ...(barHeight ? { minHeight: barHeight } : {}),
+            }}
           >
             <ClickyBar botId={computerId} />
           </div>

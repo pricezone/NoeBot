@@ -146,12 +146,12 @@ describe("sessionTokenFromCookies", () => {
 });
 
 describe("viewerClick", () => {
-  test("a press on the live screen, as a fraction of the frame", () => {
+  test("a click on the live screen is its release, as a fraction of the frame", () => {
     expect(
       viewerClick(
         JSON.stringify({
           type: "mouse",
-          event: "pressed",
+          event: "released",
           x: 720,
           y: 225,
           button: "left",
@@ -169,6 +169,13 @@ describe("viewerClick", () => {
         frame,
       ),
     ).toBeNull();
+    // The button going down is not the click yet.
+    expect(
+      viewerClick(
+        JSON.stringify({ type: "mouse", event: "pressed", x: 1, y: 1 }),
+        frame,
+      ),
+    ).toBeNull();
     expect(
       viewerClick(
         JSON.stringify({ type: "key", event: "down", key: "pressed" }),
@@ -177,10 +184,10 @@ describe("viewerClick", () => {
     ).toBeNull();
     expect(
       viewerClick(
-        JSON.stringify({ type: "mouse", event: "pressed", x: 1, y: 1 }),
+        JSON.stringify({ type: "mouse", event: "released", x: 1, y: 1 }),
         undefined,
       ),
     ).toBeNull();
-    expect(viewerClick('{"type":"mouse","event":"pressed"', frame)).toBeNull();
+    expect(viewerClick('{"type":"mouse","event":"released"', frame)).toBeNull();
   });
 });

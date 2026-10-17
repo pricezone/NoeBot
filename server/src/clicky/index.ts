@@ -171,8 +171,13 @@ export function viewerClick(
   frame: { width: number; height: number } | undefined,
 ): { x: number; y: number } | null {
   if (!frame || !(frame.width > 0 && frame.height > 0)) return null;
+  /*
+   * The click is the button coming up, not going down. Answered on the press, a finished step
+   * changed the bar under the screen before the release, the screen moved with it, and the release
+   * landed somewhere else: live, gov.gr's links were focused and never opened.
+   */
   // Cheap first: most of what a viewer sends is the pointer moving.
-  if (!raw.includes('"pressed"') || !raw.includes('"mouse"')) return null;
+  if (!raw.includes('"released"') || !raw.includes('"mouse"')) return null;
   let message: unknown;
   try {
     message = JSON.parse(raw);
@@ -182,7 +187,7 @@ export function viewerClick(
   const value = message as Record<string, unknown> | null;
   if (
     value?.type !== "mouse" ||
-    value.event !== "pressed" ||
+    value.event !== "released" ||
     typeof value.x !== "number" ||
     typeof value.y !== "number" ||
     !Number.isFinite(value.x) ||
