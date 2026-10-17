@@ -218,7 +218,8 @@ export function ForYouSection({
             <IconPlayerPause />
           </ItemMedia>
           <ItemContent>
-            <ItemTitle>{t("Paused")}</ItemTitle>
+            {/* The row names what the switch does; the routines list's chips say "Paused". */}
+            <ItemTitle>{t("Pause")}</ItemTitle>
             <ItemDescription>
               {lifecycle.data.paused
                 ? t(
@@ -231,7 +232,7 @@ export function ForYouSection({
           </ItemContent>
           <ItemActions>
             <Switch
-              aria-label={t("Paused")}
+              aria-label={t("Pause")}
               checked={lifecycle.data.paused}
               disabled={pause.isPending}
               onCheckedChange={(paused) =>

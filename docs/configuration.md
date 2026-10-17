@@ -443,6 +443,7 @@ opens a session for the one address it admits and lands on `redirect`.
 | `OPENBOT_SIGNIN_HANDOFF_EMAIL` | The one person a token may sign in; name them in `INITIAL_ADMIN_EMAILS` too. |
 | `OPENBOT_SIGNIN_HANDOFF_RETURN_URL` | Where the sign-in screen sends somebody who arrives without a token. |
 | `OPENBOT_SIGNIN_HANDOFF_PROVIDER_NAME` | What the sign-in screen calls the platform. |
+| `OPENBOT_SHARE_BASE_URL` | The platform Share links go through (`<origin>/api/noebot/share?to=<in-app path>`), so they open on the reader's own instance. Defaults to the origin of `OPENBOT_SIGNIN_HANDOFF_RETURN_URL`; without either, a Share link is this deployment's own address. |
 
 A configured handoff counts as an identity provider: `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
 `INITIAL_ADMIN_EMAILS` are required with it, and `OPENBOT_SINGLE_USER` is not. The token is

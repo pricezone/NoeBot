@@ -73,7 +73,9 @@ import { useContentText } from "@/lib/i18n/content";
 import { intlLocale } from "@/lib/i18n/format";
 import { queryClient } from "@/query-client";
 
-export const Route = createFileRoute("/_authed/_app/admin/enterprise")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/enterprise",
+)({
   component: EnterprisePage,
 });
 

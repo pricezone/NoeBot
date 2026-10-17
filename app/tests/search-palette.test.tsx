@@ -182,7 +182,7 @@ function mount({
       page("/settings"),
       page("/settings/memory"),
       page("/settings/bots"),
-      page("/admin"),
+      page("/settings/advanced"),
     ]),
   });
   const view = render(
@@ -198,7 +198,7 @@ const optionTexts = (view: ReturnType<typeof render>) =>
   view.getAllByRole("option").map((option) => option.textContent);
 
 describe("what the popup lists", () => {
-  test("every Bot, the hidden chats, then Settings, with Admin only for an administrator", () => {
+  test("every Bot, the hidden chats, then Settings, with Advanced Settings only for an administrator", () => {
     const groups = paletteGroups({
       query: "",
       bots: [ADA, BO],
@@ -215,9 +215,9 @@ describe("what the popup lists", () => {
     expect(groups[1]?.items.map((item) => item.key)).toEqual([
       "chat:chat-close",
     ]);
-    expect(groups[2]?.items.some((item) => item.key === "setting:admin")).toBe(
-      false,
-    );
+    expect(
+      groups[2]?.items.some((item) => item.key === "setting:advanced"),
+    ).toBe(false);
 
     const asAdmin = paletteGroups({
       query: "",
@@ -226,9 +226,9 @@ describe("what the popup lists", () => {
       settings: SETTINGS_NAV,
       isAdmin: true,
     });
-    expect(asAdmin[2]?.items.some((item) => item.key === "setting:admin")).toBe(
-      true,
-    );
+    expect(
+      asAdmin[2]?.items.some((item) => item.key === "setting:advanced"),
+    ).toBe(true);
   });
 
   test("a Bot is found by its title or role, a section by its own words, and empty groups go", () => {
@@ -269,7 +269,7 @@ describe("the popup", () => {
     expect(texts).toContain("Settings: GeneralSettings");
     // A deployment with no meter and no billing page has no Usage & Billing to offer.
     expect(texts).not.toContain("Settings: Usage & BillingSettings");
-    expect(texts).not.toContain("Settings: AdminSettings");
+    expect(texts).not.toContain("Settings: Advanced SettingsSettings");
   });
 
   test("filters as you type and says so when nothing matches", async () => {
@@ -371,9 +371,9 @@ describe("the popup", () => {
     );
   });
 
-  test("an administrator is offered Admin", async () => {
+  test("an administrator is offered Advanced Settings", async () => {
     const { view } = mount({ role: "admin" });
     await view.findByRole("combobox", { name: "Search Bots and Settings" });
-    expect(optionTexts(view)).toContain("Settings: AdminSettings");
+    expect(optionTexts(view)).toContain("Settings: Advanced SettingsSettings");
   });
 });

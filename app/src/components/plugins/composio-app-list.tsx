@@ -2,10 +2,17 @@ import { IconPlug } from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
 import { PageEmpty, PageRows } from "@/components/layout/page-shell";
+import { Pills } from "@/components/marketplace/pills";
 import {
   MarketplaceGrid,
   PluginRow,
 } from "@/components/marketplace/plugin-row";
+import {
+  type ComposioSection,
+  composioPills,
+  composioSections,
+  OTHER_CATEGORY,
+} from "@/components/plugins/composio-catalogue";
 import { Button } from "@/components/ui/button";
 import {
   Item,
@@ -63,13 +70,27 @@ export function matchingApps(apps: ComposioApp[]): ComposioApp[] {
  */
 type ComposioAppListAppearance = "list" | "marketplace";
 
+/** How many category pills show before the rest fold into More. */
+const PILLS_BEFORE_MORE = 5;
+
 export function ComposioAppList({
   search,
   appearance = "list",
+  category,
+  onCategoryChange,
+  onOpen,
 }: {
   /** The term as typed. Debounced here, so the caller binds its input and nothing else. */
   search: string;
   appearance?: ComposioAppListAppearance;
+  /**
+   * The Marketplace's grouping: given `onCategoryChange`, the apps are drawn by Composio category
+   * under pills, as the Cursor sections are, with `category` (`?featured`) shown in full.
+   */
+  category?: string;
+  onCategoryChange?: (key: string | undefined) => void;
+  /** Opens an app's own page in the Marketplace (`?app=<slug>`); the rows are plain without it. */
+  onOpen?: (slug: string) => void;
 }) {
   const { t } = useTranslation();
   /*
@@ -134,13 +155,19 @@ export function ComposioAppList({
     },
   });
   const listed = matchingApps(apps.data?.apps ?? []);
+  const label = (key: string) => (key === OTHER_CATEGORY ? t(key) : key);
 
-  const rows = listed.map((entry, index) => {
+  const rowFor = (entry: ComposioApp, index: number, all: ComposioApp[]) => {
     // One mutation serves every row, so which rows are mid-request is tracked beside it
     // rather than read off it. See `adding` above.
     const isAdding = adding.has(entry.slug);
     const mark = entry.logo ? (
-      <img alt="" referrerPolicy="no-referrer" src={entry.logo} />
+      <img
+        alt=""
+        loading={appearance === "marketplace" ? "lazy" : undefined}
+        referrerPolicy="no-referrer"
+        src={entry.logo}
+      />
     ) : (
       <IconPlug />
     );
@@ -174,6 +201,8 @@ export function ComposioAppList({
           data-testid={`composio-${entry.slug}`}
           key={entry.slug}
           mark={mark}
+          onOpen={onOpen ? () => onOpen(entry.slug) : undefined}
+          openLabel={t("About {{name}}", { name: entry.name })}
           summary={entry.description}
           title={entry.name}
         />
@@ -199,10 +228,15 @@ export function ComposioAppList({
             {action}
           </ItemActions>
         </Item>
-        {index !== listed.length - 1 && <Separator />}
+        {index !== all.length - 1 && <Separator />}
       </React.Fragment>
     );
-  });
+  };
+  const rows = listed.map(rowFor);
+  const grouped = appearance === "marketplace" && onCategoryChange;
+  const sections: ComposioSection[] = grouped
+    ? composioSections(listed, { category, searching: query.trim() !== "" })
+    : [];
 
   return (
     <>
@@ -232,6 +266,47 @@ export function ComposioAppList({
               })
             : t("Composio returned no apps.")}
         </PageEmpty>
+      ) : grouped ? (
+        <>
+          <Pills
+            active={category}
+            className="mb-4"
+            items={composioPills(listed).map(({ key }) => ({
+              key,
+              label: label(key),
+            }))}
+            moreAfter={PILLS_BEFORE_MORE}
+            onSelect={onCategoryChange}
+          />
+          {sections.map((section) => (
+            <section
+              aria-label={label(section.key)}
+              className="mt-6 first:mt-0"
+              key={section.key}
+            >
+              <div className="mb-1 flex items-center justify-between gap-4">
+                <h3 className="text-[15px] font-semibold text-foreground">
+                  {label(section.key)}
+                </h3>
+                {section.hasMore ? (
+                  <button
+                    className="text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    onClick={() => onCategoryChange(section.key)}
+                    type="button"
+                  >
+                    {t("View all")}
+                  </button>
+                ) : null}
+              </div>
+              <MarketplaceGrid>{section.apps.map(rowFor)}</MarketplaceGrid>
+            </section>
+          ))}
+          {category !== undefined && sections.length === 0 ? (
+            <p className="text-muted-foreground text-sm" role="status">
+              {t("Nothing in {{value}} yet.", { value: label(category) })}
+            </p>
+          ) : null}
+        </>
       ) : appearance === "marketplace" ? (
         <MarketplaceGrid>{rows}</MarketplaceGrid>
       ) : (

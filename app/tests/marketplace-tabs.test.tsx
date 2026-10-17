@@ -66,6 +66,10 @@ let installedPlugins: Set<string>;
 let heldConnections: Set<string>;
 /** What the deployment refuses an install with, or null to accept it. */
 let refuseInstall: { status: number; error: string } | null = null;
+/** The platform this deployment signs in through, whose origin Share links go through; none by default. */
+let handoffReturnUrl: string | null = null;
+/** The Composio apps an administrator has added during a test. */
+let addedComposio: Set<string>;
 
 /** The Marketplace index as the server serves it: one plugin of each shape, across categories. */
 const MARKETPLACE = [
@@ -289,6 +293,8 @@ beforeEach(() => {
   installedPlugins = new Set();
   heldConnections = new Set();
   refuseInstall = null;
+  handoffReturnUrl = null;
+  addedComposio = new Set();
   writes = [];
   global.fetch = Object.assign(
     async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -447,19 +453,56 @@ beforeEach(() => {
           redirectUri: null,
         });
       }
+      const composioApp = (
+        slug: string,
+        name: string,
+        categories: string[],
+      ) => ({
+        slug,
+        name,
+        description: `${name}, brokered.`,
+        logo: null,
+        categories,
+        actionCount: 167,
+        enabled: addedComposio.has(slug),
+      });
+      const composioApps = [
+        composioApp("slack", "Slack", ["Communication"]),
+        composioApp("linear", "Linear", ["Productivity", "Developer Tools"]),
+        composioApp("trello", "Trello", ["Productivity"]),
+        composioApp("miro", "Miro", []),
+      ];
+      if (method === "POST" && path === "/api/plugins/composio/apps") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          slug?: string;
+        };
+        addedComposio.add(body.slug ?? "");
+        return json({ server: { id: `composio-${body.slug}` } }, 201);
+      }
       if (path === "/api/plugins/composio/apps") {
+        return json({ apps: composioApps });
+      }
+      const composioMatch = path.match(
+        /^\/api\/plugins\/composio\/apps\/([^/]+)$/,
+      );
+      if (composioMatch) {
+        const app = composioApps.find(
+          (candidate) => candidate.slug === composioMatch[1],
+        );
+        if (!app) return json({ error: "Not an app." }, 404);
         return json({
-          apps: [
-            {
-              slug: "slack",
-              name: "Slack",
-              description: "Messages, channels and files.",
-              logo: null,
-              categories: [],
-              actionCount: 167,
-              enabled: false,
-            },
+          app: { ...app, connection: { kind: "consent" } },
+          tools: [
+            { slug: "SLACK_SEND_MESSAGE", description: "Post a message." },
+            { slug: "SLACK_LIST_CHANNELS", description: "" },
           ],
+        });
+      }
+      if (path === "/api/capabilities") {
+        return json({
+          signInHandoff: handoffReturnUrl
+            ? { providerName: "HyperNoesis", returnUrl: handoffReturnUrl }
+            : null,
         });
       }
       if (path === "/api/plugins/marketplace") {
@@ -1143,4 +1186,99 @@ test("the template page's Share copies its address, and Add Bot makes the Bot an
       agent: "from-research-desk",
     });
   });
+});
+
+test("Featured plugins are grouped by Composio's categories, with pills, and a row opens the app's page", async () => {
+  role = "admin";
+  const { view, router } = renderMarketplace("/marketplace");
+  const featured = await view.findByRole("region", {
+    name: "Featured plugins",
+  });
+  const productivity = await within(featured).findByRole("region", {
+    name: "Productivity",
+  });
+  expect(within(productivity).getByTestId("composio-linear")).toBeTruthy();
+  expect(within(productivity).getByTestId("composio-trello")).toBeTruthy();
+  // An app with no category is filed under Other, which is listed last.
+  const sections = within(featured)
+    .getAllByRole("heading", { level: 3 })
+    .map((heading) => heading.textContent);
+  expect(sections).toEqual(["Productivity", "Communication", "Other"]);
+
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(
+    within(featured).getByRole("button", { name: "Communication" }),
+  );
+  await waitFor(() =>
+    expect(router.state.location.search).toEqual({
+      tab: "apps",
+      featured: "Communication",
+    }),
+  );
+  await waitFor(() =>
+    expect(within(featured).queryByTestId("composio-linear")).toBeNull(),
+  );
+
+  await user.click(
+    within(await view.findByTestId("composio-slack")).getByRole("button", {
+      name: "About Slack",
+    }),
+  );
+  await waitFor(() =>
+    expect(router.state.location.search).toEqual({
+      tab: "apps",
+      featured: "Communication",
+      app: "slack",
+    }),
+  );
+  expect(await view.findByRole("heading", { name: "Slack" })).toBeTruthy();
+
+  // Back returns to the list with the Featured category kept.
+  await user.click(view.getByRole("button", { name: "Back to apps" }));
+  await waitFor(() =>
+    expect(router.state.location.search).toEqual({
+      tab: "apps",
+      featured: "Communication",
+    }),
+  );
+});
+
+test("a Composio app's page lists its tools, adds it, and shares a link that opens on any instance", async () => {
+  role = "admin";
+  handoffReturnUrl = "https://www.hypernoesis.ai/noebot";
+  const { view } = renderMarketplace("/marketplace?tab=apps&app=slack");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  expect(await view.findByRole("heading", { name: "Slack" })).toBeTruthy();
+  expect(view.getByText("Communication")).toBeTruthy();
+  const tools = view.getByRole("region", { name: "Tools" });
+  expect(within(tools).getByText("Send message")).toBeTruthy();
+  expect(within(tools).getByText("Post a message.")).toBeTruthy();
+  expect(within(tools).getByText("List channels")).toBeTruthy();
+
+  await user.click(view.getByRole("button", { name: "Share" }));
+  await waitFor(() => {
+    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+  expect(await window.navigator.clipboard.readText()).toBe(
+    `https://www.hypernoesis.ai/api/noebot/share?to=${encodeURIComponent("/marketplace?tab=apps&app=slack")}`,
+  );
+
+  await user.click(view.getByRole("button", { name: "Add" }));
+  await waitFor(() => {
+    expect(writes).toContain("POST /api/plugins/composio/apps");
+  });
+});
+
+test("a plugin's Share goes through the platform too, when the deployment has one", async () => {
+  handoffReturnUrl = "https://www.hypernoesis.ai/noebot";
+  const { view } = renderMarketplace("/marketplace?tab=apps&plugin=55647425");
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await view.findByRole("heading", { name: "Treg" });
+  await user.click(view.getByRole("button", { name: "Share" }));
+  await waitFor(() => {
+    expect(view.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+  expect(await window.navigator.clipboard.readText()).toBe(
+    "https://www.hypernoesis.ai/api/noebot/share?to=%2Fmarketplace%3Ftab%3Dapps%26plugin%3D55647425",
+  );
 });

@@ -6,6 +6,8 @@ import {
   OAuthRegistrationRefusedError,
   readConnectState,
 } from "../src/plugins/oauth";
+import type { BrokerApp } from "../src/plugins/broker";
+import type { ComposioAction } from "../src/plugins/composio";
 import { PLUGIN_INDEX, pluginIndexEntry } from "../src/plugins/plugin-index";
 import { createPluginRoutes } from "../src/plugins/routes";
 import {
@@ -130,6 +132,13 @@ function harness(
       required: boolean;
     }[];
     fetchSkill?: (path: string) => string | null;
+    /** The urls of the servers this deployment has added; `composio://<slug>` is a brokered app. */
+    serverUrls?: string[];
+    /** A deployment with Composio configured: its directory, and an app's tools. */
+    composio?: {
+      listApps: () => Promise<BrokerApp[]>;
+      listActions?: (toolkit: string) => Promise<ComposioAction[]>;
+    };
   } = {},
 ) {
   const calls: Calls = {
@@ -146,6 +155,7 @@ function harness(
   const store = {
     listPlugins: async () => plugins,
     listServers: async () => [],
+    serverUrls: async () => input.serverUrls ?? [],
     listSkills: async () => input.skills ?? [],
     serverAddress: async (serverId: string) =>
       rows.find((row) => row.id === serverId),
@@ -212,6 +222,20 @@ function harness(
       encryptionKey: ENCRYPTION_KEY,
       personHasAccess: async () => true,
     },
+    input.composio
+      ? ({
+          broker: { listApps: input.composio.listApps },
+          ...(input.composio.listActions
+            ? {
+                actions: {
+                  listActions: (toolkit: string) =>
+                    input.composio?.listActions?.(toolkit) ??
+                    Promise.resolve([]),
+                },
+              }
+            : {}),
+        } as never)
+      : undefined,
   );
   const app = new Hono().route("/api/plugins", routes);
   const request = (path: string, init?: RequestInit) =>
@@ -693,5 +717,190 @@ describe("a plugin's parts stay with the plugin", () => {
       (await request("/skills/treg-treg/offer-to-all", json({ on: true })))
         .status,
     ).toBe(403);
+  });
+});
+
+describe("duplicates in the Marketplace listing", () => {
+  const CALENDAR = "45893411"; // Cursor's google-calendar, Composio's googlecalendar
+  const GMAIL = "45893410"; // Cursor's gmail, Composio's gmail
+  const directoryApp = (
+    slug: string,
+    connection: BrokerApp["connection"] = { kind: "consent" },
+  ): BrokerApp => ({
+    slug,
+    name: slug,
+    description: `${slug}, brokered.`,
+    logo: null,
+    categories: ["Productivity"],
+    actionCount: 3,
+    connection,
+  });
+  const listed = async (request: ReturnType<typeof harness>["request"]) => {
+    const response = await request("/marketplace");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { plugins: { id: string }[] };
+    return new Set(body.plugins.map((plugin) => plugin.id));
+  };
+
+  test("Cursor's own duplicates are listed once, the fuller plugin kept", async () => {
+    const ids = await listed(harness().request);
+    expect(ids.has("56366542")).toBe(true); // customerio, with skills
+    expect(ids.has("56809971")).toBe(false); // customer-io, the same server and none
+    expect(ids.has("730")).toBe(true); // posthog
+    expect(ids.has("69591835")).toBe(false); // posthog-mcp
+  });
+
+  test("without Composio, a Cursor plugin for an app Composio brokers stays", async () => {
+    const ids = await listed(harness({ role: "admin" }).request);
+    expect(ids.has(CALENDAR)).toBe(true);
+    expect(ids.has(GMAIL)).toBe(true);
+  });
+
+  test("an administrator, who browses Composio's directory, is offered the Composio version only", async () => {
+    const ids = await listed(
+      harness({
+        role: "admin",
+        composio: {
+          listApps: async () => [
+            directoryApp("googlecalendar"),
+            // An app this deployment cannot connect covers nothing.
+            directoryApp("gmail", { kind: "unsupported", reason: "no client" }),
+          ],
+        },
+      }).request,
+    );
+    expect(ids.has(CALENDAR)).toBe(false);
+    expect(ids.has(GMAIL)).toBe(true);
+  });
+
+  test("anybody else loses the Cursor version once the Composio app is added", async () => {
+    const before = await listed(
+      harness({
+        composio: { listApps: async () => [directoryApp("googlecalendar")] },
+      }).request,
+    );
+    expect(before.has(CALENDAR)).toBe(true);
+    const after = await listed(
+      harness({
+        serverUrls: ["composio://googlecalendar"],
+        composio: { listApps: async () => [directoryApp("googlecalendar")] },
+      }).request,
+    );
+    expect(after.has(CALENDAR)).toBe(false);
+    expect(after.has(GMAIL)).toBe(true);
+  });
+
+  test("an installed duplicate keeps its row, and nothing is uninstalled", async () => {
+    const { request, calls } = harness({
+      role: "admin",
+      plugins: [
+        pluginRecord(CALENDAR, "user-1"),
+        pluginRecord("69591835", "user-1"),
+      ],
+      serverUrls: ["composio://googlecalendar"],
+      composio: { listApps: async () => [directoryApp("googlecalendar")] },
+    });
+    const ids = await listed(request);
+    expect(ids.has(CALENDAR)).toBe(true);
+    expect(ids.has("69591835")).toBe(true);
+    expect(calls.uninstalled).toEqual([]);
+    // And its own page still opens.
+    expect((await request(`/marketplace/${CALENDAR}`)).status).toBe(200);
+  });
+
+  test("a directory that will not answer hides nothing", async () => {
+    const ids = await listed(
+      harness({
+        role: "admin",
+        composio: {
+          listApps: async () => {
+            throw new Error("Composio is down");
+          },
+        },
+      }).request,
+    );
+    expect(ids.has(CALENDAR)).toBe(true);
+  });
+});
+
+describe("a Composio app's Marketplace page", () => {
+  const calendar: BrokerApp = {
+    slug: "googlecalendar",
+    name: "Google Calendar",
+    description: "Read and change events.",
+    logo: "https://example.com/gcal.svg",
+    categories: ["Productivity", "Scheduling"],
+    actionCount: 2,
+    connection: { kind: "consent" },
+  };
+  const actions: ComposioAction[] = [
+    { slug: "GOOGLECALENDAR_CREATE_EVENT", description: "Create an event." },
+    { slug: "GOOGLECALENDAR_LIST_EVENTS" },
+  ];
+
+  test("says what the app is, whether it is added, and which tools it brings", async () => {
+    const { request } = harness({
+      role: "admin",
+      serverUrls: ["composio://googlecalendar"],
+      composio: {
+        listApps: async () => [calendar],
+        listActions: async (toolkit) =>
+          toolkit === "googlecalendar" ? actions : [],
+      },
+    });
+    const response = await request("/composio/apps/googlecalendar");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      app: {
+        slug: "googlecalendar",
+        name: "Google Calendar",
+        categories: ["Productivity", "Scheduling"],
+        enabled: true,
+      },
+      tools: [
+        {
+          slug: "GOOGLECALENDAR_CREATE_EVENT",
+          description: "Create an event.",
+        },
+        { slug: "GOOGLECALENDAR_LIST_EVENTS", description: "" },
+      ],
+    });
+  });
+
+  test("tools the vendor will not list leave the page standing", async () => {
+    const { request } = harness({
+      role: "admin",
+      composio: {
+        listApps: async () => [calendar],
+        listActions: async () => {
+          throw new Error("rate limited");
+        },
+      },
+    });
+    const body = await (await request("/composio/apps/googlecalendar")).json();
+    expect(body.app.enabled).toBe(false);
+    expect(body.tools).toBeNull();
+  });
+
+  test("is an administrator's, names only apps the directory offers, and needs Composio", async () => {
+    const composio = { listApps: async () => [calendar] };
+    expect(
+      (await harness({ composio }).request("/composio/apps/googlecalendar"))
+        .status,
+    ).toBe(403);
+    expect(
+      (
+        await harness({ role: "admin", composio }).request(
+          "/composio/apps/nonesuch",
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await harness({ role: "admin" }).request(
+          "/composio/apps/googlecalendar",
+        )
+      ).status,
+    ).toBe(503);
   });
 });

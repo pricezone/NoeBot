@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { PluginTool } from "@/lib/plugins/queries";
-import { readOnlyRefs } from "@/routes/_authed/_app/admin/plugins/$key_.bots.$agentId";
+import { readOnlyRefs } from "@/routes/_authed/_app/settings/advanced/plugins/$key_.bots.$agentId";
 
 /**
  * What one button on the per-Bot grant screen promises, checked without drawing anything.

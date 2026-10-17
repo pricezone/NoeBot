@@ -70,7 +70,9 @@ import {
  * third, and then a grant per tool per Bot. The screen this replaced tried to hold all of that in a
  * list and grew a column per Bot, which is how a grant goes unread.
  */
-export const Route = createFileRoute("/_authed/_app/admin/plugins/$key")({
+export const Route = createFileRoute(
+  "/_authed/_app/settings/advanced/plugins/$key",
+)({
   component: RouteComponent,
 });
 
@@ -188,7 +190,9 @@ function ConnectionStateUnreadable() {
 function RouteComponent() {
   const { t } = useTranslation("admin");
   const content = useContentText();
-  const { key } = useParams({ from: "/_authed/_app/admin/plugins/$key" });
+  const { key } = useParams({
+    from: "/_authed/_app/settings/advanced/plugins/$key",
+  });
   const queryClient = useQueryClient();
   const plugins = useQuery(pluginsPageQueryOptions());
   /*
@@ -457,7 +461,7 @@ function RouteComponent() {
       <PageShell
         backButton={{
           label: i18n.t("Plugins"),
-          linkProps: { to: "/admin/plugins" },
+          linkProps: { to: "/settings/advanced/plugins" },
         }}
         title={t("Plugins")}
       >
@@ -472,7 +476,7 @@ function RouteComponent() {
       <PageShell
         backButton={{
           label: i18n.t("Plugins"),
-          linkProps: { to: "/admin/plugins" },
+          linkProps: { to: "/settings/advanced/plugins" },
         }}
         description={t(
           "This deployment does not have a plugin by that name, and the catalogue does not offer one.",
@@ -498,7 +502,7 @@ function RouteComponent() {
     <PageShell
       backButton={{
         label: i18n.t("Plugins"),
-        linkProps: { to: "/admin/plugins" },
+        linkProps: { to: "/settings/advanced/plugins" },
       }}
       description={
         server?.provenance === "plugin"
@@ -1068,7 +1072,7 @@ function RouteComponent() {
                     render={
                       <Link
                         params={{ key, tool: tool.name }}
-                        to="/admin/plugins/$key/tools/$tool"
+                        to="/settings/advanced/plugins/$key/tools/$tool"
                       />
                     }
                     size="sm"
@@ -1139,7 +1143,7 @@ function RouteComponent() {
                       render={
                         <Link
                           params={{ agentId: bot.id, key }}
-                          to="/admin/plugins/$key/bots/$agentId"
+                          to="/settings/advanced/plugins/$key/bots/$agentId"
                         />
                       }
                       size="sm"

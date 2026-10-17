@@ -22,6 +22,17 @@
  * where there is none) instead of asking the vendor. `--only` processes the named plugins and
  * prints them rather than writing the file. Exits non-zero when the index could not be fetched or
  * the result fails its own invariants, and writes nothing in either case.
+ *
+ * DUPLICATES. Every sweep ends by proposing which Cursor plugins duplicate a Composio toolkit (a
+ * normalised-slug match against `src/plugins/composio-toolkits.json`) or another Cursor plugin, and
+ * prints how that differs from the reviewed maps in `plugin-index.ts` (`COMPOSIO_PLUGIN_IDS`,
+ * `CURSOR_DUPLICATE_PLUGIN_IDS`), which are updated by hand after a read. Two flags help with that:
+ *
+ *   cd server && bun scripts/sync-plugin-index.ts --duplicates           # committed index, offline
+ *   cd server && bun scripts/sync-plugin-index.ts --composio-toolkits    # refresh the toolkit list
+ *
+ * `--composio-toolkits` rewrites the toolkit list from Composio's public docs sitemap (every
+ * `docs.composio.dev/toolkits/<slug>` page; their API wants a key) and then proposes, offline.
  */
 import { renameSync, writeFileSync } from "node:fs";
 import { extractResourceMetadataUrl } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -43,7 +54,13 @@ import {
   skillSlugFor,
 } from "../src/plugins/plugin-ids";
 import {
+  proposeComposioMatches,
+  proposeCursorDuplicates,
+} from "../src/plugins/plugin-duplicates";
+import {
   CATALOGUE_PLUGIN_IDS,
+  COMPOSIO_PLUGIN_IDS,
+  CURSOR_DUPLICATE_PLUGIN_IDS,
   type IndexedPlugin,
   type IndexedServer,
   type IndexedServerAuth,
@@ -55,6 +72,16 @@ import {
 
 const INDEX_URL = "https://cursor.com/api/dashboard/list-marketplace-plugins";
 const OUTPUT = new URL("../src/plugins/cursor-index.json", import.meta.url);
+const TOOLKITS = new URL(
+  "../src/plugins/composio-toolkits.json",
+  import.meta.url,
+);
+const TOOLKITS_SITEMAP = "https://docs.composio.dev/sitemap.xml";
+/** Cursor plugins a slug match pairs with a toolkit but review ruled out: not the same app. */
+const NOT_COMPOSIO_DUPLICATES = new Set([
+  // Cursor's Composio plugin is Composio itself, not one of the apps it brokers.
+  "32661537",
+]);
 const CONCURRENCY = 8;
 const PROBE_TIMEOUT_MS = 10_000;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -101,6 +128,8 @@ const SKILL_DESCRIPTION_CHARS = 400;
 
 const args = process.argv.slice(2);
 const noProbe = args.includes("--no-probe");
+const duplicatesOnly = args.includes("--duplicates");
+const refreshToolkits = args.includes("--composio-toolkits");
 const onlyIndex = args.indexOf("--only");
 const only =
   onlyIndex === -1
@@ -459,8 +488,109 @@ async function fetchPlugin(
   };
 }
 
+/** The vendored Composio toolkit slugs. */
+async function readToolkits(): Promise<string[]> {
+  const file = (await Bun.file(TOOLKITS).json()) as { slugs?: unknown };
+  if (
+    !Array.isArray(file.slugs) ||
+    !file.slugs.every((slug) => typeof slug === "string")
+  ) {
+    throw new Error(
+      "composio-toolkits.json: slugs: expected a list of strings",
+    );
+  }
+  return file.slugs;
+}
+
+/** Rewrites `composio-toolkits.json` from the toolkit pages Composio's docs sitemap lists. */
+async function refreshToolkitList(): Promise<void> {
+  const response = await fetch(TOOLKITS_SITEMAP);
+  if (!response.ok) {
+    throw new Error(`${TOOLKITS_SITEMAP} answered ${response.status}`);
+  }
+  const sitemap = await response.text();
+  const slugs = [
+    ...new Set(
+      [
+        ...sitemap.matchAll(/docs\.composio\.dev\/toolkits\/([a-z0-9_]+)</g),
+      ].map((match) => match[1] as string),
+    ),
+  ].sort();
+  if (slugs.length < 100) {
+    throw new Error(
+      `${TOOLKITS_SITEMAP} listed only ${slugs.length} toolkits; not overwriting the list`,
+    );
+  }
+  writeFileSync(
+    TOOLKITS.pathname,
+    `${JSON.stringify(
+      { source: TOOLKITS_SITEMAP, syncedAt: new Date().toISOString(), slugs },
+      null,
+      2,
+    )}\n`,
+  );
+  console.error(`wrote ${TOOLKITS.pathname}: ${slugs.length} toolkits`);
+}
+
+/** How a proposed map differs from the committed one, as lines a reviewer reads. */
+function mapDrift(
+  name: string,
+  proposed: Record<string, string>,
+  committed: Readonly<Record<string, string>>,
+  plugins: readonly IndexedPlugin[],
+): string[] {
+  const slugOf = (id: string) =>
+    plugins.find((plugin) => plugin.id === id)?.slug ?? "?";
+  const lines: string[] = [];
+  for (const [id, target] of Object.entries(proposed)) {
+    if (committed[id] !== target) {
+      lines.push(`${name} + "${id}": "${target}", // ${slugOf(id)}`);
+    }
+  }
+  for (const [id, target] of Object.entries(committed)) {
+    if (proposed[id] !== target) {
+      lines.push(`${name} - "${id}": "${target}", // ${slugOf(id)}`);
+    }
+  }
+  return lines;
+}
+
+/** Proposes both duplicate maps for an index and prints how they differ from the reviewed ones. */
+async function reportDuplicates(plugins: readonly IndexedPlugin[]) {
+  const composio = proposeComposioMatches(
+    plugins,
+    await readToolkits(),
+    NOT_COMPOSIO_DUPLICATES,
+  );
+  const cursor = proposeCursorDuplicates(plugins);
+  const drift = [
+    ...mapDrift("COMPOSIO_PLUGIN_IDS", composio, COMPOSIO_PLUGIN_IDS, plugins),
+    ...mapDrift(
+      "CURSOR_DUPLICATE_PLUGIN_IDS",
+      cursor,
+      CURSOR_DUPLICATE_PLUGIN_IDS,
+      plugins,
+    ),
+  ];
+  console.error(
+    `duplicates: ${Object.keys(composio).length} Composio, ${Object.keys(cursor).length} Cursor; ${
+      drift.length === 0
+        ? "the reviewed maps in plugin-index.ts agree"
+        : "review these against plugin-index.ts:"
+    }`,
+  );
+  for (const line of drift) console.error(`  ${line}`);
+}
+
 async function main() {
   const previous = await readPreviousIndex();
+  if (refreshToolkits) await refreshToolkitList();
+  if (duplicatesOnly || refreshToolkits) {
+    if (!previous) throw new Error("cursor-index.json could not be read");
+    await reportDuplicates(previous.plugins);
+    return;
+  }
+
   const previousAuth = new Map<string, IndexedServerAuth>();
   for (const plugin of previous?.plugins ?? []) {
     for (const server of plugin.servers) {
@@ -589,6 +719,7 @@ async function main() {
   };
   // The same validation the loader runs at boot, so a file this script writes is one it accepts.
   parsePluginIndex(index);
+  await reportDuplicates(plugins);
 
   const count = (predicate: (plugin: IndexedPlugin) => boolean) =>
     plugins.filter(predicate).length;

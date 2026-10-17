@@ -71,7 +71,6 @@
   "Added to file": "Πρόσθεσε σε αρχείο",
   "Added to the run when the command is used. Write it as instructions to the Bot, not as a description of them.": "Προστίθεται στην εκτέλεση όταν χρησιμοποιείται η εντολή. Γράψ' το ως οδηγίες προς τον Bot, όχι ως περιγραφή τους.",
   "Adding…": "Προσθήκη…",
-  "Admin": "Διαχείριση",
   "Administrator by configuration": "Διαχειριστής από τη ρύθμιση",
   "Administrators": "Διαχειριστές",
   "Agent": "Πράκτορας",
@@ -681,7 +680,6 @@
   "Manage": "Διαχείριση",
   "Manage keys": "Διαχείριση κλειδιών",
   "Managed": "Διαχειριζόμενος",
-  "Manage…": "Διαχείριση…",
   "Mark as Read": "Σήμανση ως αναγνωσμένο",
   "Mark as Unread": "Σήμανση ως μη αναγνωσμένο",
   "Marketplace": "Αγορά",
@@ -1601,5 +1599,10 @@
   "Allow": "Να επιτραπεί",
   "Use the computer yourself.": "Χρησιμοποίησε τον υπολογιστή μόνος σου.",
   "Type “{{text}}” into: {{target}}, then press Enter": "Πληκτρολόγηση «{{text}}» σε: {{target}}, και μετά πάτημα Enter",
-  "Open {{host}}": "Άνοιγμα {{host}}"
+  "Open {{host}}": "Άνοιγμα {{host}}",
+  "Advanced Settings": "Σύνθετες ρυθμίσεις",
+  "Bot Settings": "Ρυθμίσεις Bot",
+  "Categories": "Κατηγορίες",
+  "Composio did not list this app's tools just now.": "Το Composio δεν εμφάνισε τα εργαλεία αυτής της εφαρμογής αυτή τη στιγμή.",
+  "Other": "Άλλα"
 }

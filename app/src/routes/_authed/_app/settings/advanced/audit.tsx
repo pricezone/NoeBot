@@ -23,7 +23,7 @@ import { intlLocale } from "@/lib/i18n/format";
 /**
  * Read surface for policy, computer, component, MCP, and credential audit events.
  */
-export const Route = createFileRoute("/_authed/_app/admin/audit")({
+export const Route = createFileRoute("/_authed/_app/settings/advanced/audit")({
   component: AuditPage,
 });
 

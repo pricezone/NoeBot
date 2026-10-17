@@ -601,7 +601,7 @@ function DeploymentCredentials() {
           <ItemActions>
             <Link
               className="text-sm underline-offset-4 hover:underline"
-              to="/admin/credentials"
+              to="/settings/advanced/credentials"
             >
               {t("Open Credentials")}
             </Link>

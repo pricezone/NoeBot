@@ -232,7 +232,7 @@ export function connectedAccountsUrlFor(
      * settings list below, which is the one screen that draws a failure notice.
      */
     if ("serverId" in where) {
-      return `${origin}/admin/plugins/${encodeURIComponent(where.serverId)}`;
+      return `${origin}/settings/advanced/plugins/${encodeURIComponent(where.serverId)}`;
     }
   }
 

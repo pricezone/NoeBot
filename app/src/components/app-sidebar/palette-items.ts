@@ -67,7 +67,7 @@ function includes(field: string | null | undefined, needle: string) {
  * it. A Bot is found by anything its row shows (name, title, role); a section by its row's own
  * words, so "settings" finds them all; a hidden conversation by what the roster would search it by.
  *
- * `isAdmin` is asked here and not left to the caller, because a row for Admin that a person
+ * `isAdmin` is asked here and not left to the caller, because a row for Advanced Settings that a person
  * cannot open is a row that leads to a refusal.
  */
 export function paletteGroups(input: {

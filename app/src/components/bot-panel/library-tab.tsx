@@ -1,17 +1,14 @@
-import { AccessSection } from "@/components/agents/agent-dialog";
 import { RecordedWorkflows } from "@/components/computer/demonstration-recorder";
 import { useTranslation } from "@/lib/i18n";
 import { FilesSection } from "./files-section";
 
 /**
- * What this Bot has to work with: its files, the workflows recorded on its screen, then the
- * connectors and skills it may reach.
+ * What this Bot has to work with: its files and the workflows recorded on its screen.
  *
  * Files lead, as in Grok's Library: what was attached in its conversations and what it saved on its
- * computer, newest first (`FilesSection`). The access list already exists in the Bot's dialog; this
- * draws it beside the conversation, where "what can it do" is asked. Recorded workflows are made in
- * the screen viewer (Record your steps) and kept here. The routines moved to Details, beside the
- * other things the Bot does for you.
+ * computer, newest first (`FilesSection`). Recorded workflows are made in the screen viewer (Record
+ * your steps) and kept here. The routines moved to Details, beside the other things the Bot does
+ * for you; the connectors and skills it may reach (Access) live in Bot Settings.
  */
 export function LibraryTab({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
@@ -28,12 +25,6 @@ export function LibraryTab({ agentId }: { agentId: string }) {
           {t("Recorded workflows")}
         </h2>
         <RecordedWorkflows botId={agentId} />
-      </section>
-      <section className="grid gap-2">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {t("Access")}
-        </h2>
-        <AccessSection agentId={agentId} />
       </section>
     </div>
   );

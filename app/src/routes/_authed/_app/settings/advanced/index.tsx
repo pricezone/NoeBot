@@ -32,7 +32,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { msg, useTranslation } from "@/lib/i18n";
 
-export const Route = createFileRoute("/_authed/_app/admin/")({
+export const Route = createFileRoute("/_authed/_app/settings/advanced/")({
   component: RouteComponent,
 });
 
@@ -62,19 +62,19 @@ const SECTIONS: {
         title: msg("Credentials"),
         description: msg("Keys and tokens held for this deployment."),
         icon: IconKey,
-        linkOptions: { to: "/admin/credentials" },
+        linkOptions: { to: "/settings/advanced/credentials" },
       },
       {
         title: msg("Boundaries"),
         description: msg("Rules that decide what a Bot may never do."),
         icon: IconShieldCheck,
-        linkOptions: { to: "/admin/boundaries" },
+        linkOptions: { to: "/settings/advanced/boundaries" },
       },
       {
         title: msg("Computers"),
         description: msg("The machines Bots run their tools on."),
         icon: IconDeviceDesktop,
-        linkOptions: { to: "/admin/computers" },
+        linkOptions: { to: "/settings/advanced/computers" },
       },
     ],
   },
@@ -90,13 +90,13 @@ const SECTIONS: {
           "The services this deployment can reach, and which Bots may.",
         ),
         icon: IconPuzzle,
-        linkOptions: { to: "/admin/plugins" },
+        linkOptions: { to: "/settings/advanced/plugins" },
       },
       {
         title: msg("Skills"),
         description: msg("Named instructions anybody can invoke with a slash."),
         icon: IconFileText,
-        linkOptions: { to: "/admin/skills" },
+        linkOptions: { to: "/settings/advanced/skills" },
       },
       {
         title: msg("Automatic Learning"),
@@ -104,19 +104,19 @@ const SECTIONS: {
           "Learn from completed conversations and review proposed skills.",
         ),
         icon: IconFileText,
-        linkOptions: { to: "/admin/learning" },
+        linkOptions: { to: "/settings/advanced/learning" },
       },
       {
         title: msg("UI Components"),
         description: msg("Custom pieces a Bot can draw in a conversation."),
         icon: IconLayoutGrid,
-        linkOptions: { to: "/admin/components" },
+        linkOptions: { to: "/settings/advanced/components" },
       },
       {
         title: msg("Playground"),
         description: msg("Write a component and watch it render as you type."),
         icon: IconCode,
-        linkOptions: { to: "/admin/playground" },
+        linkOptions: { to: "/settings/advanced/playground" },
       },
     ],
   },
@@ -130,7 +130,7 @@ const SECTIONS: {
           "Everybody who has signed in, who administers this deployment, and whose access has been removed.",
         ),
         icon: IconUsers,
-        linkOptions: { to: "/admin/people" },
+        linkOptions: { to: "/settings/advanced/people" },
       },
       {
         title: msg("Enterprise controls"),
@@ -138,7 +138,7 @@ const SECTIONS: {
           "Capabilities by role and group, SSO required, SCIM, network policy, MCP and model allowlists, Action Recording.",
         ),
         icon: IconShieldCheck,
-        linkOptions: { to: "/admin/enterprise" },
+        linkOptions: { to: "/settings/advanced/enterprise" },
       },
       {
         title: msg("Identity providers"),
@@ -146,7 +146,7 @@ const SECTIONS: {
           "A company's own SAML or OpenID Connect provider, routed by email domain.",
         ),
         icon: IconBuildingBank,
-        linkOptions: { to: "/admin/identity-providers" },
+        linkOptions: { to: "/settings/advanced/identity-providers" },
       },
     ],
   },
@@ -158,7 +158,7 @@ const SECTIONS: {
         title: msg("Audit"),
         description: msg("Every action taken in this deployment, and by whom."),
         icon: IconListDetails,
-        linkOptions: { to: "/admin/audit" },
+        linkOptions: { to: "/settings/advanced/audit" },
       },
     ],
   },
@@ -171,7 +171,7 @@ function RouteComponent() {
       description={t(
         "Settings that apply to everybody in this deployment. Anything here affects every person and every Bot, which is what separates it from your own preferences.",
       )}
-      title={t("Admin")}
+      title={t("Advanced Settings")}
     >
       {SECTIONS.map((section) => (
         <PageSection

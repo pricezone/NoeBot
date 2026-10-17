@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { currentUserQueryOptions, needsOnboarding } from "../lib/auth/queries";
+import { safeReturnPath } from "../lib/auth/return-path";
 import { CopilotProvider } from "../lib/copilot/provider";
 import { deploymentCapabilitiesQueryOptions } from "../lib/deployment/queries";
 import { AppHotkeys } from "../lib/hotkeys/app-hotkeys";
@@ -15,7 +16,9 @@ export const Route = createFileRoute("/_authed")({
       currentUserQueryOptions(),
     );
     if (!user) {
-      throw redirect({ to: "/sign" });
+      // The address asked for rides along, so signing in lands there rather than at home.
+      const back = safeReturnPath(location.href);
+      throw redirect({ to: "/sign", search: back ? { redirect: back } : {} });
     }
     // The person's own language before anything of theirs is drawn; once per page load.
     await settleSignedInLocale(context.queryClient, user);

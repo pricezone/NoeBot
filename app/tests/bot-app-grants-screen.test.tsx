@@ -23,7 +23,7 @@ import {
   type PluginTool,
   pluginKeys,
 } from "@/lib/plugins/queries";
-import { Route as BotAppRoute } from "@/routes/_authed/_app/admin/plugins/$key_.bots.$agentId";
+import { Route as BotAppRoute } from "@/routes/_authed/_app/settings/advanced/plugins/$key_.bots.$agentId";
 
 /**
  * What the per-Bot grant screen draws: which of its three pages a failed read returns, and the one
@@ -168,12 +168,12 @@ async function waitForFailedRefetch(queryClient: QueryClient) {
 }
 
 /*
- * This screen's component calls `useParams({ from: "/_authed/_app/admin/plugins/$key_/bots/$agentId" })`,
+ * This screen's component calls `useParams({ from: "/_authed/_app/settings/advanced/plugins/$key_/bots/$agentId" })`,
  * which resolves that id against the router's matched routes, so the tree has to produce exactly
  * that id — decoy pathless/static parents are enough, as `agent-roster-error.test.tsx` establishes,
  * and the real ancestors (a session check, the admin shell) are not what this file is about.
  *
- * `routeTree.gen.ts` fixes both halves: id `/plugins/$key_/bots/$agentId` under `/_authed/admin`,
+ * `routeTree.gen.ts` fixes both halves: id `/plugins/$key_/bots/$agentId` under `/_authed/_app/settings/advanced`,
  * path `/plugins/$key/bots/$agentId` — the trailing underscore opts the route out of nesting and
  * never appears in a URL.
  *
@@ -219,9 +219,14 @@ function renderScreen(queryClient: QueryClient) {
     getParentRoute: () => rootRoute,
     component: Outlet,
   });
-  const adminRoute = createRoute({
-    path: "/admin",
+  const settingsRoute = createRoute({
+    path: "/settings",
     getParentRoute: () => authedRoute,
+    component: Outlet,
+  });
+  const adminRoute = createRoute({
+    path: "/advanced",
+    getParentRoute: () => settingsRoute,
     component: Outlet,
   });
   // The two Back links this screen can draw. Registered so `Link` has a real route to build an
@@ -247,13 +252,15 @@ function renderScreen(queryClient: QueryClient) {
   });
   const tree = rootRoute.addChildren([
     authedRoute.addChildren([
-      adminRoute.addChildren([pluginsRoute, appRoute, wired]),
+      settingsRoute.addChildren([
+        adminRoute.addChildren([pluginsRoute, appRoute, wired]),
+      ]),
     ]),
   ]);
   const router = createRouter({
     routeTree: tree,
     history: createMemoryHistory({
-      initialEntries: [`/admin/plugins/${APP_KEY}/bots/${BOT_ID}`],
+      initialEntries: [`/settings/advanced/plugins/${APP_KEY}/bots/${BOT_ID}`],
     }),
   });
   return render(

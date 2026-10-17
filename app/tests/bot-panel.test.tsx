@@ -17,6 +17,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { type ReactNode, useCallback } from "react";
 import { BotPanel } from "@/components/bot-panel/bot-panel";
 import { useBotPanel } from "@/components/bot-panel/use-bot-panel";
@@ -284,7 +285,8 @@ test("the panel is open by default on the Computer, and a tab switch is a naviga
     expect(router.state.location.search).toEqual({ panel: "library" }),
   );
   expect(selectedTab(view)).toBe("Library");
-  expect(view.getByText("Nothing granted yet")).toBeTruthy();
+  // Access is in Bot Settings, not the Library.
+  expect(view.queryByText("Nothing granted yet")).toBeNull();
   expect(
     view.getByRole("heading", { name: "Recorded workflows" }),
   ).toBeTruthy();
@@ -299,18 +301,25 @@ test("the panel is open by default on the Computer, and a tab switch is a naviga
   ).toBeTruthy();
 });
 
-test("Details carries the routines between For you and Manage; Library opens with Files", async () => {
+test("Details reads Name, Role, Routines, For you, then Bot Settings; Library opens with Files and has no Access", async () => {
   wideWithComputer();
   const { view } = draw("/channel/c1?panel=details");
   const routines = await view.findByRole("heading", { name: "Routines" });
+  const name = view.getByRole("heading", { name: "Name" });
+  const role = view.getByRole("heading", { name: "Role" });
   const forYou = view.getByRole("heading", { name: "For you" });
-  const manage = view.getByRole("button", { name: "Manage…" });
-  expect(
-    forYou.compareDocumentPosition(routines) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    routines.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+  const settings = view.getByRole("button", { name: "Bot Settings" });
+  const inOrder = [name, role, routines, forYou, settings];
+  for (const [index, element] of inOrder.slice(1).entries()) {
+    expect(
+      (inOrder[index] as HTMLElement).compareDocumentPosition(element) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  }
+  expect(view.queryByRole("button", { name: "Manage…" })).toBeNull();
+  // The lifecycle switch is named for what it does; the routine chips keep "Paused".
+  expect(view.getByRole("switch", { name: "Pause" })).toBeTruthy();
+  expect(view.queryByRole("switch", { name: "Paused" })).toBeNull();
   expect(
     await view.findByText("Nothing scheduled for this coworker"),
   ).toBeTruthy();
@@ -325,8 +334,139 @@ test("Details carries the routines between For you and Manage; Library opens wit
     .filter((text) =>
       ["Files", "Recorded workflows", "Access"].includes(text ?? ""),
     );
-  expect(library).toEqual(["Files", "Recorded workflows", "Access"]);
+  // Access stays in the Bot Settings dialog only.
+  expect(library).toEqual(["Files", "Recorded workflows"]);
   expect(await view.findByText(/^No files yet\./)).toBeTruthy();
+});
+
+test("the Bot's name and role edit in place, behind a pencil shown on hover and focus", async () => {
+  const sent: { method: string; url: string; body: unknown }[] = [];
+  let stored: AgentProfile = BOT;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === `/api/agents/${BOT.id}` && method === "PATCH") {
+        const body = JSON.parse(String(init?.body));
+        sent.push({ method, url, body });
+        stored = { ...stored, ...body };
+        return Response.json({ agent: stored });
+      }
+      // The save invalidates the profile, which is read again.
+      if (url === `/api/agents/${BOT.id}`)
+        return Response.json({ agent: stored });
+      return Response.json({ error: "Not here" }, { status: 404 });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  const view = drawPanel(
+    <BotPanel
+      agentId="bot-1"
+      name="Noë"
+      onTabChange={() => {}}
+      tab="details"
+    />,
+  );
+
+  const pencil = await view.findByRole("button", { name: "Edit name" });
+  // Hidden until the row is hovered or the pencil has keyboard focus; always on a touch screen.
+  for (const name of [
+    "opacity-0",
+    "group-hover/field:opacity-100",
+    "focus-visible:opacity-100",
+    "[@media(hover:none)]:opacity-100",
+  ]) {
+    expect(pencil.className).toContain(name);
+  }
+  const user = userEvent.setup({ document: view.baseElement.ownerDocument });
+  await user.click(pencil);
+  const input = view.getByRole("textbox", { name: "Name" });
+  expect((input as HTMLInputElement).value).toBe("Noë");
+  await user.clear(input);
+  await user.type(input, "Noë the Second{Enter}");
+  await waitFor(() => expect(sent).toHaveLength(1));
+  expect(sent[0]?.body).toMatchObject({
+    name: "Noë the Second",
+    roleDescription: BOT.roleDescription,
+    visibility: BOT.visibility,
+    // A built-in Bot's managed address is never sent back as if somebody typed it.
+    endpoint: "",
+  });
+  await waitFor(() =>
+    expect(view.queryByRole("textbox", { name: "Name" })).toBeNull(),
+  );
+  // The header follows the profile, so the new name shows there at once.
+  expect(
+    await view.findByRole("heading", { name: "Noë the Second" }),
+  ).toBeTruthy();
+
+  // The role is a paragraph: Enter is a new line there, Cancel drops the draft unsent.
+  await user.click(view.getByRole("button", { name: "Edit role" }));
+  const role = view.getByRole("textbox", { name: "Role" });
+  await user.type(role, " and more{Enter}");
+  expect((role as HTMLTextAreaElement).value).toBe(
+    `${BOT.roleDescription} and more\n`,
+  );
+  await user.click(view.getByRole("button", { name: "Cancel" }));
+  expect(view.queryByRole("textbox", { name: "Role" })).toBeNull();
+  expect(sent).toHaveLength(1);
+});
+
+test("a Bot nobody here may change shows its name and role without a pencil", async () => {
+  const view = drawPanel(
+    <BotPanel
+      agentId="bot-1"
+      name="Noë"
+      onTabChange={() => {}}
+      tab="details"
+    />,
+  );
+  await view.findByRole("button", { name: "Edit name" });
+  cleanup();
+
+  const client = seededClient();
+  client.setQueryData(agentKeys.detail(BOT.id), { ...BOT, canManage: false });
+  const root = createRootRoute({
+    component: () => (
+      <BotPanel
+        agentId="bot-1"
+        name="Noë"
+        onTabChange={() => {}}
+        tab="details"
+      />
+    ),
+  });
+  const readOnly = render(
+    <QueryClientProvider client={client}>
+      <RouterProvider
+        router={createRouter({
+          routeTree: root,
+          history: createMemoryHistory({ initialEntries: ["/"] }),
+        })}
+      />
+    </QueryClientProvider>,
+  );
+  await readOnly.findByRole("heading", { name: "Name" });
+  expect(readOnly.queryByRole("button", { name: "Edit name" })).toBeNull();
+  expect(readOnly.queryByRole("button", { name: "Edit role" })).toBeNull();
+  expect(readOnly.getByText(BOT.roleDescription)).toBeTruthy();
+});
+
+test("a long name wraps in the panel header instead of being cut short", async () => {
+  const long = "Supercalifragilisticexpialidocious-Assistant-For-Everything";
+  const view = drawPanel(
+    <BotPanel
+      agentId="bot-1"
+      name={long}
+      onTabChange={() => {}}
+      tab="details"
+    />,
+  );
+  const heading = (await view.findAllByRole("heading", { level: 2 })).find(
+    (element) => element.textContent === "Noë" || element.textContent === long,
+  );
+  expect(heading?.className).toContain("break-words");
+  expect(heading?.className).not.toContain("truncate");
 });
 
 test("Library lists the workflows recorded on the Bot's screen, and an unnamed one is named first", async () => {
