@@ -2,7 +2,7 @@ import type * as React from "react";
 
 /**
  * The pieces a Marketplace page is laid out from — a plugin's page and a Bot template's page are
- * the same shape, as Grok Bot's are: groups of rows under a counted heading, and a card of facts.
+ * the same shape: groups of rows under a counted heading, and a card of facts.
  * One set here so the two pages cannot drift apart over a padding.
  */
 

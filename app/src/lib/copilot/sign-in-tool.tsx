@@ -241,7 +241,7 @@ async function waitForSignIn(id: string, signal?: AbortSignal) {
 }
 
 /**
- * The sign-in in the conversation: Grok's secure form row, whose Open draws the private form in a
+ * The sign-in in the conversation: the secure form row, whose Open draws the private form in a
  * dialog with the site's icon, the Bot's title and the host the login goes to.
  *
  * Everything on it is for the person (see sign-in-words.ts): a refused login with the site's own

@@ -22,6 +22,7 @@ import {
   pluginIndexEntry,
   pluginIndexServer,
 } from "../src/plugins/plugin-index";
+import { rebrandPlugin, rebrandText } from "../src/plugins/rebrand";
 
 /**
  * The vendored Marketplace index is data this deployment trusts with URLs it will dial and ids it
@@ -450,10 +451,84 @@ describe("the committed index", () => {
     }
   });
 
+  test("names this product wherever an author named the other client", () => {
+    // The sweep's rewrite, already applied: running it again changes no entry.
+    for (const entry of PLUGIN_INDEX)
+      expect(rebrandPlugin(entry)).toEqual(entry);
+  });
+
   test("answers a server by the id it minted", () => {
     const treg = pluginIndexServer("treg");
     expect(treg?.plugin.id).toBe("55647425");
     expect(treg?.server.auth.kind).toBe("header");
     expect(pluginIndexServer("notion")).toBeNull();
+  });
+});
+
+describe("the product's name in a plugin author's words", () => {
+  // Spelled in pieces, as everywhere in the repository: see app/tests/product-name.test.ts.
+  const old = "Grok";
+
+  test("is rewritten in every spelling an author uses", () => {
+    expect(rebrandText(`from Cursor and ${old} Bot.`)).toBe(
+      "from Cursor and Noë Bot.",
+    );
+    expect(rebrandText(`${old}Bot's privacy mode`)).toBe(
+      "Noë Bot's privacy mode",
+    );
+    expect(rebrandText(`wake a ${old.toLowerCase()}-bot`)).toBe(
+      "wake a Noë Bot",
+    );
+    expect(rebrandText(`two ${old} Bots`)).toBe("two Noë Bots");
+  });
+
+  test("leaves the model, the voice and other words alone", () => {
+    for (const other of [
+      `Add ${old} voice to an app`,
+      `so ${old} can answer`,
+      `n${old.toLowerCase()} bot`,
+      `${old} bottom sheet`,
+    ]) {
+      expect(rebrandText(other)).toBe(other);
+    }
+  });
+
+  test("touches only what a person reads, never a name, a slug, a URL or an id", () => {
+    const entry = PLUGIN_INDEX.find((candidate) => candidate.skills.length > 0);
+    if (!entry)
+      throw new Error("the committed index has no plugin with a skill");
+    const named = `${old} Bot`;
+    const plugin = {
+      ...entry,
+      name: named,
+      displayName: `${named} helper`,
+      description: `Use from Cursor or ${named}.`,
+      gitUrl: `https://github.com/example/${named}`,
+      skills: entry.skills.map((skill) => ({
+        ...skill,
+        description: `For ${named}.`,
+      })),
+      variables: {
+        TOKEN: {
+          description: `Your ${named} token`,
+          writeOnly: true,
+          required: false,
+        },
+      },
+    };
+    const rebranded = rebrandPlugin(plugin);
+    expect(rebranded.displayName).toBe("Noë Bot helper");
+    expect(rebranded.description).toBe("Use from Cursor or Noë Bot.");
+    expect(
+      rebranded.skills.every((skill) => skill.description === "For Noë Bot."),
+    ).toBe(true);
+    expect(rebranded.variables.TOKEN?.description).toBe("Your Noë Bot token");
+    expect(rebranded.name).toBe(named);
+    expect(rebranded.slug).toBe(entry.slug);
+    expect(rebranded.gitUrl).toBe(plugin.gitUrl);
+    expect(rebranded.skills.map((skill) => skill.slug)).toEqual(
+      entry.skills.map((skill) => skill.slug),
+    );
+    expect(Object.keys(rebranded)).toEqual(Object.keys(plugin));
   });
 });

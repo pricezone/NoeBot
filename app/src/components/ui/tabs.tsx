@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 /**
  * Tabs on Base UI, in the two shapes this app draws.
  *
- * `segmented` is the pill, as Grok draws it: no track, the labels in the muted text colour at
+ * `segmented` is the pill: no track, the labels in the muted text colour at
  * their own width and centred, and the selected one on a grey pill of the muted surface (the bot
  * panel's Details | Library | Computer). It used to lift a white pill off a grey track, which on
  * the light theme's white page is a white pill on nothing; a grey one reads the same in both

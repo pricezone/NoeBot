@@ -76,12 +76,12 @@ function useWaitClock(key: string | null): number | null {
 }
 
 /**
- * Noë Bot at work, under the last message, while a reply is being prepared: Grok's status row.
+ * Noë Bot at work, under the last message, while a reply is being prepared: a status row.
  *
  * The Bot's own character, in the Bot's colour, standing on the page with nothing behind it,
  * inline with the sentence that says what it is doing. The animation is the director's, unchanged —
  * searching, reading, typing, waiting for the person… in HD with its props — only small: a 32 px
- * box, about the size of the avatar in Grok's row. Props that reach left spill into the gutter; the
+ * box, the size of a small avatar. Props that reach left spill into the gutter; the
  * label starts after the room the ones on the right need, and is drawn above them.
  *
  * THE LABEL IS THE STATUS. The text alone is the `status` element, so what assistive technology

@@ -70,7 +70,7 @@ export default function Marketplace({
   };
 
   /*
-   * A plugin's page takes the whole body, search and tabs included, the way Grok Bot's does: the
+   * A plugin's page takes the whole body, search and tabs included: the
    * back chevron is the way out, and it returns to the list with the term and the category kept.
    * Switching tab clears `plugin` already (the tab change narrows the address to `{ tab, q }`).
    */

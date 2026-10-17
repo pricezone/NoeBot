@@ -1,12 +1,13 @@
 /**
  * One sweep: rewrite `src/plugins/cursor-index.json` from the Cursor Marketplace.
  *
- * Grok Bot's apps are Cursor Marketplace plugins — a public GitHub repository at a pinned commit,
- * with remote MCP servers in `mcp.json` and skills under `skills/` — and Cursor's index lists them
- * at `POST https://cursor.com/api/dashboard/list-marketplace-plugins`, undocumented and without
- * authentication. That endpoint is asked HERE, by whoever runs this script, and never by a
- * deployment: what a deployment offers is the committed file, reviewed in a diff, so an endpoint
- * that changes shape breaks this script on somebody's laptop and not every instance at boot.
+ * Noë Bot's Marketplace apps are Cursor Marketplace plugins — a public GitHub repository at a
+ * pinned commit, with remote MCP servers in `mcp.json` and skills under `skills/` — and Cursor's
+ * index lists them at `POST https://cursor.com/api/dashboard/list-marketplace-plugins`,
+ * undocumented and without authentication. That endpoint is asked HERE, by whoever runs this
+ * script, and never by a deployment: what a deployment offers is the committed file, reviewed in a
+ * diff, so an endpoint that changes shape breaks this script on somebody's laptop and not every
+ * instance at boot.
  *
  * Per plugin it reads the MCP configuration out of the repository at the pinned commit, reads
  * every dialect of it into one shape (`src/plugins/mcp-config.ts`), decides which servers a
@@ -33,6 +34,13 @@
  *
  * `--composio-toolkits` rewrites the toolkit list from Composio's public docs sitemap (every
  * `docs.composio.dev/toolkits/<slug>` page; their API wants a key) and then proposes, offline.
+ *
+ * THE PRODUCT'S NAME. Cursor's index is read by another client too, and some authors name it in
+ * their descriptions. Every sweep rewrites that name to Noë Bot in the text a person reads
+ * (`src/plugins/rebrand.ts`), so the committed file never says otherwise; `--rebrand` applies the
+ * same rewrite to the committed file, offline, without a sweep:
+ *
+ *   cd server && bun scripts/sync-plugin-index.ts --rebrand              # committed index, offline
  */
 import { renameSync, writeFileSync } from "node:fs";
 import { extractResourceMetadataUrl } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -69,6 +77,7 @@ import {
   type PluginIndex,
   parsePluginIndex,
 } from "../src/plugins/plugin-index";
+import { rebrandPlugin } from "../src/plugins/rebrand";
 
 const INDEX_URL = "https://cursor.com/api/dashboard/list-marketplace-plugins";
 const OUTPUT = new URL("../src/plugins/cursor-index.json", import.meta.url);
@@ -130,6 +139,7 @@ const args = process.argv.slice(2);
 const noProbe = args.includes("--no-probe");
 const duplicatesOnly = args.includes("--duplicates");
 const refreshToolkits = args.includes("--composio-toolkits");
+const rebrandOnly = args.includes("--rebrand");
 const onlyIndex = args.indexOf("--only");
 const only =
   onlyIndex === -1
@@ -397,6 +407,8 @@ async function fetchPlugin(
     skippedParts: [],
   });
 
+  // Cursor's own keys for the clients that read its index, verbatim: they are its API's field
+  // names, not prose, so the rebrand never touches them.
   const clients = plugin.minClientVersions ?? {};
   if (clients.sand === "never" || clients.grokbot === "never") {
     return unavailable("hidden");
@@ -582,7 +594,44 @@ async function reportDuplicates(plugins: readonly IndexedPlugin[]) {
   for (const line of drift) console.error(`  ${line}`);
 }
 
+/** The index as this script writes it: two-space JSON and a final newline. */
+function serialiseIndex(index: PluginIndex): string {
+  return `${JSON.stringify(index, null, 2)}\n`;
+}
+
+/** Replaces the committed file in one rename, so a reader never sees half of it. */
+function writeIndex(index: PluginIndex): void {
+  const temporary = `${OUTPUT.pathname}.tmp`;
+  writeFileSync(temporary, serialiseIndex(index));
+  renameSync(temporary, OUTPUT.pathname);
+  console.error(`wrote ${OUTPUT.pathname}`);
+}
+
+/**
+ * `--rebrand`: the committed index with the sweep's rewrite applied, and nothing else changed — not
+ * `syncedAt`, not an auth, not an id — so the diff is the sentences and only the sentences.
+ */
+async function rebrandCommittedIndex(): Promise<void> {
+  const committed = (await Bun.file(OUTPUT).json()) as PluginIndex;
+  parsePluginIndex(committed);
+  const index: PluginIndex = {
+    ...committed,
+    plugins: committed.plugins.map(rebrandPlugin),
+  };
+  parsePluginIndex(index);
+  const changed = index.plugins.filter(
+    (plugin, at) =>
+      JSON.stringify(plugin) !== JSON.stringify(committed.plugins[at]),
+  ).length;
+  console.error(`rebrand: ${changed} plugins changed`);
+  writeIndex(index);
+}
+
 async function main() {
+  if (rebrandOnly) {
+    await rebrandCommittedIndex();
+    return;
+  }
   const previous = await readPreviousIndex();
   if (refreshToolkits) await refreshToolkitList();
   if (duplicatesOnly || refreshToolkits) {
@@ -715,7 +764,8 @@ async function main() {
   const index: PluginIndex = {
     source: "cursor-marketplace",
     syncedAt: new Date().toISOString(),
-    plugins,
+    // Authors' words, shown in our Marketplace: the product they name is this one.
+    plugins: plugins.map(rebrandPlugin),
   };
   // The same validation the loader runs at boot, so a file this script writes is one it accepts.
   parsePluginIndex(index);
@@ -753,15 +803,11 @@ async function main() {
     }),
   );
 
-  const serialised = `${JSON.stringify(index, null, 2)}\n`;
   if (only) {
-    process.stdout.write(serialised);
+    process.stdout.write(serialiseIndex(index));
     return;
   }
-  const temporary = `${OUTPUT.pathname}.tmp`;
-  writeFileSync(temporary, serialised);
-  renameSync(temporary, OUTPUT.pathname);
-  console.error(`wrote ${OUTPUT.pathname}`);
+  writeIndex(index);
 }
 
 main().catch((error) => {

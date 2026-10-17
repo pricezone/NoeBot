@@ -34,7 +34,7 @@ type Face = { key: string; title: string; node: React.ReactNode };
 
 /**
  * The faces the pill wears: the person's installed apps first, then — up to three in all — the
- * trio Grok Bot's own pill always shows, Gmail, Notion and Google Drive, skipping any already
+ * fixed trio of Gmail, Notion and Google Drive, skipping any already
  * on it. Pure, so the order can be pinned without a DOM.
  */
 export function pillFaces(apps: readonly InstalledApp[]): Face[] {
@@ -54,10 +54,10 @@ export function pillFaces(apps: readonly InstalledApp[]): Face[] {
 /**
  * The "Connect apps" pill at the foot of the sidebar: the door to the Marketplace.
  *
- * Carries three faces, overlapping the way Grok Bot stacks them: the apps already wired up
+ * Carries three overlapping faces: the apps already wired up
  * first — "installed" is {@link installedApps}'s word, your connections plus the apps enabled
  * for everybody, the same rule that draws the counter over the Marketplace — and, until there are
- * three of those, the trio Grok Bot's pill always shows, so the button says what it is for before
+ * three of those, the fixed trio from `FEATURED_APP_LOGOS`, so the button says what it is for before
  * anything is connected. Logos come from the plugin catalogue, which every signed-in person may
  * read; a connection is only a server id. Neither query failing changes the pill, only what rides
  * on it.

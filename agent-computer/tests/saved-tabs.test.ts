@@ -17,10 +17,10 @@ import {
 /**
  * A Bot's browser closed for being idle, or by the cap, comes back with the tabs it had.
  *
- * Grok's computer keeps its pages across sleep and resumes where it left off. The sign-ins already
- * survived a close; the pages did not, and a Bot that was three tabs into a supplier's portal came
- * back to the start page. These pin which tabs are kept, in what order, and that the list is used
- * once.
+ * A Bot's computer should keep its pages across sleep and resume where it left off. The sign-ins
+ * already survived a close; the pages did not, and a Bot that was three tabs into a supplier's
+ * portal came back to the start page. These pin which tabs are kept, in what order, and that the
+ * list is used once.
  *
  * The rules run everywhere. The browser half drives `createProfiles` itself, because nothing asks
  * this process for an idle close, and is asked for by name like session-cookies.test.ts, because it

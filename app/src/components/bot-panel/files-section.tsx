@@ -33,7 +33,7 @@ const SHOW_MORE_STEP = 10;
  * The Library's file history: what was attached in this Bot's conversations and what it saved on
  * its computer, newest first, in "Today", "Last 7 days" and "Older".
  *
- * Grok's shape: a quiet label over each group, then a card of one-line rows — a thumbnail, the name,
+ * The shape: a quiet label over each group, then a card of one-line rows — a thumbnail, the name,
  * and how long ago — with "Show more" at the foot of a group that has more than five. A row opens
  * its file the way the conversation does: an image attachment in the same lightbox the transcript
  * uses, anything else as a download from the route that checks access.
@@ -205,7 +205,7 @@ function FileRow({ file }: { file: AgentFile }) {
 }
 
 /**
- * How long ago, revealed on the row under the pointer as Grok does, and always shown where there is
+ * How long ago, revealed on the row under the pointer, and always shown where there is
  * no pointer to hover with. The exact moment is its tooltip.
  */
 function FileAge({ at }: { at: string }) {

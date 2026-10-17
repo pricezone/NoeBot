@@ -12,7 +12,7 @@
  * nothing is exported and nothing is loaded. `OPENBOT_OTEL_EXPORT=off` turns it off with an endpoint
  * still configured.
  *
- * Every record carries `openbot.surface`, the counterpart of Grok Bot's `cursor.surface=grok_bot`:
+ * Every record carries `openbot.surface`, the part of the product it came from:
  * `bot` for something a Bot did (computer actions, tool calls, handoffs), `identity` for sign-in and
  * people, `control_plane` for everything an administrator or member configured.
  *

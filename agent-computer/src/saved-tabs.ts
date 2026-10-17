@@ -5,7 +5,7 @@
  * used one when too many are running (the cap). Closing loses no sign-ins: those are in the profile
  * and in `session-cookies.ts`. It did lose the pages. The next launch opened on the start page, so a
  * Bot that had three tabs open on a supplier's portal came back to Google, and the person who opened
- * its screen after lunch saw a different computer from the one they left. Grok's computer resumes
+ * its screen after lunch saw a different computer from the one they left. A computer should resume
  * where it left off; this is that half.
  *
  * So the addresses of the open tabs are written beside the profile when one of those closes takes the

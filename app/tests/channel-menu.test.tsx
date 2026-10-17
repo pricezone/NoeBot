@@ -23,7 +23,7 @@ import { sectionKeys } from "@/lib/channels/sections";
 import { settleReactWork } from "./settle-react-work";
 
 /**
- * A roster row's right-click menu: Grok Bot's items in Grok Bot's order, and each one doing what it
+ * A roster row's right-click menu: its items in their fixed order, and each one doing what it
  * says — to the server, and to the cached roster the sidebar draws from.
  */
 
@@ -242,7 +242,7 @@ function pick(item: HTMLElement) {
 const request = (method: string, url: string) =>
   requests.find((seen) => seen.method === method && seen.url === url);
 
-test("a Bot's own conversation offers Grok Bot's items, in Grok Bot's order", async () => {
+test("a Bot's own conversation offers the menu's items, in their order", async () => {
   const { view } = mount(row());
 
   const menu = await openMenu(view, "Expense Manager");

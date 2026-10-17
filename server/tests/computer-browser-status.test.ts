@@ -18,7 +18,7 @@ import type { ComputerState } from "../src/computer/schema";
 /**
  * Whether a Bot's browser is running, said without starting it.
  *
- * The panel draws a computer whose browser has stopped as asleep, the way Grok's does, and wakes it
+ * The panel draws a computer whose browser has stopped as asleep, and wakes it
  * only when somebody asks. It can only do that if something tells it the browser has stopped without
  * the telling being the thing that starts it: a screenshot is a launch. `/status` is the read that
  * starts nothing, so it carries the answer.

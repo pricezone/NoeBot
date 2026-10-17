@@ -43,8 +43,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * "Record skill": the way to a Bot's screen with Record your steps in front of you — Grok Bot's
- * "Teach a task", which also lives in the computer view. One Bot you may use and the button goes
+ * "Record skill": the way to a Bot's screen with Record your steps in front of you, which lives
+ * in the computer view. One Bot you may use and the button goes
  * straight to its newest conversation (or a fresh one) with `panel=computer&record=true`, which
  * opens the viewer full-window on arrival; several and it asks which Bot's computer records.
  * Nothing is pressed for the person: taking over the Bot's browser stays their press.

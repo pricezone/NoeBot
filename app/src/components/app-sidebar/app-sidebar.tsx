@@ -62,7 +62,7 @@ export {
  */
 const MAX_ANIMATED_ROWS = 60;
 
-/** The two round buttons in the header: card-coloured discs, the way Grok Bot draws them. */
+/** The two round buttons in the header: card-coloured discs. */
 const headerButtonClassName =
   "size-9 rounded-full bg-card text-foreground hover:bg-muted aria-expanded:bg-muted [&_svg]:size-5";
 

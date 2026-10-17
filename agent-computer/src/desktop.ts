@@ -12,7 +12,7 @@ import { isPlainBotId, UnusableBotIdError } from "./bot-id";
  * is open. It is what a person expects of "the Bot's computer" when they open the screen, and it is
  * what lets them take the wheel on something other than the one page the Bot had open.
  *
- * Kept deliberately bare, like Grok's: no menu bar, no desktop icons, three launchers and no frame
+ * Kept deliberately bare: no menu bar, no desktop icons, three launchers and no frame
  * around them. The browser opens maximized and the dock slides out of its way, so while the Bot is
  * browsing the screen is the page. The Bot's shell commands are a tool of their own and are shown in
  * the app's activity log, not typed into a window here; the dock's terminal is for the person.
@@ -252,7 +252,7 @@ const SESSION_CONFIG_XML = `<?xml version="1.0" encoding="UTF-8"?>
 /**
  * The dock's hover and its tooltips, as a GTK 3 user stylesheet (`$XDG_CONFIG_HOME/gtk-3.0/gtk.css`).
  *
- * Grok's look: a launcher under the pointer sits on a soft, light rounded square, and its tooltip is
+ * The look: a launcher under the pointer sits on a soft, light rounded square, and its tooltip is
  * a dark rounded label with the name in white. The image has no GTK theme of its own, so without
  * this the panel draws Adwaita's: a bevelled button on hover and a translucent, bordered tooltip
  * with the launcher's icon beside a bold name.

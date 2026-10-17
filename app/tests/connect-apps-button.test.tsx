@@ -6,7 +6,7 @@ import {
 
 /**
  * The faces on the sidebar's "Connect apps" pill: the apps already wired up first, then — up to
- * three in all — Gmail, Notion and Google Drive, the trio Grok Bot's own pill always shows, so the
+ * three in all — Gmail, Notion and Google Drive, the fixed trio, so the
  * button says what it is for before anything is connected. Decided without a DOM.
  */
 

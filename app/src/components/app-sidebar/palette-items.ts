@@ -10,8 +10,8 @@ import { isHiddenFromSidebar, matchingChannels } from "./roster";
  * Three kinds of row. A Bot, which opens its newest conversation (or a new one). A Settings
  * section, by the same list the Settings modal draws. And a conversation hidden from the sidebar,
  * because hiding is meant to tidy the roster, not to lose a conversation: until somebody speaks in
- * it again the search is the one place in the app that still leads to it. Grok Bot's popup has
- * rows for its Computer and Updates settings too; Noë Bot has neither, so neither is here.
+ * it again the search is the one place in the app that still leads to it. There are no rows for
+ * Computer or Updates settings: Noë Bot has neither.
  */
 export type PaletteItem =
   | { kind: "bot"; key: string; bot: AgentProfile }
@@ -35,7 +35,7 @@ function englishSettingTitle(setting: ModalNavItem): string {
 }
 
 /**
- * The two lines a Bot row draws, the way Grok Bot draws its own: a small label beside the name, and
+ * The two lines a Bot row draws: a small label beside the name, and
  * a sentence about what the Bot does under it. The title is the label and the role description the
  * sentence; a Bot with only one of the two shows it as the sentence, so no row is left with a label
  * and nothing under it.

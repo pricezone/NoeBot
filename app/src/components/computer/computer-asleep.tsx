@@ -42,7 +42,7 @@ function useBotLook(botId: string): AvatarChoice {
 /**
  * What a sleeping computer shows, in the panel's card and in the full-window viewer.
  *
- * Grok's treatment: the Bot itself, dozing, in its own colour, with two small Z's drifting off it
+ * The Bot itself, dozing, in its own colour, with two small Z's drifting off it
  * (still under reduced motion, see `.computer-asleep-z`), the line "Computer is asleep", and a pill
  * that wakes it. The whole card wakes it too; the pill is the same thing for a keyboard, which is
  * why the card's own target is out of the tab order and hidden from a screen reader.

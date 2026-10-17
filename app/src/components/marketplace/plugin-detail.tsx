@@ -41,7 +41,7 @@ import {
 import { useShareLink } from "@/lib/share-link";
 
 /**
- * A plugin's own page inside the Marketplace, laid out like Grok Bot's: back chevron, the mark at
+ * A plugin's own page inside the Marketplace: back chevron, the mark at
  * 92px, the name with a link to the source, Share and Add on the right, the description, then the
  * connectors it adds, the skills it brings, and a few facts in rows.
  *

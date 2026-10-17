@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 /**
- * The three apps Grok Bot shows beside its "Connect apps" button, at their published colours.
+ * The three apps the "Connect apps" pill falls back on, at their published colours.
  *
  * Drawn inline for the reason `auth/provider-logo.tsx` gives: a mark that arrives over the
  * network can be missing exactly when the button has to read as a promise, and the sidebar is on
@@ -78,7 +78,7 @@ export function GoogleDriveLogo({ className }: LogoProps) {
 }
 
 /**
- * The fixed trio, in the order Grok Bot shows them, keyed the way this deployment names each app:
+ * The fixed trio, in the order the pill shows them, keyed the way this deployment names each app:
  * Gmail is the Marketplace plugin, Notion and Google Drive the catalogue's own entries.
  */
 export const FEATURED_APP_LOGOS: readonly {

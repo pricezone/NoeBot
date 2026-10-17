@@ -59,7 +59,7 @@ import {
   type NetworkPolicyRow,
 } from "./settings-store";
 
-/** Action Recording keeps 90 days, as Grok Bot's does. */
+/** Action Recording keeps 90 days. */
 export const ACTION_RECORD_RETENTION_DAYS = 90;
 
 type Snapshot = {

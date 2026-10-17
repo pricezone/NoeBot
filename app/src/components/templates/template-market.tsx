@@ -28,17 +28,17 @@ import { type AvatarColor, avatarSchemeOf } from "../../../../shared/avatar";
 import { TEMPLATE_CATEGORIES } from "../../../../shared/templates";
 
 /**
- * The Agents tab, laid out like Grok Bot's Bot marketplace: category pills, a featured strip of
- * four, then rows per category — and the person's own Bots, in the same rows, with Open.
+ * The Agents tab, a marketplace of Bots: category pills, a featured strip of four, then rows per
+ * category — and the person's own Bots, in the same rows, with Open.
  *
- * Measured off x.ai/bot/marketplace: pills `rounded-full px-[18px] py-2.5 text-sm font-medium`,
+ * The sizes: pills `rounded-full px-[18px] py-2.5 text-sm font-medium`,
  * a featured card `rounded-2xl px-3 pt-5 pb-4` with a 92px mark and the name in the Bot's own
  * colour, rows `px-3 py-1 rounded-xl` with a 44px mark, `text-[15px] leading-5 font-medium` and
  * " by Creator" in normal weight, a one-line summary and a round Add. The marks are Noë Bot's
  * own faces, each template with the colour and expression its author chose.
  *
  * WHICH CATEGORY IS THE ADDRESS (`?category`), so Back works and a category can be linked to. The
- * featured strip shows only on All with no search, as Grok Bot's does; the t("Your Bots") pill shows
+ * featured strip shows only on All with no search; the t("Your Bots") pill shows
  * the person's own and the Bots shared with them, alone.
  *
  * THE ROSTER'S ERROR RULES CARRY OVER from the component this replaced: a stale roster beats an

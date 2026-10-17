@@ -22,8 +22,8 @@ import {
 
 /**
  * The search the sidebar's magnifier opens, and Mod+K from anywhere the sidebar is: a box, and
- * under it every Bot and every Settings section, narrowed as you type. Drawn the way Grok Bot draws
- * its own: one card, the box across the top, one row per result with a face or an icon, the row
+ * under it every Bot and every Settings section, narrowed as you type. Drawn as
+ * one card: the box across the top, one row per result with a face or an icon, the row
  * under the pointer or the arrow keys filled in.
  *
  * It used to be an inline filter over the conversations. That filter could only find what the
@@ -175,7 +175,7 @@ function PaletteBody({ onChosen }: { onChosen: () => void }) {
           </p>
         ) : null}
         {groups.map((group) => (
-          // No visible heading, as in Grok Bot's popup: the rows say what they are. The group still
+          // No visible heading: the rows say what they are. The group still
           // names itself to a screen reader.
           // biome-ignore lint/a11y/useSemanticElements: a listbox may own only options and groups, and a fieldset is neither.
           <div aria-label={t(group.label)} key={group.id} role="group">

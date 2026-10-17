@@ -28,7 +28,7 @@ test("the status row is the Bot's own character, small and inline with the sente
   expect(indicator.dataset.animation).toBe("action:search");
   expect(indicator.dataset.phase).toBe("working");
   expect(sprite?.getAttribute("data-animation")).toBe("action:search");
-  // About Grok's size: a 32 px box, 2 px per cell.
+  // A small avatar's size: a 32 px box, 2 px per cell.
   expect(sprite?.getAttribute("width")).toBe("32");
   // The Bot's colour paints the character; there is no tile, disc or background anywhere.
   expect(holder?.style.color).toBe("#2563eb");

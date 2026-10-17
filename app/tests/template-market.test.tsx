@@ -26,7 +26,7 @@ import {
 import { Route as HomeRoute } from "@/routes/_authed/_app/index";
 
 /**
- * The Agents tab, drawn like Grok Bot's Bot marketplace: the templates by category with a
+ * The Agents tab, a marketplace of Bots: the templates by category with a
  * featured strip and a View all, the person's own Bots in the same rows, and the roster's
  * error rules carried over from the component this replaced — a failure is said, an empty roster
  * is not an error, and a failed refetch keeps the roster it already had.
