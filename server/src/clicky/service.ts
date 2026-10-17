@@ -4,6 +4,7 @@ import {
   type ClickyOverlay,
   type ClickyPoint,
   type ClickyProposal,
+  type ClickyRect,
   type ClickySession,
   currentStep,
 } from "../../../shared/clicky";
@@ -108,6 +109,16 @@ export const CLICKY_TICK_MS = 5_000;
 /** The commands that ask the model to look. */
 const LOOKS = new Set(["ask", "show_me", "retry"]);
 
+/** Whether two boxes on the screen are the same place, within 2% of the screen either way. */
+export function sameRect(a: ClickyRect, b: ClickyRect): boolean {
+  return (
+    Math.abs(a.x - b.x) < 0.02 &&
+    Math.abs(a.y - b.y) < 0.02 &&
+    Math.abs(a.width - b.width) < 0.02 &&
+    Math.abs(a.height - b.height) < 0.02
+  );
+}
+
 /** How many more times a look that found the page still loading looks again. */
 const LOADING_LOOKS_AGAIN = 3;
 
@@ -124,6 +135,8 @@ export const CLICKY_PROGRESS = {
   scrollSettleMs: 700,
   /** How long a look that found the page still loading waits before it looks again. */
   loadingRetryMs: 1_500,
+  /** How long after a look its first step's control is checked again for having moved. */
+  verifyAfterMs: 1_200,
   /** How long a look after a step waits before asking whether the page has settled. */
   settleFloorMs: 300,
 };
@@ -668,6 +681,9 @@ export function createClickyService(deps: {
       }
       if (controller.signal.aborted) return;
       await dispatch(userId, botId, reply);
+      const first =
+        reply.type === "brain.reply" ? reply.plan?.steps[0] : undefined;
+      if (first) void verifyStepTarget(userId, botId, first);
     } catch (error) {
       if (controller.signal.aborted) return;
       await dispatch(userId, botId, {
@@ -678,6 +694,37 @@ export function createClickyService(deps: {
     } finally {
       if (thinking.get(key) === controller) thinking.delete(key);
     }
+  }
+
+  /**
+   * A look's first step, checked once more a moment later. A page still drawing itself can move or
+   * drop the control the look saw (live, on dilosi: the box was drawn round something gone a second
+   * later); moved or gone, the step is looked at again (a check), which places it where it is now.
+   * Nothing is known when the computer cannot be asked, and nothing is done then.
+   */
+  async function verifyStepTarget(
+    userId: string,
+    botId: string,
+    step: { targetRef?: string; overlays: readonly ClickyOverlay[] },
+  ) {
+    const read = deps.gateway.elementRect;
+    const ref = step.targetRef;
+    const box = step.overlays.find((overlay) => overlay.kind === "highlight");
+    if (!read || !ref || box?.kind !== "highlight") return;
+    await new Promise((resolve) => setTimeout(resolve, pace.verifyAfterMs));
+    const found = await read(botId, ref).catch(() => null);
+    if (!found) return;
+    const now =
+      found.rect && "screen" in found
+        ? normalizedRect(found.rect, found.screen)
+        : null;
+    if (now && sameRect(now, box.rect)) return;
+    await dispatch(
+      userId,
+      botId,
+      { type: "page.changed", url: "" },
+      { onlyIfOpen: true },
+    ).catch(() => undefined);
   }
 
   async function act(
