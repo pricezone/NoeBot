@@ -15,6 +15,7 @@ import { HandoffTool } from "./handoff-tool";
 import { loadFrameDefaults } from "./sandbox-frame";
 import { SandboxedTools } from "./sandboxed-tools";
 import { SkillTools } from "./skill-tools";
+import { SuggestionTools } from "./suggestion-tools";
 
 // Before the first generated interface is drawn: every surface that draws one sits under this
 // provider, and the SDK makes each frame through the call this wraps (see sandbox-frame.ts).
@@ -82,6 +83,8 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
           `bot-creator` skill, so most runs are not offered these four tools at all.
         */}
         <BotTools />
+        {/* Offering a template or a Marketplace item; the finders that feed them run on the server. */}
+        <SuggestionTools />
         {children}
       </ActiveBotProvider>
     </CopilotKitProvider>
