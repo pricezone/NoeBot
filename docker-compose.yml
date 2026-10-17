@@ -110,6 +110,11 @@ services:
       # minutes; closing a browser costs only a relaunch, because the profile is on the volume below.
       COMPUTER_MAX_BROWSERS: ${COMPUTER_MAX_BROWSERS:-}
       COMPUTER_BROWSER_IDLE_MS: ${COMPUTER_BROWSER_IDLE_MS:-}
+      # With COMPUTER_DESKTOP=on each Bot has a desktop of its own: how many may run at once (one
+      # per 512 MB above the first 1 GB by default) and how long one with no browser and nobody
+      # watching is kept (10 minutes).
+      COMPUTER_MAX_DESKTOPS: ${COMPUTER_MAX_DESKTOPS:-}
+      COMPUTER_DESKTOP_IDLE_MS: ${COMPUTER_DESKTOP_IDLE_MS:-}
     volumes:
       - agent-workspace:/workspace
       # Chromium's user-data directory is volume-backed so logins survive container restarts.

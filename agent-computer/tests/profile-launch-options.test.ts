@@ -70,4 +70,46 @@ describe.skipIf(
       }
     },
   );
+
+  test("a Bot with its own desktop launches its browser on that desktop's display", async () => {
+    const { chromium } = await import("playwright");
+    delete process.env.COMPUTER_BROWSER_BACKEND;
+    delete process.env.COMPUTER_BROWSER_MODE;
+    const launch = spyOn(
+      chromium,
+      "launchPersistentContext",
+    ).mockImplementation(async () => {
+      throw new Error("launch inspected without starting a browser");
+    });
+    const { createProfiles } = await import(
+      "../src/profiles?launch-options=display"
+    );
+    const root = await mkdtemp(join(tmpdir(), "openbot-launch-display-"));
+    const asked: string[] = [];
+    const profiles = createProfiles(root, undefined, undefined, {
+      displayFor: async (botId: string) => {
+        asked.push(botId);
+        return botId === "bot-one" ? ":41" : ":42";
+      },
+    });
+    const plain = createProfiles(join(root, "plain"));
+    try {
+      await expect(profiles.page("bot-one")).rejects.toThrow("inspected");
+      await expect(profiles.page("bot-two")).rejects.toThrow("inspected");
+      await expect(plain.page("bot-three")).rejects.toThrow("inspected");
+      expect(asked).toEqual(["bot-one", "bot-two"]);
+      const envs = launch.mock.calls.map(([, options]) => options?.env);
+      expect(envs[0]?.DISPLAY).toBe(":41");
+      expect(envs[1]?.DISPLAY).toBe(":42");
+      // Only the display changes: the home, and the font cache in it, are the computer's.
+      expect(envs[0]?.HOME).toBe(process.env.HOME);
+      // Without a desktop of its own a browser launches as it always has.
+      expect(envs[2]).toBeUndefined();
+    } finally {
+      await profiles.closeAll();
+      await plain.closeAll();
+      launch.mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

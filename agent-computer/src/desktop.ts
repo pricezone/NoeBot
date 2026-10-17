@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isPlainBotId, UnusableBotIdError } from "./bot-id";
 
 /**
  * The desktop around the Bot's browser.
@@ -17,12 +18,13 @@ import { dirname, join } from "node:path";
  * the app's activity log, not typed into a window here; the dock's terminal is for the person.
  *
  * XFCE, because it is the lightest desktop that still looks like one: a window manager, a panel and
- * a wallpaper for a few hundred megabytes of image and well under that of memory. It runs on the
- * same Xvfb the headed browser already uses, started by `virtual-display.ts`, as the same user.
+ * a wallpaper for a few hundred megabytes of image and well under that of memory. It runs on an Xvfb
+ * started by `virtual-display.ts`, as the same user.
  *
- * ONE DESKTOP PER COMPUTER PROCESS, which on the one-container image is one per deployment: every Bot
- * on the computer shares it, the same way they share the browser process and the shell today. A
- * per-Bot desktop is the same change as a per-Bot computer and arrives with it.
+ * ONE DESKTOP PER BOT. Each Bot on the computer gets its own X display and its own session on it,
+ * with its own home, settings, runtime directory and session bus (`botDesktopDirectories`), so a
+ * person watching one Bot sees that Bot's screen only, and their hands reach no other Bot's windows.
+ * Which Bots have one running, and for how long, is `desktop-sessions.ts`.
  *
  * Supervised, not merely started. The session is restarted when it dies, with a short pause so a
  * desktop that cannot start does not spin, and a cap so one that keeps dying is eventually left dead
@@ -391,13 +393,15 @@ export function desktopEnvironment(
   display: string,
   source: NodeJS.ProcessEnv,
   home: string,
+  /** This desktop's own runtime directory (see `botDesktopDirectories`); else the computer's. */
+  runtimeDir?: string,
 ): Record<string, string> {
   const env: Record<string, string> = {
     DISPLAY: display,
     HOME: home,
     PATH: source.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     LANG: source.LANG ?? "C.UTF-8",
-    XDG_RUNTIME_DIR: runtimeDirectory(source),
+    XDG_RUNTIME_DIR: runtimeDir ?? runtimeDirectory(source),
     XDG_CONFIG_HOME: join(home, ".config"),
     XDG_CACHE_HOME: join(home, ".cache"),
     XDG_DATA_HOME: join(home, ".local", "share"),
@@ -416,6 +420,28 @@ function runtimeDirectory(source: NodeJS.ProcessEnv): string {
   const configured = source.XDG_RUNTIME_DIR?.trim();
   if (configured) return configured;
   return join("/tmp", `openbot-runtime-${process.getuid?.() ?? "user"}`);
+}
+
+/**
+ * Where one Bot's desktop lives: a home of its own (its XFCE settings, caches, and what a person's
+ * terminal calls `~`) and a runtime directory of its own (its session bus, and the dock's browser
+ * requests, which is how the Chrome button on a Bot's dock opens that Bot's browser and no other).
+ *
+ * Under the computer's own home and runtime directory, so nothing new has to be created or owned by
+ * the image. The id becomes a path, so it is checked here as well as at the door.
+ */
+export function botDesktopDirectories(
+  botId: string,
+  {
+    home = homedir(),
+    source = process.env,
+  }: { home?: string; source?: NodeJS.ProcessEnv } = {},
+): { home: string; runtimeDir: string } {
+  if (!isPlainBotId(botId)) throw new UnusableBotIdError(botId);
+  return {
+    home: join(home, ".openbot-desktops", botId),
+    runtimeDir: join(runtimeDirectory(source), "openbot-desktops", botId),
+  };
 }
 
 /**
@@ -538,14 +564,17 @@ export async function startDesktop(
     display,
     home = homedir(),
     source = process.env,
+    runtimeDir,
   }: {
     display: string;
     home?: string;
     source?: NodeJS.ProcessEnv;
+    /** The session's own runtime directory; the computer's when absent. */
+    runtimeDir?: string;
   },
   runtime: DesktopRuntime = systemRuntime,
 ): Promise<Desktop> {
-  const env = desktopEnvironment(display, source, home);
+  const env = desktopEnvironment(display, source, home, runtimeDir);
   await prepareDesktopHome(env, source.WORKSPACE_DIR?.trim() || "/workspace", {
     compositing:
       source.COMPUTER_DESKTOP_COMPOSITING?.trim().toLowerCase() !== "off",
@@ -577,6 +606,7 @@ export async function startDesktop(
         console.error(
           JSON.stringify({
             type: "computer-desktop-exited",
+            display,
             process: name,
             exitCode: code,
             restarting: restarts <= MAX_RESTARTS,
@@ -615,6 +645,7 @@ export async function startDesktop(
     console.error(
       JSON.stringify({
         type: "computer-desktop-not-ready",
+        display,
         budgetMs: WM_BUDGET_MS,
       }),
     );

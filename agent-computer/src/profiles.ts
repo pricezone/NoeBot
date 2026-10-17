@@ -352,10 +352,42 @@ export type BrowserClosed = (botId: string) => void | Promise<void>;
  */
 export type BrowserLaunched = (botId: string, context: BrowserContext) => void;
 
+export type ProfilesOptions = {
+  /**
+   * The X display a Bot's browser opens on, when each Bot has a desktop of its own
+   * (desktop-sessions.ts): asked before every launch, which is what starts that desktop the first
+   * time. Absent, or answering null, the browser opens where the computer's environment says, as it
+   * always has.
+   */
+  displayFor?: (botId: string) => Promise<string | null>;
+  /**
+   * Told when a Bot's browser has been closed and has finished closing (a stop, a reset, the cap or
+   * the idle sweep), so what it ran on can go too. Not awaited: the close is on the launch path.
+   */
+  afterClosed?: (botId: string) => void;
+};
+
+/**
+ * The environment a browser on its own display launches with: the computer's, with `DISPLAY` set to
+ * that Bot's. Everything else stays as it was, the home and its font cache included.
+ */
+export function browserEnvironment(
+  display: string,
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value !== undefined) env[name] = value;
+  }
+  env.DISPLAY = display;
+  return env;
+}
+
 export function createProfiles(
   root: string,
   onClosed: BrowserClosed = () => undefined,
   onLaunched?: BrowserLaunched,
+  { displayFor, afterClosed }: ProfilesOptions = {},
 ) {
   type LiveBrowser = {
     context: BrowserContext;
@@ -510,6 +542,12 @@ export function createProfiles(
       if (keepTabs) await keepOpenTabs(botId, running);
       await keepSessionCookies(running);
       await closeAndWait(running.context).catch(() => undefined);
+      // Inside the close, so a launch waiting on it finds whatever this sets going already going.
+      try {
+        afterClosed?.(botId);
+      } catch {
+        // Its own business; the browser is closed either way.
+      }
     });
     return true;
   };
@@ -678,8 +716,14 @@ export function createProfiles(
           () => undefined,
         );
         await mkdir(downloadsPath, { recursive: true });
+        // The Bot's own display, when it has one: started here the first time (desktop-sessions.ts).
+        const display = (await displayFor?.(botId)) ?? null;
         console.info(
-          JSON.stringify({ type: "computer-browser-launching", botId }),
+          JSON.stringify({
+            type: "computer-browser-launching",
+            botId,
+            ...(display ? { display } : {}),
+          }),
         );
         const context = await chromium.launchPersistentContext(dir, {
           channel: BROWSER_RUNTIME.channel,
@@ -709,6 +753,7 @@ export function createProfiles(
           handleSIGINT: false,
           handleSIGHUP: false,
           ...(proxy ? { proxy } : {}),
+          ...(display ? { env: browserEnvironment(display) } : {}),
           downloadsPath,
         });
         onLaunched?.(botId, context);
@@ -849,6 +894,15 @@ export function createProfiles(
      */
     async stop(botId: string): Promise<boolean> {
       return closeOnRequest(botId, "it was stopped");
+    },
+
+    /**
+     * Close this Bot's browser for a reason nobody asked for, its tabs written down first so the next
+     * launch opens them again: the close the cap and the idle sweep make. For the desktop cap, which
+     * takes a Bot's desktop away and its browser with it (desktop-sessions.ts).
+     */
+    async putAway(botId: string, reason: string): Promise<boolean> {
+      return evict(botId, reason, { keepTabs: true });
     },
 
     /**
