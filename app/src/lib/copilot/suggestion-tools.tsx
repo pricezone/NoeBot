@@ -140,6 +140,26 @@ function ItemOffer({
   );
 }
 
+/**
+ * The two cards' render components for one Bot. The Bot's id goes AFTER the render props, which
+ * carry an `agentId` of their own (often undefined): spread last, it replaced this one, and the
+ * Marketplace card crashed reading its length.
+ */
+export function offerRenderers(agentId: string) {
+  return {
+    TemplateCard: function OfferTemplateRender(
+      props: OfferProps<OfferTemplateArgs>,
+    ) {
+      return <TemplateOffer {...props} agentId={agentId} />;
+    },
+    ItemCard: function OfferMarketplaceRender(
+      props: OfferProps<OfferMarketplaceArgs>,
+    ) {
+      return <ItemOffer {...props} agentId={agentId} />;
+    },
+  };
+}
+
 export function SuggestionTools() {
   const { t } = useTranslation();
   const declared = useDeclaredBotId();
@@ -153,18 +173,8 @@ export function SuggestionTools() {
    * Stabilised with `useMemo` for the reason the gallery's decisions are: the render component is
    * identity-compared, and a fresh function every render remounts the card mid-answer.
    */
-  const TemplateCard = useMemo(
-    () =>
-      function OfferTemplateRender(props: OfferProps<OfferTemplateArgs>) {
-        return <TemplateOffer agentId={agentId} {...props} />;
-      },
-    [agentId],
-  );
-  const ItemCard = useMemo(
-    () =>
-      function OfferMarketplaceRender(props: OfferProps<OfferMarketplaceArgs>) {
-        return <ItemOffer agentId={agentId} {...props} />;
-      },
+  const { TemplateCard, ItemCard } = useMemo(
+    () => offerRenderers(agentId),
     [agentId],
   );
 
