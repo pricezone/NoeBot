@@ -429,15 +429,21 @@ function runtimeDirectory(source: NodeJS.ProcessEnv): string {
  *
  * Under the computer's own home and runtime directory, so nothing new has to be created or owned by
  * the image. The id becomes a path, so it is checked here as well as at the door.
+ *
+ * `own`: the computer's own home and runtime directory themselves, for a computer that runs one
+ * Bot. Its desktop was always there, and its terminal history and its XFCE and file manager
+ * settings stay where they were.
  */
 export function botDesktopDirectories(
   botId: string,
   {
     home = homedir(),
     source = process.env,
-  }: { home?: string; source?: NodeJS.ProcessEnv } = {},
+    own = false,
+  }: { home?: string; source?: NodeJS.ProcessEnv; own?: boolean } = {},
 ): { home: string; runtimeDir: string } {
   if (!isPlainBotId(botId)) throw new UnusableBotIdError(botId);
+  if (own) return { home, runtimeDir: runtimeDirectory(source) };
   return {
     home: join(home, ".openbot-desktops", botId),
     runtimeDir: join(runtimeDirectory(source), "openbot-desktops", botId),
@@ -497,6 +503,8 @@ export type DesktopRuntime = {
     env: Record<string, string>,
   ) => Promise<{ code: number; stdout: string }>;
   wait: (milliseconds: number) => Promise<void>;
+  /** Signal a supervised process and everything it started. Its own process when absent. */
+  kill?: (child: ChildProcess, signal: NodeJS.Signals) => void;
 };
 
 const systemRuntime: DesktopRuntime = {
@@ -504,6 +512,13 @@ const systemRuntime: DesktopRuntime = {
     const child = spawn(command, args, {
       env,
       stdio: ["ignore", "ignore", "pipe"],
+      /*
+       * Its own process group, so stopping it reaches what it started. `dbus-launch` runs
+       * `startxfce4`, which runs xfce4-session, which runs the window manager, the panel and the
+       * desktop: a SIGTERM to the first alone left the rest running, and on a display that had gone
+       * they went on trying to draw on whichever X server took its number next.
+       */
+      detached: true,
     });
     /*
      * GTK and XFCE say a great deal on stderr that is not wrong, and a container log full of it hides
@@ -540,6 +555,17 @@ const systemRuntime: DesktopRuntime = {
   },
   wait: (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  kill(child, signal) {
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, signal);
+        return;
+      } catch {
+        // The group has gone, or never was one: the process itself, then.
+      }
+    }
+    child.kill(signal);
+  },
 };
 
 export type Desktop = {
@@ -552,7 +578,8 @@ export type Desktop = {
 
 /** How long the window manager gets to appear before the computer carries on without waiting. */
 const WM_BUDGET_MS = 20_000;
-const WM_POLL_MS = 250;
+/** Often, because a browser launch waits on this: a quarter second of polling is a quarter second. */
+const WM_POLL_MS = 100;
 /** A dead session comes back after this, and gives up after too many deaths in a row. */
 const RESTART_DELAY_MS = 2_000;
 const MAX_RESTARTS = 5;
@@ -565,12 +592,15 @@ export async function startDesktop(
     home = homedir(),
     source = process.env,
     runtimeDir,
+    wmBudgetMs = WM_BUDGET_MS,
   }: {
     display: string;
     home?: string;
     source?: NodeJS.ProcessEnv;
     /** The session's own runtime directory; the computer's when absent. */
     runtimeDir?: string;
+    /** How long to wait for the window manager. Shorter once one has failed to come up. */
+    wmBudgetMs?: number;
   },
   runtime: DesktopRuntime = systemRuntime,
 ): Promise<Desktop> {
@@ -627,7 +657,7 @@ export async function startDesktop(
    * a budget: a desktop that never comes up is reported in the log and the browser still works
    * without it, as it did before there was a desktop.
    */
-  const deadline = Date.now() + WM_BUDGET_MS;
+  const deadline = Date.now() + wmBudgetMs;
   let ready = false;
   while (Date.now() < deadline && !stopping) {
     const probe = await runtime.run(
@@ -646,7 +676,7 @@ export async function startDesktop(
       JSON.stringify({
         type: "computer-desktop-not-ready",
         display,
-        budgetMs: WM_BUDGET_MS,
+        budgetMs: wmBudgetMs,
       }),
     );
   }
@@ -658,7 +688,9 @@ export async function startDesktop(
       if (stopping) return;
       stopping = true;
       const children = [...supervised.values()];
-      for (const child of children) child.kill("SIGTERM");
+      const signal = (child: ChildProcess, name: NodeJS.Signals) =>
+        runtime.kill ? runtime.kill(child, name) : child.kill(name);
+      for (const child of children) signal(child, "SIGTERM");
       const exits = Promise.all(
         children.map(
           (child) =>
@@ -675,7 +707,7 @@ export async function startDesktop(
         exits.then(() => true),
         runtime.wait(STOP_BUDGET_MS).then(() => false),
       ]);
-      if (!stopped) for (const child of children) child.kill("SIGKILL");
+      if (!stopped) for (const child of children) signal(child, "SIGKILL");
     },
   };
 }

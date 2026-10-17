@@ -76,6 +76,7 @@ import {
   createDesktopSessions,
   DesktopNotRunningError,
   desktopCapFromEnv,
+  QUICK_WINDOW_MANAGER_MS,
 } from "./desktop-sessions";
 import { createDialogKeeper, type DialogInfo } from "./dialogs";
 import {
@@ -131,7 +132,12 @@ import {
   probeSignIn,
   typeSecretValue,
 } from "./sign-in";
-import { displaySizeFromEnv, startVirtualDisplay } from "./virtual-display";
+import {
+  createDisplayNumbers,
+  displaySizeFromEnv,
+  startFreshDisplay,
+  startVirtualDisplay,
+} from "./virtual-display";
 import {
   createWorkspace,
   WorkspaceFileError,
@@ -290,8 +296,16 @@ const sessions = createSessions({
  * browser or when idle. See desktop-sessions.ts.
  *
  * A computer for one Bot (`COMPUTER_BOT_ID` set) keeps that Bot's desktop up from boot to shutdown,
- * as its one desktop always was.
+ * in the computer's own home and runtime directory, as its one desktop always was: its terminal
+ * history and its XFCE and file manager settings stay where they were.
  */
+function keptDesktop(botId: string): boolean {
+  return (
+    Boolean(process.env.COMPUTER_BOT_ID?.trim()) && botId === DEFAULT_BOT_ID
+  );
+}
+/** Display numbers for the Bots' desktops, never one handed out twice (virtual-display.ts). */
+const DISPLAY_NUMBERS = createDisplayNumbers();
 const DESKTOPS = DESKTOP
   ? createDesktopSessions({
       size: DISPLAY_SIZE,
@@ -300,13 +314,13 @@ const DESKTOPS = DESKTOP
       idleMs: numberFromEnv("COMPUTER_DESKTOP_IDLE_MS", 10 * 60_000, {
         zeroSwitchesItOff: true,
       }),
-      startDisplay: async (size) => {
-        const display = await startVirtualDisplay("headed", undefined, size);
-        if (!display) throw new Error("No virtual display was started.");
-        return display;
-      },
-      startDesktop: (botId, display) =>
-        startDesktop({ display, ...botDesktopDirectories(botId) }),
+      startDisplay: (size) => startFreshDisplay(size, DISPLAY_NUMBERS),
+      startDesktop: (botId, display, { quick }) =>
+        startDesktop({
+          display,
+          ...botDesktopDirectories(botId, { own: keptDesktop(botId) }),
+          ...(quick ? { wmBudgetMs: QUICK_WINDOW_MANAGER_MS } : {}),
+        }),
       openInput: openXInput,
       startCast: (options) => startDesktopCast(options),
       capture: (display, size, scale, keep) =>
@@ -328,16 +342,16 @@ const DESKTOPS = DESKTOP
         await raiseBrowserWindow(page);
       },
       inUse: (botId) => ({
-        browser: profiles.isLive(botId),
-        watched: Boolean(sessions.get(botId)?.viewer.occupied()),
+        // A launch in progress counts: its desktop is the one it is about to draw on.
+        browser: profiles.isLive(botId) || profiles.isLaunching(botId),
+        watched: sessions.watching(botId),
+        usedAt: profiles.usedAt(botId),
       }),
       vacate: async (botId, message) => {
         await sessions.get(botId)?.viewer.releaseAll(message);
         await profiles.putAway(botId, "its desktop was closed");
       },
-      keep: (botId) =>
-        Boolean(process.env.COMPUTER_BOT_ID?.trim()) &&
-        botId === DEFAULT_BOT_ID,
+      keep: keptDesktop,
     })
   : null;
 
@@ -466,11 +480,11 @@ await startEgressFilter({ forShell: import.meta.main });
 const profiles = createProfiles(
   process.env.PROFILES_DIR?.trim() || "/profiles",
   async (botId) => {
-    if (sessions.get(botId)) sessions.renewRun(botId);
     dialogs.forget(botId);
     downloads.forget(botId);
     navigations.forget(botId);
-    await sessions.get(botId)?.viewer.releaseAll(COMPUTER_STOPPED);
+    // A new run, and on a page screen its viewer taken down; a Bot's own desktop stays on (sessions.ts).
+    await sessions.browserClosed(botId, COMPUTER_STOPPED);
   },
   // Before any page is used, so no dialog is auto-dismissed and no download lost. See dialogs.ts.
   (botId, context) => {
@@ -483,6 +497,7 @@ const profiles = createProfiles(
     ? {
         // Each Bot's browser on its own desktop, which this starts the first time.
         displayFor: async (botId) => (await DESKTOPS.use(botId)).display,
+        displayCurrent: (botId, display) => DESKTOPS.current(botId, display),
         // And the desktop closed after the browser has, never before: Chromium flushes on the way out.
         afterClosed: (botId) => DESKTOPS.browserClosed(botId),
       }

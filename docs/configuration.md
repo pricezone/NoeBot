@@ -662,9 +662,10 @@ so a change made inside the session lasts until the computer restarts. The wallp
 Each Bot has a desktop of its own: its own X display and XFCE session, with its own settings, so a
 person watching one Bot sees that Bot's screen only and cannot click into another Bot's windows. A
 Bot's desktop starts when its screen, its desktop preview or its browser is first needed, closes with
-its browser (a stop, a reset, `COMPUTER_MAX_BROWSERS` or `COMPUTER_BROWSER_IDLE_MS`), and otherwise
-after `COMPUTER_DESKTOP_IDLE_MS` with no browser and nobody watching; `COMPUTER_MAX_DESKTOPS` caps how
-many run at once. A computer run for one Bot (`COMPUTER_BOT_ID` set) starts that Bot's desktop at
+its browser (a stop, a reset, `COMPUTER_MAX_BROWSERS` or `COMPUTER_BROWSER_IDLE_MS`) unless somebody
+has its screen open or holds the wheel, and otherwise after `COMPUTER_DESKTOP_IDLE_MS` with no browser
+and nobody watching; `COMPUTER_MAX_DESKTOPS` caps how many run at once. A display that fails takes
+down only its own Bot's desktop and browser; the next use starts a new one. A computer run for one Bot (`COMPUTER_BOT_ID` set) starts that Bot's desktop at
 boot and keeps it. `/health` reports the asking Bot's desktop (`running`, `ready`, `display`) and how
 many run of how many allowed. Each desktop costs roughly 150 MB of memory while idle and one ffmpeg
 process while somebody is watching; a frame is only sent when the screen changed. `COMPUTER_DISPLAY_SIZE` sets the

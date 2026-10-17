@@ -189,6 +189,35 @@ export function createSessions(options: SessionsOptions) {
     },
 
     /**
+     * Whether a person is on this Bot's screen: watching it, or holding the wheel. What keeps a
+     * Bot's own desktop up when its browser closes, and keeps it from being closed to make room.
+     * `get`, never `for`: asking must not create a session.
+     */
+    watching(botId: string): boolean {
+      const session = sessions.get(botId);
+      if (!session) return false;
+      return (
+        session.viewer.occupied() || session.control.get().holder === "human"
+      );
+    },
+
+    /**
+     * What a Bot's browser closing (a stop, a reset, the cap, the idle sweep) does to its session:
+     * a new run, and, on a page-only screen, the viewer taken down and told why, since the page was
+     * the whole of what it showed and its follow loop would launch the browser again.
+     *
+     * NOT ON A DESKTOP. There the screen is the Bot's own display, which does not need the browser:
+     * a person working in its terminal or file manager keeps their screen when Chrome closes, and the
+     * screen does not relaunch anything. The desktop going is what ends that viewer, and it says so.
+     */
+    async browserClosed(botId: string, reason: string): Promise<void> {
+      const session = sessions.get(botId);
+      if (!session) return;
+      this.renewRun(botId);
+      if (!options.desktop) await session.viewer.releaseAll(reason);
+    },
+
+    /**
      * Start a new run for this Bot, because its browser session is over.
      *
      * A reset closes the browser and deletes the profile, and the session survives it: nothing takes

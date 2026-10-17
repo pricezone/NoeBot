@@ -46,7 +46,16 @@ export type XInput = {
    */
   activeWindowClass?(): Promise<string | null>;
   close(): void;
+  /**
+   * Let go of a connection whose display has gone, without a word to it. `close` says goodbye to
+   * the X server, and to a server that is gone Xlib's answer is to exit the whole process.
+   */
+  abandon?(): void;
 };
+
+/** Said when input reaches a connection whose display has gone. */
+export const DISPLAY_GONE =
+  "The desktop's display has gone, so the input did not go through.";
 
 /**
  * One `xdotool` after another.
@@ -233,6 +242,8 @@ export function xdotoolInput(display: string): XInput {
     setClipboard: clipboardWriter(display),
     activeWindowClass: activeWindowClassReader(display),
     close: () => undefined,
+    // Nothing held open: each event is its own process.
+    abandon: () => undefined,
   };
 }
 
@@ -249,7 +260,9 @@ const BINDING_SETTLES_MS = 20;
  * Throws when the libraries cannot be opened or the display cannot, and the caller falls back.
  */
 export async function xtestInput(display: string): Promise<XInput> {
-  const { dlopen, FFIType, ptr, toArrayBuffer } = await import("bun:ffi");
+  const { dlopen, FFIType, JSCallback, ptr, toArrayBuffer } = await import(
+    "bun:ffi"
+  );
   const x11 = dlopen("libX11.so.6", {
     XOpenDisplay: { args: [FFIType.ptr], returns: FFIType.ptr },
     XCloseDisplay: { args: [FFIType.ptr], returns: FFIType.i32 },
@@ -295,6 +308,52 @@ export async function xtestInput(display: string): Promise<XInput> {
     xtst.close();
     throw new Error(`The display ${display} could not be opened for input.`);
   }
+
+  /*
+   * A display that goes away must not take this process with it. Xlib's answer to a lost connection
+   * is to call exit(1) from inside whichever call noticed (XFlush, XSync, the XSync in
+   * XCloseDisplay), and every Bot's browser would die with it, unflushed. libX11 1.7 and later let
+   * a connection have its own exit handler: this one returns, the connection is marked broken, and
+   * nothing calls into it again. Without that function (an older libX11) `abandon` is what keeps a
+   * known-dead display from being spoken to.
+   */
+  let broken = false;
+  const lost = new JSCallback(
+    () => {
+      broken = true;
+    },
+    { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.void },
+  );
+  const exitHandler = (() => {
+    try {
+      return dlopen("libX11.so.6", {
+        XSetIOErrorExitHandler: {
+          args: [FFIType.ptr, FFIType.function, FFIType.ptr],
+          returns: FFIType.void,
+        },
+      });
+    } catch {
+      return null;
+    }
+  })();
+  exitHandler?.symbols.XSetIOErrorExitHandler(connection, lost, null);
+  /** Whether to go on: false once closed, and refused outright once the display has gone. */
+  const usable = (): boolean => {
+    if (broken) throw new Error(DISPLAY_GONE);
+    return !closed;
+  };
+  /** Send what is queued, and say so if that is what found the display gone. */
+  const flush = () => {
+    x11.symbols.XFlush(connection);
+    if (broken) throw new Error(DISPLAY_GONE);
+  };
+  /** Everything this connection holds, once no call into it can follow. */
+  const release = () => {
+    x11.close();
+    xtst.close();
+    exitHandler?.close();
+    lost.close();
+  };
 
   const run = xdotoolRunner(display);
   const keycodes = new Map<string, number>();
@@ -373,43 +432,50 @@ export async function xtestInput(display: string): Promise<XInput> {
       x11.symbols.XSync(connection, 0);
       await new Promise((resolve) => setTimeout(resolve, BINDING_SETTLES_MS));
     }
+    // Asked again after the wait: the connection may have been closed, or found gone, meanwhile,
+    // and a closed one is freed memory.
+    if (!usable()) return;
     xtst.symbols.XTestFakeKeyEvent(connection, slot.keycode, 1, 0);
     xtst.symbols.XTestFakeKeyEvent(connection, slot.keycode, 0, 0);
-    x11.symbols.XFlush(connection);
+    flush();
   };
   const typeOnKeymap = typeWith(run);
 
   return {
     async move(x, y) {
-      if (closed) return;
+      if (!usable()) return;
       xtst.symbols.XTestFakeMotionEvent(connection, -1, x, y, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
     async button(button, press) {
-      if (closed) return;
+      if (!usable()) return;
       xtst.symbols.XTestFakeButtonEvent(connection, button, press ? 1 : 0, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
     async key(keysym, press) {
-      if (closed) return;
+      if (!usable()) return;
       const keycode = keycodeFor(keysym);
+      // Looking the key up may have been what found the display gone.
+      if (!usable()) return;
       if (keycode === 0) {
         // Not in the keymap. xdotool borrows a keycode for it; slower, and correct.
         await run([press ? "keydown" : "keyup", keysym]);
         return;
       }
       xtst.symbols.XTestFakeKeyEvent(connection, keycode, press ? 1 : 0, 0);
-      x11.symbols.XFlush(connection);
+      flush();
     },
     async type(text, options) {
       for (const segment of runsOf(text)) {
-        if (closed) return;
+        if (!usable()) return;
         if (segment.onKeymap) await typeOnKeymap(segment.text, options);
         else
           for (const character of segment.text) {
             try {
               await typeUnmapped(character);
             } catch (error) {
+              // A display that has gone is not typed on the old way either.
+              if (!usable()) return;
               // Said once a character, and typed the old way, which now has the locale it needs.
               console.warn(
                 JSON.stringify({
@@ -428,9 +494,15 @@ export async function xtestInput(display: string): Promise<XInput> {
     close() {
       if (closed) return;
       closed = true;
-      x11.symbols.XCloseDisplay(connection);
-      x11.close();
-      xtst.close();
+      // A connection found gone is not called into again, not even to close it.
+      if (!broken) x11.symbols.XCloseDisplay(connection);
+      release();
+    },
+    abandon() {
+      if (closed) return;
+      closed = true;
+      // Left as it is: its memory and its socket, a few kilobytes for a display that will not return.
+      release();
     },
   };
 }
