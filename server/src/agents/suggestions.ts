@@ -27,7 +27,11 @@ import {
   type TemplateMatch,
 } from "../../../shared/suggestions";
 import type { CatalogueEntry } from "../plugins/catalogue";
-import type { IndexedPlugin } from "../plugins/plugin-index";
+import {
+  COMPOSIO_PLUGIN_IDS,
+  CURSOR_DUPLICATE_PLUGIN_IDS,
+  type IndexedPlugin,
+} from "../plugins/plugin-index";
 import type {
   GrantedPlugins,
   PluginRecord,
@@ -627,6 +631,12 @@ export type MarketplaceSources = {
   >;
   /** The servers this person has connected an account to, held or brokered. */
   connected: (userId: string) => Promise<ReadonlySet<string>>;
+  /**
+   * The Composio toolkits this deployment has added. A Cursor plugin for one of them is the same app
+   * twice, and the Marketplace lists only the Composio one (`browsablePlugins`), so it is never
+   * offered either. Left out, nothing counts as added.
+   */
+  composioToolkits?: () => Promise<ReadonlySet<string>>;
 };
 
 /** Who is looking, and for which Bot. */
@@ -657,13 +667,16 @@ async function marketplaceCandidates(
   sources: MarketplaceSources,
   viewer: MarketplaceViewer,
 ): Promise<Candidate[]> {
-  const [installed, servers, held, skills, connected] = await Promise.all([
-    sources.installed(),
-    sources.servers(),
-    sources.held(viewer.bot.id),
-    sources.skills(viewer.actor),
-    sources.connected(viewer.actor.id),
-  ]);
+  const [installed, servers, held, skills, connected, composioToolkits] =
+    await Promise.all([
+      sources.installed(),
+      sources.servers(),
+      sources.held(viewer.bot.id),
+      sources.skills(viewer.actor),
+      sources.connected(viewer.actor.id),
+      sources.composioToolkits?.().catch(() => new Set<string>()) ??
+        new Set<string>(),
+    ]);
   const installedById = new Map(installed.map((plugin) => [plugin.id, plugin]));
   const heldSkills = new Set(held.skills.map((skill) => skill.slug));
   const heldServers = new Set(held.tools.map((tool) => tool.ref.split("/")[0]));
@@ -671,8 +684,23 @@ async function marketplaceCandidates(
     servers.filter((server) => server.offeredToAllBots).map((row) => row.id),
   );
 
+  /*
+   * The duplicates the Marketplace hides are not offered: a Cursor copy of another Cursor plugin,
+   * and a Cursor plugin for an app this deployment brokers through Composio, which is offered
+   * instead. An installed one stays, as it does in the Marketplace.
+   */
+  const duplicate = (pluginId: string) => {
+    if (installedById.has(pluginId)) return false;
+    if (CURSOR_DUPLICATE_PLUGIN_IDS[pluginId]) return true;
+    const toolkit = COMPOSIO_PLUGIN_IDS[pluginId];
+    return toolkit !== undefined && composioToolkits.has(toolkit);
+  };
+
   const plugins = sources.plugins
-    .filter((plugin) => plugin.availability === "installable")
+    .filter(
+      (plugin) =>
+        plugin.availability === "installable" && !duplicate(plugin.id),
+    )
     .map((plugin): Candidate => {
       const record = installedById.get(plugin.id);
       // Installed, and every part of it reaches this Bot: its skills, and its connectors.

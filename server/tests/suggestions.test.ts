@@ -21,6 +21,8 @@ import {
 import type { AppVariables } from "../src/auth/guards";
 import { CATALOGUE } from "../src/plugins/catalogue";
 import {
+  COMPOSIO_PLUGIN_IDS,
+  CURSOR_DUPLICATE_PLUGIN_IDS,
   type IndexedPlugin,
   type IndexedServer,
   listablePlugins,
@@ -424,6 +426,52 @@ describe("finding Marketplace items", () => {
       (await marketplaceItem("notion", sources(), MEMBER))?.target,
     ).toEqual({ kind: "account", serverId: "notion" });
     expect(await marketplaceItem("4", sources(), MEMBER)).toBeNull();
+  });
+
+  test("a Cursor duplicate is never offered: of another Cursor plugin, or of an added Composio app", async () => {
+    const installable = listablePlugins().filter(
+      (plugin) => plugin.availability === "installable",
+    );
+    const brokered = installable.find(
+      (plugin) => COMPOSIO_PLUGIN_IDS[plugin.id],
+    );
+    const copy = installable.find(
+      (plugin) => CURSOR_DUPLICATE_PLUGIN_IDS[plugin.id],
+    );
+    if (!brokered || !copy)
+      throw new Error("the index has no duplicates to test");
+    const toolkit = COMPOSIO_PLUGIN_IDS[brokered.id] as string;
+    const ids = async (extra: Parameters<typeof sources>[0]) =>
+      (
+        await Promise.all(
+          [brokered, copy].map((plugin) =>
+            findMarketplaceItems(
+              plugin.displayName,
+              sources({ plugins: [brokered, copy], ...extra }),
+              MEMBER,
+            ),
+          ),
+        )
+      )
+        .flat()
+        .map((item) => item.id);
+
+    // Not added through Composio: the Cursor plugin is the only way to the app, so it is offered.
+    expect(await ids({})).toContain(brokered.id);
+    expect(await ids({})).not.toContain(copy.id);
+    // Added through Composio: only the Composio app is.
+    const added = await ids({
+      composioToolkits: async () => new Set([toolkit]),
+    });
+    expect(added).not.toContain(brokered.id);
+    // Installed already, it stays, as it does in the Marketplace.
+    const kept = await ids({
+      composioToolkits: async () => new Set([toolkit]),
+      installed: async () => [
+        { id: brokered.id, serverIds: ["not-held"], skillSlugs: [] },
+      ],
+    });
+    expect(kept).toContain(brokered.id);
   });
 
   test("writing code finds Superpowers in the real index", async () => {

@@ -221,7 +221,7 @@ import { createOnboardingStore } from "./people/onboarding";
 import { createPeopleStore } from "./people/store";
 import { useRoutineTools } from "./plugins/builtin-routines";
 import { CATALOGUE } from "./plugins/catalogue";
-import { useComposioClient } from "./plugins/composio";
+import { toolkitOf, useComposioClient } from "./plugins/composio";
 import { createComposioClient } from "./plugins/composio-adapter";
 import { offerDefaultConnectors } from "./plugins/default-connectors";
 import { backfillComposioLogos } from "./plugins/logos";
@@ -1837,6 +1837,12 @@ const marketplaceSources: MarketplaceSources = {
     ]);
     return new Set([...held, ...brokered].map((row) => row.serverId));
   },
+  composioToolkits: async () =>
+    new Set(
+      (await pluginStore.serverUrls())
+        .map((url) => toolkitOf(url))
+        .filter((toolkit): toolkit is string => toolkit !== null),
+    ),
 };
 
 /**
