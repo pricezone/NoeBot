@@ -21,6 +21,7 @@ import {
   COMPUTER_GUIDANCE,
   PROVENANCE_GUIDANCE,
 } from "../../shared/bot-prompt";
+import { SELF_PROFILE_TOOL } from "../../shared/self-profile";
 import { sanitizeSeededHistory } from "./agents/history-sanitize";
 import {
   type ReasoningEffort,
@@ -1509,7 +1510,10 @@ function remoteAgentWithStandingRole(
             coordination?.(agent.id, input) ?? Promise.resolve([]),
           ]).then(([offered, coordinationTools]) => [
             ...offered,
-            ...coordinationTools,
+            // A remote Bot's callback cannot run it: renaming itself is for a Bot that runs here.
+            ...coordinationTools.filter(
+              (tool) => tool.name !== SELF_PROFILE_TOOL,
+            ),
           ]),
         ).pipe(switchMap((offered) => runWith(offered, input, next))),
       );

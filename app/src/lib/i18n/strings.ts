@@ -175,6 +175,14 @@ const EN = {
   yes: "Yes",
   no: "No",
 
+  // A Bot naming itself (self-profile-card.tsx).
+  namedItself: (name: string) => `Named itself ${name}`,
+  namingItself: "Naming itself",
+  undo: "Undo",
+  undoing: "Undoing…",
+  undone: (name: string) => `Back to ${name}`,
+  undoFailed: "That could not be undone. Try again.",
+
   // A decision card whose question is still being written (decisions.tsx).
   waitingForBot: "Waiting for the Bot…",
   preparingRequest: "Preparing the request…",
@@ -353,6 +361,13 @@ const EL: UiStrings = {
   questionScreen: "Η οθόνη του Bot",
   yes: "Ναι",
   no: "Όχι",
+
+  namedItself: (name: string) => `Ονομάστηκε ${name}`,
+  namingItself: "Διαλέγει όνομα",
+  undo: "Αναίρεση",
+  undoing: "Αναίρεση…",
+  undone: (name: string) => `Ξανά ${name}`,
+  undoFailed: "Δεν ήταν δυνατή η αναίρεση. Δοκίμασε ξανά.",
 
   waitingForBot: "Αναμονή για τον Bot…",
   preparingRequest: "Ετοιμάζεται το αίτημα…",
