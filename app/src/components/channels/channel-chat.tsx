@@ -66,6 +66,7 @@ import {
   answersSignature,
   openQuestions,
   questionAnswers,
+  questionsAnswered,
 } from "@/lib/copilot/question-answers";
 import { repairUnansweredToolCalls } from "@/lib/copilot/repair-history";
 import { stoppedReason } from "@/lib/copilot/stopped-turn";
@@ -1049,8 +1050,16 @@ export function ChannelChat({
         ),
       );
 
-    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers.
-    const answering = trimmed ? openQuestions(target.messages) : [];
+    // Read before the message goes in: whatever the Bot asked and is still waiting on, this answers,
+    // including a question the server holds that this tab's messages do not have yet.
+    const answering = trimmed
+      ? questionsAnswered(
+          openQuestions(target.messages),
+          queryClient.getQueryData(approvalInboxOptions().queryKey)
+            ?.questions ?? [],
+          channel.threadId,
+        )
+      : [];
     // Nothing new is a retry (`retryTurn`): the turn runs again on the message already here.
     if (trimmed || attachments.length > 0) {
       target.addMessage({

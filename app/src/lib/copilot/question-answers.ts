@@ -112,6 +112,36 @@ export function openQuestions(
   return open;
 }
 
+/**
+ * What a message the person sends now answers: the questions open at the end of the transcript,
+ * and the ones still waiting on them in this conversation's thread on the server.
+ *
+ * The second half is for a transcript that does not hold the question yet. A new Bot's first turn
+ * runs on the server, and a person who answers the moment its card appears can send before that
+ * turn is in this tab's messages; the question was then never recorded as answered, and the
+ * conversation kept offering it again under the reply. Same words, same question: listed once.
+ */
+export function questionsAnswered(
+  open: readonly { question: string }[],
+  waiting: readonly { threadId?: string | null; question: string }[],
+  threadId: string,
+): { question: string }[] {
+  const seen = new Set<string>();
+  const answered: { question: string }[] = [];
+  for (const question of [
+    ...open.map((entry) => entry.question),
+    ...waiting
+      .filter((entry) => entry.threadId === threadId)
+      .map((entry) => entry.question),
+  ]) {
+    const words = question.trim();
+    if (!words || seen.has(words)) continue;
+    seen.add(words);
+    answered.push({ question: words });
+  }
+  return answered;
+}
+
 /** One string per distinct set of answers, so a caller can keep a map's identity while it holds. */
 export function answersSignature(answers: ReadonlyMap<string, string>): string {
   return JSON.stringify([...answers]);
