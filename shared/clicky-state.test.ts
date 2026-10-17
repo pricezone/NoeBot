@@ -716,6 +716,29 @@ describe("walkthroughs", () => {
     ]);
   });
 
+  test("finishing on something to show, the answer points at it", () => {
+    // Live: "«Υγεία και πρόνοια» is here" pointed at nothing.
+    const h = guided();
+    h.run({ type: "person.typed" });
+    h.run({
+      type: "brain.check",
+      checkId: h.session.check?.id ?? "",
+      stepDone: true,
+      stepsDone: 3,
+    });
+    h.run({
+      type: "brain.reply",
+      thinkId: h.thinking(),
+      say: "It is here.",
+      done: true,
+      overlays: [{ kind: "pointer", id: "p-here", at: { x: 0.3, y: 0.7 } }],
+    });
+    expect(h.session.reply?.notice).toBe("walkthrough_done");
+    expect(visibleOverlays(h.session)).toEqual([
+      { kind: "pointer", id: "p-here", at: { x: 0.3, y: 0.7 } },
+    ]);
+  });
+
   test("carrying on stops at the auto-step limit, with 'that's everything'", () => {
     const h = harness();
     h.command({ type: "ask", text: "how?" });

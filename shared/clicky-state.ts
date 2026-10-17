@@ -1152,11 +1152,18 @@ function reduceInternal(
               },
             })
           : next;
+        /*
+         * Finished on something to show ("it is here"): the answer points at it. Live, "«Υγεία και
+         * πρόνοια» is here" pointed at nothing.
+         */
+        const shown = event.overlays?.length
+          ? placeOverlays(finished, event.overlays)
+          : finished;
         return changed({
           session: {
-            ...finished,
+            ...shown,
             reply: { text: event.say, final: true, notice: "walkthrough_done" },
-            state: restingState(finished),
+            state: restingState(shown),
           },
           effects,
         });
