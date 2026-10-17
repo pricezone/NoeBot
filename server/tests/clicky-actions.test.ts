@@ -165,6 +165,8 @@ const run = (
   createClickyActions({
     gateway,
     holderOf: () => ("holder" in extra ? extra.holder : "user-1"),
+    holderFromState: (state) =>
+      state.holder === "human" ? (state.request?.takenBy ?? null) : null,
     ...(extra.audits
       ? {
           auditStore: {
@@ -245,6 +247,35 @@ describe("createClickyActions", () => {
       expect(fake.inputs).toEqual([]);
       expect(fake.calls).toEqual(["control"]);
     }
+  });
+
+  test("who holds the computer is read from the computer when this process never heard the take", async () => {
+    // More than one server process: the take was handled by another one.
+    const takenBy = (who: string) => async () => ({
+      ...control("human"),
+      request: {
+        id: "taken-request",
+        reason: "Show me how is doing this for you",
+        source: "model" as const,
+        status: "taken" as const,
+        takenBy: who,
+        createdAt: "2026-10-17T00:00:00.000Z",
+        updatedAt: "2026-10-17T00:00:00.000Z",
+      },
+    });
+    const mine = fakeGateway({ holder: "human" });
+    mine.gateway.control = takenBy("user-1");
+    expect(
+      (await run(mine.gateway, clickContinue, { holder: undefined })).ok,
+    ).toBe(true);
+    expect(mine.inputs).toHaveLength(1);
+    // The computer's word wins over what this process last heard.
+    const theirs = fakeGateway({ holder: "human" });
+    theirs.gateway.control = takenBy("user-2");
+    expect(
+      (await run(theirs.gateway, clickContinue, { holder: "user-1" })).ok,
+    ).toBe(false);
+    expect(theirs.inputs).toEqual([]);
   });
 
   test("on a page-only computer, types in page pixels after clicking the field", async () => {

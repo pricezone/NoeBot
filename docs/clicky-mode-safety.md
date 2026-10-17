@@ -54,7 +54,8 @@ whole list of what keeps that safe, where each rule lives, and what it is tested
    the person uses (which waits for the Bot's current action and interrupts it like any takeover).
    Control stays with the person until they hand it back. Bot actions are refused meanwhile, as for
    any human holder. If somebody else holds the computer, or Clicky cannot tell who does, it does
-   nothing and says so.
+   nothing and says so. Who holds it is recorded by the computer on the take (`request.takenBy`),
+   so every server process can tell, not only the one that handled the take.
 7. **Stop wins.** Stop is accepted from every state, from the web app (the Stop button, the app-wide
    Stop pill, ⌃⌥S, Escape while acting) and from the phone. It aborts the action in flight, drops
    the proposal and any task grant, returns Clicky to guide mode, and nothing else happens until the

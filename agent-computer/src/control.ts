@@ -258,7 +258,7 @@ export function createControl(
       persist();
       return get();
     },
-    async take(requestId: string): Promise<ControlState> {
+    async take(requestId: string, takenBy?: string): Promise<ControlState> {
       const request = intended(requestId);
       if (request.status === "taken" && data.holder === "human") return get();
       if (request.status !== "waiting")
@@ -278,6 +278,7 @@ export function createControl(
         );
       after.status = "taken";
       after.updatedAt = now();
+      if (takenBy) after.takenBy = takenBy;
       delete after.expiresAt;
       data.holder = "human";
       data.since = now();

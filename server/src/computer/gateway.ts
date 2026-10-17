@@ -1600,6 +1600,8 @@ export function createComputerGateway(
     async takeControl(botId: string, actor: ActionActor, requestId: string) {
       const state = await post<ControlState>(botId, "/control/take", {
         requestId,
+        // Recorded by the computer, so any server process can tell who holds it.
+        ...(actor.userId ? { takenBy: actor.userId } : {}),
       });
       await writeControlEvent(auditStore, "computer.control_taken", {
         botId,

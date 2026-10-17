@@ -22,6 +22,11 @@ export type HandoffRequest = {
   expiresAt?: string;
   finishedAt?: string;
   interruption?: string;
+  /**
+   * Who took it: the person's id, recorded by the computer, so every server process can tell who
+   * holds the computer, not only the one that handled the take.
+   */
+  takenBy?: string;
 };
 export type ComputerControlState = {
   holder: "bot" | "human";

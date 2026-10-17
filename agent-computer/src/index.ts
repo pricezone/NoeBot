@@ -1330,11 +1330,18 @@ serve<StreamData>({
       ) {
         const body = (await request.json().catch(() => null)) as {
           requestId?: unknown;
+          takenBy?: unknown;
         } | null;
         if (typeof body?.requestId !== "string" || !body.requestId.trim())
           return json({ error: "A requestId is required." }, 400);
+        // Who takes it, as the server names them: an id, never more than that.
+        const takenBy =
+          typeof body.takenBy === "string" &&
+          /^[A-Za-z0-9_.:@-]{1,128}$/.test(body.takenBy)
+            ? body.takenBy
+            : undefined;
         if (url.pathname === "/control/take")
-          return json(await session.control.take(body.requestId));
+          return json(await session.control.take(body.requestId, takenBy));
         if (url.pathname === "/control/cancel")
           return json(session.control.cancel(body.requestId));
         return json(session.control.release(body.requestId));

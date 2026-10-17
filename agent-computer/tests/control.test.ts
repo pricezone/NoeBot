@@ -34,6 +34,14 @@ describe("request-aware handoff", () => {
     expect(() => control.admitBotAction()).toThrow(ControlError);
   });
 
+  test("the take records who took it, so any server process can tell", async () => {
+    const { control, request } = fixture();
+    const help = request();
+    const taken = await control.take(help.id, "user-7");
+    expect(taken.request?.takenBy).toBe("user-7");
+    expect(control.get().request?.takenBy).toBe("user-7");
+  });
+
   test("take drains an old action; detector can request help inside its own lease", async () => {
     const { control, request } = fixture();
     const finish = control.admitBotAction(true);

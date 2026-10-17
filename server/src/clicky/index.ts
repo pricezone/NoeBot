@@ -22,6 +22,7 @@ import {
   type ClickyTrigger,
   type ClickyTriggerKind,
 } from "../../../shared/clicky";
+import type { ComputerControlState } from "../../../shared/computer-control";
 import type { Locale } from "../../../shared/i18n/locales";
 import { clickyPreferencesOf } from "../../../shared/user-preferences";
 import { computerAccessCheck } from "../agents/computer-access";
@@ -242,6 +243,9 @@ export function viewerScrolled(raw: string): boolean {
   }
 }
 
+/** How long who holds a computer, as last heard here, is trusted before the computer is asked. */
+const HOLDER_FRESH_MS = 10_000;
+
 /** The fixed line a phone's lock screen shows: what kind of help, never the Bot's own words. */
 const NEEDS_YOU_BODY: Record<ClickyTriggerKind, string> = {
   takeover: "Noë Bot needs your help on its computer.",
@@ -455,7 +459,40 @@ function buildClicky(
    * than one, a replica that did not hear the computer being taken does not know who holds it, and
    * Clicky then refuses to act ("I can't tell who has the computer right now") rather than guess.
    */
-  const holders = new Map<string, string | null>();
+  /*
+   * Who holds each Bot's computer, as this process last heard. A take handled by another process
+   * (more than one replica) is never heard here, so an entry not refreshed for a while is asked of
+   * the computer, which records who took it (`request.takenBy`). `undefined`: not known yet.
+   */
+  const heard = new Map<string, { userId: string | null; at: number }>();
+  const asking = new Set<string>();
+  const holderFromState = (state: ComputerControlState): string | null =>
+    state.holder === "human" ? (state.request?.takenBy ?? null) : null;
+  const refreshHolder = (botId: string) => {
+    if (asking.has(botId)) return;
+    asking.add(botId);
+    void gateway
+      .control(botId)
+      .then((state) => {
+        const userId = holderFromState(state);
+        // A human holder the computer cannot name stays unknown rather than nobody.
+        if (state.holder === "human" && !userId) heard.delete(botId);
+        else heard.set(botId, { userId, at: Date.now() });
+      })
+      .catch(() => undefined)
+      .finally(() => asking.delete(botId));
+  };
+  const holders = {
+    get(botId: string): string | null | undefined {
+      const entry = heard.get(botId);
+      if (!entry || Date.now() - entry.at > HOLDER_FRESH_MS)
+        refreshHolder(botId);
+      return entry?.userId;
+    },
+    set(botId: string, userId: string | null) {
+      heard.set(botId, { userId, at: Date.now() });
+    },
+  };
   const service = createClickyService({
     store,
     hub,
@@ -476,6 +513,7 @@ function buildClicky(
       gateway,
       auditStore: deps.auditStore,
       holderOf: (botId) => holders.get(botId),
+      holderFromState,
     }),
     auditStore: deps.auditStore,
     /*
@@ -484,8 +522,8 @@ function buildClicky(
      * for an app that went away before it could.
      */
     releaseOwnControl: async (userId, botId) => {
-      if (holders.get(botId) !== userId) return;
       const state = await gateway.control(botId);
+      if ((holderFromState(state) ?? holders.get(botId)) !== userId) return;
       const request = state.request;
       if (
         state.holder !== "human" ||

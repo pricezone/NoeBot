@@ -4,6 +4,7 @@ import type {
   ClickyTriggerKind,
 } from "../../../shared/clicky";
 import { CLICKY_HELP_REASON } from "../../../shared/clicky";
+import type { ComputerControlState } from "../../../shared/computer-control";
 import type { ClickyActionPolicy } from "../../../shared/user-preferences";
 import { type AuditStore, PERSON_INITIATOR, recordAuditEvent } from "../audit";
 import {
@@ -187,6 +188,8 @@ export function createClickyActions(deps: {
    * when it is not known here (taken before this process started).
    */
   holderOf?: (botId: string) => string | null | undefined;
+  /** Who the computer itself says took it, when it says. Read first: any process can see it. */
+  holderFromState?: (state: ComputerControlState) => string | null;
 }): ClickyActions {
   const { gateway } = deps;
 
@@ -222,7 +225,8 @@ export function createClickyActions(deps: {
   ): Promise<string | null> {
     const state = await gateway.control(botId);
     if (state.holder === "human") {
-      const holder = deps.holderOf?.(botId);
+      const holder =
+        deps.holderFromState?.(state) ?? deps.holderOf?.(botId) ?? undefined;
       if (holder === actor.userId) return null;
       return holder === undefined
         ? "I can't tell who has the computer right now. Hand it back, then try again."
