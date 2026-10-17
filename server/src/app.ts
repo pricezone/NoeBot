@@ -436,6 +436,8 @@ export function createApp(
      * SPA fallback at the end of this function. See the mount below for why.
      */
     botTemplates?: Hono<{ Variables: AppVariables }>;
+    /** Template and Marketplace suggestions for a Bot (`/api/suggestions`); mounted here likewise. */
+    suggestions?: Hono<{ Variables: AppVariables }>;
     /** The Keys page's model-key read (`/api/settings/model-key`); mounted here for the same reason. */
     modelKey?: Hono<{ Variables: AppVariables }>;
     /** In-run computer waits the open tab watches and claims (runs/waits.ts), at /api/runs. */
@@ -1777,6 +1779,9 @@ export function createApp(
    */
   if (coworker?.botTemplates) {
     app.route("/api/bot-templates", coworker.botTemplates);
+  }
+  if (coworker?.suggestions) {
+    app.route("/api/suggestions", coworker.suggestions);
   }
   if (coworker?.modelKey) {
     app.route("/api/settings/model-key", coworker.modelKey);

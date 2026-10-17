@@ -34,6 +34,7 @@ import {
   planModelForEnvironment,
 } from "./agents/plan-model";
 import type { AgentActor } from "./agents/profile-types";
+import { suggestionGuidance } from "./agents/suggestions";
 import {
   executeNativeApprovalTool,
   nativeApprovalRun,
@@ -431,6 +432,7 @@ export function builtInAgentConfiguration(
   }
 
   const standing = standingInstructionsGuidance(standingInstructions);
+  const suggesting = suggestionGuidance(tools);
   const allTools = [
     ...tools,
     ...(learnedSkills?.tools.map((tool) => ({
@@ -468,6 +470,8 @@ export function builtInAgentConfiguration(
       PROVENANCE_GUIDANCE,
       // How to read the untrusted-content envelope every outside result arrives in.
       UNTRUSTED_GUIDANCE,
+      // When to suggest a template or a Marketplace item, on any task, where the finders are held.
+      ...(suggesting ? [suggesting] : []),
       ...(grantedToolGuidance(tools, connectedVendors)
         ? [grantedToolGuidance(tools, connectedVendors)]
         : []),
