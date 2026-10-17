@@ -97,3 +97,44 @@ merge bound as text). That is fixed in 5688aa0, and migration 0058 repairs exist
    picture, and uses the private form without refusing (O2) or handing over the browser (O15).
 3. **The SMS step:** the second secure form, "Κωδικός SMS", appears after the person chooses to
    issue. The run stops there; the declaration is not issued as part of the test.
+
+## The Show me how run (2026-10-15 to 2026-10-17)
+
+The same task with the person driving and Show me how guiding: «Θέλω να εκδώσω υπεύθυνη δήλωση στο
+gov.gr», asked in Guide mode on instance `s3a8cac305e5`, with the person's clicks, typing and scrolling
+sent through the live screen. The Taxisnet login uses the login saved in Noë Bot, through the Bot's
+private sign-in form. The run stops at the SMS code form; nothing is issued.
+
+The path it guided: the address bar (gov.gr), gov.gr's search or its "Υπεύθυνη Δήλωση" quick link,
+the "Έκδοση υπεύθυνης δήλωσης" service page, "Scroll down" to «Είσοδος στην υπηρεσία», dilosi's
+«Πρόσβαση στην υπηρεσία» and «Συνέχεια», the choice of provider («ΓΓΠΣΨΔ (Κωδικοί Taxisnet)»), and
+the Taxisnet form, where it pointed at «Χρήστης» and left the password to the person.
+
+| # | What happened | Cause | Fix | Status |
+|---|---|---|---|---|
+| S1 | A look said "I couldn't look at the screen just now", even on a small page. | Every control's box was measured one by one; the reads ran one after another with no time limit. | One snapshot call for every box; the controls, the picture and the text read side by side with their own time limits; a look fails only without both controls and picture; `[timing] clicky.look` lines. | fixed (e86ec0b, f9edde6) |
+| S2 | A check took 12–22 s to its first word, and half the looks were broken JSON. | qwen3.7-plus thinks by default. | `reasoning_effort: "none"` on the vision call (2.1 s to the first word, measured), retried without it where refused. | fixed (5d87a64) |
+| S3 | The instruction beside the address bar ran off the screen's right edge. | Its side was a fixed share of the width; the bubble was 256 px whatever the room. | The layer measures itself; the words go where they fit and narrow to the room. | fixed (dacd785) |
+| S4 | The click on the address bar finished "Click the address bar and type gov.gr" before anything was typed. | A click on a step's control always finished it. | A step the model marks `typing` on a control that takes text is finished by the look after the typing. | fixed (fdcac7f, dc54b7c) |
+| S5 | Three steps took the person to gov.gr, then "That's everything. Nice work." | The steps were only what the model could see from the start. | Finishing the last step looks again and shows the next steps (up to the auto-step limit). | fixed (d99ac6f) |
+| S6 | "Scroll down" stayed after the person scrolled; a field typed into and left never finished. | Only clicks, Enter and Tab were watched. | The wheel and plain typing start the same watch, once they pause. | fixed (77d54b4) |
+| S7 | The person clicked, typed and pressed Enter in one go; the guide then asked them to type what they had typed. | The check judged one step. | The check reports `stepsDone`, and the walkthrough moves past all of them. | fixed (dc54b7c) |
+| S8 | The guide answered "done" on finding the declaration's link. | The look carrying on had only its own goal (the way there); the person's words were in the "earlier conversation". | The person's request is said on its own line; "done" is only when the thing asked for has happened. | fixed (126c0e4, fcd6b53) |
+| S9 | A click on a link or button focused it and opened nothing, more than once. | The press finished the step; the bar lost Back and Next, the screen above it grew, and the release landed elsewhere. | A click counts on release; the bar's room only grows while awake, so the screen holds still. | fixed (6cbb767, e9e693b) |
+| S10 | Typing Greek through an on-screen keyboard ended the live screen ("A key message needs a code."). | A key with no `code` was sent as a key message, which the computer refuses. | A character with no key behind it is sent as text. | fixed (126c0e4) |
+| S11 | After «Είσοδος στην υπηρεσία» the guide made a step "Wait for page load", which nothing finishes. | The look ran while dilosi's page was still drawing itself. | The model answers `loading` instead of a waiting step; the server waits, lets the page settle and looks again (up to 3 times). | fixed (6b278587) |
+| S12 | After the private Taxisnet sign-in was filled from a saved login, "Noë Bot needs you here" stayed. | Nothing closed a trigger opened by an in-run wait when the run picked up again. | A thread's wait is remembered and resolved when the thread runs again. | fixed (112f5e8b) |
+| S13 | Reopened, the guide showed its pre-sign-in step ("Enter username") over the consent page. | The trigger's steps outlived the page (S12); waking never re-checked a walkthrough. | Resolved with S12; waking on a walkthrough step runs a check first. | fixed (112f5e8b) |
+| S14 | "Scroll down to see more fields" boxed an unrelated link. | A scroll step was given the nearest control as its target. | — | open |
+| S15 | "Type the declaration text" first boxed an empty box above the fixed wording, not the text area. | A transient element was on the page during the look; the check after typing re-placed the step correctly. | — | watch |
+
+**Where the run stands (2026-10-17 04:50 UTC, build e9e693b2).** Guided by Show me how, the person went
+from Google to gov.gr (address bar), searched «υπεύθυνη δήλωση» (click, type, Enter in one go; the
+check moved past all three steps), opened "Έκδοση υπεύθυνης δήλωσης" (first click lands now),
+scrolled to and pressed «Είσοδος στην υπηρεσία», «Συνέχεια», and «ΓΓΠΣΨΔ (Κωδικοί Taxisnet)». At
+the Taxisnet form the person minimized the screen and asked Noë Bot to sign in; its private form
+was answered with the login saved in Noë Bot (Use), and the Bot reported the sign-in done without
+going further. Show me how then guided the consent page («Αποστολή»), the data review, the
+declarant's details (a scroll and «Συνέχεια») and the declaration text, which the person typed. The
+next click, «Συνέχεια» to the preview, was stopped by the operator's own safety rule for real-world
+transactions; the run continues from there with the person's go-ahead. Nothing was issued.

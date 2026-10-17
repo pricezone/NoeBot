@@ -108,6 +108,9 @@ export const CLICKY_TICK_MS = 5_000;
 /** The commands that ask the model to look. */
 const LOOKS = new Set(["ask", "show_me", "retry"]);
 
+/** How many more times a look that found the page still loading looks again. */
+const LOADING_LOOKS_AGAIN = 3;
+
 /** How the watch after a person's input is paced. */
 export const CLICKY_PROGRESS = {
   /** How often the page's state is asked while watching. */
@@ -119,6 +122,8 @@ export const CLICKY_PROGRESS = {
   typingSettleMs: 1_200,
   /** How long after the person's last turn of the wheel the page counts as scrolled. */
   scrollSettleMs: 700,
+  /** How long a look that found the page still loading waits before it looks again. */
+  loadingRetryMs: 1_500,
   /** How long a look after a step waits before asking whether the page has settled. */
   settleFloorMs: 300,
 };
@@ -584,7 +589,8 @@ export function createClickyService(deps: {
     const controller = new AbortController();
     thinking.set(key, controller);
     try {
-      if (!deps.brain) throw new Error("There is no model to look with here.");
+      const brain = deps.brain;
+      if (!brain) throw new Error("There is no model to look with here.");
       let screen: ScreenElements | undefined;
       /*
        * A Bot asking for the person named the element to use first: point at it at once, before the
@@ -609,38 +615,57 @@ export function createClickyService(deps: {
       // After Clicky acted, the page it acted on may still be moving: let a navigation land first.
       if (effect.reason === "continue")
         await settlePage(botId, controller.signal);
-      const reply = await deps.brain.think({
-        userId,
-        botId,
-        session,
-        thinkId: effect.thinkId,
-        reason: effect.reason,
-        ...(effect.text ? { text: effect.text } : {}),
-        preferences,
-        signal: controller.signal,
-        /*
-         * Stamped with the seq of the snapshot the screens now hold, which is in state "thinking"
-         * for this same call: usually the one that started it, or a later one that kept thinking
-         * (Clicky's first pointer on activation). Once the session has moved on (an answer, Stop,
-         * a new question), what is still arriving belongs to nothing and is not sent.
-         */
-        onDelta: (text) => {
-          if (
-            controller.signal.aborted ||
-            lastState.get(key) !== "thinking" ||
-            lastThinkId.get(key) !== effect.thinkId
-          )
-            return;
-          deps.hub.delta(
-            userId,
-            botId,
-            lastSeq.get(key) ?? session.seq,
-            effect.thinkId,
-            text,
-          );
-        },
-        ...(screen ? { screen } : {}),
-      });
+      const ask = () =>
+        brain.think({
+          userId,
+          botId,
+          session,
+          thinkId: effect.thinkId,
+          reason: effect.reason,
+          ...(effect.text ? { text: effect.text } : {}),
+          preferences,
+          signal: controller.signal,
+          /*
+           * Stamped with the seq of the snapshot the screens now hold, which is in state "thinking"
+           * for this same call: usually the one that started it, or a later one that kept thinking
+           * (Clicky's first pointer on activation). Once the session has moved on (an answer, Stop,
+           * a new question), what is still arriving belongs to nothing and is not sent.
+           */
+          onDelta: (text) => {
+            if (
+              controller.signal.aborted ||
+              lastState.get(key) !== "thinking" ||
+              lastThinkId.get(key) !== effect.thinkId
+            )
+              return;
+            deps.hub.delta(
+              userId,
+              botId,
+              lastSeq.get(key) ?? session.seq,
+              effect.thinkId,
+              text,
+            );
+          },
+          ...(screen ? { screen } : {}),
+        });
+      let reply = await ask();
+      /*
+       * A page still loading when it looked (a sign-in redirect, a page that draws itself late):
+       * looked at again once it has settled, a few times, rather than answered with a step nobody
+       * can do. Live on dilosi.services.gov.gr: "Wait for page load", while «Συνέχεια» was there.
+       */
+      for (
+        let again = 0;
+        again < LOADING_LOOKS_AGAIN &&
+        reply.type === "brain.reply" &&
+        reply.loading === true;
+        again += 1
+      ) {
+        await wait(pace.loadingRetryMs, controller.signal);
+        await settlePage(botId, controller.signal);
+        screen = undefined;
+        reply = await ask();
+      }
       if (controller.signal.aborted) return;
       await dispatch(userId, botId, reply);
     } catch (error) {
