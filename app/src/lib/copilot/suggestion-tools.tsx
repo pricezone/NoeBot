@@ -16,6 +16,7 @@ import {
   templateListQueryOptions,
 } from "@/lib/agents/queries";
 import { useDeclaredBotId } from "@/lib/copilot/active-bot";
+import { useConversation } from "@/lib/copilot/conversation";
 import { useTranslation } from "@/lib/i18n";
 import { invalidatePlugins } from "@/lib/plugins/mutations";
 import {
@@ -76,12 +77,21 @@ type OfferProps<A> = {
   result?: string;
 };
 
+/** Saying something as the person in this conversation, for a card whose run is not live here. */
+function useSay() {
+  const conversation = useConversation();
+  return conversation
+    ? async (text: string) => conversation.ask(text)
+    : undefined;
+}
+
 /** The template card, with the template read by id and Apply going to the server as the person. */
 function TemplateOffer({
   agentId,
   ...props
 }: OfferProps<OfferTemplateArgs> & { agentId: string }) {
   const queryClient = useQueryClient();
+  const say = useSay();
   const templates = useQuery(templateListQueryOptions());
   const templateId = props.args.templateId ?? "";
   const template = templates.data
@@ -100,6 +110,7 @@ function TemplateOffer({
       failed={templates.isError}
       respond={props.respond}
       result={props.result}
+      say={say}
       template={template}
     />
   );
@@ -115,6 +126,7 @@ function ItemOffer({
   const navigate = useNavigate();
   const id = props.args.id ?? "";
   const item = useQuery(marketplaceItemQueryOptions(id, agentId));
+  const say = useSay();
   return (
     <OfferMarketplaceCard
       add={async () => {
@@ -136,6 +148,7 @@ function ItemOffer({
       }}
       respond={props.respond}
       result={props.result}
+      say={say}
     />
   );
 }

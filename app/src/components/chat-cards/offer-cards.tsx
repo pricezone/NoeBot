@@ -3,6 +3,7 @@ import {
   type QuestionAnswer,
   QuestionCard,
 } from "@/components/chat-cards/question-card";
+import { isStandIn } from "@/lib/copilot/repair-history";
 import { useTranslation } from "@/lib/i18n";
 import { useContentText } from "@/lib/i18n/content";
 import {
@@ -49,8 +50,9 @@ export function OfferTemplateCard({
   args,
   template,
   failed,
-  respond,
+  respond: liveRespond,
   result,
+  say,
   apply,
 }: {
   /** Partial while the model is still writing the call. */
@@ -61,6 +63,8 @@ export function OfferTemplateCard({
   failed?: boolean;
   respond?: Respond;
   result?: string;
+  /** Says an answer as the person's message, for a card whose run is no longer live here. */
+  say?: Say;
   apply: () => Promise<TemplateApplied>;
 }) {
   const { t } = useTranslation();
@@ -69,6 +73,13 @@ export function OfferTemplateCard({
   const [done, setDone] = useState<TemplateOfferAnswer | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const templateId = args.templateId ?? "";
+  const respond = replyFor(
+    liveRespond,
+    say,
+    result,
+    template?.name ?? templateId,
+    t,
+  );
   const title = template
     ? t("Apply the {{name}} template?", { name: template.name })
     : t("Apply a template?");
@@ -100,6 +111,14 @@ export function OfferTemplateCard({
     );
   }
 
+  if (isStandIn(result)) {
+    return (
+      <QuestionCard
+        subtitle={t("Answered in the conversation.")}
+        title={title}
+      />
+    );
+  }
   if (!respond) {
     return <QuestionCard subtitle={t("Choosing a template…")} title={title} />;
   }
@@ -189,8 +208,9 @@ export function OfferMarketplaceCard({
   args,
   item,
   failed,
-  respond,
+  respond: liveRespond,
   result,
+  say,
   add,
   openConnect,
 }: {
@@ -200,6 +220,8 @@ export function OfferMarketplaceCard({
   failed?: boolean;
   respond?: Respond;
   result?: string;
+  /** Says an answer as the person's message, for a card whose run is no longer live here. */
+  say?: Say;
   add: () => Promise<AddedItem>;
   /** Goes to the page where the person connects it: the plugin's page, or their account's. */
   openConnect: () => void;
@@ -210,6 +232,7 @@ export function OfferMarketplaceCard({
   const [refusal, setRefusal] = useState<string | null>(null);
   const id = args.id ?? "";
   const name = item?.name ?? id;
+  const respond = replyFor(liveRespond, say, result, name, t);
   const connecting = item?.eligibility === "needs-account";
   const title = !item
     ? t("Looking this up in the Marketplace…")
@@ -271,6 +294,14 @@ export function OfferMarketplaceCard({
     );
   }
 
+  if (isStandIn(result)) {
+    return (
+      <QuestionCard
+        subtitle={t("Answered in the conversation.")}
+        title={title}
+      />
+    );
+  }
   if (!respond) {
     return (
       <QuestionCard
@@ -421,6 +452,60 @@ function AnswerOnce({
  * Answering, with a failure to answer swallowed: `respond` only rejects for a run that has already
  * ended (a reload, a stop, an answer from another tab), and by then the choice is made either way.
  */
+type Say = (text: string) => Promise<unknown>;
+
+/**
+ * An answer as the person would say it, or nothing for an offer that was not there to answer.
+ * Applying and adding are done from the card before this is said, so it says they are done.
+ */
+export function spokenAnswer(
+  answer: TemplateOfferAnswer | MarketplaceOfferAnswer,
+  name: string,
+  t: ReturnType<typeof useTranslation>["t"],
+): string | null {
+  switch (answer.outcome) {
+    case "applied":
+      return t("I applied the {{name}} template.", { name });
+    case "added":
+      return t("I added {{name}} to this Bot.", { name });
+    case "connect-offered":
+      return t("I'll connect {{name}} myself.", { name });
+    case "declined":
+      return t("No, thanks.");
+    case "answered":
+      return answer.text;
+    default:
+      return null;
+  }
+}
+
+/**
+ * How the card answers: on the live run when this tab holds it, else as the person's next message.
+ *
+ * A card read back after a reload, or in another tab, has no run to answer, and it was a card with
+ * a question on it and nothing to press. Now its rows still work: Yes still applies or adds, from
+ * here, and the answer goes to the Bot as what the person says. Once the conversation has moved on
+ * past it (its result is a stand-in), there is nothing left to answer.
+ */
+function replyFor(
+  live: Respond | undefined,
+  say: Say | undefined,
+  result: string | undefined,
+  name: string,
+  t: ReturnType<typeof useTranslation>["t"],
+): Respond | undefined {
+  if (live) return live;
+  if (!say || isStandIn(result)) return undefined;
+  return async (answer) => {
+    const text = spokenAnswer(
+      answer as TemplateOfferAnswer | MarketplaceOfferAnswer,
+      name,
+      t,
+    );
+    if (text) await say(text);
+  };
+}
+
 async function answerWith(respond: Respond, answer: unknown): Promise<void> {
   try {
     await respond(answer);

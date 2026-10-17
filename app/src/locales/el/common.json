@@ -1604,5 +1604,10 @@
   "Bot Settings": "Ρυθμίσεις Bot",
   "Categories": "Κατηγορίες",
   "Composio did not list this app's tools just now.": "Το Composio δεν εμφάνισε τα εργαλεία αυτής της εφαρμογής αυτή τη στιγμή.",
-  "Other": "Άλλα"
+  "Other": "Άλλα",
+  "Answered in the conversation.": "Απαντήθηκε στη συζήτηση.",
+  "I applied the {{name}} template.": "Εφάρμοσα το πρότυπο {{name}}.",
+  "I added {{name}} to this Bot.": "Πρόσθεσα το {{name}} σε αυτό το Bot.",
+  "I'll connect {{name}} myself.": "Θα συνδέσω εγώ το {{name}}.",
+  "No, thanks.": "Όχι, ευχαριστώ."
 }

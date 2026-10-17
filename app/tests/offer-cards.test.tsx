@@ -14,6 +14,7 @@ import {
   OfferMarketplaceCard,
   OfferTemplateCard,
 } from "@/components/chat-cards/offer-cards";
+import { UNANSWERED } from "@/lib/copilot/repair-history";
 import { i18n } from "@/lib/i18n";
 import { resetI18nForTests } from "@/lib/i18n/set-locale";
 import {
@@ -464,5 +465,84 @@ describe("in Greek", () => {
     expect(
       offer.getByRole("button", { name: "Άνοιγμα για σύνδεση" }),
     ).toBeTruthy();
+  });
+});
+
+describe("a card with no live run here (read back after a reload, or in another tab)", () => {
+  test("Add still adds from the card, and the person says so as their message", async () => {
+    const said: string[] = [];
+    let added = 0;
+    const view = render(
+      <OfferMarketplaceCard
+        add={async () => {
+          added += 1;
+          return ADDED;
+        }}
+        args={{ id: "684", reason: "You write code." }}
+        item={item()}
+        openConnect={() => undefined}
+        say={async (text) => {
+          said.push(text);
+        }}
+      />,
+    );
+    await user.click(view.getByRole("button", { name: "Add it" }));
+    await waitFor(() =>
+      expect(said).toEqual(["I added Superpowers to this Bot."]),
+    );
+    expect(added).toBe(1);
+  });
+
+  test("No and words of their own are said, and nothing is applied", async () => {
+    const said: string[] = [];
+    let applied = 0;
+    const view = render(
+      <OfferTemplateCard
+        apply={async () => {
+          applied += 1;
+          return APPLIED;
+        }}
+        args={{ templateId: "research-desk" }}
+        say={async (text) => {
+          said.push(text);
+        }}
+        template={TEMPLATE}
+      />,
+    );
+    await user.click(view.getByRole("button", { name: "No" }));
+    await waitFor(() => expect(said).toEqual(["No, thanks."]));
+    expect(applied).toBe(0);
+  });
+
+  test("once the conversation has moved on past it, there is nothing left to answer", () => {
+    const view = render(
+      <OfferMarketplaceCard
+        add={async () => ADDED}
+        args={{ id: "684", reason: "You write code." }}
+        item={item()}
+        openConnect={() => undefined}
+        result={UNANSWERED}
+        say={async () => undefined}
+      />,
+    );
+    expect(view.getByText("Answered in the conversation.")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Add it" })).toBeNull();
+  });
+
+  test("an item that is not here says nothing on the person's behalf", async () => {
+    const said: string[] = [];
+    render(
+      <OfferMarketplaceCard
+        add={async () => ADDED}
+        args={{ id: "684", reason: "You write code." }}
+        item={null}
+        openConnect={() => undefined}
+        say={async (text) => {
+          said.push(text);
+        }}
+      />,
+    );
+    await settleReactWork();
+    expect(said).toEqual([]);
   });
 });
